@@ -47,18 +47,53 @@ jobs:
             cp -a "/tmp/linux/$source_path/." "$destination/"
           }
 
-          copy_tree fs/ext4 native/filesystems/ext/kernel
-          copy_tree fs/ext2 native/filesystems/ext/ext2/kernel
-          copy_tree fs/jbd2 native/filesystems/ext/support/jbd2
+          copy_mbcache() {
+            local destination="$1"
+            rm -rf "$destination"
+            mkdir -p "$destination/include/linux"
+            git -C /tmp/linux show HEAD:fs/mbcache.c > "$destination/mbcache.c"
+            git -C /tmp/linux show HEAD:include/linux/mbcache.h > "$destination/include/linux/mbcache.h"
+            printf '%s\n' 'obj-m += mbcache.o' > "$destination/Makefile"
+          }
 
-          rm -rf native/filesystems/ext/support/mbcache
-          mkdir -p native/filesystems/ext/support/mbcache/include/linux
-          mkdir -p native/filesystems/ext/support/mbcache/include/trace/events
-          git -C /tmp/linux show HEAD:fs/mbcache.c > native/filesystems/ext/support/mbcache/mbcache.c
-          git -C /tmp/linux show HEAD:include/linux/mbcache.h > native/filesystems/ext/support/mbcache/include/linux/mbcache.h
-          git -C /tmp/linux show HEAD:include/linux/jbd2.h > native/filesystems/ext/support/mbcache/include/linux/jbd2.h
-          git -C /tmp/linux show HEAD:include/trace/events/jbd2.h > native/filesystems/ext/support/mbcache/include/trace/events/jbd2.h
-          printf '%s\n' 'obj-m += mbcache.o' > native/filesystems/ext/support/mbcache/Makefile
+          copy_jbd2() {
+            local destination="$1"
+            copy_tree fs/jbd2 "$destination"
+            mkdir -p "$destination/include/linux" "$destination/include/trace/events"
+            git -C /tmp/linux show HEAD:include/linux/jbd2.h > "$destination/include/linux/jbd2.h"
+            git -C /tmp/linux show HEAD:include/trace/events/jbd2.h > "$destination/include/trace/events/jbd2.h"
+          }
+
+          # EXT2, EXT3 and EXT4 are deliberately independent source trees.
+          # Duplication here is intentional; later refactoring must not collapse
+          # them back into one implementation.
+          rm -rf native/filesystems/ext
+
+          copy_tree fs/ext2 native/filesystems/ext2/kernel
+          copy_mbcache native/filesystems/ext2/support/mbcache
+
+          copy_tree fs/ext4 native/filesystems/ext3/kernel
+          copy_jbd2 native/filesystems/ext3/support/jbd2
+          copy_mbcache native/filesystems/ext3/support/mbcache
+          sed -i \
+            -e 's/obj-$(CONFIG_EXT4_FS) += ext4.o/obj-m += ext3.o/' \
+            -e 's/^ext4-y[[:space:]]*:=/ext3-y :=/' \
+            -e 's/^ext4-$(CONFIG_EXT4_FS_POSIX_ACL)/ext3-$(CONFIG_EXT4_FS_POSIX_ACL)/' \
+            -e 's/^ext4-$(CONFIG_EXT4_FS_SECURITY)/ext3-$(CONFIG_EXT4_FS_SECURITY)/' \
+            -e 's/^ext4-$(CONFIG_FS_VERITY)/ext3-$(CONFIG_FS_VERITY)/' \
+            -e 's/^ext4-$(CONFIG_FS_ENCRYPTION)/ext3-$(CONFIG_FS_ENCRYPTION)/' \
+            native/filesystems/ext3/kernel/Makefile
+          perl -0pi -e 's/\tregister_as_ext3\(\);\n\tregister_as_ext2\(\);\n\terr = register_filesystem\(&ext4_fs_type\);/\terr = register_filesystem\(&ext3_fs_type\);/g' native/filesystems/ext3/kernel/super.c
+          perl -0pi -e 's/out:\n\tunregister_as_ext2\(\);\n\tunregister_as_ext3\(\);/out:/g' native/filesystems/ext3/kernel/super.c
+          perl -0pi -e 's/\tunregister_as_ext2\(\);\n\tunregister_as_ext3\(\);\n\tunregister_filesystem\(&ext4_fs_type\);/\tunregister_filesystem\(&ext3_fs_type\);/g' native/filesystems/ext3/kernel/super.c
+          sed -i '/MODULE_ALIAS_FS("ext4");/d' native/filesystems/ext3/kernel/super.c
+          sed -i 's/MODULE_DESCRIPTION("Fourth Extended Filesystem")/MODULE_DESCRIPTION("Third Extended Filesystem")/' native/filesystems/ext3/kernel/super.c
+
+          copy_tree fs/ext4 native/filesystems/ext4/kernel
+          copy_jbd2 native/filesystems/ext4/support/jbd2
+          copy_mbcache native/filesystems/ext4/support/mbcache
+          sed -i '/^[[:space:]]*register_as_ext3();$/d; /^[[:space:]]*register_as_ext2();$/d; /^[[:space:]]*unregister_as_ext3();$/d; /^[[:space:]]*unregister_as_ext2();$/d' native/filesystems/ext4/kernel/super.c
+          sed -i '/MODULE_ALIAS_FS("ext3");/d; /MODULE_ALIAS("ext3");/d' native/filesystems/ext4/kernel/super.c
           copy_tree fs/xfs native/filesystems/xfs/kernel
           copy_tree fs/btrfs native/filesystems/btrfs/kernel
           copy_tree fs/f2fs native/filesystems/f2fs/kernel
