@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "catalog.hpp"
+
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace filesystem_support {
+
+enum class SupportState {
+    Ready,
+    Installable,
+    Incomplete,
+    Unavailable
+};
+
+struct ProbeResult {
+    SupportState state = SupportState::Unavailable;
+    bool module_requirement_met = false;
+    bool package_requirement_met = false;
+    std::vector<std::string> missing_packages;
+    std::string detail;
+};
+
+bool package_installed(std::string_view package);
+bool module_available(std::string_view module);
+ProbeResult probe(const FilesystemDescriptor& descriptor);
+const char* support_state_label(SupportState state);
+
+} // namespace filesystem_support
