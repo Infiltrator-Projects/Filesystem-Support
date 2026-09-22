@@ -7,9 +7,24 @@
 
 namespace filesystem_support {
 
-using InstallCompletion = std::function<void(bool, const std::string&)>;
+using ActionCompletion = std::function<void(bool, const std::string&)>;
+
+struct RemovalPlan {
+    bool allowed = false;
+    std::vector<std::string> planned_packages;
+    std::vector<std::string> affected_entries;
+    std::string reason;
+};
+
+RemovalPlan plan_package_removal(const std::vector<std::string>& packages);
 
 void install_packages_async(const std::vector<std::string>& packages,
-                            InstallCompletion completion);
+                            ActionCompletion completion);
+void remove_packages_async(const std::vector<std::string>& packages,
+                           ActionCompletion completion);
+void load_module_async(const std::string& module,
+                       ActionCompletion completion);
+void unload_module_async(const std::string& module,
+                         ActionCompletion completion);
 
 } // namespace filesystem_support
