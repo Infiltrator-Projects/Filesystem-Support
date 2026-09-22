@@ -61,6 +61,14 @@ const std::vector<FilesystemDescriptor>& catalog()
         {"ecryptfs", "eCryptfs", "Linux / Encryption",
          "Native stacked cryptographic filesystem.",
          {"ecryptfs"}, {"ecryptfs-utils"}, AccessMode::ReadWrite, ""},
+        {"jffs2", "JFFS2", "Linux / Flash",
+         "Journalling Flash File System v2 for raw flash memory devices.",
+         {"jffs2"}, {"mtd-utils"}, AccessMode::ReadWrite,
+         "mtd-utils supplies mkfs.jffs2, readers and raw-flash administration tools."},
+        {"ubifs", "UBIFS / UBI", "Linux / Flash",
+         "UBI File System for raw flash managed through the Unsorted Block Images layer.",
+         {"ubifs"}, {"mtd-utils"}, AccessMode::ReadWrite,
+         "mtd-utils supplies mkfs.ubifs plus the UBI attach, format, volume and inspection utilities."},
 
         // Cluster and pooled filesystems.
         {"gfs2", "GFS2", "Cluster",
@@ -73,6 +81,10 @@ const std::vector<FilesystemDescriptor>& catalog()
          "Pooled copy-on-write filesystem and volume manager.",
          {"zfs"}, {"zfsutils-linux"}, AccessMode::ReadWrite,
          "Availability depends on the Debian repository components enabled on the machine."},
+        {"zfs-fuse", "ZFS via FUSE", "Unix / FUSE",
+         "Userspace implementation of ZFS provided through FUSE.",
+         {}, {"zfs-fuse"}, AccessMode::Userspace,
+         "This is a separate userspace implementation from OpenZFS and is retained as an alternative Debian-packaged path."},
 
         // Historical workstation, Unix and other operating-system formats.
         {"adfs", "Acorn ADFS", "Acorn / RISC OS",
@@ -184,6 +196,14 @@ const std::vector<FilesystemDescriptor>& catalog()
          "Mount many archive and compressed-file formats as a filesystem.",
          {}, {"archivemount"}, AccessMode::Userspace,
          "Supports numerous libarchive formats including tar, cpio, ISO and ZIP/RAR families."},
+        {"avfs", "AVFS", "Archive / Remote / FUSE",
+         "Virtual filesystem for archives, compressed files, disk images and remote locations.",
+         {}, {"avfs"}, AccessMode::Userspace,
+         "Debian's AVFS supports archive formats plus FTP, HTTP, WebDAV and SSH/SCP access."},
+        {"guestmount", "Guestmount / libguestfs", "Virtualisation / Image / FUSE",
+         "Mount filesystems contained inside virtual-machine disk images through libguestfs.",
+         {}, {"guestmount"}, AccessMode::Userspace,
+         "Useful when the filesystem is inside a guest image rather than directly exposed as a host block device."},
 
         // Virtualisation and retro formats.
         {"vmfs", "VMware VMFS3 / VMFS5", "Virtualisation",
@@ -194,6 +214,10 @@ const std::vector<FilesystemDescriptor>& catalog()
          "Userspace access to VMware VMFS6 filesystems.",
          {}, {"vmfs6-tools"}, AccessMode::ReadOnly,
          "Debian's VMFS6 implementation currently provides read-only access."},
+        {"virtiofs", "VirtioFS", "Virtualisation",
+         "High-performance shared-directory filesystem for virtual machines.",
+         {"virtiofs"}, {"virtiofsd"}, AccessMode::ReadWrite,
+         "virtiofsd serves a host directory to guests; guest-side support is provided by the Linux virtiofs driver."},
         {"cpm", "CP/M filesystems", "Retro",
          "Tools for reading and writing CP/M filesystem media and images.",
          {}, {"cpmtools"}, AccessMode::ToolsOnly,
@@ -238,12 +262,27 @@ const std::vector<FilesystemDescriptor>& catalog()
         {"s3fs", "S3 object storage via FUSE", "Cloud / FUSE",
          "Mount S3-compatible object storage through FUSE.",
          {}, {"s3fs"}, AccessMode::Userspace, ""},
+        {"s3ql", "S3QL", "Cloud / FUSE",
+         "Full-featured encrypted, compressed and deduplicating filesystem backed by online object storage.",
+         {}, {"s3ql"}, AccessMode::Userspace,
+         "S3QL presents a conventional Unix filesystem over providers such as S3, Google Storage and OpenStack."},
+        {"onedriver", "Microsoft OneDrive via FUSE", "Cloud / FUSE",
+         "Native Linux filesystem interface for Microsoft OneDrive.",
+         {}, {"onedriver"}, AccessMode::Userspace, ""},
         {"rclone", "Rclone remote mounts", "Cloud / Network",
          "FUSE-backed mounts for the many remote storage providers supported by rclone.",
          {}, {"rclone"}, AccessMode::Userspace, ""},
         {"afuse", "AFUSE automounter", "Network / FUSE",
          "FUSE automounter that can dynamically invoke filesystem clients on demand.",
          {}, {"afuse"}, AccessMode::Userspace, ""},
+        {"smbnetfs", "SMBNetFS", "Network / FUSE",
+         "Userspace filesystem exposing an SMB/NMB network beneath one mount point.",
+         {}, {"smbnetfs"}, AccessMode::Userspace,
+         "Workgroups, servers and shares can be browsed as a filesystem hierarchy."},
+        {"gvfs-fuse", "GVfs FUSE bridge", "Desktop / Network / FUSE",
+         "Expose GVfs mounts to applications that do not use GIO.",
+         {}, {"gvfs-fuse"}, AccessMode::Userspace,
+         "Bridges GVfs-backed FTP, SFTP, SMB, WebDAV and other desktop mounts into a FUSE namespace."},
 
         // Generic overlays and encrypted userspace filesystems.
         {"mergerfs", "mergerfs", "Overlay / FUSE",
@@ -255,6 +294,13 @@ const std::vector<FilesystemDescriptor>& catalog()
         {"bindfs", "bindfs", "Overlay / FUSE",
          "Mirror a directory through FUSE while changing permission and ownership presentation.",
          {}, {"bindfs"}, AccessMode::Userspace, ""},
+        {"posixovl", "POSIX Overlay for FAT/NTFS", "Overlay / FUSE",
+         "Add POSIX permissions, ownership and symbolic-link semantics over non-POSIX filesystems.",
+         {}, {"fuse-posixovl"}, AccessMode::Userspace,
+         "The underlying FAT, VFAT or NTFS filesystem remains unmodified; POSIX metadata is stored separately."},
+        {"convmvfs", "ConvmvFS charset overlay", "Overlay / FUSE",
+         "Mirror a filesystem tree while translating filename character sets on the fly.",
+         {}, {"fuse-convmvfs"}, AccessMode::Userspace, ""},
         {"encfs", "EncFS", "Encryption / FUSE",
          "Encrypted virtual filesystem storing encrypted files in an ordinary backing directory.",
          {}, {"encfs"}, AccessMode::Userspace, ""},
@@ -263,7 +309,28 @@ const std::vector<FilesystemDescriptor>& catalog()
          {}, {"gocryptfs"}, AccessMode::Userspace, ""},
         {"cryfs", "CryFS", "Encryption / FUSE",
          "Encrypted cloud-oriented filesystem implemented with FUSE.",
-         {}, {"cryfs"}, AccessMode::Userspace, ""}
+         {}, {"cryfs"}, AccessMode::Userspace, ""},
+
+        // Device-backed userspace filesystems.
+        {"ifuse", "Apple iPhone / iPod via iFuse", "Device / Apple / FUSE",
+         "Expose Apple AFC-accessible device storage through a FUSE filesystem.",
+         {}, {"ifuse"}, AccessMode::Experimental,
+         "Debian describes iFuse as working but still experimental."},
+        {"gphotofs", "Digital cameras via GPhotoFS", "Device / Camera / FUSE",
+         "Expose cameras supported by libgphoto2 as a filesystem, including PTP-only devices.",
+         {}, {"gphotofs"}, AccessMode::Userspace, ""},
+        {"jmtpfs", "Android / MTP via jmtpfs", "Device / MTP / FUSE",
+         "FUSE filesystem for Media Transfer Protocol devices such as many Android phones.",
+         {}, {"jmtpfs"}, AccessMode::Userspace, ""},
+        {"go-mtpfs", "Android / MTP via go-mtpfs", "Device / MTP / FUSE",
+         "Alternative FUSE filesystem for Media Transfer Protocol devices.",
+         {}, {"go-mtpfs"}, AccessMode::Userspace, ""},
+
+        // Container-specific virtual filesystems.
+        {"lxcfs", "LXCFS", "Container / FUSE",
+         "FUSE filesystem providing cgroup-aware /proc-style views to Linux containers.",
+         {}, {"lxcfs"}, AccessMode::Userspace,
+         "This is container virtual-filesystem support rather than an on-disk storage format."}
     };
 
     return entries;
