@@ -55,45 +55,7 @@ module_param_named(jbd2_debug, jbd2_journal_enable_debug, ushort, 0644);
 MODULE_PARM_DESC(jbd2_debug, "Debugging level for jbd2");
 #endif
 
-EXPORT_SYMBOL(jbd2_journal_extend);
-EXPORT_SYMBOL(jbd2_journal_stop);
-EXPORT_SYMBOL(jbd2_journal_lock_updates);
-EXPORT_SYMBOL(jbd2_journal_unlock_updates);
-EXPORT_SYMBOL(jbd2_journal_get_write_access);
-EXPORT_SYMBOL(jbd2_journal_get_create_access);
-EXPORT_SYMBOL(jbd2_journal_get_undo_access);
-EXPORT_SYMBOL(jbd2_journal_set_triggers);
-EXPORT_SYMBOL(jbd2_journal_dirty_metadata);
-EXPORT_SYMBOL(jbd2_journal_forget);
-EXPORT_SYMBOL(jbd2_journal_flush);
-EXPORT_SYMBOL(jbd2_journal_revoke);
 
-EXPORT_SYMBOL(jbd2_journal_init_dev);
-EXPORT_SYMBOL(jbd2_journal_init_inode);
-EXPORT_SYMBOL(jbd2_journal_check_used_features);
-EXPORT_SYMBOL(jbd2_journal_check_available_features);
-EXPORT_SYMBOL(jbd2_journal_set_features);
-EXPORT_SYMBOL(jbd2_journal_load);
-EXPORT_SYMBOL(jbd2_journal_destroy);
-EXPORT_SYMBOL(jbd2_journal_abort);
-EXPORT_SYMBOL(jbd2_journal_errno);
-EXPORT_SYMBOL(jbd2_journal_ack_err);
-EXPORT_SYMBOL(jbd2_journal_clear_err);
-EXPORT_SYMBOL(jbd2_log_wait_commit);
-EXPORT_SYMBOL(jbd2_journal_start_commit);
-EXPORT_SYMBOL(jbd2_journal_force_commit_nested);
-EXPORT_SYMBOL(jbd2_journal_wipe);
-EXPORT_SYMBOL(jbd2_journal_blocks_per_page);
-EXPORT_SYMBOL(jbd2_journal_invalidate_folio);
-EXPORT_SYMBOL(jbd2_journal_try_to_free_buffers);
-EXPORT_SYMBOL(jbd2_journal_force_commit);
-EXPORT_SYMBOL(jbd2_journal_inode_ranged_write);
-EXPORT_SYMBOL(jbd2_journal_inode_ranged_wait);
-EXPORT_SYMBOL(jbd2_journal_finish_inode_data_buffers);
-EXPORT_SYMBOL(jbd2_journal_init_jbd_inode);
-EXPORT_SYMBOL(jbd2_journal_release_jbd_inode);
-EXPORT_SYMBOL(jbd2_journal_begin_ordered_truncate);
-EXPORT_SYMBOL(jbd2_inode_cache);
 
 static int jbd2_journal_create_slab(size_t slab_size);
 
@@ -639,7 +601,6 @@ out:
 	read_unlock(&journal->j_state_lock);
 	return ret;
 }
-EXPORT_SYMBOL(jbd2_trans_will_send_data_barrier);
 
 /*
  * Wait for a specified commit to complete.
@@ -728,7 +689,6 @@ int jbd2_fc_begin_commit(journal_t *journal, tid_t tid)
 
 	return 0;
 }
-EXPORT_SYMBOL(jbd2_fc_begin_commit);
 
 /*
  * Stop a fast commit. If fallback is set, this function starts commit of
@@ -754,7 +714,6 @@ int jbd2_fc_end_commit(journal_t *journal)
 {
 	return __jbd2_fc_end_commit(journal, 0, false);
 }
-EXPORT_SYMBOL(jbd2_fc_end_commit);
 
 int jbd2_fc_end_commit_fallback(journal_t *journal)
 {
@@ -766,14 +725,12 @@ int jbd2_fc_end_commit_fallback(journal_t *journal)
 	read_unlock(&journal->j_state_lock);
 	return __jbd2_fc_end_commit(journal, tid, true);
 }
-EXPORT_SYMBOL(jbd2_fc_end_commit_fallback);
 
 /* Return 1 when transaction with given tid has already committed. */
 int jbd2_transaction_committed(journal_t *journal, tid_t tid)
 {
 	return tid_geq(READ_ONCE(journal->j_commit_sequence), tid);
 }
-EXPORT_SYMBOL(jbd2_transaction_committed);
 
 /*
  * When this function returns the transaction corresponding to tid
@@ -804,7 +761,6 @@ int jbd2_complete_transaction(journal_t *journal, tid_t tid)
 wait_commit:
 	return jbd2_log_wait_commit(journal, tid);
 }
-EXPORT_SYMBOL(jbd2_complete_transaction);
 
 /*
  * Log buffer allocation routines:
@@ -857,7 +813,6 @@ int jbd2_fc_get_buf(journal_t *journal, struct buffer_head **bh_out)
 
 	return 0;
 }
-EXPORT_SYMBOL(jbd2_fc_get_buf);
 
 /*
  * Wait on fast commit buffers that were allocated by jbd2_fc_get_buf
@@ -891,7 +846,6 @@ int jbd2_fc_wait_bufs(journal_t *journal, int num_blks)
 
 	return 0;
 }
-EXPORT_SYMBOL(jbd2_fc_wait_bufs);
 
 void jbd2_fc_release_bufs(journal_t *journal)
 {
@@ -908,7 +862,6 @@ void jbd2_fc_release_bufs(journal_t *journal)
 		journal->j_fc_wbuf[i] = NULL;
 	}
 }
-EXPORT_SYMBOL(jbd2_fc_release_bufs);
 
 /*
  * Conversion of logical to physical block numbers for the journal
@@ -2061,7 +2014,6 @@ void jbd2_journal_update_sb_errno(journal_t *journal)
 
 	jbd2_write_superblock(journal, REQ_FUA);
 }
-EXPORT_SYMBOL(jbd2_journal_update_sb_errno);
 
 /**
  * jbd2_journal_load() - Read journal from disk.
@@ -2425,7 +2377,6 @@ void jbd2_journal_clear_features(journal_t *journal, unsigned long compat,
 	unlock_buffer(journal->j_sb_buffer);
 	jbd2_journal_init_transaction_limits(journal);
 }
-EXPORT_SYMBOL(jbd2_journal_clear_features);
 
 /**
  * jbd2_journal_flush() - Flush journal
@@ -2978,7 +2929,6 @@ struct journal_head *jbd2_journal_grab_journal_head(struct buffer_head *bh)
 	jbd_unlock_bh_journal_head(bh);
 	return jh;
 }
-EXPORT_SYMBOL(jbd2_journal_grab_journal_head);
 
 static void __journal_remove_journal_head(struct buffer_head *bh)
 {
@@ -3031,7 +2981,6 @@ void jbd2_journal_put_journal_head(struct journal_head *jh)
 		jbd_unlock_bh_journal_head(bh);
 	}
 }
-EXPORT_SYMBOL(jbd2_journal_put_journal_head);
 
 /*
  * Initialize jbd inode head
@@ -3170,34 +3119,26 @@ static void jbd2_journal_destroy_caches(void)
 	jbd2_journal_destroy_slabs();
 }
 
-static int __init journal_init(void)
+int __init infiltratr_jbd2_init(void)
 {
 	int ret;
 
 	BUILD_BUG_ON(sizeof(struct journal_superblock_s) != 1024);
 
 	ret = journal_init_caches();
-	if (ret == 0) {
-		jbd2_create_jbd_stats_proc_entry();
-	} else {
+	if (ret != 0)
 		jbd2_journal_destroy_caches();
-	}
 	return ret;
 }
 
-static void __exit journal_exit(void)
+void __exit infiltratr_jbd2_exit(void)
 {
 #ifdef CONFIG_JBD2_DEBUG
 	int n = atomic_read(&nr_journal_heads);
 	if (n)
 		printk(KERN_ERR "JBD2: leaked %d journal_heads!\n", n);
 #endif
-	jbd2_remove_jbd_stats_proc_entry();
 	jbd2_journal_destroy_caches();
 }
 
-MODULE_DESCRIPTION("Generic filesystem journal-writing module");
-MODULE_LICENSE("GPL");
-module_init(journal_init);
-module_exit(journal_exit);
 

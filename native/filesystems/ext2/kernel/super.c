@@ -1633,7 +1633,7 @@ static struct file_system_type ext2_fs_type = {
 };
 MODULE_ALIAS_FS("ext2");
 
-static int __init init_ext2_fs(void)
+static int __init ext2_core_init_fs(void)
 {
 	int err;
 
@@ -1649,7 +1649,7 @@ out:
 	return err;
 }
 
-static void __exit exit_ext2_fs(void)
+static void __exit ext2_core_exit_fs(void)
 {
 	unregister_filesystem(&ext2_fs_type);
 	destroy_inodecache();
@@ -1658,5 +1658,25 @@ static void __exit exit_ext2_fs(void)
 MODULE_AUTHOR("Remy Card and others");
 MODULE_DESCRIPTION("Second Extended Filesystem");
 MODULE_LICENSE("GPL");
+int infiltratr_mbcache_init(void);
+void infiltratr_mbcache_exit(void);
+
+static int __init init_ext2_fs(void)
+{
+	int err = infiltratr_mbcache_init();
+	if (err)
+		return err;
+	err = ext2_core_init_fs();
+	if (err)
+		infiltratr_mbcache_exit();
+	return err;
+}
+
+static void __exit exit_ext2_fs(void)
+{
+	ext2_core_exit_fs();
+	infiltratr_mbcache_exit();
+}
+
 module_init(init_ext2_fs)
 module_exit(exit_ext2_fs)

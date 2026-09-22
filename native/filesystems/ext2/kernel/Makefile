@@ -14,3 +14,7 @@ CFLAGS_trace.o := -I$(src)
 ext2-$(CONFIG_EXT2_FS_XATTR)	 += xattr.o xattr_user.o xattr_trusted.o
 ext2-$(CONFIG_EXT2_FS_POSIX_ACL) += acl.o
 ext2-$(CONFIG_EXT2_FS_SECURITY)	 += xattr_security.o
+
+# Infiltrator: mbcache is linked into ext2.ko; no mbcache.ko is produced.
+ext2-y += mbcache.o
+ccflags-y += -I$(src)/include

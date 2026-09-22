@@ -517,7 +517,6 @@ handle_t *jbd2__journal_start(journal_t *journal, int nblocks, int rsv_blocks,
 
 	return handle;
 }
-EXPORT_SYMBOL(jbd2__journal_start);
 
 
 /**
@@ -543,7 +542,6 @@ handle_t *jbd2_journal_start(journal_t *journal, int nblocks)
 {
 	return jbd2__journal_start(journal, nblocks, 0, 0, GFP_NOFS, 0, 0);
 }
-EXPORT_SYMBOL(jbd2_journal_start);
 
 static void __jbd2_journal_unreserve_handle(handle_t *handle, transaction_t *t)
 {
@@ -565,7 +563,6 @@ void jbd2_journal_free_reserved(handle_t *handle)
 	read_unlock(&journal->j_state_lock);
 	jbd2_free_handle(handle);
 }
-EXPORT_SYMBOL(jbd2_journal_free_reserved);
 
 /**
  * jbd2_journal_start_reserved() - start reserved handle
@@ -619,7 +616,6 @@ int jbd2_journal_start_reserved(handle_t *handle, unsigned int type,
 				line_no, handle->h_total_credits);
 	return 0;
 }
-EXPORT_SYMBOL(jbd2_journal_start_reserved);
 
 /**
  * jbd2_journal_extend() - extend buffer credits.
@@ -804,14 +800,12 @@ int jbd2__journal_restart(handle_t *handle, int nblocks, int revoke_records,
 				 handle->h_total_credits);
 	return ret;
 }
-EXPORT_SYMBOL(jbd2__journal_restart);
 
 
 int jbd2_journal_restart(handle_t *handle, int nblocks)
 {
 	return jbd2__journal_restart(handle, nblocks, 0, GFP_NOFS);
 }
-EXPORT_SYMBOL(jbd2_journal_restart);
 
 /*
  * Waits for any outstanding t_updates to finish.

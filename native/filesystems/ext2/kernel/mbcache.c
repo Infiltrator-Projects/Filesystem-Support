@@ -122,7 +122,6 @@ int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
 
 	return 0;
 }
-EXPORT_SYMBOL(mb_cache_entry_create);
 
 void __mb_cache_entry_free(struct mb_cache *cache, struct mb_cache_entry *entry)
 {
@@ -134,7 +133,6 @@ void __mb_cache_entry_free(struct mb_cache *cache, struct mb_cache_entry *entry)
 	hlist_bl_unlock(head);
 	kmem_cache_free(mb_entry_cache, entry);
 }
-EXPORT_SYMBOL(__mb_cache_entry_free);
 
 /*
  * mb_cache_entry_wait_unused - wait to be the last user of the entry
@@ -147,7 +145,6 @@ void mb_cache_entry_wait_unused(struct mb_cache_entry *entry)
 {
 	wait_var_event(&entry->e_refcnt, atomic_read(&entry->e_refcnt) <= 2);
 }
-EXPORT_SYMBOL(mb_cache_entry_wait_unused);
 
 static struct mb_cache_entry *__entry_find(struct mb_cache *cache,
 					   struct mb_cache_entry *entry,
@@ -194,7 +191,6 @@ struct mb_cache_entry *mb_cache_entry_find_first(struct mb_cache *cache,
 {
 	return __entry_find(cache, NULL, key);
 }
-EXPORT_SYMBOL(mb_cache_entry_find_first);
 
 /*
  * mb_cache_entry_find_next - find next reusable entry with the same key
@@ -211,7 +207,6 @@ struct mb_cache_entry *mb_cache_entry_find_next(struct mb_cache *cache,
 {
 	return __entry_find(cache, entry, entry->e_key);
 }
-EXPORT_SYMBOL(mb_cache_entry_find_next);
 
 /*
  * mb_cache_entry_get - get a cache entry by value (and key)
@@ -238,7 +233,6 @@ out:
 	hlist_bl_unlock(head);
 	return entry;
 }
-EXPORT_SYMBOL(mb_cache_entry_get);
 
 /* mb_cache_entry_delete_or_get - remove a cache entry if it has no users
  * @cache - cache we work with
@@ -275,7 +269,6 @@ struct mb_cache_entry *mb_cache_entry_delete_or_get(struct mb_cache *cache,
 	__mb_cache_entry_free(cache, entry);
 	return NULL;
 }
-EXPORT_SYMBOL(mb_cache_entry_delete_or_get);
 
 /* mb_cache_entry_touch - cache entry got used
  * @cache - cache the entry belongs to
@@ -288,7 +281,6 @@ void mb_cache_entry_touch(struct mb_cache *cache,
 {
 	set_bit(MBE_REFERENCED_B, &entry->e_flags);
 }
-EXPORT_SYMBOL(mb_cache_entry_touch);
 
 static unsigned long mb_cache_count(struct shrinker *shrink,
 				    struct shrink_control *sc)
@@ -395,7 +387,6 @@ struct mb_cache *mb_cache_create(int bucket_bits)
 err_out:
 	return NULL;
 }
-EXPORT_SYMBOL(mb_cache_create);
 
 /*
  * mb_cache_destroy - destroy cache
@@ -423,9 +414,8 @@ void mb_cache_destroy(struct mb_cache *cache)
 	kfree(cache->c_hash);
 	kfree(cache);
 }
-EXPORT_SYMBOL(mb_cache_destroy);
 
-static int __init mbcache_init(void)
+int __init infiltratr_mbcache_init(void)
 {
 	mb_entry_cache = KMEM_CACHE(mb_cache_entry, SLAB_RECLAIM_ACCOUNT);
 	if (!mb_entry_cache)
@@ -433,14 +423,9 @@ static int __init mbcache_init(void)
 	return 0;
 }
 
-static void __exit mbcache_exit(void)
+void __exit infiltratr_mbcache_exit(void)
 {
 	kmem_cache_destroy(mb_entry_cache);
 }
 
-module_init(mbcache_init)
-module_exit(mbcache_exit)
 
-MODULE_AUTHOR("Jan Kara <jack@suse.cz>");
-MODULE_DESCRIPTION("Meta block cache (for extended attributes)");
-MODULE_LICENSE("GPL");

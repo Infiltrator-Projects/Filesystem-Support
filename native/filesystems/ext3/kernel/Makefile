@@ -16,3 +16,9 @@ ext3-$(CONFIG_EXT4_FS_POSIX_ACL)	+= acl.o
 ext3-$(CONFIG_EXT4_FS_SECURITY)		+= xattr_security.o
 ext3-$(CONFIG_FS_VERITY)		+= verity.o
 ext3-$(CONFIG_FS_ENCRYPTION)		+= crypto.o
+
+# Infiltrator: JBD2 and mbcache are linked into ext3.ko.
+# No jbd2.ko or mbcache.ko is produced.
+ext3-y += mbcache.o jbd2_transaction.o jbd2_commit.o \
+    jbd2_recovery.o jbd2_checkpoint.o jbd2_revoke.o jbd2_journal.o
+ccflags-y += -I$(src)/include

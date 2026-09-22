@@ -7312,7 +7312,7 @@ MODULE_ALIAS_FS("ext4");
 /* Shared across all ext4 file systems */
 wait_queue_head_t ext4__ioend_wq[EXT4_WQ_HASH_SZ];
 
-static int __init ext4_init_fs(void)
+static int __init ext4_core_init_fs(void)
 {
 	int i, err;
 
@@ -7387,7 +7387,7 @@ out7:
 	return err;
 }
 
-static void __exit ext4_exit_fs(void)
+static void __exit ext4_core_exit_fs(void)
 {
 	ext4_destroy_lazyinit_thread();
 	unregister_filesystem(&ext4_fs_type);
@@ -7406,5 +7406,35 @@ MODULE_AUTHOR("Remy Card, Stephen Tweedie, Andrew Morton, Andreas Dilger, Theodo
 MODULE_DESCRIPTION("Fourth Extended Filesystem");
 MODULE_LICENSE("GPL");
 MODULE_SOFTDEP("pre: crc32c");
+int infiltratr_mbcache_init(void);
+void infiltratr_mbcache_exit(void);
+int infiltratr_jbd2_init(void);
+void infiltratr_jbd2_exit(void);
+
+static int __init ext4_init_fs(void)
+{
+	int err = infiltratr_mbcache_init();
+	if (err)
+		return err;
+	err = infiltratr_jbd2_init();
+	if (err) {
+		infiltratr_mbcache_exit();
+		return err;
+	}
+	err = ext4_core_init_fs();
+	if (err) {
+		infiltratr_jbd2_exit();
+		infiltratr_mbcache_exit();
+	}
+	return err;
+}
+
+static void __exit ext4_exit_fs(void)
+{
+	ext4_core_exit_fs();
+	infiltratr_jbd2_exit();
+	infiltratr_mbcache_exit();
+}
+
 module_init(ext4_init_fs)
 module_exit(ext4_exit_fs)

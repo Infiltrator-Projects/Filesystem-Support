@@ -187,7 +187,6 @@ int jbd2_submit_inode_data(journal_t *journal, struct jbd2_inode *jinode)
 	return journal->j_submit_inode_data_buffers(jinode);
 
 }
-EXPORT_SYMBOL(jbd2_submit_inode_data);
 
 int jbd2_wait_inode_data(journal_t *journal, struct jbd2_inode *jinode)
 {
@@ -198,7 +197,6 @@ int jbd2_wait_inode_data(journal_t *journal, struct jbd2_inode *jinode)
 		jinode->i_vfs_inode->i_mapping, jinode->i_dirty_start,
 		jinode->i_dirty_end);
 }
-EXPORT_SYMBOL(jbd2_wait_inode_data);
 
 /*
  * Submit all the data buffers of inode associated with the transaction to
