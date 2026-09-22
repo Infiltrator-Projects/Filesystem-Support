@@ -116,7 +116,8 @@ int main(int argc, char** argv)
         std::istreambuf_iterator<char>());
 
     for (const auto& entry : catalog()) {
-        const std::string marker = "| `" + std::string(entry.id) + "` |";
+        const std::string marker =
+            "id=\\\"support-" + std::string(entry.id) + "\\\"";
         const std::size_t first = matrix_text.find(marker);
         if (first == std::string::npos) {
             std::cerr << "catalog_test: support matrix is missing catalogue ID "
