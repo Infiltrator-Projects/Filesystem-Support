@@ -34,6 +34,7 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/jiffies.h>
+#include <linux/overflow.h>
 
 #include "ext4_jbd2.h"
 
@@ -1911,6 +1912,7 @@ int ext4_group_extend(struct super_block *sb, struct ext4_super_block *es,
 	ext4_fsblk_t o_blocks_count;
 	ext4_grpblk_t last;
 	ext4_grpblk_t add;
+	ext4_fsblk_t new_blocks_count;
 	struct buffer_head *bh;
 	ext4_group_t group;
 
@@ -1946,20 +1948,23 @@ int ext4_group_extend(struct super_block *sb, struct ext4_super_block *es,
 
 	add = EXT4_BLOCKS_PER_GROUP(sb) - last;
 
-	if (o_blocks_count + add < o_blocks_count) {
+	if (check_add_overflow(o_blocks_count, (ext4_fsblk_t)add,
+			       &new_blocks_count)) {
 		ext4_warning(sb, "blocks_count overflow");
 		return -EINVAL;
 	}
 
-	if (o_blocks_count + add > n_blocks_count)
+	if (new_blocks_count > n_blocks_count) {
 		add = n_blocks_count - o_blocks_count;
+		new_blocks_count = n_blocks_count;
+	}
 
-	if (o_blocks_count + add < n_blocks_count)
+	if (new_blocks_count < n_blocks_count)
 		ext4_warning(sb, "will only finish group (%llu blocks, %u new)",
-			     o_blocks_count + add, add);
+			     new_blocks_count, add);
 
 
-	bh = ext4_sb_bread(sb, o_blocks_count + add - 1, 0);
+	bh = ext4_sb_bread(sb, new_blocks_count - 1, 0);
 	if (IS_ERR(bh)) {
 		ext4_warning(sb, "can't read last block, resize aborted");
 		return -ENOSPC;

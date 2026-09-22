@@ -33,6 +33,7 @@
 #define EXT3FS_DEBUG
 
 #include "ext3.h"
+#include <linux/overflow.h>
 
 
 #define outside(b, first, last)	((b) < (first) || (b) >= (last))
@@ -941,6 +942,7 @@ int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 	ext3_fsblk_t o_blocks_count;
 	ext3_grpblk_t last;
 	ext3_grpblk_t add;
+	ext3_fsblk_t new_blocks_count;
 	struct buffer_head * bh;
 	handle_t *handle;
 	int err;
@@ -985,22 +987,25 @@ int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 
 	add = EXT3_BLOCKS_PER_GROUP(sb) - last;
 
-	if (o_blocks_count + add < o_blocks_count) {
+	if (check_add_overflow(o_blocks_count, (ext3_fsblk_t)add,
+			       &new_blocks_count)) {
 		ext3_warning(sb, __func__, "blocks_count overflow");
 		return -EINVAL;
 	}
 
-	if (o_blocks_count + add > n_blocks_count)
+	if (new_blocks_count > n_blocks_count) {
 		add = n_blocks_count - o_blocks_count;
+		new_blocks_count = n_blocks_count;
+	}
 
-	if (o_blocks_count + add < n_blocks_count)
+	if (new_blocks_count < n_blocks_count)
 		ext3_warning(sb, __func__,
 			     "will only finish group ("E3FSBLK
 			     " blocks, %u new)",
-			     o_blocks_count + add, add);
+			     new_blocks_count, add);
 
 
-	bh = sb_bread(sb, o_blocks_count + add -1);
+	bh = sb_bread(sb, new_blocks_count - 1);
 	if (!bh) {
 		ext3_warning(sb, __func__,
 			     "can't read last block, resize aborted");
@@ -1034,7 +1039,7 @@ int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 		ext3_journal_stop(handle);
 		goto exit_put;
 	}
-	es->s_blocks_count = cpu_to_le32(o_blocks_count + add);
+	es->s_blocks_count = cpu_to_le32(new_blocks_count);
 	err = ext3_journal_dirty_metadata(handle, EXT3_SB(sb)->s_sbh);
 	mutex_unlock(&EXT3_SB(sb)->s_resize_lock);
 	if (err) {
@@ -1044,10 +1049,10 @@ int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 		goto exit_put;
 	}
 	ext3_debug("freeing blocks "E3FSBLK" through "E3FSBLK"\n",
-		   o_blocks_count, o_blocks_count + add);
+		   o_blocks_count, new_blocks_count);
 	ext3_free_blocks_sb(handle, sb, o_blocks_count, add, &freed_blocks);
 	ext3_debug("freed blocks "E3FSBLK" through "E3FSBLK"\n",
-		   o_blocks_count, o_blocks_count + add);
+		   o_blocks_count, new_blocks_count);
 	if ((err = ext3_journal_stop(handle)))
 		goto exit_put;
 	if (test_opt(sb, DEBUG))
