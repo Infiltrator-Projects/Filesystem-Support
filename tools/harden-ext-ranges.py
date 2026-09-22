@@ -174,6 +174,47 @@ replace_once(
 """,
 )
 
+# EXT2/3/4 group descriptors all describe an inode-table interval. Prove
+# that interval with subtraction before constructing its inclusive endpoint.
+replace_once(
+    ROOT / "ext2/kernel/super.c",
+    """\t\tif (le32_to_cpu(gdp->bg_inode_table) < first_block ||
+\t\t    le32_to_cpu(gdp->bg_inode_table) + sbi->s_itb_per_group - 1 >
+\t\t    last_block)
+""",
+    """\t\tif (le32_to_cpu(gdp->bg_inode_table) < first_block ||
+\t\t    le32_to_cpu(gdp->bg_inode_table) > last_block ||
+\t\t    sbi->s_itb_per_group == 0 ||
+\t\t    sbi->s_itb_per_group - 1 >
+\t\t    last_block - le32_to_cpu(gdp->bg_inode_table))
+""",
+)
+
+replace_once(
+    ROOT / "ext3/kernel/super.c",
+    """\t\tif (le32_to_cpu(gdp->bg_inode_table) < first_block ||
+\t\t    le32_to_cpu(gdp->bg_inode_table) + sbi->s_itb_per_group - 1 >
+\t\t    last_block)
+""",
+    """\t\tif (le32_to_cpu(gdp->bg_inode_table) < first_block ||
+\t\t    le32_to_cpu(gdp->bg_inode_table) > last_block ||
+\t\t    sbi->s_itb_per_group == 0 ||
+\t\t    sbi->s_itb_per_group - 1 >
+\t\t    last_block - le32_to_cpu(gdp->bg_inode_table))
+""",
+)
+
+replace_once(
+    ROOT / "ext4/kernel/super.c",
+    """\t\tif (inode_table < first_block ||
+\t\t    inode_table + sbi->s_itb_per_group - 1 > last_block) {
+""",
+    """\t\tif (inode_table < first_block || inode_table > last_block ||
+\t\t    sbi->s_itb_per_group == 0 ||
+\t\t    sbi->s_itb_per_group - 1 > last_block - inode_table) {
+""",
+)
+
 # EXT4 already contains many subtraction-first validators.  Bring the older
 # remaining block/resize checks up to the same contract.
 replace_once(
@@ -527,8 +568,15 @@ checks = {
     ROOT / "ext3/kernel/jbd_revoke.c": (
         "kmalloc(hash_size * sizeof(struct list_head)",
     ),
+    ROOT / "ext2/kernel/super.c": (
+        "le32_to_cpu(gdp->bg_inode_table) + sbi->s_itb_per_group - 1",
+    ),
     ROOT / "ext3/kernel/super.c": (
         "kmalloc(db_count * sizeof (struct buffer_head *)",
+        "le32_to_cpu(gdp->bg_inode_table) + sbi->s_itb_per_group - 1",
+    ),
+    ROOT / "ext4/kernel/super.c": (
+        "inode_table + sbi->s_itb_per_group - 1 > last_block",
     ),
     ROOT / "ext3/kernel/resize.c": (
         "le32_to_cpu(es->s_blocks_count) + input->blocks_count <",
