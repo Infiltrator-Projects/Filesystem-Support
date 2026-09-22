@@ -155,8 +155,6 @@ static struct file_system_type ext3_fs_type = {
 	.kill_sb		= ext4_kill_sb,
 	.fs_flags		= FS_REQUIRES_DEV,
 };
-MODULE_ALIAS_FS("ext3");
-MODULE_ALIAS("ext3");
 #define IS_EXT3_SB(sb) ((sb)->s_type == &ext3_fs_type)
 
 
@@ -7439,16 +7437,12 @@ static int __init ext4_init_fs(void)
 	if (err)
 		goto out05;
 
-	register_as_ext3();
-	register_as_ext2();
 	err = register_filesystem(&ext4_fs_type);
 	if (err)
 		goto out;
 
 	return 0;
 out:
-	unregister_as_ext2();
-	unregister_as_ext3();
 	ext4_fc_destroy_dentry_cache();
 out05:
 	destroy_inodecache();
@@ -7473,8 +7467,6 @@ out7:
 static void __exit ext4_exit_fs(void)
 {
 	ext4_destroy_lazyinit_thread();
-	unregister_as_ext2();
-	unregister_as_ext3();
 	unregister_filesystem(&ext4_fs_type);
 	ext4_fc_destroy_dentry_cache();
 	destroy_inodecache();
