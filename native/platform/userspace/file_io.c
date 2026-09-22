@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#define _GNU_SOURCE
 #define _FILE_OFFSET_BITS 64
 
 #include "file_io.h"
