@@ -25,7 +25,7 @@ jobs:
             https://github.com/gregkh/linux.git /tmp/linux
           git -C /tmp/linux sparse-checkout init --cone
           git -C /tmp/linux sparse-checkout set \
-            fs/ext4 fs/xfs fs/btrfs fs/f2fs fs/jfs fs/nilfs2 fs/reiserfs \
+            fs/ext2 fs/ext4 fs/jbd2 fs/xfs fs/btrfs fs/f2fs fs/jfs fs/nilfs2 fs/reiserfs \
             fs/erofs fs/minix fs/romfs fs/cramfs fs/squashfs fs/bcachefs \
             fs/overlayfs fs/ecryptfs fs/jffs2 fs/ubifs fs/zonefs fs/gfs2 \
             fs/ocfs2 fs/adfs fs/affs fs/befs fs/bfs fs/efs fs/hpfs fs/qnx4 \
@@ -48,6 +48,19 @@ jobs:
           }
 
           copy_tree fs/ext4 native/filesystems/ext/kernel
+          copy_tree fs/ext2 native/filesystems/ext/ext2/kernel
+          copy_tree fs/jbd2 native/filesystems/ext/support/jbd2
+
+          rm -rf native/filesystems/ext/support/mbcache
+          mkdir -p native/filesystems/ext/support/mbcache/include/linux
+          mkdir -p native/filesystems/ext/support/mbcache/include/trace/events
+          git -C /tmp/linux show HEAD:fs/mbcache.c > native/filesystems/ext/support/mbcache/mbcache.c
+          git -C /tmp/linux show HEAD:include/linux/mbcache.h > native/filesystems/ext/support/mbcache/include/linux/mbcache.h
+          git -C /tmp/linux show HEAD:include/linux/jbd2.h > native/filesystems/ext/support/mbcache/include/linux/jbd2.h
+          git -C /tmp/linux show HEAD:include/trace/events/jbd2.h > native/filesystems/ext/support/mbcache/include/trace/events/jbd2.h
+          cat > native/filesystems/ext/support/mbcache/Makefile <<'EOF'
+obj-m += mbcache.o
+EOF
           copy_tree fs/xfs native/filesystems/xfs/kernel
           copy_tree fs/btrfs native/filesystems/btrfs/kernel
           copy_tree fs/f2fs native/filesystems/f2fs/kernel
