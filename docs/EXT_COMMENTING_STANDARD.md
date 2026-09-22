@@ -120,3 +120,5 @@ python3 tools/recomment-ext-family.py --check
 A manually edited or stale commentary layer therefore fails CI until it is regenerated or intentionally incorporated into the canonical generator.
 
 This is deliberate: comments are maintained as part of the architecture rather than allowed to drift independently from the source-shaping process.
+
+The generator iterates to a fixed point before writing, so a clean `--check` proves the committed commentary is already in canonical form rather than merely one transformation pass away from it.
