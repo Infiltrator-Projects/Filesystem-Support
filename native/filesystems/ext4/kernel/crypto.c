@@ -29,6 +29,7 @@
 #include "xattr.h"
 #include "ext4_jbd2.h"
 
+
 /**
  * ext4_fname_from_fscrypt_name - Implements the fname from fscrypt name operation within the filesystem encryption integration subsystem.
  *
@@ -48,6 +49,7 @@ static void ext4_fname_from_fscrypt_name(struct ext4_filename *dst,
 	dst->hinfo.minor_hash = src->minor_hash;
 	dst->crypto_buf = src->crypto_buf;
 }
+
 
 /**
  * ext4_fname_setup_filename - Initialises subsystem state and establishes the resources required by later operations.
@@ -76,6 +78,7 @@ int ext4_fname_setup_filename(struct inode *dir, const struct qstr *iname,
 	return err;
 }
 
+
 /**
  * ext4_fname_prepare_lookup - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -102,6 +105,7 @@ int ext4_fname_prepare_lookup(struct inode *dir, struct dentry *dentry,
 	return err;
 }
 
+
 /**
  * ext4_fname_free_filename - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -124,6 +128,7 @@ void ext4_fname_free_filename(struct ext4_filename *fname)
 	ext4_fname_free_ci_filename(fname);
 }
 
+
 /**
  * uuid_is_zero - Implements the uuid is zero operation within the filesystem encryption integration subsystem.
  *
@@ -141,6 +146,7 @@ static bool uuid_is_zero(__u8 u[16])
 			return false;
 	return true;
 }
+
 
 /**
  * ext4_ioctl_get_encryption_pwsalt - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -193,6 +199,7 @@ pwsalt_err_exit:
 	return 0;
 }
 
+
 /**
  * ext4_get_context - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -206,6 +213,7 @@ static int ext4_get_context(struct inode *inode, void *ctx, size_t len)
 	return ext4_xattr_get(inode, EXT4_XATTR_INDEX_ENCRYPTION,
 				 EXT4_XATTR_NAME_ENCRYPTION_CONTEXT, ctx, len);
 }
+
 
 /**
  * ext4_set_context - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -288,6 +296,7 @@ retry:
 	return res;
 }
 
+
 /**
  * ext4_get_dummy_policy - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -300,6 +309,7 @@ static const union fscrypt_policy *ext4_get_dummy_policy(struct super_block *sb)
 {
 	return EXT4_SB(sb)->s_dummy_enc_policy.policy;
 }
+
 
 /**
  * ext4_has_stable_inodes - Implements the has stable inodes operation within the filesystem encryption integration subsystem.

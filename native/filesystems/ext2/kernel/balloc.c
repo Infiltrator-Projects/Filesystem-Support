@@ -83,6 +83,7 @@ struct ext2_group_desc * ext2_get_group_desc(struct super_block * sb,
 	return desc + offset;
 }
 
+
 /**
  * ext2_valid_block_bitmap - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -189,6 +190,7 @@ read_block_bitmap(struct super_block *sb, unsigned int block_group)
 	return bh;
 }
 
+
 /**
  * group_adjust_blocks - Implements the group adjust blocks operation within the block allocation subsystem.
  *
@@ -214,6 +216,8 @@ static void group_adjust_blocks(struct super_block *sb, int group_no,
 
 
 #if 1
+
+
 /**
  * __rsv_window_dump - Implements the rsv window dump operation within the block allocation subsystem.
  *
@@ -1219,6 +1223,7 @@ out:
 
 #ifdef EXT2FS_DEBUG
 
+
 /**
  * ext2_count_free - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -1233,6 +1238,7 @@ unsigned long ext2_count_free(struct buffer_head *map, unsigned int numchars)
 }
 
 #endif
+
 
 /**
  * ext2_count_free_blocks - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -1286,6 +1292,7 @@ unsigned long ext2_count_free_blocks (struct super_block * sb)
 #endif
 }
 
+
 /**
  * test_root - Implements the test root operation within the block allocation subsystem.
  *
@@ -1302,6 +1309,7 @@ static inline int test_root(int a, int b)
 		num *= b;
 	return num == a;
 }
+
 
 /**
  * ext2_group_sparse - Implements the group sparse operation within the block allocation subsystem.

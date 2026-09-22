@@ -43,6 +43,7 @@ struct migrate_struct {
 	ext4_fsblk_t first_pblock, last_pblock;
 };
 
+
 /**
  * finish_range - Implements the finish range operation within the mapping-format migration subsystem.
  *
@@ -90,6 +91,7 @@ err_out:
 	return retval;
 }
 
+
 /**
  * update_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
@@ -120,6 +122,7 @@ static int update_extent_range(handle_t *handle, struct inode *inode,
 	lb->curr_block++;
 	return retval;
 }
+
 
 /**
  * update_ind_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
@@ -157,6 +160,7 @@ static int update_ind_extent_range(handle_t *handle, struct inode *inode,
 	return retval;
 
 }
+
 
 /**
  * update_dind_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
@@ -196,6 +200,7 @@ static int update_dind_extent_range(handle_t *handle, struct inode *inode,
 
 }
 
+
 /**
  * update_tind_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
@@ -233,6 +238,7 @@ static int update_tind_extent_range(handle_t *handle, struct inode *inode,
 	return retval;
 
 }
+
 
 /**
  * free_dind_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -283,6 +289,7 @@ static int free_dind_blocks(handle_t *handle,
 	return 0;
 }
 
+
 /**
  * free_tind_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -325,6 +332,7 @@ static int free_tind_blocks(handle_t *handle,
 	return 0;
 }
 
+
 /**
  * free_ind_block - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -365,6 +373,7 @@ static int free_ind_block(handle_t *handle, struct inode *inode, __le32 *i_data)
 	}
 	return 0;
 }
+
 
 /**
  * ext4_ext_swap_inode_data - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -420,6 +429,7 @@ static int ext4_ext_swap_inode_data(handle_t *handle, struct inode *inode,
 err_out:
 	return retval;
 }
+
 
 /**
  * free_ext_idx - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -490,6 +500,7 @@ static int free_ext_block(handle_t *handle, struct inode *inode)
 	}
 	return retval;
 }
+
 
 /**
  * ext4_ext_migrate - Implements the ext migrate operation within the mapping-format migration subsystem.

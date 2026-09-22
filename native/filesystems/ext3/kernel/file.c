@@ -430,6 +430,8 @@ group_add_out:
 }
 
 #ifdef CONFIG_COMPAT
+
+
 /**
  * ext3_compat_ioctl - Handles a filesystem-specific control operation exposed through the file API.
  *

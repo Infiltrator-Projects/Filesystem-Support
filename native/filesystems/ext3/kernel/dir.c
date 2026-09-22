@@ -52,6 +52,7 @@ static unsigned char ext3_filetype_table[] = {
 
 static int ext3_dx_readdir(struct file *, struct dir_context *);
 
+
 /**
  * get_dtype - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -91,6 +92,7 @@ static int is_dx_dir(struct inode *inode)
 	return 0;
 }
 
+
 /**
  * ext3_check_dir_entry - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -129,6 +131,7 @@ int ext3_check_dir_entry (const char * function, struct inode * dir,
 
 	return error_msg == NULL ? 1 : 0;
 }
+
 
 /**
  * ext3_readdir - Implements the readdir operation within the directory representation subsystem.
@@ -241,6 +244,7 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 	return 0;
 }
 
+
 /**
  * is_32bit_api - Implements the is 32bit api operation within the directory representation subsystem.
  *
@@ -276,6 +280,7 @@ static inline loff_t hash2pos(struct file *filp, __u32 major, __u32 minor)
 		return ((__u64)(major >> 1) << 32) | (__u64)minor;
 }
 
+
 /**
  * pos2maj_hash - Implements the pos2maj hash operation within the directory representation subsystem.
  *
@@ -292,6 +297,7 @@ static inline __u32 pos2maj_hash(struct file *filp, loff_t pos)
 	else
 		return ((pos >> 32) << 1) & 0xffffffff;
 }
+
 
 /**
  * pos2min_hash - Implements the pos2min hash operation within the directory representation subsystem.
@@ -391,6 +397,7 @@ static void free_rb_tree_fname(struct rb_root *root)
 	*root = RB_ROOT;
 }
 
+
 /**
  * ext3_htree_create_dir_info - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -411,6 +418,7 @@ static struct dir_private_info *ext3_htree_create_dir_info(struct file *filp,
 	p->curr_minor_hash = pos2min_hash(filp, pos);
 	return p;
 }
+
 
 /**
  * ext3_htree_free_dir_info - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -520,6 +528,7 @@ static bool call_filldir(struct file *file, struct dir_context *ctx,
 	return true;
 }
 
+
 /**
  * ext3_dx_readdir - Implements the dx readdir operation within the directory representation subsystem.
  *
@@ -609,6 +618,7 @@ finished:
 	return 0;
 }
 
+
 /**
  * ext3_release_dir - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -639,6 +649,7 @@ const struct file_operations ext3_dir_operations = {
 
 
 #define DELTA 0x9E3779B9
+
 
 /**
  * TEA_transform - Implements the TEA transform operation within the directory representation subsystem.
@@ -690,6 +701,7 @@ static __u32 dx_hack_hash_unsigned(const char *name, int len)
 	return hash0 << 1;
 }
 
+
 /**
  * dx_hack_hash_signed - Implements the dx hack hash signed operation within the directory representation subsystem.
  *
@@ -713,6 +725,7 @@ static __u32 dx_hack_hash_signed(const char *name, int len)
 	}
 	return hash0 << 1;
 }
+
 
 /**
  * str2hashbuf_signed - Implements the str2hashbuf signed operation within the directory representation subsystem.
@@ -749,6 +762,7 @@ static void str2hashbuf_signed(const char *msg, int len, __u32 *buf, int num)
 	while (--num >= 0)
 		*buf++ = pad;
 }
+
 
 /**
  * str2hashbuf_unsigned - Implements the str2hashbuf unsigned operation within the directory representation subsystem.

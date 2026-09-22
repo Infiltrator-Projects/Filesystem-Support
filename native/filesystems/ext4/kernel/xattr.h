@@ -42,6 +42,7 @@
 #define EXT4_XATTR_INDEX_ENCRYPTION		9
 #define EXT4_XATTR_INDEX_HURD			10
 
+
 /**
  * struct ext4_xattr_header - Private EXT4 state/data structure used by extended-metadata interfaces.
  *
@@ -57,6 +58,7 @@ struct ext4_xattr_header {
 	__u32	h_reserved[3];
 };
 
+
 /**
  * struct ext4_xattr_ibody_header - Private EXT4 state/data structure used by extended-metadata interfaces.
  *
@@ -66,6 +68,7 @@ struct ext4_xattr_header {
 struct ext4_xattr_ibody_header {
 	__le32	h_magic;
 };
+
 
 /**
  * struct ext4_xattr_entry - Private EXT4 state/data structure used by extended-metadata interfaces.
@@ -134,6 +137,7 @@ struct ext4_xattr_info {
 	int in_inode;
 };
 
+
 /**
  * struct ext4_xattr_search - Private EXT4 state/data structure used by extended-metadata interfaces.
  *
@@ -148,6 +152,7 @@ struct ext4_xattr_search {
 	int not_found;
 };
 
+
 /**
  * struct ext4_xattr_ibody_find - Private EXT4 state/data structure used by extended-metadata interfaces.
  *
@@ -158,6 +163,7 @@ struct ext4_xattr_ibody_find {
 	struct ext4_xattr_search s;
 	struct ext4_iloc iloc;
 };
+
 
 /**
  * struct ext4_xattr_inode_array - Private EXT4 state/data structure used by extended-metadata interfaces.
@@ -193,6 +199,7 @@ static inline void ext4_write_lock_xattr(struct inode *inode, int *save)
 	ext4_set_inode_state(inode, EXT4_STATE_NO_EXPAND);
 }
 
+
 /**
  * ext4_write_trylock_xattr - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -209,6 +216,7 @@ static inline int ext4_write_trylock_xattr(struct inode *inode, int *save)
 	ext4_set_inode_state(inode, EXT4_STATE_NO_EXPAND);
 	return 1;
 }
+
 
 /**
  * ext4_write_unlock_xattr - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -270,6 +278,8 @@ __xattr_check_inode(struct inode *inode, struct ext4_xattr_ibody_header *header,
 extern int ext4_init_security(handle_t *handle, struct inode *inode,
 			      struct inode *dir, const struct qstr *qstr);
 #else
+
+
 /**
  * ext4_init_security - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -288,6 +298,8 @@ static inline int ext4_init_security(handle_t *handle, struct inode *inode,
 #ifdef CONFIG_LOCKDEP
 extern void ext4_xattr_inode_set_class(struct inode *ea_inode);
 #else
+
+
 /**
  * ext4_xattr_inode_set_class - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -321,6 +333,7 @@ typedef struct {
 	__le32		a_version;
 } ext4_acl_header;
 
+
 /**
  * ext4_acl_size - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -340,6 +353,7 @@ static inline size_t ext4_acl_size(int count)
 		       (count - 4) * sizeof(ext4_acl_entry);
 	}
 }
+
 
 /**
  * ext4_acl_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -378,6 +392,7 @@ extern int ext4_init_acl(handle_t *, struct inode *, struct inode *);
 #define ext4_get_acl NULL
 #define ext4_set_acl NULL
 
+
 /**
  * ext4_init_acl - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -411,6 +426,7 @@ enum {
 	MBE_REUSABLE_B
 };
 
+
 /**
  * struct mb_cache_entry - Private EXT4 state/data structure used by extended-metadata interfaces.
  *
@@ -441,6 +457,8 @@ int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
 void __mb_cache_entry_free(struct mb_cache *cache,
 			   struct mb_cache_entry *entry);
 void mb_cache_entry_wait_unused(struct mb_cache_entry *entry);
+
+
 /**
  * mb_cache_entry_put - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *

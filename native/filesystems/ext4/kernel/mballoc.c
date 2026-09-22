@@ -65,6 +65,8 @@ static int ext4_try_to_trim_range(struct super_block *sb,
 
 
 static DEFINE_PER_CPU(u64, discard_pa_seq);
+
+
 /**
  * ext4_get_discard_pa_seq_sum - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -82,6 +84,7 @@ static inline u64 ext4_get_discard_pa_seq_sum(void)
 		__seq += per_cpu(discard_pa_seq, __cpu);
 	return __seq;
 }
+
 
 /**
  * mb_correct_addr_and_bit - Implements the mb correct addr and bit operation within the multiblock allocator subsystem.
@@ -105,6 +108,7 @@ static inline void *mb_correct_addr_and_bit(int *bit, void *addr)
 	return addr;
 }
 
+
 /**
  * mb_test_bit - Implements the mb test bit operation within the multiblock allocator subsystem.
  *
@@ -121,6 +125,7 @@ static inline int mb_test_bit(int bit, void *addr)
 	return ext4_test_bit(bit, addr);
 }
 
+
 /**
  * mb_set_bit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -134,6 +139,7 @@ static inline void mb_set_bit(int bit, void *addr)
 	addr = mb_correct_addr_and_bit(&bit, addr);
 	ext4_set_bit(bit, addr);
 }
+
 
 /**
  * mb_clear_bit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -149,6 +155,7 @@ static inline void mb_clear_bit(int bit, void *addr)
 	ext4_clear_bit(bit, addr);
 }
 
+
 /**
  * mb_test_and_clear_bit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -162,6 +169,7 @@ static inline int mb_test_and_clear_bit(int bit, void *addr)
 	addr = mb_correct_addr_and_bit(&bit, addr);
 	return ext4_test_and_clear_bit(bit, addr);
 }
+
 
 /**
  * mb_find_next_zero_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -184,6 +192,7 @@ static inline int mb_find_next_zero_bit(void *addr, int max, int start)
 	return ret;
 }
 
+
 /**
  * mb_find_next_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -204,6 +213,7 @@ static inline int mb_find_next_bit(void *addr, int max, int start)
 		return max;
 	return ret;
 }
+
 
 /**
  * mb_find_buddy - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -238,6 +248,8 @@ static void *mb_find_buddy(struct ext4_buddy *e4b, int order, int *max)
 }
 
 #ifdef DOUBLE_CHECK
+
+
 /**
  * mb_free_blocks_double - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -274,6 +286,7 @@ static void mb_free_blocks_double(struct inode *inode, struct ext4_buddy *e4b,
 	}
 }
 
+
 /**
  * mb_mark_used_double - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -294,6 +307,7 @@ static void mb_mark_used_double(struct ext4_buddy *e4b, int first, int count)
 		mb_set_bit(first + i, e4b->bd_info->bb_bitmap);
 	}
 }
+
 
 /**
  * mb_cmp_bitmaps - Implements the mb cmp bitmaps operation within the multiblock allocator subsystem.
@@ -325,6 +339,7 @@ static void mb_cmp_bitmaps(struct ext4_buddy *e4b, void *bitmap)
 	}
 }
 
+
 /**
  * mb_group_bb_bitmap_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -353,6 +368,7 @@ static void mb_group_bb_bitmap_alloc(struct super_block *sb,
 	put_bh(bh);
 }
 
+
 /**
  * mb_group_bb_bitmap_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -367,6 +383,8 @@ static void mb_group_bb_bitmap_free(struct ext4_group_info *grp)
 }
 
 #else
+
+
 /**
  * mb_free_blocks_double - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -380,6 +398,8 @@ static inline void mb_free_blocks_double(struct inode *inode,
 {
 	return;
 }
+
+
 /**
  * mb_mark_used_double - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -393,6 +413,8 @@ static inline void mb_mark_used_double(struct ext4_buddy *e4b,
 {
 	return;
 }
+
+
 /**
  * mb_cmp_bitmaps - Implements the mb cmp bitmaps operation within the multiblock allocator subsystem.
  *
@@ -405,6 +427,7 @@ static inline void mb_cmp_bitmaps(struct ext4_buddy *e4b, void *bitmap)
 {
 	return;
 }
+
 
 /**
  * mb_group_bb_bitmap_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -419,6 +442,7 @@ static inline void mb_group_bb_bitmap_alloc(struct super_block *sb,
 {
 	return;
 }
+
 
 /**
  * mb_group_bb_bitmap_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -598,6 +622,7 @@ static void ext4_mb_mark_free_simple(struct super_block *sb,
 	}
 }
 
+
 /**
  * mb_avg_fragment_size_order - Implements the mb avg fragment size order operation within the multiblock allocator subsystem.
  *
@@ -660,6 +685,7 @@ mb_update_avg_fragment_size(struct super_block *sb, struct ext4_group_info *grp)
 	}
 }
 
+
 /**
  * ext4_get_allocation_groups_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -682,6 +708,7 @@ static ext4_group_t ext4_get_allocation_groups_count(
 
 	return ngroups;
 }
+
 
 /**
  * ext4_mb_scan_groups_xa_range - Implements the mb scan groups xa range operation within the multiblock allocator subsystem.
@@ -927,6 +954,7 @@ wrap_around:
 	return ret;
 }
 
+
 /**
  * should_optimize_scan - Implements the should optimize scan operation within the multiblock allocator subsystem.
  *
@@ -959,6 +987,7 @@ static void next_linear_group(ext4_group_t *group, ext4_group_t ngroups)
 
 	*group =  *group + 1 >= ngroups ? 0 : *group + 1;
 }
+
 
 /**
  * ext4_mb_scan_groups_linear - Implements the mb scan groups linear operation within the multiblock allocator subsystem.
@@ -994,6 +1023,7 @@ static int ext4_mb_scan_groups_linear(struct ext4_allocation_context *ac,
 
 	return 0;
 }
+
 
 /**
  * ext4_mb_scan_groups - Implements the mb scan groups operation within the multiblock allocator subsystem.
@@ -1085,6 +1115,7 @@ mb_set_largest_free_order(struct super_block *sb, struct ext4_group_info *grp)
 	}
 }
 
+
 /**
  * ext4_mb_generate_buddy - Implements the mb generate buddy operation within the multiblock allocator subsystem.
  *
@@ -1145,6 +1176,7 @@ void ext4_mb_generate_buddy(struct super_block *sb,
 	atomic_inc(&sbi->s_mb_buddies_generated);
 	atomic64_add(period, &sbi->s_mb_generation_time);
 }
+
 
 /**
  * mb_regenerate_buddy - Implements the mb regenerate buddy operation within the multiblock allocator subsystem.
@@ -1381,6 +1413,7 @@ static int ext4_mb_get_buddy_page_lock(struct super_block *sb,
 	return 0;
 }
 
+
 /**
  * ext4_mb_put_buddy_page_lock - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1610,6 +1643,7 @@ err:
 	return ret;
 }
 
+
 /**
  * ext4_mb_load_buddy - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1623,6 +1657,7 @@ static int ext4_mb_load_buddy(struct super_block *sb, ext4_group_t group,
 {
 	return ext4_mb_load_buddy_gfp(sb, group, e4b, GFP_NOFS);
 }
+
 
 /**
  * ext4_mb_unload_buddy - Implements the mb unload buddy operation within the multiblock allocator subsystem.
@@ -1667,6 +1702,7 @@ static int mb_find_order_for_block(struct ext4_buddy *e4b, int block)
 	}
 	return 0;
 }
+
 
 /**
  * mb_clear_bits - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1727,6 +1763,7 @@ static int mb_test_and_clear_bits(void *bm, int cur, int len)
 	return zero_bit;
 }
 
+
 /**
  * mb_set_bits - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1753,6 +1790,7 @@ void mb_set_bits(void *bm, int cur, int len)
 	}
 }
 
+
 /**
  * mb_buddy_adjust_border - Implements the mb buddy adjust border operation within the multiblock allocator subsystem.
  *
@@ -1774,6 +1812,7 @@ static inline int mb_buddy_adjust_border(int* bit, void* bitmap, int side)
 		return -1;
 	}
 }
+
 
 /**
  * mb_buddy_mark_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1812,6 +1851,7 @@ static void mb_buddy_mark_free(struct ext4_buddy *e4b, int first, int last)
 		buddy = buddy2;
 	}
 }
+
 
 /**
  * mb_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1899,6 +1939,7 @@ check:
 	mb_check_buddy(e4b);
 }
 
+
 /**
  * mb_find_extent - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1965,6 +2006,7 @@ static int mb_find_extent(struct ext4_buddy *e4b, int block,
 	}
 	return ex->fe_len;
 }
+
 
 /**
  * mb_mark_used - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -2109,6 +2151,7 @@ static void ext4_mb_use_best_found(struct ext4_allocation_context *ac,
 
 }
 
+
 /**
  * ext4_mb_check_limits - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -2203,6 +2246,7 @@ static void ext4_mb_measure_extent(struct ext4_allocation_context *ac,
 	ext4_mb_check_limits(ac, e4b, 0);
 }
 
+
 /**
  * ext4_mb_try_best_found - Implements the mb try best found operation within the multiblock allocator subsystem.
  *
@@ -2240,6 +2284,7 @@ out:
 	ext4_unlock_group(ac->ac_sb, group);
 	ext4_mb_unload_buddy(e4b);
 }
+
 
 /**
  * ext4_mb_find_by_goal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2502,6 +2547,7 @@ void ext4_mb_scan_aligned(struct ext4_allocation_context *ac,
 		i += stripe;
 	}
 }
+
 
 /**
  * __ext4_mb_scan_group - Implements the mb scan group operation within the multiblock allocator subsystem.
@@ -2778,6 +2824,7 @@ void ext4_mb_prefetch_fini(struct super_block *sb, ext4_group_t group,
 	}
 }
 
+
 /**
  * ext4_mb_scan_group - Implements the mb scan group operation within the multiblock allocator subsystem.
  *
@@ -2829,6 +2876,7 @@ out_unload:
 	ext4_mb_unload_buddy(ac->ac_e4b);
 	return ret;
 }
+
 
 /**
  * ext4_mb_regular_allocator - Implements the mb regular allocator operation within the multiblock allocator subsystem.
@@ -2935,6 +2983,7 @@ out:
 	return err;
 }
 
+
 /**
  * ext4_mb_seq_groups_start - Implements the mb seq groups start operation within the multiblock allocator subsystem.
  *
@@ -2953,6 +3002,7 @@ static void *ext4_mb_seq_groups_start(struct seq_file *seq, loff_t *pos)
 	group = *pos + 1;
 	return (void *) ((unsigned long) group);
 }
+
 
 /**
  * ext4_mb_seq_groups_next - Implements the mb seq groups next operation within the multiblock allocator subsystem.
@@ -2973,6 +3023,7 @@ static void *ext4_mb_seq_groups_next(struct seq_file *seq, void *v, loff_t *pos)
 	group = *pos + 1;
 	return (void *) ((unsigned long) group);
 }
+
 
 /**
  * ext4_mb_seq_groups_show - Implements the mb seq groups show operation within the multiblock allocator subsystem.
@@ -3034,6 +3085,7 @@ static int ext4_mb_seq_groups_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+
 /**
  * ext4_mb_seq_groups_stop - Implements the mb seq groups stop operation within the multiblock allocator subsystem.
  *
@@ -3052,6 +3104,7 @@ const struct seq_operations ext4_mb_seq_groups_ops = {
 	.stop   = ext4_mb_seq_groups_stop,
 	.show   = ext4_mb_seq_groups_show,
 };
+
 
 /**
  * ext4_seq_mb_stats_show - Implements the seq mb stats show operation within the multiblock allocator subsystem.
@@ -3162,6 +3215,7 @@ int ext4_seq_mb_stats_show(struct seq_file *seq, void *offset)
 	return 0;
 }
 
+
 /**
  * ext4_mb_seq_structs_summary_start - Implements the mb seq structs summary start operation within the multiblock allocator subsystem.
  *
@@ -3180,6 +3234,7 @@ static void *ext4_mb_seq_structs_summary_start(struct seq_file *seq, loff_t *pos
 	position = *pos + 1;
 	return (void *) ((unsigned long) position);
 }
+
 
 /**
  * ext4_mb_seq_structs_summary_next - Implements the mb seq structs summary next operation within the multiblock allocator subsystem.
@@ -3200,6 +3255,7 @@ static void *ext4_mb_seq_structs_summary_next(struct seq_file *seq, void *v, lof
 	position = *pos + 1;
 	return (void *) ((unsigned long) position);
 }
+
 
 /**
  * ext4_mb_seq_structs_summary_show - Implements the mb seq structs summary show operation within the multiblock allocator subsystem.
@@ -3246,6 +3302,7 @@ static int ext4_mb_seq_structs_summary_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+
 /**
  * ext4_mb_seq_structs_summary_stop - Implements the mb seq structs summary stop operation within the multiblock allocator subsystem.
  *
@@ -3264,6 +3321,7 @@ const struct seq_operations ext4_mb_seq_structs_summary_ops = {
 	.stop   = ext4_mb_seq_structs_summary_stop,
 	.show   = ext4_mb_seq_structs_summary_show,
 };
+
 
 /**
  * get_groupinfo_cache - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -3402,6 +3460,7 @@ exit_group_info:
 	return -ENOMEM;
 }
 
+
 /**
  * ext4_mb_init_backend - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -3487,6 +3546,7 @@ err_freesgi:
 	return -ENOMEM;
 }
 
+
 /**
  * ext4_groupinfo_destroy_slabs - Tears down subsystem state after users have been quiesced.
  *
@@ -3504,6 +3564,7 @@ static void ext4_groupinfo_destroy_slabs(void)
 		ext4_groupinfo_caches[i] = NULL;
 	}
 }
+
 
 /**
  * ext4_groupinfo_create_slab - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -3551,6 +3612,7 @@ static int ext4_groupinfo_create_slab(size_t size)
 
 	return 0;
 }
+
 
 /**
  * ext4_discard_work - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -3608,6 +3670,7 @@ static void ext4_discard_work(struct work_struct *work)
 		ext4_mb_unload_buddy(&e4b);
 }
 
+
 /**
  * ext4_mb_avg_fragment_size_destroy - Tears down subsystem state after users have been quiesced.
  *
@@ -3628,6 +3691,7 @@ static inline void ext4_mb_avg_fragment_size_destroy(struct ext4_sb_info *sbi)
 	sbi->s_mb_avg_fragment_size = NULL;
 }
 
+
 /**
  * ext4_mb_largest_free_orders_destroy - Tears down subsystem state after users have been quiesced.
  *
@@ -3647,6 +3711,7 @@ static inline void ext4_mb_largest_free_orders_destroy(struct ext4_sb_info *sbi)
 	kfree(sbi->s_mb_largest_free_orders);
 	sbi->s_mb_largest_free_orders = NULL;
 }
+
 
 /**
  * ext4_mb_init - Initialises subsystem state and establishes the resources required by later operations.
@@ -3807,6 +3872,7 @@ static int ext4_mb_cleanup_pa(struct ext4_group_info *grp)
 	return count;
 }
 
+
 /**
  * ext4_mb_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -3885,6 +3951,7 @@ void ext4_mb_release(struct super_block *sb)
 	free_percpu(sbi->s_locality_groups);
 }
 
+
 /**
  * ext4_issue_discard - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -3906,6 +3973,7 @@ static inline int ext4_issue_discard(struct super_block *sb,
 
 	return sb_issue_discard(sb, discard_block, count, GFP_NOFS, 0);
 }
+
 
 /**
  * ext4_free_data_in_buddy - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -3991,6 +4059,7 @@ void ext4_process_freed_data(struct super_block *sb, tid_t commit_tid)
 	}
 }
 
+
 /**
  * ext4_init_mballoc - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -4026,6 +4095,7 @@ out:
 	return -ENOMEM;
 }
 
+
 /**
  * ext4_exit_mballoc - Tears down subsystem state after users have been quiesced.
  *
@@ -4047,6 +4117,8 @@ void ext4_exit_mballoc(void)
 
 #define EXT4_MB_BITMAP_MARKED_CHECK 0x0001
 #define EXT4_MB_SYNC_UPDATE 0x0002
+
+
 /**
  * ext4_mb_mark_context - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -4309,6 +4381,7 @@ ext4_mb_pa_rb_next_iter(ext4_lblk_t new_start, ext4_lblk_t cur_start, struct rb_
 	else
 		return node->rb_right;
 }
+
 
 /**
  * ext4_mb_pa_assert_overlap - Implements the mb pa assert overlap operation within the multiblock allocator subsystem.
@@ -4636,6 +4709,7 @@ ext4_mb_normalize_request(struct ext4_allocation_context *ac,
 	mb_debug(ac->ac_sb, "goal: %lld(was %lld) blocks at %u\n", size,
 		 orig_size, start);
 }
+
 
 /**
  * ext4_mb_collect_stats - Implements the mb collect stats operation within the multiblock allocator subsystem.
@@ -5031,6 +5105,7 @@ void ext4_mb_generate_from_pa(struct super_block *sb, void *bitmap,
 	mb_debug(sb, "preallocated %d for group %u\n", preallocated, group);
 }
 
+
 /**
  * ext4_mb_mark_pa_deleted - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -5059,6 +5134,7 @@ static void ext4_mb_mark_pa_deleted(struct super_block *sb,
 	}
 }
 
+
 /**
  * ext4_mb_pa_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -5074,6 +5150,7 @@ static inline void ext4_mb_pa_free(struct ext4_prealloc_space *pa)
 	BUG_ON(pa->pa_deleted == 0);
 	kmem_cache_free(ext4_pspace_cachep, pa);
 }
+
 
 /**
  * ext4_mb_pa_callback - Implements the mb pa callback operation within the multiblock allocator subsystem.
@@ -5147,6 +5224,7 @@ static void ext4_mb_put_pa(struct ext4_allocation_context *ac,
 		call_rcu(&(pa)->u.pa_rcu, ext4_mb_pa_callback);
 	}
 }
+
 
 /**
  * ext4_mb_pa_rb_insert - Implements the mb pa rb insert operation within the multiblock allocator subsystem.
@@ -5326,6 +5404,7 @@ ext4_mb_new_group_pa(struct ext4_allocation_context *ac)
 
 }
 
+
 /**
  * ext4_mb_new_preallocation - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -5400,6 +5479,7 @@ ext4_mb_release_inode_pa(struct ext4_buddy *e4b, struct buffer_head *bitmap_bh,
 	}
 	atomic_add(free, &sbi->s_mb_discarded);
 }
+
 
 /**
  * ext4_mb_release_group_pa - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -5645,6 +5725,7 @@ repeat:
 	}
 }
 
+
 /**
  * ext4_mb_pa_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -5665,6 +5746,7 @@ static int ext4_mb_pa_alloc(struct ext4_allocation_context *ac)
 	ac->ac_pa = pa;
 	return 0;
 }
+
 
 /**
  * ext4_mb_pa_put_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -5688,6 +5770,8 @@ static void ext4_mb_pa_put_free(struct ext4_allocation_context *ac)
 }
 
 #ifdef CONFIG_EXT4_DEBUG
+
+
 /**
  * ext4_mb_show_pa - Implements the mb show pa operation within the multiblock allocator subsystem.
  *
@@ -5729,6 +5813,7 @@ static inline void ext4_mb_show_pa(struct super_block *sb)
 			 grp->bb_fragments);
 	}
 }
+
 
 /**
  * ext4_mb_show_ac - Implements the mb show ac operation within the multiblock allocator subsystem.
@@ -5773,6 +5858,8 @@ static void ext4_mb_show_ac(struct ext4_allocation_context *ac)
 	ext4_mb_show_pa(sb);
 }
 #else
+
+
 /**
  * ext4_mb_show_pa - Implements the mb show pa operation within the multiblock allocator subsystem.
  *
@@ -5784,6 +5871,8 @@ static void ext4_mb_show_ac(struct ext4_allocation_context *ac)
 static inline void ext4_mb_show_pa(struct super_block *sb)
 {
 }
+
+
 /**
  * ext4_mb_show_ac - Implements the mb show ac operation within the multiblock allocator subsystem.
  *
@@ -5856,6 +5945,7 @@ static void ext4_mb_group_or_file(struct ext4_allocation_context *ac)
 	mutex_lock(&ac->ac_lg->lg_mutex);
 }
 
+
 /**
  * ext4_mb_initialize_context - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -5914,6 +6004,7 @@ ext4_mb_initialize_context(struct ext4_allocation_context *ac,
 			(unsigned) ar->lright, (unsigned) ar->pright,
 			inode_is_open_for_write(ar->inode) ? "" : "non-");
 }
+
 
 /**
  * ext4_mb_discard_lg_preallocations - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -6086,6 +6177,7 @@ static void ext4_mb_release_context(struct ext4_allocation_context *ac)
 	ext4_mb_collect_stats(ac);
 }
 
+
 /**
  * ext4_mb_discard_preallocations - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -6120,6 +6212,7 @@ static int ext4_mb_discard_preallocations(struct super_block *sb, int needed)
 
 	return freed;
 }
+
 
 /**
  * ext4_mb_discard_preallocations_should_retry - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -6397,6 +6490,7 @@ static void ext4_try_merge_freed_extent(struct ext4_sb_info *sbi,
 	kmem_cache_free(ext4_free_data_cachep, entry);
 }
 
+
 /**
  * ext4_mb_free_metadata - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -6472,6 +6566,7 @@ ext4_mb_free_metadata(handle_t *handle, struct ext4_buddy *e4b,
 	sbi->s_mb_free_pending += clusters;
 	spin_unlock(&sbi->s_md_lock);
 }
+
 
 /**
  * ext4_free_blocks_simple - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -6843,6 +6938,7 @@ __acquires(bitlock)
 	return ret;
 }
 
+
 /**
  * ext4_last_grp_cluster - Implements the last grp cluster operation within the multiblock allocator subsystem.
  *
@@ -6866,6 +6962,7 @@ static ext4_grpblk_t ext4_last_grp_cluster(struct super_block *sb,
 	return nr_clusters_in_group - 1;
 }
 
+
 /**
  * ext4_trim_interrupted - Implements the trim interrupted operation within the multiblock allocator subsystem.
  *
@@ -6878,6 +6975,7 @@ static bool ext4_trim_interrupted(void)
 {
 	return fatal_signal_pending(current) || freezing(current);
 }
+
 
 /**
  * __releases - Implements the releases operation within the multiblock allocator subsystem.

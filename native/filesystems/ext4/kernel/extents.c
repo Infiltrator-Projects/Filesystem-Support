@@ -62,6 +62,7 @@
 
 #define EXT4_EXT_DATA_VALID2	0x20
 
+
 /**
  * ext4_extent_block_csum - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
@@ -81,6 +82,7 @@ static __le32 ext4_extent_block_csum(struct inode *inode,
 			   EXT4_EXTENT_TAIL_OFFSET(eh));
 	return cpu_to_le32(csum);
 }
+
 
 /**
  * ext4_extent_block_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
@@ -103,6 +105,7 @@ static int ext4_extent_block_csum_verify(struct inode *inode,
 		return 0;
 	return 1;
 }
+
 
 /**
  * ext4_extent_block_csum_set - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
@@ -130,6 +133,7 @@ static struct ext4_ext_path *ext4_split_extent_at(handle_t *handle,
 						  ext4_lblk_t split,
 						  int split_flag, int flags);
 
+
 /**
  * ext4_ext_trunc_restart_fn - Implements the ext trunc restart fn operation within the extent-tree engine subsystem.
  *
@@ -149,6 +153,7 @@ static int ext4_ext_trunc_restart_fn(struct inode *inode, int *dropped)
 	return 0;
 }
 
+
 /**
  * ext4_ext_path_brelse - Implements the ext path brelse operation within the extent-tree engine subsystem.
  *
@@ -162,6 +167,7 @@ static inline void ext4_ext_path_brelse(struct ext4_ext_path *path)
 	brelse(path->p_bh);
 	path->p_bh = NULL;
 }
+
 
 /**
  * ext4_ext_drop_refs - Implements the ext drop refs operation within the extent-tree engine subsystem.
@@ -181,6 +187,7 @@ static void ext4_ext_drop_refs(struct ext4_ext_path *path)
 	for (i = 0; i <= depth; i++, path++)
 		ext4_ext_path_brelse(path);
 }
+
 
 /**
  * ext4_free_ext_path - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -284,6 +291,7 @@ static int __ext4_ext_dirty(const char *where, unsigned int line,
 #define ext4_ext_dirty(handle, inode, path) \
 		__ext4_ext_dirty(__func__, __LINE__, (handle), (inode), (path))
 
+
 /**
  * ext4_ext_find_goal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -343,6 +351,7 @@ ext4_ext_new_meta_block(handle_t *handle, struct inode *inode,
 	return newblock;
 }
 
+
 /**
  * ext4_ext_space_block - Implements the ext space block operation within the extent-tree engine subsystem.
  *
@@ -364,6 +373,7 @@ static inline int ext4_ext_space_block(struct inode *inode, int check)
 	return size;
 }
 
+
 /**
  * ext4_ext_space_block_idx - Implements the ext space block idx operation within the extent-tree engine subsystem.
  *
@@ -384,6 +394,7 @@ static inline int ext4_ext_space_block_idx(struct inode *inode, int check)
 #endif
 	return size;
 }
+
 
 /**
  * ext4_ext_space_root - Implements the ext space root operation within the extent-tree engine subsystem.
@@ -407,6 +418,7 @@ static inline int ext4_ext_space_root(struct inode *inode, int check)
 	return size;
 }
 
+
 /**
  * ext4_ext_space_root_idx - Implements the ext space root idx operation within the extent-tree engine subsystem.
  *
@@ -428,6 +440,7 @@ static inline int ext4_ext_space_root_idx(struct inode *inode, int check)
 #endif
 	return size;
 }
+
 
 /**
  * ext4_force_split_extent_at - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
@@ -452,6 +465,7 @@ ext4_force_split_extent_at(handle_t *handle, struct inode *inode,
 			EXT4_EXT_MARK_UNWRIT1|EXT4_EXT_MARK_UNWRIT2 : 0,
 			flags);
 }
+
 
 /**
  * ext4_ext_max_entries - Implements the ext max entries operation within the extent-tree engine subsystem.
@@ -481,6 +495,7 @@ ext4_ext_max_entries(struct inode *inode, int depth)
 	return max;
 }
 
+
 /**
  * ext4_valid_extent - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -501,6 +516,7 @@ static int ext4_valid_extent(struct inode *inode, struct ext4_extent *ext)
 	return ext4_inode_block_valid(inode, block, len);
 }
 
+
 /**
  * ext4_valid_extent_idx - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -516,6 +532,7 @@ static int ext4_valid_extent_idx(struct inode *inode,
 
 	return ext4_inode_block_valid(inode, block, 1);
 }
+
 
 /**
  * ext4_valid_extent_entries - Validates state before it is trusted by the remainder of the filesystem.
@@ -585,6 +602,7 @@ static int ext4_valid_extent_entries(struct inode *inode,
 	}
 	return 1;
 }
+
 
 /**
  * __ext4_ext_check - Validates state before it is trusted by the remainder of the filesystem.
@@ -658,6 +676,7 @@ corrupted:
 #define ext4_ext_check(inode, eh, depth, pblk)			\
 	__ext4_ext_check(__func__, __LINE__, (inode), (eh), (depth), (pblk), 0)
 
+
 /**
  * ext4_ext_check_inode - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -670,6 +689,7 @@ int ext4_ext_check_inode(struct inode *inode)
 {
 	return ext4_ext_check(inode, ext_inode_hdr(inode), ext_depth(inode), 0);
 }
+
 
 /**
  * ext4_cache_extents - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
@@ -702,6 +722,7 @@ static void ext4_cache_extents(struct inode *inode,
 		prev = lblk + len;
 	}
 }
+
 
 /**
  * __read_extent_tree_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -828,6 +849,8 @@ out:
 }
 
 #ifdef EXT_DEBUG
+
+
 /**
  * ext4_ext_show_path - Implements the ext show path operation within the extent-tree engine subsystem.
  *
@@ -857,6 +880,7 @@ static void ext4_ext_show_path(struct inode *inode, struct ext4_ext_path *path)
 	}
 	ext_debug(inode, "\n");
 }
+
 
 /**
  * ext4_ext_show_leaf - Implements the ext show leaf operation within the extent-tree engine subsystem.
@@ -888,6 +912,7 @@ static void ext4_ext_show_leaf(struct inode *inode, struct ext4_ext_path *path)
 	}
 	ext_debug(inode, "\n");
 }
+
 
 /**
  * ext4_ext_show_move - Implements the ext show move operation within the extent-tree engine subsystem.
@@ -1064,6 +1089,7 @@ ext4_ext_binsearch(struct inode *inode,
 
 }
 
+
 /**
  * ext4_ext_tree_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1084,6 +1110,7 @@ void ext4_ext_tree_init(handle_t *handle, struct inode *inode)
 	eh->eh_generation = 0;
 	ext4_mark_inode_dirty(handle, inode);
 }
+
 
 /**
  * ext4_find_extent - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1982,6 +2009,7 @@ clean:
 	return err;
 }
 
+
 /**
  * ext4_can_extents_be_merged - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
@@ -2420,6 +2448,7 @@ errout:
 	return ERR_PTR(err);
 }
 
+
 /**
  * ext4_fill_es_cache_info - Implements the fill es cache info operation within the extent-tree engine subsystem.
  *
@@ -2630,6 +2659,7 @@ int ext4_ext_index_trans_blocks(struct inode *inode, int extents)
 	return index;
 }
 
+
 /**
  * get_default_free_blocks_flags - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2672,6 +2702,7 @@ static void ext4_rereserve_cluster(struct inode *inode, ext4_lblk_t lblk)
 	percpu_counter_add(&sbi->s_freeclusters_counter, 1);
 	ext4_remove_pending(inode, lblk);
 }
+
 
 /**
  * ext4_remove_blocks - Implements the remove blocks operation within the extent-tree engine subsystem.
@@ -2988,6 +3019,7 @@ ext4_ext_more_to_rm(struct ext4_ext_path *path)
 	return 1;
 }
 
+
 /**
  * ext4_ext_remove_space - Implements the ext remove space operation within the extent-tree engine subsystem.
  *
@@ -3280,6 +3312,7 @@ void ext4_ext_release(struct super_block *sb)
 	}
 #endif
 }
+
 
 /**
  * ext4_zeroout_es - Implements the zeroout es operation within the extent-tree engine subsystem.
@@ -3836,6 +3869,7 @@ static struct ext4_ext_path *ext4_split_convert_extents(handle_t *handle,
 				 allocated);
 }
 
+
 /**
  * ext4_convert_unwritten_extents_endio - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
@@ -3906,6 +3940,7 @@ errout:
 	ext4_free_ext_path(path);
 	return ERR_PTR(err);
 }
+
 
 /**
  * convert_initialized_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
@@ -3986,6 +4021,7 @@ errout:
 	ext4_free_ext_path(path);
 	return ERR_PTR(err);
 }
+
 
 /**
  * ext4_ext_handle_unwritten_extents - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -4426,6 +4462,7 @@ out:
 	return err ? err : allocated;
 }
 
+
 /**
  * ext4_ext_truncate - Implements the ext truncate operation within the extent-tree engine subsystem.
  *
@@ -4458,6 +4495,7 @@ retry_remove_space:
 	}
 	return err;
 }
+
 
 /**
  * ext4_alloc_file_blocks - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -4552,6 +4590,7 @@ retry:
 static int ext4_collapse_range(struct file *file, loff_t offset, loff_t len);
 
 static int ext4_insert_range(struct file *file, loff_t offset, loff_t len);
+
 
 /**
  * ext4_zero_range - Implements the zero range operation within the extent-tree engine subsystem.
@@ -4655,6 +4694,7 @@ out_handle:
 	ext4_journal_stop(handle);
 	return ret;
 }
+
 
 /**
  * ext4_do_fallocate - Implements the do fallocate operation within the extent-tree engine subsystem.
@@ -4833,6 +4873,7 @@ int ext4_convert_unwritten_extents(handle_t *handle, struct inode *inode,
 	return ret > 0 ? ret2 : ret;
 }
 
+
 /**
  * ext4_convert_unwritten_io_end_vec - Implements the convert unwritten io end vec operation within the extent-tree engine subsystem.
  *
@@ -4867,6 +4908,7 @@ int ext4_convert_unwritten_io_end_vec(handle_t *handle, ext4_io_end_t *io_end)
 
 	return ret < 0 ? ret : err;
 }
+
 
 /**
  * ext4_iomap_xattr_fiemap - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -4918,6 +4960,7 @@ out:
 	return error;
 }
 
+
 /**
  * ext4_iomap_xattr_begin - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -4942,6 +4985,7 @@ static const struct iomap_ops ext4_iomap_xattr_ops = {
 	.iomap_begin		= ext4_iomap_xattr_begin,
 };
 
+
 /**
  * ext4_fiemap_check_ranges - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -4964,6 +5008,7 @@ static int ext4_fiemap_check_ranges(struct inode *inode, u64 start, u64 *len)
 		*len = maxbytes - start;
 	return 0;
 }
+
 
 /**
  * ext4_fiemap - Implements the fiemap operation within the extent-tree engine subsystem.
@@ -4998,6 +5043,7 @@ int ext4_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 
 	return iomap_fiemap(inode, fieinfo, start, len, &ext4_iomap_report_ops);
 }
+
 
 /**
  * ext4_get_es_cache - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -5967,6 +6013,7 @@ cleanup:
 	ext4_free_ext_path(path2);
 	return 0;
 }
+
 
 /**
  * ext4_ext_clear_bb - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.

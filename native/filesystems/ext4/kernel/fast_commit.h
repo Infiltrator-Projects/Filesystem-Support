@@ -169,6 +169,7 @@ struct ext4_fc_dentry_update {
 	struct list_head fcd_dilist;
 };
 
+
 /**
  * struct ext4_fc_stats - Private EXT4 state/data structure used by fast-commit record format.
  *
@@ -221,6 +222,7 @@ struct ext4_fc_replay_state {
 
 #define region_last(__region) (((__region)->lblk) + ((__region)->len) - 1)
 #endif
+
 
 /**
  * tag2str - Implements the tag2str operation within the fast-commit record format subsystem.

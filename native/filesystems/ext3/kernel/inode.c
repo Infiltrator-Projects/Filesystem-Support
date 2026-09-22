@@ -291,6 +291,7 @@ typedef struct {
 	struct buffer_head *bh;
 } Indirect;
 
+
 /**
  * add_chain - Implements the add chain operation within the inode mapping and lifecycle subsystem.
  *
@@ -304,6 +305,7 @@ static inline void add_chain(Indirect *p, struct buffer_head *bh, __le32 *v)
 	p->key = *(p->p = v);
 	p->bh = bh;
 }
+
 
 /**
  * verify_chain - Validates state before it is trusted by the remainder of the filesystem.
@@ -860,6 +862,7 @@ out:
 
 #define DIO_CREDITS 25
 
+
 /**
  * ext3_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -898,6 +901,7 @@ static int ext3_get_block(struct inode *inode, sector_t iblock,
 out:
 	return ret;
 }
+
 
 /**
  * ext3_fiemap - Implements the fiemap operation within the inode mapping and lifecycle subsystem.
@@ -981,6 +985,7 @@ err:
 	return NULL;
 }
 
+
 /**
  * ext3_bread - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1009,6 +1014,7 @@ struct buffer_head *ext3_bread(handle_t *handle, struct inode *inode,
 	*err = -EIO;
 	return NULL;
 }
+
 
 /**
  * walk_page_buffers - Implements the walk page buffers operation within the inode mapping and lifecycle subsystem.
@@ -1106,6 +1112,7 @@ static void ext3_truncate_failed_direct_write(struct inode *inode)
 	ext3_block_truncate_page(inode, inode->i_size);
 	ext3_truncate(inode);
 }
+
 
 /**
  * ext3_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1292,6 +1299,7 @@ static int ext3_ordered_write_end(struct file *file,
 	return ret ? ret : copied;
 }
 
+
 /**
  * ext3_writeback_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1324,6 +1332,7 @@ static int ext3_writeback_write_end(struct file *file,
 		ext3_truncate_failed_write(inode);
 	return ret ? ret : copied;
 }
+
 
 /**
  * ext3_journalled_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1418,6 +1427,7 @@ static sector_t ext3_bmap(struct address_space *mapping, sector_t block)
 	return generic_block_bmap(mapping,block,ext3_get_block);
 }
 
+
 /**
  * bget_one - Implements the bget one operation within the inode mapping and lifecycle subsystem.
  *
@@ -1432,6 +1442,7 @@ static int bget_one(handle_t *handle, struct buffer_head *bh)
 	return 0;
 }
 
+
 /**
  * bput_one - Implements the bput one operation within the inode mapping and lifecycle subsystem.
  *
@@ -1445,6 +1456,7 @@ static int bput_one(handle_t *handle, struct buffer_head *bh)
 	put_bh(bh);
 	return 0;
 }
+
 
 /**
  * buffer_unmapped - Implements the buffer unmapped operation within the inode mapping and lifecycle subsystem.
@@ -1530,6 +1542,7 @@ out_fail:
 	return ret;
 }
 
+
 /**
  * ext3_writeback_writepage - Implements the writeback writepage operation within the inode mapping and lifecycle subsystem.
  *
@@ -1583,6 +1596,7 @@ out_fail:
 	unlock_page(page);
 	return ret;
 }
+
 
 /**
  * ext3_journalled_writepage - Implements the journalled writepage operation within the inode mapping and lifecycle subsystem.
@@ -1655,6 +1669,7 @@ out_unlock:
 	goto out;
 }
 
+
 /**
  * ext3_readpage - Implements the readpage operation within the inode mapping and lifecycle subsystem.
  *
@@ -1668,6 +1683,7 @@ static int ext3_readpage(struct file *file, struct page *page)
 	trace_ext3_readpage(page);
 	return mpage_readpage(page, ext3_get_block);
 }
+
 
 /**
  * ext3_readpages - Implements the readpages operation within the inode mapping and lifecycle subsystem.
@@ -1683,6 +1699,7 @@ ext3_readpages(struct file *file, struct address_space *mapping,
 {
 	return mpage_readpages(mapping, pages, nr_pages, ext3_get_block);
 }
+
 
 /**
  * ext3_invalidatepage - Implements the invalidatepage operation within the inode mapping and lifecycle subsystem.
@@ -1705,6 +1722,7 @@ static void ext3_invalidatepage(struct page *page, unsigned int offset,
 
 	journal_invalidatepage(journal, page, offset, length);
 }
+
 
 /**
  * ext3_releasepage - Implements the releasepage operation within the inode mapping and lifecycle subsystem.
@@ -1877,6 +1895,7 @@ static const struct address_space_operations ext3_journalled_aops = {
 	.is_partially_uptodate  = block_is_partially_uptodate,
 	.error_remove_page	= generic_error_remove_page,
 };
+
 
 /**
  * ext3_set_aops - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -2269,6 +2288,7 @@ static void ext3_free_branches(handle_t *handle, struct inode *inode,
 	}
 }
 
+
 /**
  * ext3_can_truncate - Implements the can truncate operation within the inode mapping and lifecycle subsystem.
  *
@@ -2422,6 +2442,7 @@ out_notrans:
 	trace_ext3_truncate_exit(inode);
 }
 
+
 /**
  * ext3_get_inode_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2571,6 +2592,7 @@ has_buffer:
 	return 0;
 }
 
+
 /**
  * ext3_get_inode_loc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2585,6 +2607,7 @@ int ext3_get_inode_loc(struct inode *inode, struct ext3_iloc *iloc)
 	return __ext3_get_inode_loc(inode, iloc,
 		!ext3_test_inode_state(inode, EXT3_STATE_XATTR));
 }
+
 
 /**
  * ext3_set_inode_flags - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -2637,6 +2660,7 @@ void ext3_get_inode_flags(struct ext3_inode_info *ei)
 	if (flags & S_DIRSYNC)
 		ei->i_flags |= EXT3_DIRSYNC_FL;
 }
+
 
 /**
  * ext3_iget - Implements the iget operation within the inode mapping and lifecycle subsystem.
@@ -3248,6 +3272,7 @@ static int ext3_pin_inode(handle_t *handle, struct inode *inode)
 	return err;
 }
 #endif
+
 
 /**
  * ext3_change_inode_journal_flag - Coordinates a journal transaction or journal-owned buffer/state transition.

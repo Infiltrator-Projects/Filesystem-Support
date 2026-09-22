@@ -42,6 +42,7 @@
 #include <linux/slab.h>
 #include "ext4.h"
 
+
 /**
  * struct ext4_system_zone - Private EXT4 state/data structure used by metadata block validation.
  *
@@ -56,6 +57,7 @@ struct ext4_system_zone {
 };
 
 static struct kmem_cache *ext4_system_zone_cachep;
+
 
 /**
  * ext4_init_system_zone - Initialises subsystem state and establishes the resources required by later operations.
@@ -73,6 +75,7 @@ int __init ext4_init_system_zone(void)
 	return 0;
 }
 
+
 /**
  * ext4_exit_system_zone - Tears down subsystem state after users have been quiesced.
  *
@@ -86,6 +89,7 @@ void ext4_exit_system_zone(void)
 	rcu_barrier();
 	kmem_cache_destroy(ext4_system_zone_cachep);
 }
+
 
 /**
  * can_merge - Implements the can merge operation within the metadata block validation subsystem.
@@ -103,6 +107,7 @@ static inline int can_merge(struct ext4_system_zone *entry1,
 		return 1;
 	return 0;
 }
+
 
 /**
  * release_system_zone - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -186,6 +191,7 @@ static int add_system_zone(struct ext4_system_blocks *system_blks,
 	return 0;
 }
 
+
 /**
  * debug_print_tree - Implements the debug print tree operation within the metadata block validation subsystem.
  *
@@ -215,6 +221,7 @@ static void debug_print_tree(struct ext4_sb_info *sbi)
 	rcu_read_unlock();
 	printk(KERN_CONT "\n");
 }
+
 
 /**
  * ext4_protect_reserved_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -269,6 +276,7 @@ static int ext4_protect_reserved_inode(struct super_block *sb,
 	iput(inode);
 	return err;
 }
+
 
 /**
  * ext4_destroy_system_zone - Tears down subsystem state after users have been quiesced.
@@ -375,6 +383,7 @@ void ext4_release_system_zone(struct super_block *sb)
 		call_rcu(&system_blks->rcu, ext4_destroy_system_zone);
 }
 
+
 /**
  * ext4_sb_block_valid - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -436,6 +445,7 @@ int ext4_inode_block_valid(struct inode *inode, ext4_fsblk_t start_blk,
 {
 	return ext4_sb_block_valid(inode->i_sb, inode, start_blk, count);
 }
+
 
 /**
  * ext4_check_blockref - Validates state before it is trusted by the remainder of the filesystem.

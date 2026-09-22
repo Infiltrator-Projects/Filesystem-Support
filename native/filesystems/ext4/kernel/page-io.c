@@ -47,6 +47,7 @@
 static struct kmem_cache *io_end_cachep;
 static struct kmem_cache *io_end_vec_cachep;
 
+
 /**
  * ext4_init_pageio - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -69,6 +70,7 @@ int __init ext4_init_pageio(void)
 	return 0;
 }
 
+
 /**
  * ext4_exit_pageio - Tears down subsystem state after users have been quiesced.
  *
@@ -82,6 +84,7 @@ void ext4_exit_pageio(void)
 	kmem_cache_destroy(io_end_cachep);
 	kmem_cache_destroy(io_end_vec_cachep);
 }
+
 
 /**
  * ext4_alloc_io_end_vec - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -103,6 +106,7 @@ struct ext4_io_end_vec *ext4_alloc_io_end_vec(ext4_io_end_t *io_end)
 	return io_end_vec;
 }
 
+
 /**
  * ext4_free_io_end_vec - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -122,6 +126,7 @@ static void ext4_free_io_end_vec(ext4_io_end_t *io_end)
 		kmem_cache_free(io_end_vec_cachep, io_end_vec);
 	}
 }
+
 
 /**
  * ext4_last_io_end_vec - Implements the last io end vec operation within the writeback page i/o subsystem.
@@ -152,6 +157,7 @@ static void buffer_io_error(struct buffer_head *bh)
 		       bh->b_bdev,
 			(unsigned long long)bh->b_blocknr);
 }
+
 
 /**
  * ext4_finish_bio - Implements the finish bio operation within the writeback page i/o subsystem.
@@ -207,6 +213,7 @@ static void ext4_finish_bio(struct bio *bio)
 		}
 	}
 }
+
 
 /**
  * ext4_release_io_end - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -273,6 +280,7 @@ static int ext4_end_io_end(ext4_io_end_t *io_end)
 	return ret;
 }
 
+
 /**
  * dump_completed_IO - Implements the dump completed IO operation within the writeback page i/o subsystem.
  *
@@ -331,6 +339,7 @@ static void ext4_add_complete_io(ext4_io_end_t *io_end)
 	spin_unlock_irqrestore(&ei->i_completed_io_lock, flags);
 }
 
+
 /**
  * ext4_do_flush_completed_IO - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
@@ -381,6 +390,7 @@ void ext4_end_io_rsv_work(struct work_struct *work)
 	ext4_do_flush_completed_IO(&ei->vfs_inode, &ei->i_rsv_conversion_list);
 }
 
+
 /**
  * ext4_init_io_end - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -402,6 +412,7 @@ ext4_io_end_t *ext4_init_io_end(struct inode *inode, gfp_t flags)
 	return io_end;
 }
 
+
 /**
  * ext4_put_io_end_defer - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -421,6 +432,7 @@ void ext4_put_io_end_defer(ext4_io_end_t *io_end)
 		ext4_add_complete_io(io_end);
 	}
 }
+
 
 /**
  * ext4_put_io_end - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -445,6 +457,7 @@ int ext4_put_io_end(ext4_io_end_t *io_end)
 	}
 	return err;
 }
+
 
 /**
  * ext4_get_io_end - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -512,6 +525,7 @@ static void ext4_end_bio(struct bio *bio)
 	}
 }
 
+
 /**
  * ext4_io_submit - Implements the io submit operation within the writeback page i/o subsystem.
  *
@@ -532,6 +546,7 @@ void ext4_io_submit(struct ext4_io_submit *io)
 	io->io_bio = NULL;
 }
 
+
 /**
  * ext4_io_submit_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -547,6 +562,7 @@ void ext4_io_submit_init(struct ext4_io_submit *io,
 	io->io_bio = NULL;
 	io->io_end = NULL;
 }
+
 
 /**
  * io_submit_init_bio - Initialises subsystem state and establishes the resources required by later operations.
@@ -571,6 +587,7 @@ static void io_submit_init_bio(struct ext4_io_submit *io,
 	io->io_next_block = bh->b_blocknr;
 	wbc_init_bio(io->io_wbc, bio);
 }
+
 
 /**
  * io_submit_add_bh - Implements the io submit add bh operation within the writeback page i/o subsystem.
@@ -598,6 +615,7 @@ submit_and_retry:
 	wbc_account_cgroup_owner(io->io_wbc, folio, bh->b_size);
 	io->io_next_block++;
 }
+
 
 /**
  * ext4_bio_write_folio - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.

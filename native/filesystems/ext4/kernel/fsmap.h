@@ -48,6 +48,7 @@ struct ext4_fsmap {
 	uint64_t	fmr_length;
 };
 
+
 /**
  * struct ext4_fsmap_head - Private EXT4 state/data structure used by filesystem-map interfaces.
  *

@@ -149,6 +149,7 @@ static inline void __ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
 	submit_bh(REQ_OP_READ | op_flags, bh);
 }
 
+
 /**
  * ext4_read_bh_nowait - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -168,6 +169,7 @@ void ext4_read_bh_nowait(struct buffer_head *bh, blk_opf_t op_flags,
 	}
 	__ext4_read_bh(bh, op_flags, end_io, simu_fail);
 }
+
 
 /**
  * ext4_read_bh - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -194,6 +196,7 @@ int ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
 		return 0;
 	return -EIO;
 }
+
 
 /**
  * ext4_read_bh_lock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -243,6 +246,7 @@ static struct buffer_head *__ext4_sb_bread_gfp(struct super_block *sb,
 	return bh;
 }
 
+
 /**
  * ext4_sb_bread - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -259,6 +263,7 @@ struct buffer_head *ext4_sb_bread(struct super_block *sb, sector_t block,
 
 	return __ext4_sb_bread_gfp(sb, block, op_flags, gfp);
 }
+
 
 /**
  * ext4_sb_bread_unmovable - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -277,6 +282,7 @@ struct buffer_head *ext4_sb_bread_unmovable(struct super_block *sb,
 	return __ext4_sb_bread_gfp(sb, block, 0, gfp);
 }
 
+
 /**
  * ext4_sb_bread_nofail - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -293,6 +299,7 @@ struct buffer_head *ext4_sb_bread_nofail(struct super_block *sb,
 
 	return __ext4_sb_bread_gfp(sb, block, 0, gfp);
 }
+
 
 /**
  * ext4_sb_breadahead_unmovable - Implements the sb breadahead unmovable operation within the mount, superblock and module lifecycle subsystem.
@@ -314,6 +321,7 @@ void ext4_sb_breadahead_unmovable(struct super_block *sb, sector_t block)
 	}
 }
 
+
 /**
  * ext4_verify_csum_type - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -330,6 +338,7 @@ static int ext4_verify_csum_type(struct super_block *sb,
 
 	return es->s_checksum_type == EXT4_CRC32C_CHKSUM;
 }
+
 
 /**
  * ext4_superblock_csum - Implements the superblock csum operation within the mount, superblock and module lifecycle subsystem.
@@ -351,6 +360,7 @@ __le32 ext4_superblock_csum(struct super_block *sb,
 	return cpu_to_le32(csum);
 }
 
+
 /**
  * ext4_superblock_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -367,6 +377,7 @@ static int ext4_superblock_csum_verify(struct super_block *sb,
 
 	return es->s_checksum == ext4_superblock_csum(sb, es);
 }
+
 
 /**
  * ext4_superblock_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -386,6 +397,7 @@ void ext4_superblock_csum_set(struct super_block *sb)
 	es->s_checksum = ext4_superblock_csum(sb, es);
 }
 
+
 /**
  * ext4_block_bitmap - Implements the block bitmap operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -401,6 +413,7 @@ ext4_fsblk_t ext4_block_bitmap(struct super_block *sb,
 		(EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT ?
 		 (ext4_fsblk_t)le32_to_cpu(bg->bg_block_bitmap_hi) << 32 : 0);
 }
+
 
 /**
  * ext4_inode_bitmap - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -418,6 +431,7 @@ ext4_fsblk_t ext4_inode_bitmap(struct super_block *sb,
 		 (ext4_fsblk_t)le32_to_cpu(bg->bg_inode_bitmap_hi) << 32 : 0);
 }
 
+
 /**
  * ext4_inode_table - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -433,6 +447,7 @@ ext4_fsblk_t ext4_inode_table(struct super_block *sb,
 		(EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT ?
 		 (ext4_fsblk_t)le32_to_cpu(bg->bg_inode_table_hi) << 32 : 0);
 }
+
 
 /**
  * ext4_free_group_clusters - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -450,6 +465,7 @@ __u32 ext4_free_group_clusters(struct super_block *sb,
 		 (__u32)le16_to_cpu(bg->bg_free_blocks_count_hi) << 16 : 0);
 }
 
+
 /**
  * ext4_free_inodes_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -465,6 +481,7 @@ __u32 ext4_free_inodes_count(struct super_block *sb,
 		(EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT ?
 		 (__u32)le16_to_cpu(READ_ONCE(bg->bg_free_inodes_count_hi)) << 16 : 0);
 }
+
 
 /**
  * ext4_used_dirs_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -482,6 +499,7 @@ __u32 ext4_used_dirs_count(struct super_block *sb,
 		 (__u32)le16_to_cpu(bg->bg_used_dirs_count_hi) << 16 : 0);
 }
 
+
 /**
  * ext4_itable_unused_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -497,6 +515,7 @@ __u32 ext4_itable_unused_count(struct super_block *sb,
 		(EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT ?
 		 (__u32)le16_to_cpu(bg->bg_itable_unused_hi) << 16 : 0);
 }
+
 
 /**
  * ext4_block_bitmap_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -514,6 +533,7 @@ void ext4_block_bitmap_set(struct super_block *sb,
 		bg->bg_block_bitmap_hi = cpu_to_le32(blk >> 32);
 }
 
+
 /**
  * ext4_inode_bitmap_set - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -529,6 +549,7 @@ void ext4_inode_bitmap_set(struct super_block *sb,
 	if (EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT)
 		bg->bg_inode_bitmap_hi = cpu_to_le32(blk >> 32);
 }
+
 
 /**
  * ext4_inode_table_set - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -546,6 +567,7 @@ void ext4_inode_table_set(struct super_block *sb,
 		bg->bg_inode_table_hi = cpu_to_le32(blk >> 32);
 }
 
+
 /**
  * ext4_free_group_clusters_set - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -561,6 +583,7 @@ void ext4_free_group_clusters_set(struct super_block *sb,
 	if (EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT)
 		bg->bg_free_blocks_count_hi = cpu_to_le16(count >> 16);
 }
+
 
 /**
  * ext4_free_inodes_set - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -578,6 +601,7 @@ void ext4_free_inodes_set(struct super_block *sb,
 		WRITE_ONCE(bg->bg_free_inodes_count_hi, cpu_to_le16(count >> 16));
 }
 
+
 /**
  * ext4_used_dirs_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -593,6 +617,7 @@ void ext4_used_dirs_set(struct super_block *sb,
 	if (EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT)
 		bg->bg_used_dirs_count_hi = cpu_to_le16(count >> 16);
 }
+
 
 /**
  * ext4_itable_unused_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -610,6 +635,7 @@ void ext4_itable_unused_set(struct super_block *sb,
 		bg->bg_itable_unused_hi = cpu_to_le16(count >> 16);
 }
 
+
 /**
  * __ext4_update_tstamp - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -625,6 +651,7 @@ static void __ext4_update_tstamp(__le32 *lo, __u8 *hi, time64_t now)
 	*lo = cpu_to_le32(lower_32_bits(now));
 	*hi = upper_32_bits(now);
 }
+
 
 /**
  * __ext4_get_tstamp - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -686,6 +713,7 @@ static void ext4_maybe_update_superblock(struct super_block *sb)
 	if (diff_size > EXT4_SB_REFRESH_INTERVAL_KB)
 		schedule_work(&EXT4_SB(sb)->s_sb_upd_work);
 }
+
 
 /**
  * ext4_journal_commit_callback - Advances journalled state toward a durable transaction or checkpoint boundary.
@@ -753,6 +781,7 @@ out:
 	return AOP_WRITEPAGE_ACTIVATE;
 }
 
+
 /**
  * ext4_journalled_submit_inode_data_buffers - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -776,6 +805,7 @@ static int ext4_journalled_submit_inode_data_buffers(struct jbd2_inode *jinode)
 				 jinode->i_transaction);
 }
 
+
 /**
  * ext4_journal_submit_inode_data_buffers - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -795,6 +825,7 @@ static int ext4_journal_submit_inode_data_buffers(struct jbd2_inode *jinode)
 	return ret;
 }
 
+
 /**
  * ext4_journal_finish_inode_data_buffers - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -813,6 +844,7 @@ static int ext4_journal_finish_inode_data_buffers(struct jbd2_inode *jinode)
 	return ret;
 }
 
+
 /**
  * system_going_down - Implements the system going down operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -826,6 +858,7 @@ static bool system_going_down(void)
 	return system_state == SYSTEM_HALT || system_state == SYSTEM_POWER_OFF
 		|| system_state == SYSTEM_RESTART;
 }
+
 
 /**
  * struct ext4_err_translation - Private EXT4 state/data structure used by mount, superblock and module lifecycle.
@@ -859,6 +892,7 @@ static struct ext4_err_translation err_translation[] = {
 	EXT4_ERR_TRANSLATE(EFAULT),
 };
 
+
 /**
  * ext4_errno_to_code - Implements the errno to code operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -876,6 +910,7 @@ static int ext4_errno_to_code(int errno)
 			return err_translation[i].code;
 	return EXT4_ERR_UNKNOWN;
 }
+
 
 /**
  * save_error_info - Implements the save error info operation within the mount, superblock and module lifecycle subsystem.
@@ -965,6 +1000,7 @@ static void ext4_handle_error(struct super_block *sb, bool force_ro, int error,
 
 }
 
+
 /**
  * update_super_work - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1026,6 +1062,7 @@ write_directly:
 		___ratelimit(&(EXT4_SB(sb)->s_err_ratelimit_state),	\
 			     "EXT4-fs error")
 
+
 /**
  * __ext4_error - Implements the error operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1058,6 +1095,7 @@ void __ext4_error(struct super_block *sb, const char *function,
 
 	ext4_handle_error(sb, force_ro, error, 0, block, function, line);
 }
+
 
 /**
  * __ext4_error_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -1099,6 +1137,7 @@ void __ext4_error_inode(struct inode *inode, const char *function,
 	ext4_handle_error(inode->i_sb, false, error, inode->i_ino, block,
 			  function, line);
 }
+
 
 /**
  * __ext4_error_file - Implements the error file operation within the mount, superblock and module lifecycle subsystem.
@@ -1147,6 +1186,7 @@ void __ext4_error_file(struct file *file, const char *function,
 	ext4_handle_error(inode->i_sb, false, EFSCORRUPTED, inode->i_ino, block,
 			  function, line);
 }
+
 
 /**
  * ext4_decode_error - Implements the decode error operation within the mount, superblock and module lifecycle subsystem.
@@ -1227,6 +1267,7 @@ void __ext4_std_error(struct super_block *sb, const char *function,
 	ext4_handle_error(sb, false, -errno, 0, 0, function, line);
 }
 
+
 /**
  * __ext4_msg - Implements the msg operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1258,6 +1299,7 @@ void __ext4_msg(struct super_block *sb,
 	va_end(args);
 }
 
+
 /**
  * ext4_warning_ratelimit - Implements the warning ratelimit operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1272,6 +1314,7 @@ static int ext4_warning_ratelimit(struct super_block *sb)
 	return ___ratelimit(&(EXT4_SB(sb)->s_warning_ratelimit_state),
 			    "EXT4-fs warning");
 }
+
 
 /**
  * __ext4_warning - Implements the warning operation within the mount, superblock and module lifecycle subsystem.
@@ -1298,6 +1341,7 @@ void __ext4_warning(struct super_block *sb, const char *function,
 	va_end(args);
 }
 
+
 /**
  * __ext4_warning_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -1323,6 +1367,7 @@ void __ext4_warning_inode(const struct inode *inode, const char *function,
 	       function, line, inode->i_ino, current->comm, &vaf);
 	va_end(args);
 }
+
 
 /**
  * __acquires - Implements the acquires operation within the mount, superblock and module lifecycle subsystem.
@@ -1380,6 +1425,7 @@ __acquires(bitlock)
 	return;
 }
 
+
 /**
  * ext4_mark_group_bitmap_corrupted - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1420,6 +1466,7 @@ void ext4_mark_group_bitmap_corrupted(struct super_block *sb,
 	}
 }
 
+
 /**
  * ext4_update_dynamic_rev - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1447,6 +1494,7 @@ void ext4_update_dynamic_rev(struct super_block *sb)
 
 }
 
+
 /**
  * orphan_list_entry - Implements the orphan list entry operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1459,6 +1507,7 @@ static inline struct inode *orphan_list_entry(struct list_head *l)
 {
 	return &list_entry(l, struct ext4_inode_info, i_orphan)->vfs_inode;
 }
+
 
 /**
  * dump_orphan_list - Implements the dump orphan list operation within the mount, superblock and module lifecycle subsystem.
@@ -1488,6 +1537,7 @@ static void dump_orphan_list(struct super_block *sb, struct ext4_sb_info *sbi)
 
 #ifdef CONFIG_QUOTA
 static int ext4_quota_off(struct super_block *sb, int type);
+
 
 /**
  * ext4_quotas_off - Implements the quotas off operation within the mount, superblock and module lifecycle subsystem.
@@ -1523,6 +1573,8 @@ static inline char *get_qf_name(struct super_block *sb,
 					 lockdep_is_held(&sb->s_umount));
 }
 #else
+
+
 /**
  * ext4_quotas_off - Implements the quotas off operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1535,6 +1587,7 @@ static inline void ext4_quotas_off(struct super_block *sb, int type)
 {
 }
 #endif
+
 
 /**
  * ext4_percpu_param_init - Initialises subsystem state and establishes the resources required by later operations.
@@ -1577,6 +1630,7 @@ static int ext4_percpu_param_init(struct ext4_sb_info *sbi)
 	return err;
 }
 
+
 /**
  * ext4_percpu_param_destroy - Tears down subsystem state after users have been quiesced.
  *
@@ -1594,6 +1648,7 @@ static void ext4_percpu_param_destroy(struct ext4_sb_info *sbi)
 	percpu_counter_destroy(&sbi->s_sra_exceeded_retry_limit);
 	percpu_free_rwsem(&sbi->s_writepages_rwsem);
 }
+
 
 /**
  * ext4_group_desc_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1613,6 +1668,7 @@ static void ext4_group_desc_free(struct ext4_sb_info *sbi)
 		brelse(group_desc[i]);
 	kvfree(group_desc);
 }
+
 
 /**
  * ext4_flex_groups_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1634,6 +1690,7 @@ static void ext4_flex_groups_free(struct ext4_sb_info *sbi)
 		kvfree(flex_groups);
 	}
 }
+
 
 /**
  * ext4_put_super - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1787,6 +1844,7 @@ static struct inode *ext4_alloc_inode(struct super_block *sb)
 	return &ei->vfs_inode;
 }
 
+
 /**
  * ext4_drop_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -1806,6 +1864,7 @@ static int ext4_drop_inode(struct inode *inode)
 	return drop;
 }
 
+
 /**
  * ext4_free_in_core_inode - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1823,6 +1882,7 @@ static void ext4_free_in_core_inode(struct inode *inode)
 	}
 	kmem_cache_free(ext4_inode_cachep, EXT4_I(inode));
 }
+
 
 /**
  * ext4_destroy_inode - Tears down subsystem state after users have been quiesced.
@@ -1852,6 +1912,7 @@ static void ext4_destroy_inode(struct inode *inode)
 			 EXT4_I(inode)->i_reserved_data_blocks);
 }
 
+
 /**
  * ext4_shutdown - Implements the shutdown operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1864,6 +1925,7 @@ static void ext4_shutdown(struct super_block *sb)
 {
        ext4_force_shutdown(sb, EXT4_GOING_FLAGS_NOLOGFLUSH);
 }
+
 
 /**
  * init_once - Initialises subsystem state and establishes the resources required by later operations.
@@ -1883,6 +1945,7 @@ static void init_once(void *foo)
 	inode_init_once(&ei->vfs_inode);
 	ext4_fc_init_inode(&ei->vfs_inode);
 }
+
 
 /**
  * init_inodecache - Initialises subsystem state and establishes the resources required by later operations.
@@ -1905,6 +1968,7 @@ static int __init init_inodecache(void)
 	return 0;
 }
 
+
 /**
  * destroy_inodecache - Tears down subsystem state after users have been quiesced.
  *
@@ -1920,6 +1984,7 @@ static void destroy_inodecache(void)
 	rcu_barrier();
 	kmem_cache_destroy(ext4_inode_cachep);
 }
+
 
 /**
  * ext4_clear_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -1947,6 +2012,7 @@ void ext4_clear_inode(struct inode *inode)
 	fsverity_cleanup_inode(inode);
 }
 
+
 /**
  * ext4_nfs_get_inode - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1972,6 +2038,7 @@ static struct inode *ext4_nfs_get_inode(struct super_block *sb,
 	return inode;
 }
 
+
 /**
  * ext4_fh_to_dentry - Implements the fh to dentry operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1987,6 +2054,7 @@ static struct dentry *ext4_fh_to_dentry(struct super_block *sb, struct fid *fid,
 				    ext4_nfs_get_inode);
 }
 
+
 /**
  * ext4_fh_to_parent - Implements the fh to parent operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -2001,6 +2069,7 @@ static struct dentry *ext4_fh_to_parent(struct super_block *sb, struct fid *fid,
 	return generic_fh_to_parent(sb, fid, fh_len, fh_type,
 				    ext4_nfs_get_inode);
 }
+
 
 /**
  * ext4_nfs_commit_metadata - Advances journalled state toward a durable transaction or checkpoint boundary.
@@ -2037,6 +2106,7 @@ static ssize_t ext4_quota_write(struct super_block *sb, int type,
 				const char *data, size_t len, loff_t off);
 static int ext4_quota_enable(struct super_block *sb, int type, int format_id,
 			     unsigned int flags);
+
 
 /**
  * ext4_get_dquots - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2365,6 +2435,7 @@ static const struct ext4_sb_encodings {
 	{EXT4_ENC_UTF8_12_1, "utf8", UNICODE_AGE(12, 1, 0)},
 };
 
+
 /**
  * ext4_sb_read_encoding - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2438,6 +2509,7 @@ struct ext4_fs_context {
 	ext4_fsblk_t	s_sb_block;
 };
 
+
 /**
  * ext4_fc_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -2460,6 +2532,7 @@ static void ext4_fc_free(struct fs_context *fc)
 	fscrypt_free_dummy_policy(&ctx->dummy_enc_policy);
 	kfree(ctx);
 }
+
 
 /**
  * ext4_init_fs_context - Initialises subsystem state and establishes the resources required by later operations.
@@ -2556,6 +2629,7 @@ static int unnote_qf_name(struct fs_context *fc, int qtype)
 }
 #endif
 
+
 /**
  * ext4_parse_test_dummy_encryption - Implements the parse test dummy encryption operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -2617,6 +2691,7 @@ EXT4_TEST_CTX(mount_opt);
 EXT4_SET_CTX(mount_opt2);
 EXT4_CLEAR_CTX(mount_opt2);
 EXT4_TEST_CTX(mount_opt2);
+
 
 /**
  * ext4_parse_param - Implements the parse param operation within the mount, superblock and module lifecycle subsystem.
@@ -2917,6 +2992,7 @@ static int ext4_parse_param(struct fs_context *fc, struct fs_parameter *param)
 	return 0;
 }
 
+
 /**
  * parse_options - Implements the parse options operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -2971,6 +3047,7 @@ static int parse_options(struct fs_context *fc, char *options)
 
 	return 0;
 }
+
 
 /**
  * parse_apply_sb_mount_options - Implements a mount-path operation for the owning filesystem.
@@ -3033,6 +3110,7 @@ out_free:
 	kfree(fc);
 	return ret;
 }
+
 
 /**
  * ext4_apply_quota_options - Implements the apply quota options operation within the mount, superblock and module lifecycle subsystem.
@@ -3199,6 +3277,7 @@ err_jquota_specified:
 #endif
 }
 
+
 /**
  * ext4_check_test_dummy_encryption - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -3243,6 +3322,7 @@ static int ext4_check_test_dummy_encryption(const struct fs_context *fc,
 	return 0;
 }
 
+
 /**
  * ext4_apply_test_dummy_encryption - Implements the apply test dummy encryption operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -3262,6 +3342,7 @@ static void ext4_apply_test_dummy_encryption(struct ext4_fs_context *ctx,
 	memset(&ctx->dummy_enc_policy, 0, sizeof(ctx->dummy_enc_policy));
 	ext4_msg(sb, KERN_WARNING, "Test dummy encryption mode enabled");
 }
+
 
 /**
  * ext4_check_opt_consistency - Validates state before it is trusted by the remainder of the filesystem.
@@ -3343,6 +3424,7 @@ fail_dax_change_remount:
 	return ext4_check_quota_consistency(fc, sb);
 }
 
+
 /**
  * ext4_apply_options - Implements the apply options operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -3419,6 +3501,7 @@ static int ext4_validate_options(struct fs_context *fc)
 	return 1;
 }
 
+
 /**
  * ext4_show_quota_options - Implements the show quota options operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -3461,6 +3544,7 @@ static inline void ext4_show_quota_options(struct seq_file *seq,
 	rcu_read_unlock();
 #endif
 }
+
 
 /**
  * token2str - Implements the token2str operation within the mount, superblock and module lifecycle subsystem.
@@ -3601,6 +3685,7 @@ static int _ext4_show_options(struct seq_file *seq, struct super_block *sb,
 	return 0;
 }
 
+
 /**
  * ext4_show_options - Implements the show options operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -3613,6 +3698,7 @@ static int ext4_show_options(struct seq_file *seq, struct dentry *root)
 {
 	return _ext4_show_options(seq, root->d_sb, 0);
 }
+
 
 /**
  * ext4_seq_options_show - Implements the seq options show operation within the mount, superblock and module lifecycle subsystem.
@@ -3632,6 +3718,7 @@ int ext4_seq_options_show(struct seq_file *seq, void *offset)
 	seq_putc(seq, '\n');
 	return rc;
 }
+
 
 /**
  * ext4_setup_super - Initialises subsystem state and establishes the resources required by later operations.
@@ -3699,6 +3786,7 @@ done:
 	return err;
 }
 
+
 /**
  * ext4_alloc_flex_bg_array - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -3754,6 +3842,7 @@ int ext4_alloc_flex_bg_array(struct super_block *sb, ext4_group_t ngroup)
 	return 0;
 }
 
+
 /**
  * ext4_fill_flex_info - Implements the fill flex info operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -3795,6 +3884,7 @@ static int ext4_fill_flex_info(struct super_block *sb)
 failed:
 	return 0;
 }
+
 
 /**
  * ext4_group_desc_csum - Implements the group desc csum operation within the mount, superblock and module lifecycle subsystem.
@@ -3848,6 +3938,7 @@ out:
 	return cpu_to_le16(crc);
 }
 
+
 /**
  * ext4_group_desc_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -3865,6 +3956,7 @@ int ext4_group_desc_csum_verify(struct super_block *sb, __u32 block_group,
 
 	return 1;
 }
+
 
 /**
  * ext4_group_desc_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -4113,6 +4205,7 @@ check_lfs:
 
 	return res;
 }
+
 
 /**
  * descriptor_loc - Implements the descriptor loc operation within the mount, superblock and module lifecycle subsystem.
@@ -4382,6 +4475,7 @@ static void ext4_remove_li_request(struct ext4_li_request *elr)
 	kfree(elr);
 }
 
+
 /**
  * ext4_unregister_li_request - Implements the unregister li request operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -4507,6 +4601,7 @@ exit_thread:
 	return 0;
 }
 
+
 /**
  * ext4_clear_request_list - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -4528,6 +4623,7 @@ static void ext4_clear_request_list(void)
 	}
 	mutex_unlock(&ext4_li_info->li_list_mtx);
 }
+
 
 /**
  * ext4_run_lazyinit_thread - Implements the run lazyinit thread operation within the mount, superblock and module lifecycle subsystem.
@@ -4584,6 +4680,7 @@ static ext4_group_t ext4_has_uninit_itable(struct super_block *sb)
 	return group;
 }
 
+
 /**
  * ext4_li_info_new - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -4609,6 +4706,7 @@ static int ext4_li_info_new(void)
 
 	return 0;
 }
+
 
 /**
  * ext4_li_request_new - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -4640,6 +4738,7 @@ static struct ext4_li_request *ext4_li_request_new(struct super_block *sb,
 	elr->lr_next_sched = jiffies + get_random_u32_below(EXT4_DEF_LI_MAX_START_DELAY * HZ);
 	return elr;
 }
+
 
 /**
  * ext4_register_li_request - Implements the register li request operation within the mount, superblock and module lifecycle subsystem.
@@ -4721,6 +4820,7 @@ static void ext4_destroy_lazyinit_thread(void)
 
 	kthread_stop(ext4_lazyinit_task);
 }
+
 
 /**
  * set_journal_csum_feature_set - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -4894,6 +4994,7 @@ int ext4_calculate_overhead(struct super_block *sb)
 	return 0;
 }
 
+
 /**
  * ext4_set_resv_clusters - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -4921,6 +5022,7 @@ static void ext4_set_resv_clusters(struct super_block *sb)
 	atomic64_set(&sbi->s_resv_clusters, resv_clusters);
 }
 
+
 /**
  * ext4_quota_mode - Implements the quota mode operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -4944,6 +5046,7 @@ static const char *ext4_quota_mode(struct super_block *sb)
 #endif
 }
 
+
 /**
  * ext4_setup_csum_trigger - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -4966,6 +5069,7 @@ static void ext4_setup_csum_trigger(struct super_block *sb,
 	sbi->s_journal_triggers[type].tr_triggers.t_frozen = trigger;
 }
 
+
 /**
  * ext4_free_sbi - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -4983,6 +5087,7 @@ static void ext4_free_sbi(struct ext4_sb_info *sbi)
 	fs_put_dax(sbi->s_daxdev, NULL);
 	kfree(sbi);
 }
+
 
 /**
  * ext4_alloc_sbi - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -5017,6 +5122,7 @@ err_out:
 	kfree(sbi);
 	return NULL;
 }
+
 
 /**
  * ext4_set_def_opts - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -5080,6 +5186,7 @@ static void ext4_set_def_opts(struct super_block *sb,
 		set_opt(sb, DIOREAD_NOLOCK);
 }
 
+
 /**
  * ext4_handle_clustersize - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -5142,6 +5249,7 @@ static int ext4_handle_clustersize(struct super_block *sb)
 	return 0;
 }
 
+
 /**
  * ext4_fast_commit_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -5173,6 +5281,7 @@ static void ext4_fast_commit_init(struct super_block *sb)
 	sbi->s_fc_replay_state.fc_modified_inodes_size = 0;
 	sbi->s_fc_replay_state.fc_modified_inodes_used = 0;
 }
+
 
 /**
  * ext4_inode_info_init - Initialises subsystem state and establishes the resources required by later operations.
@@ -5251,6 +5360,8 @@ static int ext4_inode_info_init(struct super_block *sb,
 }
 
 #if IS_ENABLED(CONFIG_UNICODE)
+
+
 /**
  * ext4_encoding_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -5300,6 +5411,8 @@ static int ext4_encoding_init(struct super_block *sb, struct ext4_super_block *e
 	return 0;
 }
 #else
+
+
 /**
  * ext4_encoding_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -5313,6 +5426,7 @@ static inline int ext4_encoding_init(struct super_block *sb, struct ext4_super_b
 	return 0;
 }
 #endif
+
 
 /**
  * ext4_init_metadata_csum - Initialises subsystem state and establishes the resources required by later operations.
@@ -5365,6 +5479,7 @@ static int ext4_init_metadata_csum(struct super_block *sb, struct ext4_super_blo
 					       sizeof(es->s_uuid));
 	return 0;
 }
+
 
 /**
  * ext4_check_feature_compatibility - Validates state before it is trusted by the remainder of the filesystem.
@@ -5436,6 +5551,7 @@ static int ext4_check_feature_compatibility(struct super_block *sb,
 
 	return 0;
 }
+
 
 /**
  * ext4_check_geometry - Validates state before it is trusted by the remainder of the filesystem.
@@ -5519,6 +5635,7 @@ static int ext4_check_geometry(struct super_block *sb,
 	return 0;
 }
 
+
 /**
  * ext4_group_desc_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -5588,6 +5705,7 @@ static int ext4_group_desc_init(struct super_block *sb,
 
 	return 0;
 }
+
 
 /**
  * ext4_load_and_init_journal - Initialises subsystem state and establishes the resources required by later operations.
@@ -5678,6 +5796,7 @@ out:
 	return -EINVAL;
 }
 
+
 /**
  * ext4_check_journal_data_mode - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -5718,6 +5837,7 @@ static int ext4_check_journal_data_mode(struct super_block *sb)
 
 	return 0;
 }
+
 
 /**
  * ext4_load_super - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -5825,6 +5945,7 @@ out:
 	return ret;
 }
 
+
 /**
  * ext4_hash_info_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -5873,6 +5994,7 @@ static int ext4_hash_info_init(struct super_block *sb)
 	}
 	return 0;
 }
+
 
 /**
  * ext4_block_group_meta_init - Initialises subsystem state and establishes the resources required by later operations.
@@ -5946,6 +6068,7 @@ static bool ext4_is_stripe_incompatible(struct super_block *sb, unsigned long st
 	return (stripe > 0 && sbi->s_cluster_ratio > 1 &&
 		stripe % sbi->s_cluster_ratio != 0);
 }
+
 
 /**
  * __ext4_fill_super - Constructs and validates the mounted filesystem state before it is published to VFS.
@@ -6395,6 +6518,7 @@ out_fail:
 	return err;
 }
 
+
 /**
  * ext4_fill_super - Constructs and validates the mounted filesystem state before it is published to VFS.
  *
@@ -6453,6 +6577,7 @@ free_sbi:
 	return ret;
 }
 
+
 /**
  * ext4_get_tree - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -6499,6 +6624,7 @@ static void ext4_init_journal_params(struct super_block *sb, journal_t *journal)
 	write_unlock(&journal->j_state_lock);
 }
 
+
 /**
  * ext4_get_journal_inode - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -6535,6 +6661,7 @@ static struct inode *ext4_get_journal_inode(struct super_block *sb,
 	return journal_inode;
 }
 
+
 /**
  * ext4_journal_bmap - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -6565,6 +6692,7 @@ static int ext4_journal_bmap(journal_t *journal, sector_t *block)
 	return 0;
 }
 
+
 /**
  * ext4_open_inode_journal - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -6594,6 +6722,7 @@ static journal_t *ext4_open_inode_journal(struct super_block *sb,
 	ext4_init_journal_params(sb, journal);
 	return journal;
 }
+
 
 /**
  * ext4_get_journal_blkdev - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -6682,6 +6811,7 @@ out_bdev:
 	return ERR_PTR(errno);
 }
 
+
 /**
  * ext4_open_dev_journal - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -6728,6 +6858,7 @@ out_bdev:
 	bdev_fput(bdev_file);
 	return ERR_PTR(errno);
 }
+
 
 /**
  * ext4_load_journal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -6939,6 +7070,7 @@ static void ext4_update_super(struct super_block *sb)
 	unlock_buffer(sbh);
 }
 
+
 /**
  * ext4_commit_super - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
@@ -7091,6 +7223,7 @@ int ext4_force_commit(struct super_block *sb)
 	return ext4_journal_force_commit(EXT4_SB(sb)->s_journal);
 }
 
+
 /**
  * ext4_sync_fs - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
@@ -7220,6 +7353,7 @@ struct ext4_mount_options {
 	char *s_qf_names[EXT4_MAXQUOTAS];
 #endif
 };
+
 
 /**
  * __ext4_remount - Implements the remount operation within the mount, superblock and module lifecycle subsystem.
@@ -7509,6 +7643,7 @@ restore_opts:
 	return err;
 }
 
+
 /**
  * ext4_reconfigure - Implements the reconfigure operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -7541,6 +7676,8 @@ static int ext4_reconfigure(struct fs_context *fc)
 }
 
 #ifdef CONFIG_QUOTA
+
+
 /**
  * ext4_statfs_project - Implements the statfs project operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -7597,6 +7734,7 @@ static int ext4_statfs_project(struct super_block *sb,
 	return 0;
 }
 #endif
+
 
 /**
  * ext4_statfs - Implements the statfs operation within the mount, superblock and module lifecycle subsystem.
@@ -7659,6 +7797,7 @@ static inline struct inode *dquot_to_inode(struct dquot *dquot)
 	return sb_dqopt(dquot->dq_sb)->files[dquot->dq_id.type];
 }
 
+
 /**
  * ext4_write_dquot - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -7689,6 +7828,7 @@ static int ext4_write_dquot(struct dquot *dquot)
 	return ret;
 }
 
+
 /**
  * ext4_acquire_dquot - Implements the acquire dquot operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -7716,6 +7856,7 @@ static int ext4_acquire_dquot(struct dquot *dquot)
 		ret = err;
 	return ret;
 }
+
 
 /**
  * ext4_release_dquot - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -7761,6 +7902,7 @@ static int ext4_release_dquot(struct dquot *dquot)
 	return ret;
 }
 
+
 /**
  * ext4_mark_dquot_dirty - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -7780,6 +7922,7 @@ static int ext4_mark_dquot_dirty(struct dquot *dquot)
 		return dquot_mark_dquot_dirty(dquot);
 	}
 }
+
 
 /**
  * ext4_write_info - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -7804,6 +7947,7 @@ static int ext4_write_info(struct super_block *sb, int type)
 		ret = err;
 	return ret;
 }
+
 
 /**
  * lockdep_set_quota_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -7888,6 +8032,7 @@ static int ext4_quota_on(struct super_block *sb, int type, int format_id,
 	return err;
 }
 
+
 /**
  * ext4_check_quota_inum - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -7909,6 +8054,7 @@ static inline bool ext4_check_quota_inum(int type, unsigned long qf_inum)
 		BUG();
 	}
 }
+
 
 /**
  * ext4_quota_enable - Implements the quota enable operation within the mount, superblock and module lifecycle subsystem.
@@ -8001,6 +8147,7 @@ int ext4_enable_quotas(struct super_block *sb)
 	}
 	return 0;
 }
+
 
 /**
  * ext4_quota_off - Implements the quota off operation within the mount, superblock and module lifecycle subsystem.
@@ -8198,6 +8345,7 @@ MODULE_ALIAS_FS("ext4");
 
 wait_queue_head_t ext4__ioend_wq[EXT4_WQ_HASH_SZ];
 
+
 /**
  * ext4_core_init_fs - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -8281,6 +8429,7 @@ out7:
 	return err;
 }
 
+
 /**
  * ext4_core_exit_fs - Tears down subsystem state after users have been quiesced.
  *
@@ -8313,6 +8462,7 @@ void infiltratr_mbcache_exit(void);
 int infiltratr_jbd2_init(void);
 void infiltratr_jbd2_exit(void);
 
+
 /**
  * ext4_init_fs - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -8338,6 +8488,7 @@ static int __init ext4_init_fs(void)
 	}
 	return err;
 }
+
 
 /**
  * ext4_exit_fs - Tears down subsystem state after users have been quiesced.

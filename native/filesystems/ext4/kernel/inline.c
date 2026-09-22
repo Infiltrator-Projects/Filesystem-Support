@@ -42,6 +42,7 @@
 #define EXT4_INLINE_DOTDOT_OFFSET	2
 #define EXT4_INLINE_DOTDOT_SIZE		4
 
+
 /**
  * ext4_get_inline_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -57,6 +58,7 @@ static int ext4_get_inline_size(struct inode *inode)
 
 	return 0;
 }
+
 
 /**
  * get_max_inline_xattr_value_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -217,6 +219,7 @@ out:
 	return error;
 }
 
+
 /**
  * ext4_read_inline_data - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -312,6 +315,7 @@ static void ext4_write_inline_data(struct inode *inode, struct ext4_iloc *iloc,
 	       buffer, len);
 }
 
+
 /**
  * ext4_create_inline_data - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -388,6 +392,7 @@ out:
 	brelse(is.iloc.bh);
 	return error;
 }
+
 
 /**
  * ext4_update_inline_data - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -468,6 +473,7 @@ out:
 	return error;
 }
 
+
 /**
  * ext4_prepare_inline_data - Implements the prepare inline data operation within the inline-data support subsystem.
  *
@@ -501,6 +507,7 @@ static int ext4_prepare_inline_data(handle_t *handle, struct inode *inode,
 	ext4_write_unlock_xattr(inode, &no_expand);
 	return ret;
 }
+
 
 /**
  * ext4_destroy_inline_data_nolock - Tears down subsystem state after users have been quiesced.
@@ -577,6 +584,7 @@ out:
 	return error;
 }
 
+
 /**
  * ext4_read_inline_folio - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -627,6 +635,7 @@ out:
 	return ret;
 }
 
+
 /**
  * ext4_readpage_inline - Implements the readpage inline operation within the inline-data support subsystem.
  *
@@ -658,6 +667,7 @@ int ext4_readpage_inline(struct inode *inode, struct folio *folio)
 	folio_unlock(folio);
 	return ret >= 0 ? 0 : ret;
 }
+
 
 /**
  * ext4_convert_inline_data_to_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
@@ -862,6 +872,7 @@ out:
 convert:
 	return ext4_convert_inline_data_to_extent(mapping, inode);
 }
+
 
 /**
  * ext4_write_inline_data_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1082,6 +1093,8 @@ out:
 }
 
 #ifdef INLINE_DIR_DEBUG
+
+
 /**
  * ext4_show_inline_dir - Implements the show inline dir operation within the inline-data support subsystem.
  *
@@ -1157,6 +1170,7 @@ static int ext4_add_dirent_to_inline(handle_t *handle,
 	return 1;
 }
 
+
 /**
  * ext4_get_inline_xattr_pos - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1214,6 +1228,7 @@ static void ext4_update_final_de(void *de_buf, int old_size, int new_size)
 	}
 }
 
+
 /**
  * ext4_update_inline_dir - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1244,6 +1259,7 @@ static int ext4_update_inline_dir(handle_t *handle, struct inode *dir,
 	return 0;
 }
 
+
 /**
  * ext4_restore_inline_data - Implements the restore inline data operation within the inline-data support subsystem.
  *
@@ -1268,6 +1284,7 @@ static void ext4_restore_inline_data(handle_t *handle, struct inode *inode,
 	ext4_write_inline_data(inode, iloc, buf, 0, inline_size);
 	ext4_set_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
 }
+
 
 /**
  * ext4_finish_convert_inline_dir - Implements the finish convert inline dir operation within the inline-data support subsystem.
@@ -1318,6 +1335,7 @@ static int ext4_finish_convert_inline_dir(handle_t *handle,
 	set_buffer_verified(dir_block);
 	return ext4_mark_inode_dirty(handle, inode);
 }
+
 
 /**
  * ext4_convert_inline_data_nolock - Implements the convert inline data nolock operation within the inline-data support subsystem.
@@ -1719,6 +1737,7 @@ out:
 	return ret;
 }
 
+
 /**
  * ext4_read_inline_link - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1755,6 +1774,7 @@ out:
 	brelse(iloc.bh);
 	return link;
 }
+
 
 /**
  * ext4_get_first_inline_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1817,6 +1837,7 @@ out:
 	brelse(iloc.bh);
 	return ret;
 }
+
 
 /**
  * ext4_find_inline_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1888,6 +1909,7 @@ out_find:
 	up_read(&EXT4_I(dir)->xattr_sem);
 	return is.iloc.bh;
 }
+
 
 /**
  * ext4_delete_inline_entry - Implements the delete inline entry operation within the inline-data support subsystem.
@@ -1986,6 +2008,7 @@ ext4_get_inline_entry(struct inode *inode,
 	return (struct ext4_dir_entry_2 *)(inline_pos + offset);
 }
 
+
 /**
  * empty_inline_dir - Implements the empty inline dir operation within the inline-data support subsystem.
  *
@@ -2057,6 +2080,7 @@ out:
 	return ret;
 }
 
+
 /**
  * ext4_destroy_inline_data - Tears down subsystem state after users have been quiesced.
  *
@@ -2075,6 +2099,7 @@ int ext4_destroy_inline_data(handle_t *handle, struct inode *inode)
 
 	return ret;
 }
+
 
 /**
  * ext4_inline_data_iomap - Implements the inline data iomap operation within the inline-data support subsystem.
@@ -2115,6 +2140,7 @@ out:
 	up_read(&EXT4_I(inode)->xattr_sem);
 	return error;
 }
+
 
 /**
  * ext4_inline_data_truncate - Implements the inline data truncate operation within the inline-data support subsystem.
@@ -2231,6 +2257,7 @@ out:
 	ext4_journal_stop(handle);
 	return err;
 }
+
 
 /**
  * ext4_convert_inline_data - Implements the convert inline data operation within the inline-data support subsystem.

@@ -106,6 +106,7 @@ const struct xattr_handler *ext3_xattr_handlers[] = {
 	NULL
 };
 
+
 /**
  * ext3_xattr_handler - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -139,6 +140,7 @@ ext3_listxattr(struct dentry *dentry, char *buffer, size_t size)
 	return ext3_xattr_list(dentry, buffer, size);
 }
 
+
 /**
  * ext3_xattr_check_names - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -158,6 +160,7 @@ ext3_xattr_check_names(struct ext3_xattr_entry *entry, void *end)
 	}
 	return 0;
 }
+
 
 /**
  * ext3_xattr_check_block - Validates state before it is trusted by the remainder of the filesystem.
@@ -179,6 +182,7 @@ ext3_xattr_check_block(struct buffer_head *bh)
 	return error;
 }
 
+
 /**
  * ext3_xattr_check_entry - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -197,6 +201,7 @@ ext3_xattr_check_entry(struct ext3_xattr_entry *entry, size_t size)
 		return -EIO;
 	return 0;
 }
+
 
 /**
  * ext3_xattr_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -232,6 +237,7 @@ ext3_xattr_find_entry(struct ext3_xattr_entry **pentry, int name_index,
 			return -EIO;
 	return cmp ? -ENODATA : 0;
 }
+
 
 /**
  * ext3_xattr_block_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -290,6 +296,7 @@ cleanup:
 	brelse(bh);
 	return error;
 }
+
 
 /**
  * ext3_xattr_ibody_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -367,6 +374,7 @@ ext3_xattr_get(struct inode *inode, int name_index, const char *name,
 	return error;
 }
 
+
 /**
  * ext3_xattr_list_entries - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -400,6 +408,7 @@ ext3_xattr_list_entries(struct dentry *dentry, struct ext3_xattr_entry *entry,
 	}
 	return buffer_size - rest;
 }
+
 
 /**
  * ext3_xattr_block_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -444,6 +453,7 @@ cleanup:
 
 	return error;
 }
+
 
 /**
  * ext3_xattr_ibody_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -581,6 +591,7 @@ out:
 	return;
 }
 
+
 /**
  * struct ext3_xattr_info - Private EXT3 state/data structure used by extended metadata.
  *
@@ -593,6 +604,7 @@ struct ext3_xattr_info {
 	const void *value;
 	size_t value_len;
 };
+
 
 /**
  * struct ext3_xattr_search - Private EXT3 state/data structure used by extended metadata.
@@ -607,6 +619,7 @@ struct ext3_xattr_search {
 	struct ext3_xattr_entry *here;
 	int not_found;
 };
+
 
 /**
  * ext3_xattr_set_entry - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -716,6 +729,7 @@ ext3_xattr_set_entry(struct ext3_xattr_info *i, struct ext3_xattr_search *s)
 	return 0;
 }
 
+
 /**
  * struct ext3_xattr_block_find - Private EXT3 state/data structure used by extended metadata.
  *
@@ -726,6 +740,7 @@ struct ext3_xattr_block_find {
 	struct ext3_xattr_search s;
 	struct buffer_head *bh;
 };
+
 
 /**
  * ext3_xattr_block_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -777,6 +792,7 @@ ext3_xattr_block_find(struct inode *inode, struct ext3_xattr_info *i,
 cleanup:
 	return error;
 }
+
 
 /**
  * ext3_xattr_block_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -976,6 +992,7 @@ bad_block:
 #undef header
 }
 
+
 /**
  * struct ext3_xattr_ibody_find - Private EXT3 state/data structure used by extended metadata.
  *
@@ -986,6 +1003,7 @@ struct ext3_xattr_ibody_find {
 	struct ext3_xattr_search s;
 	struct ext3_iloc iloc;
 };
+
 
 /**
  * ext3_xattr_ibody_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1024,6 +1042,7 @@ ext3_xattr_ibody_find(struct inode *inode, struct ext3_xattr_info *i,
 	}
 	return 0;
 }
+
 
 /**
  * ext3_xattr_ibody_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1459,6 +1478,7 @@ static void ext3_xattr_rehash(struct ext3_xattr_header *header,
 
 #undef BLOCK_HASH_SHIFT
 
+
 /**
  * init_ext3_xattr - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1475,6 +1495,7 @@ init_ext3_xattr(void)
 		return -ENOMEM;
 	return 0;
 }
+
 
 /**
  * exit_ext3_xattr - Tears down subsystem state after users have been quiesced.
@@ -1519,6 +1540,7 @@ ext3_xattr_user_list(struct dentry *dentry, char *list, size_t list_size,
 	return total_len;
 }
 
+
 /**
  * ext3_xattr_user_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1538,6 +1560,7 @@ ext3_xattr_user_get(struct dentry *dentry, const char *name, void *buffer,
 	return ext3_xattr_get(d_inode(dentry), EXT3_XATTR_INDEX_USER,
 			      name, buffer, size);
 }
+
 
 /**
  * ext3_xattr_user_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1593,6 +1616,7 @@ ext3_xattr_trusted_list(struct dentry *dentry, char *list, size_t list_size,
 	return total_len;
 }
 
+
 /**
  * ext3_xattr_trusted_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1610,6 +1634,7 @@ ext3_xattr_trusted_get(struct dentry *dentry, const char *name,
 	return ext3_xattr_get(d_inode(dentry), EXT3_XATTR_INDEX_TRUSTED,
 			      name, buffer, size);
 }
+
 
 /**
  * ext3_xattr_trusted_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1661,6 +1686,7 @@ ext3_xattr_security_list(struct dentry *dentry, char *list, size_t list_size,
 	return total_len;
 }
 
+
 /**
  * ext3_xattr_security_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1679,6 +1705,7 @@ ext3_xattr_security_get(struct dentry *dentry, const char *name,
 			      name, buffer, size);
 }
 
+
 /**
  * ext3_xattr_security_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1696,6 +1723,7 @@ ext3_xattr_security_set(struct dentry *dentry, const char *name,
 	return ext3_xattr_set(d_inode(dentry), EXT3_XATTR_INDEX_SECURITY,
 			      name, value, size, flags);
 }
+
 
 /**
  * ext3_initxattrs - Implements the initxattrs operation within the extended metadata subsystem.
@@ -1723,6 +1751,7 @@ static int ext3_initxattrs(struct inode *inode,
 	}
 	return err;
 }
+
 
 /**
  * ext3_init_security - Initialises subsystem state and establishes the resources required by later operations.
@@ -1992,6 +2021,7 @@ __ext3_set_acl(handle_t *handle, struct inode *inode, int type,
 	return error;
 }
 
+
 /**
  * ext3_set_acl - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -2090,6 +2120,7 @@ static LIST_HEAD(mb_cache_list);
 static LIST_HEAD(mb_cache_lru_list);
 static DEFINE_SPINLOCK(mb_cache_spinlock);
 
+
 /**
  * __spin_lock_mb_cache_entry - Implements the spin lock mb cache entry operation within the extended metadata subsystem.
  *
@@ -2105,6 +2136,7 @@ __spin_lock_mb_cache_entry(struct mb_cache_entry *ce)
 		MB_CACHE_ENTRY_LOCK_INDEX(ce)));
 }
 
+
 /**
  * __spin_unlock_mb_cache_entry - Implements the spin unlock mb cache entry operation within the extended metadata subsystem.
  *
@@ -2119,6 +2151,7 @@ __spin_unlock_mb_cache_entry(struct mb_cache_entry *ce)
 	spin_unlock(bgl_lock_ptr(mb_cache_bg_lock,
 		MB_CACHE_ENTRY_LOCK_INDEX(ce)));
 }
+
 
 /**
  * __mb_cache_entry_is_block_hashed - Implements the mb cache entry is block hashed operation within the extended metadata subsystem.
@@ -2150,6 +2183,7 @@ __mb_cache_entry_unhash_block(struct mb_cache_entry *ce)
 		hlist_bl_del_init(&ce->e_block_list);
 }
 
+
 /**
  * __mb_cache_entry_is_index_hashed - Implements the mb cache entry is index hashed operation within the extended metadata subsystem.
  *
@@ -2163,6 +2197,7 @@ __mb_cache_entry_is_index_hashed(struct mb_cache_entry *ce)
 {
 	return !hlist_bl_unhashed(&ce->e_index.o_list);
 }
+
 
 /**
  * __mb_cache_entry_unhash_index - Implements the mb cache entry unhash index operation within the extended metadata subsystem.
@@ -2197,6 +2232,7 @@ __mb_cache_entry_unhash_unlock(struct mb_cache_entry *ce)
 	hlist_bl_unlock(ce->e_block_hash_p);
 }
 
+
 /**
  * __mb_cache_entry_forget - Implements the mb cache entry forget operation within the extended metadata subsystem.
  *
@@ -2214,6 +2250,7 @@ __mb_cache_entry_forget(struct mb_cache_entry *ce, gfp_t gfp_mask)
 	kmem_cache_free(cache->c_entry_cache, ce);
 	atomic_dec(&cache->c_entry_count);
 }
+
 
 /**
  * __mb_cache_entry_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -2306,6 +2343,7 @@ mb_cache_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 	}
 	return freed;
 }
+
 
 /**
  * mb_cache_shrink_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -2733,6 +2771,7 @@ mb_cache_entry_get(struct mb_cache *cache, struct block_device *bdev,
 
 #if !defined(MB_CACHE_INDEXES_COUNT) || (MB_CACHE_INDEXES_COUNT > 0)
 
+
 /**
  * __mb_cache_entry_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2853,6 +2892,7 @@ mb_cache_entry_find_next(struct mb_cache_entry *prev,
 
 #endif
 
+
 /**
  * infiltratr_ext3_mbcache_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -2866,6 +2906,7 @@ int __init infiltratr_ext3_mbcache_init(void)
 	register_shrinker(&mb_cache_shrinker);
 	return 0;
 }
+
 
 /**
  * infiltratr_ext3_mbcache_exit - Tears down subsystem state after users have been quiesced.

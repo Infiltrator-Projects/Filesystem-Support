@@ -39,6 +39,8 @@
 #include "ext2.h"
 
 #ifdef CONFIG_FS_DAX
+
+
 /**
  * ext2_dax_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -62,6 +64,7 @@ static ssize_t ext2_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	file_accessed(iocb->ki_filp);
 	return ret;
 }
+
 
 /**
  * ext2_dax_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -139,6 +142,7 @@ static const struct vm_operations_struct ext2_dax_vm_ops = {
 	.pfn_mkwrite	= ext2_dax_fault,
 };
 
+
 /**
  * ext2_file_mmap - Implements the file mmap operation within the regular-file vfs operations subsystem.
  *
@@ -179,6 +183,7 @@ static int ext2_release_file (struct inode * inode, struct file * filp)
 	return 0;
 }
 
+
 /**
  * ext2_fsync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
@@ -200,6 +205,7 @@ int ext2_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	return ret;
 }
 
+
 /**
  * ext2_dio_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -220,6 +226,7 @@ static ssize_t ext2_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 	return ret;
 }
+
 
 /**
  * ext2_dio_write_end_io - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -251,6 +258,7 @@ out:
 static const struct iomap_dio_ops ext2_dio_write_ops = {
 	.end_io = ext2_dio_write_end_io,
 };
+
 
 /**
  * ext2_dio_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -329,6 +337,7 @@ out_unlock:
 	return ret;
 }
 
+
 /**
  * ext2_file_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -349,6 +358,7 @@ static ssize_t ext2_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	return generic_file_read_iter(iocb, to);
 }
 
+
 /**
  * ext2_file_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -368,6 +378,7 @@ static ssize_t ext2_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 	return generic_file_write_iter(iocb, from);
 }
+
 
 /**
  * ext2_file_open - Implements the file open operation within the regular-file vfs operations subsystem.
@@ -428,6 +439,7 @@ int ext2_fileattr_get(struct dentry *dentry, struct fileattr *fa)
 
 	return 0;
 }
+
 
 /**
  * ext2_fileattr_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -552,6 +564,8 @@ setversion_out:
 }
 
 #ifdef CONFIG_COMPAT
+
+
 /**
  * ext2_compat_ioctl - Handles a filesystem-specific control operation exposed through the file API.
  *

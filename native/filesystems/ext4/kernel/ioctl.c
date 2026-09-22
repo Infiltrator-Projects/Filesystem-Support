@@ -83,6 +83,7 @@ static void ext4_sb_setuuid(struct ext4_super_block *es, const void *arg)
 	memcpy(es->s_uuid, (__u8 *)arg, UUID_SIZE);
 }
 
+
 /**
  * ext4_update_primary_sb - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -367,6 +368,7 @@ static void swap_inode_data(struct inode *inode1, struct inode *inode2)
 	i_size_write(inode2, isize);
 }
 
+
 /**
  * ext4_reset_inode_seed - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -579,6 +581,7 @@ static int ext4_ioctl_check_immutable(struct inode *inode, __u32 new_projid,
 	return 0;
 }
 
+
 /**
  * ext4_dax_dontcache - Implements the dax dontcache operation within the ext4 control operations subsystem.
  *
@@ -601,6 +604,7 @@ static void ext4_dax_dontcache(struct inode *inode, unsigned int flags)
 	if ((ei->i_flags ^ flags) & EXT4_DAX_FL)
 		d_mark_dontcache(inode);
 }
+
 
 /**
  * dax_compatible - Implements the dax compatible operation within the ext4 control operations subsystem.
@@ -632,6 +636,7 @@ static bool dax_compatible(struct inode *inode, unsigned int oldflags,
 
 	return true;
 }
+
 
 /**
  * ext4_ioctl_setflags - Handles a filesystem-specific control operation exposed through the file API.
@@ -758,6 +763,8 @@ flags_out:
 }
 
 #ifdef CONFIG_QUOTA
+
+
 /**
  * ext4_ioctl_setproject - Handles a filesystem-specific control operation exposed through the file API.
  *
@@ -850,6 +857,8 @@ out_stop:
 	return err;
 }
 #else
+
+
 /**
  * ext4_ioctl_setproject - Handles a filesystem-specific control operation exposed through the file API.
  *
@@ -865,6 +874,7 @@ static int ext4_ioctl_setproject(struct inode *inode, __u32 projid)
 	return 0;
 }
 #endif
+
 
 /**
  * ext4_force_shutdown - Implements the force shutdown operation within the ext4 control operations subsystem.
@@ -916,6 +926,7 @@ int ext4_force_shutdown(struct super_block *sb, u32 flags)
 	return 0;
 }
 
+
 /**
  * ext4_ioctl_shutdown - Handles a filesystem-specific control operation exposed through the file API.
  *
@@ -937,6 +948,7 @@ static int ext4_ioctl_shutdown(struct super_block *sb, unsigned long arg)
 	return ext4_force_shutdown(sb, flags);
 }
 
+
 /**
  * struct getfsmap_info - Private EXT4 state/data structure used by ext4 control operations.
  *
@@ -949,6 +961,7 @@ struct getfsmap_info {
 	unsigned int		gi_idx;
 	__u32			gi_last_flags;
 };
+
 
 /**
  * ext4_getfsmap_format - Implements the getfsmap format operation within the ext4 control operations subsystem.
@@ -973,6 +986,7 @@ static int ext4_getfsmap_format(struct ext4_fsmap *xfm, void *priv)
 
 	return 0;
 }
+
 
 /**
  * ext4_ioc_getfsmap - Implements the ioc getfsmap operation within the ext4 control operations subsystem.
@@ -1040,6 +1054,7 @@ static int ext4_ioc_getfsmap(struct super_block *sb,
 	return 0;
 }
 
+
 /**
  * ext4_ioctl_group_add - Handles a filesystem-specific control operation exposed through the file API.
  *
@@ -1089,6 +1104,7 @@ group_add_out:
 	return err;
 }
 
+
 /**
  * ext4_fileattr_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1112,6 +1128,7 @@ int ext4_fileattr_get(struct dentry *dentry, struct fileattr *fa)
 
 	return 0;
 }
+
 
 /**
  * ext4_fileattr_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1149,6 +1166,7 @@ out:
 
 #define FIEMAP_MAX_EXTENTS	(UINT_MAX / sizeof(struct fiemap_extent))
 
+
 /**
  * ext4_ioctl_get_es_cache - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1184,6 +1202,7 @@ static int ext4_ioctl_get_es_cache(struct file *filp, unsigned long arg)
 
 	return error;
 }
+
 
 /**
  * ext4_ioctl_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
@@ -1238,6 +1257,7 @@ static int ext4_ioctl_checkpoint(struct file *filp, unsigned long arg)
 	return err;
 }
 
+
 /**
  * ext4_ioctl_setlabel - Handles a filesystem-specific control operation exposed through the file API.
  *
@@ -1277,6 +1297,7 @@ static int ext4_ioctl_setlabel(struct file *filp, const char __user *user_label)
 	return ret;
 }
 
+
 /**
  * ext4_ioctl_getlabel - Handles a filesystem-specific control operation exposed through the file API.
  *
@@ -1300,6 +1321,7 @@ static int ext4_ioctl_getlabel(struct ext4_sb_info *sbi, char __user *user_label
 		return -EFAULT;
 	return 0;
 }
+
 
 /**
  * ext4_ioctl_getuuid - Handles a filesystem-specific control operation exposed through the file API.
@@ -1339,6 +1361,7 @@ static int ext4_ioctl_getuuid(struct ext4_sb_info *sbi,
 		return -EFAULT;
 	return 0;
 }
+
 
 /**
  * ext4_ioctl_setuuid - Handles a filesystem-specific control operation exposed through the file API.
@@ -1383,6 +1406,7 @@ static int ext4_ioctl_setuuid(struct file *filp,
 
 	return ret;
 }
+
 
 /**
  * __ext4_ioctl - Handles a filesystem-specific control operation exposed through the file API.
@@ -1784,6 +1808,7 @@ resizefs_out:
 	}
 }
 
+
 /**
  * ext4_ioctl - Handles a filesystem-specific control operation exposed through the file API.
  *
@@ -1798,6 +1823,8 @@ long ext4_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 }
 
 #ifdef CONFIG_COMPAT
+
+
 /**
  * ext4_compat_ioctl - Handles a filesystem-specific control operation exposed through the file API.
  *
@@ -1882,6 +1909,7 @@ long ext4_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 }
 #endif
 
+
 /**
  * set_overhead - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1894,6 +1922,7 @@ static void set_overhead(struct ext4_super_block *es, const void *arg)
 {
 	es->s_overhead_clusters = cpu_to_le32(*((unsigned long *) arg));
 }
+
 
 /**
  * ext4_update_overhead - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.

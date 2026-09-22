@@ -37,6 +37,7 @@
 
 #include "ext4_jbd2.h"
 
+
 /**
  * struct ext4_rcu_ptr - Private EXT4 state/data structure used by online resize.
  *
@@ -47,6 +48,7 @@ struct ext4_rcu_ptr {
 	struct rcu_head rcu;
 	void *ptr;
 };
+
 
 /**
  * ext4_rcu_ptr_callback - Implements the rcu ptr callback operation within the online resize subsystem.
@@ -64,6 +66,7 @@ static void ext4_rcu_ptr_callback(struct rcu_head *head)
 	kvfree(ptr->ptr);
 	kfree(ptr);
 }
+
 
 /**
  * ext4_kvfree_array_rcu - Implements the kvfree array rcu operation within the online resize subsystem.
@@ -85,6 +88,7 @@ void ext4_kvfree_array_rcu(void *to_free)
 	synchronize_rcu();
 	kvfree(to_free);
 }
+
 
 /**
  * ext4_resize_begin - Changes filesystem geometry while preserving address-space, allocation and recovery invariants.
@@ -136,6 +140,7 @@ int ext4_resize_begin(struct super_block *sb)
 	return ret;
 }
 
+
 /**
  * ext4_resize_end - Changes filesystem geometry while preserving address-space, allocation and recovery invariants.
  *
@@ -152,6 +157,7 @@ int ext4_resize_end(struct super_block *sb, bool update_backups)
 		return ext4_update_overhead(sb, true);
 	return 0;
 }
+
 
 /**
  * ext4_group_overhead_blocks - Implements the group overhead blocks operation within the online resize subsystem.
@@ -173,6 +179,7 @@ static ext4_grpblk_t ext4_group_overhead_blocks(struct super_block *sb,
 
 #define outside(b, first, last)	((b) < (first) || (b) >= (last))
 #define inside(b, first, last)	((b) >= (first) && (b) < (last))
+
 
 /**
  * verify_group_input - Validates state before it is trusted by the remainder of the filesystem.
@@ -350,6 +357,7 @@ out3:
 	return NULL;
 }
 
+
 /**
  * free_flex_gd - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -493,6 +501,7 @@ next_group:
 	return 0;
 }
 
+
 /**
  * bclean - Implements the bclean operation within the online resize subsystem.
  *
@@ -522,6 +531,7 @@ static struct buffer_head *bclean(handle_t *handle, struct super_block *sb,
 
 	return bh;
 }
+
 
 /**
  * ext4_resize_ensure_credits_batch - Changes filesystem geometry while preserving address-space, allocation and recovery invariants.
@@ -1181,6 +1191,7 @@ exit_free:
 	return err;
 }
 
+
 /**
  * ext4_set_block_group_nr - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1349,6 +1360,7 @@ static int ext4_add_new_descs(handle_t *handle, struct super_block *sb,
 	return err;
 }
 
+
 /**
  * ext4_get_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1371,6 +1383,7 @@ static struct buffer_head *ext4_get_bitmap(struct super_block *sb, __u64 block)
 
 	return bh;
 }
+
 
 /**
  * ext4_set_bitmap_checksums - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1469,6 +1482,7 @@ static int ext4_setup_new_descs(handle_t *handle, struct super_block *sb,
 	}
 	return err;
 }
+
 
 /**
  * ext4_add_overhead - Implements the add overhead operation within the online resize subsystem.
@@ -1673,6 +1687,7 @@ exit_journal:
 exit:
 	return err;
 }
+
 
 /**
  * ext4_setup_next_flex_gd - Initialises subsystem state and establishes the resources required by later operations.

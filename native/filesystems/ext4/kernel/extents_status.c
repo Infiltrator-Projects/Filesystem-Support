@@ -45,6 +45,7 @@ static int __revise_pending(struct inode *inode, ext4_lblk_t lblk,
 			    ext4_lblk_t len,
 			    struct pending_reservation **prealloc);
 
+
 /**
  * ext4_init_es - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -61,6 +62,7 @@ int __init ext4_init_es(void)
 	return 0;
 }
 
+
 /**
  * ext4_exit_es - Tears down subsystem state after users have been quiesced.
  *
@@ -73,6 +75,7 @@ void ext4_exit_es(void)
 {
 	kmem_cache_destroy(ext4_es_cachep);
 }
+
 
 /**
  * ext4_es_init_tree - Initialises subsystem state and establishes the resources required by later operations.
@@ -89,6 +92,8 @@ void ext4_es_init_tree(struct ext4_es_tree *tree)
 }
 
 #ifdef ES_DEBUG__
+
+
 /**
  * ext4_es_print_tree - Implements the es print tree operation within the extent-status cache subsystem.
  *
@@ -118,6 +123,7 @@ static void ext4_es_print_tree(struct inode *inode)
 #else
 #define ext4_es_print_tree(inode)
 #endif
+
 
 /**
  * ext4_es_end - Implements the es end operation within the extent-status cache subsystem.
@@ -354,6 +360,7 @@ bool ext4_es_scan_clu(struct inode *inode,
 	return ret;
 }
 
+
 /**
  * ext4_es_list_add - Implements the es list add operation within the extent-status cache subsystem.
  *
@@ -378,6 +385,7 @@ static void ext4_es_list_add(struct inode *inode)
 	spin_unlock(&sbi->s_es_lock);
 }
 
+
 /**
  * ext4_es_list_del - Implements the es list del operation within the extent-status cache subsystem.
  *
@@ -400,6 +408,7 @@ static void ext4_es_list_del(struct inode *inode)
 	spin_unlock(&sbi->s_es_lock);
 }
 
+
 /**
  * __alloc_pending - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -415,6 +424,7 @@ static inline struct pending_reservation *__alloc_pending(bool nofail)
 
 	return kmem_cache_zalloc(ext4_pending_cachep, GFP_KERNEL | __GFP_NOFAIL);
 }
+
 
 /**
  * __free_pending - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -447,6 +457,7 @@ static inline bool ext4_es_must_keep(struct extent_status *es)
 	return false;
 }
 
+
 /**
  * __es_alloc_extent - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -462,6 +473,7 @@ static inline struct extent_status *__es_alloc_extent(bool nofail)
 
 	return kmem_cache_zalloc(ext4_es_cachep, GFP_KERNEL | __GFP_NOFAIL);
 }
+
 
 /**
  * ext4_es_init_extent - Initialises subsystem state and establishes the resources required by later operations.
@@ -490,6 +502,7 @@ static void ext4_es_init_extent(struct inode *inode, struct extent_status *es,
 	percpu_counter_inc(&EXT4_SB(inode->i_sb)->s_es_stats.es_stats_all_cnt);
 }
 
+
 /**
  * __es_free_extent - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -502,6 +515,7 @@ static inline void __es_free_extent(struct extent_status *es)
 {
 	kmem_cache_free(ext4_es_cachep, es);
 }
+
 
 /**
  * ext4_es_free_extent - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -569,6 +583,7 @@ static int ext4_es_can_be_merged(struct extent_status *es1,
 	return 0;
 }
 
+
 /**
  * ext4_es_try_to_merge_left - Implements the es try to merge left operation within the extent-status cache subsystem.
  *
@@ -600,6 +615,7 @@ ext4_es_try_to_merge_left(struct inode *inode, struct extent_status *es)
 
 	return es;
 }
+
 
 /**
  * ext4_es_try_to_merge_right - Implements the es try to merge right operation within the extent-status cache subsystem.
@@ -634,6 +650,7 @@ ext4_es_try_to_merge_right(struct inode *inode, struct extent_status *es)
 
 #ifdef ES_AGGRESSIVE_TEST
 #include "ext4_extents.h"
+
 
 /**
  * ext4_es_insert_extent_ext_check - Validates state before it is trusted by the remainder of the filesystem.
@@ -721,6 +738,7 @@ out:
 	ext4_free_ext_path(path);
 }
 
+
 /**
  * ext4_es_insert_extent_ind_check - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -782,6 +800,7 @@ static void ext4_es_insert_extent_ind_check(struct inode *inode,
 	}
 }
 
+
 /**
  * ext4_es_insert_extent_check - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -802,6 +821,8 @@ static inline void ext4_es_insert_extent_check(struct inode *inode,
 		ext4_es_insert_extent_ind_check(inode, es);
 }
 #else
+
+
 /**
  * ext4_es_insert_extent_check - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -815,6 +836,7 @@ static inline void ext4_es_insert_extent_check(struct inode *inode,
 {
 }
 #endif
+
 
 /**
  * __es_insert_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
@@ -1100,6 +1122,7 @@ out:
 	trace_ext4_es_lookup_extent_exit(inode, es, found);
 	return found;
 }
+
 
 /**
  * struct rsvd_count - Private EXT4 state/data structure used by extent-status cache.
@@ -1537,6 +1560,7 @@ retry:
 	return;
 }
 
+
 /**
  * __es_shrink - Implements the es shrink operation within the extent-status cache subsystem.
  *
@@ -1625,6 +1649,7 @@ out:
 	return nr_shrunk;
 }
 
+
 /**
  * ext4_es_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -1644,6 +1669,7 @@ static unsigned long ext4_es_count(struct shrinker *shrink,
 	trace_ext4_es_shrink_count(sbi->s_sb, sc->nr_to_scan, nr);
 	return nr;
 }
+
 
 /**
  * ext4_es_scan - Implements the es scan operation within the extent-status cache subsystem.
@@ -1669,6 +1695,7 @@ static unsigned long ext4_es_scan(struct shrinker *shrink,
 	trace_ext4_es_shrink_scan_exit(sbi->s_sb, nr_shrunk, ret);
 	return nr_shrunk;
 }
+
 
 /**
  * ext4_seq_es_shrinker_info_show - Implements the seq es shrinker info show operation within the extent-status cache subsystem.
@@ -1720,6 +1747,7 @@ int ext4_seq_es_shrinker_info_show(struct seq_file *seq, void *v)
 
 	return 0;
 }
+
 
 /**
  * ext4_es_register_shrinker - Implements the es register shrinker operation within the extent-status cache subsystem.
@@ -1779,6 +1807,7 @@ err1:
 	percpu_counter_destroy(&sbi->s_es_stats.es_stats_cache_hits);
 	return err;
 }
+
 
 /**
  * ext4_es_unregister_shrinker - Implements the es unregister shrinker operation within the extent-status cache subsystem.
@@ -1849,6 +1878,7 @@ out_wrap:
 	return 0;
 }
 
+
 /**
  * es_reclaim_extents - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
@@ -1913,6 +1943,8 @@ void ext4_clear_inode_es(struct inode *inode)
 }
 
 #ifdef ES_DEBUG__
+
+
 /**
  * ext4_print_pending_tree - Implements the print pending tree operation within the extent-status cache subsystem.
  *
@@ -1941,6 +1973,7 @@ static void ext4_print_pending_tree(struct inode *inode)
 #define ext4_print_pending_tree(inode)
 #endif
 
+
 /**
  * ext4_init_pending - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1957,6 +1990,7 @@ int __init ext4_init_pending(void)
 	return 0;
 }
 
+
 /**
  * ext4_exit_pending - Tears down subsystem state after users have been quiesced.
  *
@@ -1969,6 +2003,7 @@ void ext4_exit_pending(void)
 {
 	kmem_cache_destroy(ext4_pending_cachep);
 }
+
 
 /**
  * ext4_init_pending_tree - Initialises subsystem state and establishes the resources required by later operations.

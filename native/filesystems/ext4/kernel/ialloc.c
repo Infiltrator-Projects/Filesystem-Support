@@ -77,6 +77,7 @@ void ext4_mark_bitmap_end(int start_bit, int end_bit, char *bitmap)
 		memset(bitmap + (i >> 3), 0xff, (end_bit - i) >> 3);
 }
 
+
 /**
  * ext4_end_bitmap_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -94,6 +95,7 @@ void ext4_end_bitmap_read(struct buffer_head *bh, int uptodate)
 	unlock_buffer(bh);
 	put_bh(bh);
 }
+
 
 /**
  * ext4_validate_inode_bitmap - Validates state before it is trusted by the remainder of the filesystem.
@@ -381,6 +383,7 @@ error_return:
 	ext4_std_error(sb, fatal);
 }
 
+
 /**
  * struct orlov_stats - Private EXT4 state/data structure used by inode allocation.
  *
@@ -574,6 +577,7 @@ fallback_retry:
 	return -1;
 }
 
+
 /**
  * find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -657,6 +661,7 @@ static int find_group_other(struct super_block *sb, struct inode *parent,
 #define RECENTCY_MIN	60
 #define RECENTCY_DIRTY	300
 
+
 /**
  * recently_deleted - Implements the recently deleted operation within the inode allocation subsystem.
  *
@@ -709,6 +714,7 @@ out:
 	return ret;
 }
 
+
 /**
  * find_inode_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -746,6 +752,7 @@ not_found:
 	*ino = recently_deleted_ino;
 	return 1;
 }
+
 
 /**
  * ext4_mark_inode_used - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -865,6 +872,7 @@ out:
 	brelse(inode_bitmap_bh);
 	return err;
 }
+
 
 /**
  * ext4_xattr_credits_for_new_inode - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -1415,6 +1423,7 @@ bad_orphan:
 	brelse(bitmap_bh);
 	return ERR_PTR(err);
 }
+
 
 /**
  * ext4_count_free_inodes - Computes derived filesystem state used for validation, accounting or policy decisions.

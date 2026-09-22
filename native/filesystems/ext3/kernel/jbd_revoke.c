@@ -174,6 +174,7 @@ static inline int hash(journal_t *journal, unsigned int block)
 	return hash_32(block, table->hash_shift);
 }
 
+
 /**
  * insert_revoke_hash - Implements the insert revoke hash operation within the journal revoke processing subsystem.
  *
@@ -239,6 +240,7 @@ static struct jbd_revoke_record_s *find_revoke_record(journal_t *journal,
 	return NULL;
 }
 
+
 /**
  * journal_destroy_revoke_caches - Tears down subsystem state after users have been quiesced.
  *
@@ -258,6 +260,7 @@ void journal_destroy_revoke_caches(void)
 		revoke_table_cache = NULL;
 	}
 }
+
 
 /**
  * journal_init_revoke_caches - Initialises subsystem state and establishes the resources required by later operations.
@@ -294,6 +297,7 @@ record_cache_failure:
 	return -ENOMEM;
 }
 
+
 /**
  * journal_init_revoke_table - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -327,6 +331,7 @@ static struct jbd_revoke_table_s *journal_init_revoke_table(int hash_size)
 out:
 	return table;
 }
+
 
 /**
  * journal_destroy_revoke_table - Tears down subsystem state after users have been quiesced.

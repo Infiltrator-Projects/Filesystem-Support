@@ -182,6 +182,7 @@ static unsigned ext4_num_overhead_clusters(struct super_block *sb,
 	return num_clusters;
 }
 
+
 /**
  * num_clusters_in_group - Implements the num clusters in group operation within the block allocation subsystem.
  *
@@ -331,6 +332,7 @@ struct ext4_group_desc * ext4_get_group_desc(struct super_block *sb,
 	return desc;
 }
 
+
 /**
  * ext4_valid_block_bitmap_padding - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -354,6 +356,7 @@ static ext4_fsblk_t ext4_valid_block_bitmap_padding(struct super_block *sb,
 
 	return (next_zero_bit < bitmap_size ? next_zero_bit : 0);
 }
+
 
 /**
  * ext4_get_group_info - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -436,6 +439,7 @@ static ext4_fsblk_t ext4_valid_block_bitmap(struct super_block *sb,
 		return blk;
 	return 0;
 }
+
 
 /**
  * ext4_validate_block_bitmap - Validates state before it is trusted by the remainder of the filesystem.
@@ -643,6 +647,7 @@ int ext4_wait_block_bitmap(struct super_block *sb, ext4_group_t block_group,
 	return ext4_validate_block_bitmap(sb, desc, block_group, bh);
 }
 
+
 /**
  * ext4_read_block_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -720,6 +725,7 @@ static int ext4_has_free_clusters(struct ext4_sb_info *sbi,
 
 	return 0;
 }
+
 
 /**
  * ext4_claim_free_clusters - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -884,6 +890,7 @@ ext4_fsblk_t ext4_count_free_clusters(struct super_block *sb)
 #endif
 }
 
+
 /**
  * test_root - Implements the test root operation within the block allocation subsystem.
  *
@@ -937,6 +944,7 @@ int ext4_bg_has_super(struct super_block *sb, ext4_group_t group)
 	return 0;
 }
 
+
 /**
  * ext4_bg_num_gdb_meta - Implements the bg num gdb meta operation within the block allocation subsystem.
  *
@@ -956,6 +964,7 @@ static unsigned long ext4_bg_num_gdb_meta(struct super_block *sb,
 		return 1;
 	return 0;
 }
+
 
 /**
  * ext4_bg_num_gdb_nometa - Implements the bg num gdb nometa operation within the block allocation subsystem.
@@ -1030,6 +1039,7 @@ unsigned int ext4_num_base_meta_blocks(struct super_block *sb,
 	return num;
 }
 
+
 /**
  * ext4_num_base_meta_clusters - Implements the num base meta clusters operation within the block allocation subsystem.
  *
@@ -1100,6 +1110,7 @@ unsigned int ext4_count_free(char *bitmap, unsigned int numchars)
 	return numchars * BITS_PER_BYTE - memweight(bitmap, numchars);
 }
 
+
 /**
  * ext4_inode_bitmap_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -1132,6 +1143,7 @@ int ext4_inode_bitmap_csum_verify(struct super_block *sb,
 	return provided == calculated;
 }
 
+
 /**
  * ext4_inode_bitmap_csum_set - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -1157,6 +1169,7 @@ void ext4_inode_bitmap_csum_set(struct super_block *sb,
 	if (sbi->s_desc_size >= EXT4_BG_INODE_BITMAP_CSUM_HI_END)
 		gdp->bg_inode_bitmap_csum_hi = cpu_to_le16(csum >> 16);
 }
+
 
 /**
  * ext4_block_bitmap_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
@@ -1188,6 +1201,7 @@ int ext4_block_bitmap_csum_verify(struct super_block *sb,
 
 	return provided == calculated;
 }
+
 
 /**
  * ext4_block_bitmap_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.

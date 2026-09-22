@@ -110,6 +110,7 @@ nope:
 	__brelse(bh);
 }
 
+
 /**
  * jbd2_commit_block_csum_set - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
@@ -233,6 +234,7 @@ int jbd2_submit_inode_data(journal_t *journal, struct jbd2_inode *jinode)
 
 }
 
+
 /**
  * jbd2_wait_inode_data - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -288,6 +290,7 @@ static int journal_submit_data_buffers(journal_t *journal,
 	spin_unlock(&journal->j_list_lock);
 	return ret;
 }
+
 
 /**
  * jbd2_journal_finish_inode_data_buffers - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -361,6 +364,7 @@ static int journal_finish_inode_data_buffers(journal_t *journal,
 	return ret;
 }
 
+
 /**
  * jbd2_checksum_data - Implements the checksum data operation within the jbd2 commit engine subsystem.
  *
@@ -381,6 +385,7 @@ static __u32 jbd2_checksum_data(__u32 crc32_sum, struct buffer_head *bh)
 	return checksum;
 }
 
+
 /**
  * write_tag_block - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -396,6 +401,7 @@ static void write_tag_block(journal_t *j, journal_block_tag_t *tag,
 	if (jbd2_has_feature_64bit(j))
 		tag->t_blocknr_high = cpu_to_be32((block >> 31) >> 1);
 }
+
 
 /**
  * jbd2_block_tag_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.

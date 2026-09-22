@@ -439,6 +439,7 @@ void journal_unlock_updates (journal_t *journal)
 	wake_up(&journal->j_wait_transaction_locked);
 }
 
+
 /**
  * warn_dirty_buffer - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1301,6 +1302,7 @@ void __journal_unfile_buffer(struct journal_head *jh)
 	journal_put_journal_head(jh);
 }
 
+
 /**
  * journal_unfile_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1699,6 +1701,7 @@ void __journal_file_buffer(struct journal_head *jh,
 	if (was_dirty)
 		set_buffer_jbddirty(bh);
 }
+
 
 /**
  * journal_file_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.

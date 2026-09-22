@@ -86,6 +86,8 @@ static void journal_brelse_array(struct buffer_head *b[], int n)
 
 
 #define MAXBUF 8
+
+
 /**
  * do_readahead - Implements the do readahead operation within the jbd2 recovery subsystem.
  *
@@ -206,6 +208,7 @@ static int jread(struct buffer_head **bhp, journal_t *journal,
 	return 0;
 }
 
+
 /**
  * jbd2_descriptor_block_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -275,6 +278,7 @@ do {									\
 	if (var >= (journal)->j_last)					\
 		var -= ((journal)->j_last - (journal)->j_first);	\
 } while (0)
+
 
 /**
  * fc_do_one_pass - Implements the fc do one pass operation within the jbd2 recovery subsystem.
@@ -421,6 +425,7 @@ int jbd2_journal_skip_recovery(journal_t *journal)
 	return err;
 }
 
+
 /**
  * read_tag_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -475,6 +480,7 @@ static int calc_chksums(journal_t *journal, struct buffer_head *bh,
 	return 0;
 }
 
+
 /**
  * jbd2_commit_block_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -500,6 +506,7 @@ static int jbd2_commit_block_csum_verify(journal_t *j, void *buf)
 
 	return provided == cpu_to_be32(calculated);
 }
+
 
 /**
  * jbd2_commit_block_csum_verify_partial - Validates state before it is trusted by the remainder of the filesystem.
@@ -530,6 +537,7 @@ static bool jbd2_commit_block_csum_verify_partial(journal_t *j, void *buf)
 	return provided == cpu_to_be32(calculated);
 }
 
+
 /**
  * jbd2_block_tag_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -557,6 +565,7 @@ static int jbd2_block_tag_csum_verify(journal_t *j, journal_block_tag_t *tag,
 	else
 		return tag->t_checksum == cpu_to_be16(csum32);
 }
+
 
 /**
  * do_one_pass - Implements the do one pass operation within the jbd2 recovery subsystem.

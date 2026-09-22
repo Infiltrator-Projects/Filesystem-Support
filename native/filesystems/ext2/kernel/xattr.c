@@ -97,6 +97,7 @@ const struct xattr_handler * const ext2_xattr_handlers[] = {
 
 #define EA_BLOCK_CACHE(inode)	(EXT2_SB(inode->i_sb)->s_ea_block_cache)
 
+
 /**
  * ext2_xattr_prefix - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -119,6 +120,7 @@ static inline const char *ext2_xattr_prefix(int name_index,
 	return xattr_prefix(handler);
 }
 
+
 /**
  * ext2_xattr_header_valid - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -136,6 +138,7 @@ ext2_xattr_header_valid(struct ext2_xattr_header *header)
 
 	return true;
 }
+
 
 /**
  * ext2_xattr_entry_valid - Validates state before it is trusted by the remainder of the filesystem.
@@ -166,6 +169,7 @@ ext2_xattr_entry_valid(struct ext2_xattr_entry *entry,
 
 	return true;
 }
+
 
 /**
  * ext2_xattr_cmp_entry - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -646,6 +650,7 @@ cleanup:
 	return error;
 }
 
+
 /**
  * ext2_xattr_release_block - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1057,6 +1062,7 @@ static void ext2_xattr_rehash(struct ext2_xattr_header *header,
 
 #define HASH_BUCKET_BITS 10
 
+
 /**
  * ext2_xattr_create_cache - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1069,6 +1075,7 @@ struct mb_cache *ext2_xattr_create_cache(void)
 {
 	return mb_cache_create(HASH_BUCKET_BITS);
 }
+
 
 /**
  * ext2_xattr_destroy_cache - Tears down subsystem state after users have been quiesced.
@@ -1099,6 +1106,7 @@ ext2_xattr_user_list(struct dentry *dentry)
 	return test_opt(dentry->d_sb, XATTR_USER);
 }
 
+
 /**
  * ext2_xattr_user_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1117,6 +1125,7 @@ ext2_xattr_user_get(const struct xattr_handler *handler,
 	return ext2_xattr_get(inode, EXT2_XATTR_INDEX_USER,
 			      name, buffer, size);
 }
+
 
 /**
  * ext2_xattr_user_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1162,6 +1171,7 @@ ext2_xattr_trusted_list(struct dentry *dentry)
 	return capable(CAP_SYS_ADMIN);
 }
 
+
 /**
  * ext2_xattr_trusted_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1178,6 +1188,7 @@ ext2_xattr_trusted_get(const struct xattr_handler *handler,
 	return ext2_xattr_get(inode, EXT2_XATTR_INDEX_TRUSTED, name,
 			      buffer, size);
 }
+
 
 /**
  * ext2_xattr_trusted_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1225,6 +1236,7 @@ ext2_xattr_security_get(const struct xattr_handler *handler,
 			      buffer, size);
 }
 
+
 /**
  * ext2_xattr_security_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1243,6 +1255,7 @@ ext2_xattr_security_set(const struct xattr_handler *handler,
 	return ext2_xattr_set(inode, EXT2_XATTR_INDEX_SECURITY, name,
 			      value, size, flags);
 }
+
 
 /**
  * ext2_initxattrs - Implements the initxattrs operation within the extended metadata subsystem.
@@ -1267,6 +1280,7 @@ static int ext2_initxattrs(struct inode *inode, const struct xattr *xattr_array,
 	}
 	return err;
 }
+
 
 /**
  * ext2_init_security - Initialises subsystem state and establishes the resources required by later operations.
@@ -1477,6 +1491,7 @@ ext2_get_acl(struct inode *inode, int type, bool rcu)
 	return acl;
 }
 
+
 /**
  * __ext2_set_acl - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1620,6 +1635,7 @@ static struct kmem_cache *mb_entry_cache;
 static unsigned long mb_cache_shrink(struct mb_cache *cache,
 				     unsigned long nr_to_scan);
 
+
 /**
  * mb_cache_entry_head - Implements the mb cache entry head operation within the extended metadata subsystem.
  *
@@ -1693,6 +1709,7 @@ int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
 	return 0;
 }
 
+
 /**
  * __mb_cache_entry_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1725,6 +1742,7 @@ void mb_cache_entry_wait_unused(struct mb_cache_entry *entry)
 {
 	wait_var_event(&entry->e_refcnt, atomic_read(&entry->e_refcnt) <= 2);
 }
+
 
 /**
  * __entry_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1871,6 +1889,7 @@ void mb_cache_entry_touch(struct mb_cache *cache,
 	set_bit(MBE_REFERENCED_B, &entry->e_flags);
 }
 
+
 /**
  * mb_cache_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -1926,6 +1945,7 @@ static unsigned long mb_cache_shrink(struct mb_cache *cache,
 	return shrunk;
 }
 
+
 /**
  * mb_cache_scan - Implements the mb cache scan operation within the extended metadata subsystem.
  *
@@ -1943,6 +1963,7 @@ static unsigned long mb_cache_scan(struct shrinker *shrink,
 
 
 #define SHRINK_DIVISOR 16
+
 
 /**
  * mb_cache_shrink_worker - Implements the mb cache shrink worker operation within the extended metadata subsystem.
@@ -2038,6 +2059,7 @@ void mb_cache_destroy(struct mb_cache *cache)
 	kfree(cache);
 }
 
+
 /**
  * infiltratr_mbcache_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -2053,6 +2075,7 @@ int __init infiltratr_mbcache_init(void)
 		return -ENOMEM;
 	return 0;
 }
+
 
 /**
  * infiltratr_mbcache_exit - Tears down subsystem state after users have been quiesced.

@@ -56,6 +56,7 @@ typedef struct {
 	struct buffer_head *bh;
 } Indirect;
 
+
 /**
  * add_chain - Implements the add chain operation within the indirect-block mapping subsystem.
  *
@@ -570,6 +571,7 @@ int ext4_ind_trans_blocks(struct inode *inode, int nrblocks)
 	return DIV_ROUND_UP(nrblocks, EXT4_ADDR_PER_BLOCK(inode->i_sb)) + 4;
 }
 
+
 /**
  * ext4_ind_trunc_restart_fn - Implements the ind trunc restart fn operation within the indirect-block mapping subsystem.
  *
@@ -918,6 +920,7 @@ static void ext4_free_branches(handle_t *handle, struct inode *inode,
 		ext4_free_data(handle, inode, parent_bh, first, last);
 	}
 }
+
 
 /**
  * ext4_ind_truncate - Implements the ind truncate operation within the indirect-block mapping subsystem.

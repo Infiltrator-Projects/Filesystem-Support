@@ -57,6 +57,7 @@
 #include <linux/quotaops.h>
 #include "ext2.h"
 
+
 /**
  * ext2_add_nondir - Implements the add nondir operation within the namespace mutation subsystem.
  *
@@ -112,6 +113,7 @@ static struct dentry *ext2_lookup(struct inode * dir, struct dentry *dentry, uns
 	return d_splice_alias(inode, dentry);
 }
 
+
 /**
  * ext2_get_parent - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -161,6 +163,7 @@ static int ext2_create (struct mnt_idmap * idmap,
 	return ext2_add_nondir(dentry, inode);
 }
 
+
 /**
  * ext2_tmpfile - Implements the tmpfile operation within the namespace mutation subsystem.
  *
@@ -182,6 +185,7 @@ static int ext2_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
 	unlock_new_inode(inode);
 	return finish_open_simple(file, 0);
 }
+
 
 /**
  * ext2_mknod - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -211,6 +215,7 @@ static int ext2_mknod (struct mnt_idmap * idmap, struct inode * dir,
 	}
 	return err;
 }
+
 
 /**
  * ext2_symlink - Implements the symlink operation within the namespace mutation subsystem.
@@ -267,6 +272,7 @@ out_fail:
 	goto out;
 }
 
+
 /**
  * ext2_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -298,6 +304,7 @@ static int ext2_link (struct dentry * old_dentry, struct inode * dir,
 	iput(inode);
 	return err;
 }
+
 
 /**
  * ext2_mkdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -351,6 +358,7 @@ out_dir:
 	goto out;
 }
 
+
 /**
  * ext2_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -388,6 +396,7 @@ out:
 	return err;
 }
 
+
 /**
  * ext2_rmdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -411,6 +420,7 @@ static int ext2_rmdir (struct inode * dir, struct dentry *dentry)
 	}
 	return err;
 }
+
 
 /**
  * ext2_rename - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.

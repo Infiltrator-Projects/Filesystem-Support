@@ -73,6 +73,7 @@ typedef enum {
 static const char proc_dirname[] = "fs/ext4";
 static struct proc_dir_entry *ext4_proc_root;
 
+
 /**
  * struct ext4_attr - Private EXT4 state/data structure used by runtime control and observability.
  *
@@ -89,6 +90,7 @@ struct ext4_attr {
 		void *explicit_ptr;
 	} u;
 };
+
 
 /**
  * session_write_kbytes_show - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -107,6 +109,7 @@ static ssize_t session_write_kbytes_show(struct ext4_sb_info *sbi, char *buf)
 			 sbi->s_sectors_written_start) >> 1);
 }
 
+
 /**
  * lifetime_write_kbytes_show - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -124,6 +127,7 @@ static ssize_t lifetime_write_kbytes_show(struct ext4_sb_info *sbi, char *buf)
 			((part_stat_read(sb->s_bdev, sectors[STAT_WRITE]) -
 			  EXT4_SB(sb)->s_sectors_written_start) >> 1)));
 }
+
 
 /**
  * inode_readahead_blks_store - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -150,6 +154,7 @@ static ssize_t inode_readahead_blks_store(struct ext4_sb_info *sbi,
 	return count;
 }
 
+
 /**
  * reserved_clusters_store - Implements the reserved clusters store operation within the runtime control and observability subsystem.
  *
@@ -174,6 +179,7 @@ static ssize_t reserved_clusters_store(struct ext4_sb_info *sbi,
 	return count;
 }
 
+
 /**
  * trigger_test_error - Implements the trigger test error operation within the runtime control and observability subsystem.
  *
@@ -197,6 +203,7 @@ static ssize_t trigger_test_error(struct ext4_sb_info *sbi,
 		ext4_error(sbi->s_sb, "%.*s", len, buf);
 	return count;
 }
+
 
 /**
  * journal_task_show - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -428,6 +435,7 @@ static struct attribute *ext4_feat_attrs[] = {
 };
 ATTRIBUTE_GROUPS(ext4_feat);
 
+
 /**
  * calc_ptr - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -449,6 +457,7 @@ static void *calc_ptr(struct ext4_attr *a, struct ext4_sb_info *sbi)
 	return NULL;
 }
 
+
 /**
  * __print_tstamp - Implements the print tstamp operation within the runtime control and observability subsystem.
  *
@@ -465,6 +474,7 @@ static ssize_t __print_tstamp(char *buf, __le32 lo, __u8 hi)
 
 #define print_tstamp(buf, es, tstamp) \
 	__print_tstamp(buf, (es)->tstamp, (es)->tstamp ## _hi)
+
 
 /**
  * ext4_generic_attr_show - Implements the generic attr show operation within the runtime control and observability subsystem.
@@ -506,6 +516,7 @@ static ssize_t ext4_generic_attr_show(struct ext4_attr *a,
 	}
 	return 0;
 }
+
 
 /**
  * ext4_attr_show - Implements the attr show operation within the runtime control and observability subsystem.
@@ -551,6 +562,7 @@ static ssize_t ext4_attr_show(struct kobject *kobj,
 		return ext4_generic_attr_show(a, sbi, buf);
 	}
 }
+
 
 /**
  * ext4_generic_attr_store - Implements the generic attr store operation within the runtime control and observability subsystem.
@@ -616,6 +628,7 @@ static ssize_t ext4_generic_attr_store(struct ext4_attr *a,
 	return 0;
 }
 
+
 /**
  * ext4_attr_store - Implements the attr store operation within the runtime control and observability subsystem.
  *
@@ -644,6 +657,7 @@ static ssize_t ext4_attr_store(struct kobject *kobj,
 	}
 }
 
+
 /**
  * ext4_sb_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -658,6 +672,7 @@ static void ext4_sb_release(struct kobject *kobj)
 						s_kobj);
 	complete(&sbi->s_kobj_unregister);
 }
+
 
 /**
  * ext4_feat_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -689,6 +704,7 @@ static const struct kobj_type ext4_feat_ktype = {
 	.release	= ext4_feat_release,
 };
 
+
 /**
  * ext4_notify_error_sysfs - Implements the notify error sysfs operation within the runtime control and observability subsystem.
  *
@@ -708,6 +724,7 @@ void ext4_notify_error_sysfs(struct ext4_sb_info *sbi)
 static struct kobject *ext4_root;
 
 static struct kobject *ext4_feat;
+
 
 /**
  * ext4_register_sysfs - Implements the register sysfs operation within the runtime control and observability subsystem.
@@ -753,6 +770,7 @@ int ext4_register_sysfs(struct super_block *sb)
 	return 0;
 }
 
+
 /**
  * ext4_unregister_sysfs - Implements the unregister sysfs operation within the runtime control and observability subsystem.
  *
@@ -772,6 +790,7 @@ void ext4_unregister_sysfs(struct super_block *sb)
 	kobject_del(&sbi->s_kobj);
 	mutex_unlock(&sbi->s_error_notify_mutex);
 }
+
 
 /**
  * ext4_init_sysfs - Initialises subsystem state and establishes the resources required by later operations.
@@ -811,6 +830,7 @@ root_err:
 	ext4_root = NULL;
 	return ret;
 }
+
 
 /**
  * ext4_exit_sysfs - Tears down subsystem state after users have been quiesced.

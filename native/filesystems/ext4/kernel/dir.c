@@ -76,6 +76,7 @@ static int is_dx_dir(struct inode *inode)
 	return 0;
 }
 
+
 /**
  * is_fake_dir_entry - Implements the is fake dir entry operation within the directory representation subsystem.
  *
@@ -155,6 +156,7 @@ int __ext4_check_dir_entry(const char *function, unsigned int line,
 
 	return 1;
 }
+
 
 /**
  * ext4_readdir - Implements the readdir operation within the directory representation subsystem.
@@ -352,6 +354,7 @@ errout:
 	return err;
 }
 
+
 /**
  * is_32bit_api - Implements the is 32bit api operation within the directory representation subsystem.
  *
@@ -387,6 +390,7 @@ static inline loff_t hash2pos(struct file *filp, __u32 major, __u32 minor)
 		return ((__u64)(major >> 1) << 32) | (__u64)minor;
 }
 
+
 /**
  * pos2maj_hash - Implements the pos2maj hash operation within the directory representation subsystem.
  *
@@ -403,6 +407,7 @@ static inline __u32 pos2maj_hash(struct file *filp, loff_t pos)
 	else
 		return ((pos >> 32) << 1) & 0xffffffff;
 }
+
 
 /**
  * pos2min_hash - Implements the pos2min hash operation within the directory representation subsystem.
@@ -505,6 +510,7 @@ static void free_rb_tree_fname(struct rb_root *root)
 	*root = RB_ROOT;
 }
 
+
 /**
  * ext4_htree_init_dir_info - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -523,6 +529,7 @@ static void ext4_htree_init_dir_info(struct file *filp, loff_t pos)
 		p->initialized = true;
 	}
 }
+
 
 /**
  * ext4_htree_free_dir_info - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -635,6 +642,7 @@ static int call_filldir(struct file *file, struct dir_context *ctx,
 	return 0;
 }
 
+
 /**
  * ext4_dx_readdir - Implements the dx readdir operation within the directory representation subsystem.
  *
@@ -719,6 +727,7 @@ finished:
 	return ret < 0 ? ret : 0;
 }
 
+
 /**
  * ext4_release_dir - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -734,6 +743,7 @@ static int ext4_release_dir(struct inode *inode, struct file *filp)
 
 	return 0;
 }
+
 
 /**
  * ext4_check_all_de - Validates state before it is trusted by the remainder of the filesystem.
@@ -766,6 +776,7 @@ int ext4_check_all_de(struct inode *dir, struct buffer_head *bh, void *buf,
 
 	return 0;
 }
+
 
 /**
  * ext4_dir_open - Implements the dir open operation within the directory representation subsystem.
@@ -801,6 +812,7 @@ const struct file_operations ext4_dir_operations = {
 
 
 #define DELTA 0x9E3779B9
+
 
 /**
  * TEA_transform - Implements the TEA transform operation within the directory representation subsystem.
@@ -922,6 +934,7 @@ static __u32 dx_hack_hash_unsigned(const char *name, int len)
 	return hash0 << 1;
 }
 
+
 /**
  * dx_hack_hash_signed - Implements the dx hack hash signed operation within the directory representation subsystem.
  *
@@ -945,6 +958,7 @@ static __u32 dx_hack_hash_signed(const char *name, int len)
 	}
 	return hash0 << 1;
 }
+
 
 /**
  * str2hashbuf_signed - Implements the str2hashbuf signed operation within the directory representation subsystem.
@@ -979,6 +993,7 @@ static void str2hashbuf_signed(const char *msg, int len, __u32 *buf, int num)
 	while (--num >= 0)
 		*buf++ = pad;
 }
+
 
 /**
  * str2hashbuf_unsigned - Implements the str2hashbuf unsigned operation within the directory representation subsystem.
@@ -1116,6 +1131,7 @@ static int __ext4fs_dirhash(const struct inode *dir, const char *name, int len,
 	hinfo->minor_hash = minor_hash;
 	return 0;
 }
+
 
 /**
  * ext4fs_dirhash - Implements the ext4fs dirhash operation within the directory representation subsystem.

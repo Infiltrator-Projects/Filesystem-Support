@@ -485,6 +485,7 @@ typedef unsigned long ext3_fsblk_t;
 
 #define E3FSBLK "%lu"
 
+
 /**
  * struct ext3_reserve_window - Private EXT3 state/data structure used by ext3 shared model.
  *
@@ -495,6 +496,7 @@ struct ext3_reserve_window {
 	ext3_fsblk_t	_rsv_start;
 	ext3_fsblk_t	_rsv_end;
 };
+
 
 /**
  * struct ext3_reserve_window_node - Private EXT3 state/data structure used by ext3 shared model.
@@ -508,6 +510,7 @@ struct ext3_reserve_window_node {
 	__u32			rsv_alloc_hit;
 	struct ext3_reserve_window	rsv_window;
 };
+
 
 /**
  * struct ext3_block_alloc_info - Private EXT3 state/data structure used by ext3 shared model.
@@ -646,6 +649,7 @@ struct ext3_sb_info {
 #endif
 };
 
+
 /**
  * sb_bgl_lock - Implements the sb bgl lock operation within the ext3 shared model subsystem.
  *
@@ -660,6 +664,7 @@ sb_bgl_lock(struct ext3_sb_info *sbi, unsigned int block_group)
 	return bgl_lock_ptr(sbi->s_blockgroup_lock, block_group);
 }
 
+
 /**
  * EXT3_SB - Implements the EXT3 SB operation within the ext3 shared model subsystem.
  *
@@ -672,6 +677,8 @@ static inline struct ext3_sb_info * EXT3_SB(struct super_block *sb)
 {
 	return sb->s_fs_info;
 }
+
+
 /**
  * EXT3_I - Implements the EXT3 I operation within the ext3 shared model subsystem.
  *
@@ -684,6 +691,7 @@ static inline struct ext3_inode_info *EXT3_I(struct inode *inode)
 {
 	return container_of(inode, struct ext3_inode_info, vfs_inode);
 }
+
 
 /**
  * ext3_valid_inum - Validates state before it is trusted by the remainder of the filesystem.
@@ -710,6 +718,7 @@ enum {
 	EXT3_STATE_FLUSH_ON_CLOSE,
 };
 
+
 /**
  * ext3_test_inode_state - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -723,6 +732,7 @@ static inline int ext3_test_inode_state(struct inode *inode, int bit)
 	return test_bit(bit, &EXT3_I(inode)->i_state_flags);
 }
 
+
 /**
  * ext3_set_inode_state - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -735,6 +745,7 @@ static inline void ext3_set_inode_state(struct inode *inode, int bit)
 {
 	set_bit(bit, &EXT3_I(inode)->i_state_flags);
 }
+
 
 /**
  * ext3_clear_inode_state - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -891,6 +902,7 @@ static inline unsigned ext3_rec_len_from_disk(__le16 dlen)
 	return len;
 }
 
+
 /**
  * ext3_rec_len_to_disk - Implements the rec len to disk operation within the ext3 shared model subsystem.
  *
@@ -948,6 +960,7 @@ struct ext3_iloc
 	unsigned long offset;
 	unsigned long block_group;
 };
+
 
 /**
  * ext3_raw_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -1235,6 +1248,7 @@ int ext3_journal_dirty_data(handle_t *handle, struct buffer_head *bh);
 handle_t *ext3_journal_start_sb(struct super_block *sb, int nblocks);
 int __ext3_journal_stop(const char *where, handle_t *handle);
 
+
 /**
  * ext3_journal_start - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1251,6 +1265,7 @@ static inline handle_t *ext3_journal_start(struct inode *inode, int nblocks)
 #define ext3_journal_stop(handle) \
 	__ext3_journal_stop(__func__, (handle))
 
+
 /**
  * ext3_journal_current_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1263,6 +1278,7 @@ static inline handle_t *ext3_journal_current_handle(void)
 {
 	return journal_current_handle();
 }
+
 
 /**
  * ext3_journal_extend - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -1277,6 +1293,7 @@ static inline int ext3_journal_extend(handle_t *handle, int nblocks)
 	return journal_extend(handle, nblocks);
 }
 
+
 /**
  * ext3_journal_restart - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1290,6 +1307,7 @@ static inline int ext3_journal_restart(handle_t *handle, int nblocks)
 	return journal_restart(handle, nblocks);
 }
 
+
 /**
  * ext3_journal_blocks_per_page - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1302,6 +1320,7 @@ static inline int ext3_journal_blocks_per_page(struct inode *inode)
 {
 	return journal_blocks_per_page(inode);
 }
+
 
 /**
  * ext3_journal_force_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
@@ -1318,6 +1337,7 @@ static inline int ext3_journal_force_commit(journal_t *journal)
 
 
 int ext3_force_commit(struct super_block *sb);
+
 
 /**
  * ext3_should_journal_data - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -1338,6 +1358,7 @@ static inline int ext3_should_journal_data(struct inode *inode)
 	return 0;
 }
 
+
 /**
  * ext3_should_order_data - Implements the should order data operation within the ext3 shared model subsystem.
  *
@@ -1356,6 +1377,7 @@ static inline int ext3_should_order_data(struct inode *inode)
 		return 1;
 	return 0;
 }
+
 
 /**
  * ext3_should_writeback_data - Implements the should writeback data operation within the ext3 shared model subsystem.
@@ -1398,6 +1420,7 @@ typedef struct {
 	__le32		a_version;
 } ext3_acl_header;
 
+
 /**
  * ext3_acl_size - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1417,6 +1440,7 @@ static inline size_t ext3_acl_size(int count)
 		       (count - 4) * sizeof(ext3_acl_entry);
 	}
 }
+
 
 /**
  * ext3_acl_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -1454,6 +1478,7 @@ extern int ext3_init_acl (handle_t *, struct inode *, struct inode *);
 #define ext3_get_acl NULL
 #define ext3_set_acl NULL
 
+
 /**
  * ext3_init_acl - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1471,6 +1496,7 @@ ext3_init_acl(handle_t *handle, struct inode *inode, struct inode *dir)
 
 
 extern struct dentry *ext3_get_parent(struct dentry *child);
+
 
 /**
  * ext3_dir_bread - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1516,6 +1542,7 @@ static inline struct buffer_head *ext3_dir_bread(handle_t *handle,
 #define	EXT3_XATTR_INDEX_LUSTRE			5
 #define EXT3_XATTR_INDEX_SECURITY	        6
 
+
 /**
  * struct ext3_xattr_header - Private EXT3 state/data structure used by ext3 shared model.
  *
@@ -1530,6 +1557,7 @@ struct ext3_xattr_header {
 	__u32	h_reserved[4];
 };
 
+
 /**
  * struct ext3_xattr_ibody_header - Private EXT3 state/data structure used by ext3 shared model.
  *
@@ -1539,6 +1567,7 @@ struct ext3_xattr_header {
 struct ext3_xattr_ibody_header {
 	__le32	h_magic;
 };
+
 
 /**
  * struct ext3_xattr_entry - Private EXT3 state/data structure used by ext3 shared model.
@@ -1590,6 +1619,7 @@ extern const struct xattr_handler *ext3_xattr_handlers[];
 
 # else
 
+
 /**
  * ext3_xattr_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1604,6 +1634,7 @@ ext3_xattr_get(struct inode *inode, int name_index, const char *name,
 {
 	return -EOPNOTSUPP;
 }
+
 
 /**
  * ext3_xattr_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1620,6 +1651,7 @@ ext3_xattr_set(struct inode *inode, int name_index, const char *name,
 	return -EOPNOTSUPP;
 }
 
+
 /**
  * ext3_xattr_set_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1635,6 +1667,7 @@ ext3_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 	return -EOPNOTSUPP;
 }
 
+
 /**
  * ext3_xattr_delete_inode - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1647,6 +1680,7 @@ static inline void
 ext3_xattr_delete_inode(handle_t *handle, struct inode *inode)
 {
 }
+
 
 /**
  * ext3_xattr_put_super - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1661,6 +1695,7 @@ ext3_xattr_put_super(struct super_block *sb)
 {
 }
 
+
 /**
  * init_ext3_xattr - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1674,6 +1709,7 @@ init_ext3_xattr(void)
 {
 	return 0;
 }
+
 
 /**
  * exit_ext3_xattr - Tears down subsystem state after users have been quiesced.
@@ -1696,6 +1732,8 @@ exit_ext3_xattr(void)
 extern int ext3_init_security(handle_t *handle, struct inode *inode,
 			      struct inode *dir, const struct qstr *qstr);
 #else
+
+
 /**
  * ext3_init_security - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1734,6 +1772,7 @@ struct mb_cache_entry {
 	struct hlist_bl_head		*e_block_hash_p;
 	struct hlist_bl_head		*e_index_hash_p;
 };
+
 
 /**
  * struct mb_cache - Private EXT3 state/data structure used by ext3 shared model.

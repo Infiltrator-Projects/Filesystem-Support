@@ -102,6 +102,8 @@ ext4_expand_inode_array(struct ext4_xattr_inode_array **ea_inode_array,
 			struct inode *inode);
 
 #ifdef CONFIG_LOCKDEP
+
+
 /**
  * ext4_xattr_inode_set_class - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -119,6 +121,7 @@ void ext4_xattr_inode_set_class(struct inode *ea_inode)
 	lockdep_set_subclass(&ei->i_data_sem, I_DATA_SEM_EA);
 }
 #endif
+
 
 /**
  * ext4_xattr_block_csum - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -149,6 +152,7 @@ static __le32 ext4_xattr_block_csum(struct inode *inode,
 	return cpu_to_le32(csum);
 }
 
+
 /**
  * ext4_xattr_block_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -172,6 +176,7 @@ static int ext4_xattr_block_csum_verify(struct inode *inode,
 	return ret;
 }
 
+
 /**
  * ext4_xattr_block_csum_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -187,6 +192,7 @@ static void ext4_xattr_block_csum_set(struct inode *inode,
 		BHDR(bh)->h_checksum = ext4_xattr_block_csum(inode,
 						bh->b_blocknr, BHDR(bh));
 }
+
 
 /**
  * ext4_xattr_prefix - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -209,6 +215,7 @@ static inline const char *ext4_xattr_prefix(int name_index,
 
 	return xattr_prefix(handler);
 }
+
 
 /**
  * check_xattrs - Validates state before it is trusted by the remainder of the filesystem.
@@ -326,6 +333,7 @@ errout:
 	return err;
 }
 
+
 /**
  * __ext4_xattr_check_block - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -361,6 +369,7 @@ __xattr_check_inode(struct inode *inode, struct ext4_xattr_ibody_header *header,
 	return check_xattrs(inode, NULL, IFIRST(header), end, IFIRST(header),
 			    function, line);
 }
+
 
 /**
  * xattr_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -399,6 +408,7 @@ xattr_find_entry(struct inode *inode, struct ext4_xattr_entry **pentry,
 	return cmp ? -ENODATA : 0;
 }
 
+
 /**
  * ext4_xattr_inode_hash - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -412,6 +422,7 @@ ext4_xattr_inode_hash(struct ext4_sb_info *sbi, const void *buffer, size_t size)
 {
 	return ext4_chksum(sbi, sbi->s_csum_seed, buffer, size);
 }
+
 
 /**
  * ext4_xattr_inode_get_ref - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -427,6 +438,7 @@ static u64 ext4_xattr_inode_get_ref(struct inode *ea_inode)
 		(u32) inode_peek_iversion_raw(ea_inode);
 }
 
+
 /**
  * ext4_xattr_inode_set_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -441,6 +453,7 @@ static void ext4_xattr_inode_set_ref(struct inode *ea_inode, u64 ref_count)
 	inode_set_iversion_raw(ea_inode, ref_count & 0xffffffff);
 }
 
+
 /**
  * ext4_xattr_inode_get_hash - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -453,6 +466,7 @@ static u32 ext4_xattr_inode_get_hash(struct inode *ea_inode)
 {
 	return (u32) inode_get_atime_sec(ea_inode);
 }
+
 
 /**
  * ext4_xattr_inode_set_hash - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -516,6 +530,7 @@ free_bhs:
 }
 
 #define EXT4_XATTR_INODE_GET_PARENT(inode) ((__u32)(inode_get_mtime_sec(inode)))
+
 
 /**
  * ext4_xattr_inode_iget - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -586,6 +601,7 @@ void ext4_evict_ea_inode(struct inode *inode)
 		mb_cache_entry_put(EA_INODE_CACHE(inode), oe);
 	}
 }
+
 
 /**
  * ext4_xattr_inode_verify_hashes - Validates state before it is trusted by the remainder of the filesystem.
@@ -686,6 +702,7 @@ out:
 	return err;
 }
 
+
 /**
  * ext4_xattr_block_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -753,6 +770,7 @@ cleanup:
 	brelse(bh);
 	return error;
 }
+
 
 /**
  * ext4_xattr_ibody_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -845,6 +863,7 @@ ext4_xattr_get(struct inode *inode, int name_index, const char *name,
 	return error;
 }
 
+
 /**
  * ext4_xattr_list_entries - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -881,6 +900,7 @@ ext4_xattr_list_entries(struct dentry *dentry, struct ext4_xattr_entry *entry,
 	}
 	return buffer_size - rest;
 }
+
 
 /**
  * ext4_xattr_block_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -919,6 +939,7 @@ cleanup:
 	brelse(bh);
 	return error;
 }
+
 
 /**
  * ext4_xattr_ibody_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1008,6 +1029,7 @@ static void ext4_xattr_update_super_block(handle_t *handle,
 	}
 }
 
+
 /**
  * ext4_get_inode_usage - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1066,6 +1088,7 @@ out:
 	return ret;
 }
 
+
 /**
  * round_up_cluster - Implements the round up cluster operation within the extended metadata subsystem.
  *
@@ -1083,6 +1106,7 @@ static inline size_t round_up_cluster(struct inode *inode, size_t length)
 
 	return (length + cluster_size - 1) & mask;
 }
+
 
 /**
  * ext4_xattr_inode_alloc_quota - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -1105,6 +1129,7 @@ static int ext4_xattr_inode_alloc_quota(struct inode *inode, size_t len)
 	return err;
 }
 
+
 /**
  * ext4_xattr_inode_free_quota - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1123,6 +1148,7 @@ static void ext4_xattr_inode_free_quota(struct inode *parent,
 	dquot_free_space_nodirty(parent, round_up_cluster(parent, len));
 	dquot_free_inode(parent);
 }
+
 
 /**
  * __ext4_xattr_set_credits - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1195,6 +1221,7 @@ int __ext4_xattr_set_credits(struct super_block *sb, struct inode *inode,
 	return credits;
 }
 
+
 /**
  * ext4_xattr_inode_update_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1256,6 +1283,7 @@ out:
 	return ret;
 }
 
+
 /**
  * ext4_xattr_inode_inc_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1269,6 +1297,7 @@ static int ext4_xattr_inode_inc_ref(handle_t *handle, struct inode *ea_inode)
 	return ext4_xattr_inode_update_ref(handle, ea_inode, 1);
 }
 
+
 /**
  * ext4_xattr_inode_dec_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1281,6 +1310,7 @@ static int ext4_xattr_inode_dec_ref(handle_t *handle, struct inode *ea_inode)
 {
 	return ext4_xattr_inode_update_ref(handle, ea_inode, -1);
 }
+
 
 /**
  * ext4_xattr_inode_inc_ref_all - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1346,6 +1376,7 @@ cleanup:
 	return saved_err;
 }
 
+
 /**
  * ext4_xattr_restart_fn - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1371,6 +1402,7 @@ static int ext4_xattr_restart_fn(handle_t *handle, struct inode *inode,
 	}
 	return 0;
 }
+
 
 /**
  * ext4_xattr_inode_dec_ref_all - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1742,6 +1774,7 @@ static struct inode *ext4_xattr_inode_create(handle_t *handle,
 	return ea_inode;
 }
 
+
 /**
  * ext4_xattr_inode_cache_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1855,6 +1888,7 @@ out_err:
 
 
 #define EXT4_XATTR_BLOCK_RESERVE(inode)	min(i_blocksize(inode)/8, 1024U)
+
 
 /**
  * ext4_xattr_set_entry - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -2070,6 +2104,7 @@ out:
 	return ret;
 }
 
+
 /**
  * struct ext4_xattr_block_find - Private EXT4 state/data structure used by extended metadata.
  *
@@ -2080,6 +2115,7 @@ struct ext4_xattr_block_find {
 	struct ext4_xattr_search s;
 	struct buffer_head *bh;
 };
+
 
 /**
  * ext4_xattr_block_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2126,6 +2162,7 @@ ext4_xattr_block_find(struct inode *inode, struct ext4_xattr_info *i,
 	}
 	return 0;
 }
+
 
 /**
  * ext4_xattr_block_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -2446,6 +2483,7 @@ bad_block:
 #undef header
 }
 
+
 /**
  * ext4_xattr_ibody_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2479,6 +2517,7 @@ int ext4_xattr_ibody_find(struct inode *inode, struct ext4_xattr_info *i,
 	}
 	return 0;
 }
+
 
 /**
  * ext4_xattr_ibody_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -2538,6 +2577,7 @@ int ext4_xattr_ibody_set(handle_t *handle, struct inode *inode,
 	return 0;
 }
 
+
 /**
  * ext4_xattr_value_same - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -2559,6 +2599,7 @@ static int ext4_xattr_value_same(struct ext4_xattr_search *s,
 	value = ((void *)s->base) + le16_to_cpu(s->here->e_value_offs);
 	return !memcmp(value, i->value, i->value_len);
 }
+
 
 /**
  * ext4_xattr_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2743,6 +2784,7 @@ cleanup:
 	ext4_write_unlock_xattr(inode, &no_expand);
 	return error;
 }
+
 
 /**
  * ext4_xattr_set_credits - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -2956,6 +2998,7 @@ out:
 
 	return error;
 }
+
 
 /**
  * ext4_xattr_make_inode_space - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -3290,6 +3333,7 @@ cleanup:
 	return error;
 }
 
+
 /**
  * ext4_xattr_inode_array_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -3519,6 +3563,7 @@ static void ext4_xattr_rehash(struct ext4_xattr_header *header)
 
 #define	HASH_BUCKET_BITS	10
 
+
 /**
  * ext4_xattr_create_cache - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -3532,6 +3577,7 @@ ext4_xattr_create_cache(void)
 {
 	return mb_cache_create(HASH_BUCKET_BITS);
 }
+
 
 /**
  * ext4_xattr_destroy_cache - Tears down subsystem state after users have been quiesced.
@@ -3562,6 +3608,7 @@ ext4_xattr_hurd_list(struct dentry *dentry)
 	return test_opt(dentry->d_sb, XATTR_USER);
 }
 
+
 /**
  * ext4_xattr_hurd_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -3581,6 +3628,7 @@ ext4_xattr_hurd_get(const struct xattr_handler *handler,
 	return ext4_xattr_get(inode, EXT4_XATTR_INDEX_HURD,
 			      name, buffer, size);
 }
+
 
 /**
  * ext4_xattr_hurd_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -3626,6 +3674,7 @@ ext4_xattr_trusted_list(struct dentry *dentry)
 	return capable(CAP_SYS_ADMIN);
 }
 
+
 /**
  * ext4_xattr_trusted_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -3642,6 +3691,7 @@ ext4_xattr_trusted_get(const struct xattr_handler *handler,
 	return ext4_xattr_get(inode, EXT4_XATTR_INDEX_TRUSTED,
 			      name, buffer, size);
 }
+
 
 /**
  * ext4_xattr_trusted_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -3684,6 +3734,7 @@ ext4_xattr_user_list(struct dentry *dentry)
 	return test_opt(dentry->d_sb, XATTR_USER);
 }
 
+
 /**
  * ext4_xattr_user_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -3702,6 +3753,7 @@ ext4_xattr_user_get(const struct xattr_handler *handler,
 	return ext4_xattr_get(inode, EXT4_XATTR_INDEX_USER,
 			      name, buffer, size);
 }
+
 
 /**
  * ext4_xattr_user_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -3751,6 +3803,7 @@ ext4_xattr_security_get(const struct xattr_handler *handler,
 			      name, buffer, size);
 }
 
+
 /**
  * ext4_xattr_security_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -3769,6 +3822,7 @@ ext4_xattr_security_set(const struct xattr_handler *handler,
 	return ext4_xattr_set(inode, EXT4_XATTR_INDEX_SECURITY,
 			      name, value, size, flags);
 }
+
 
 /**
  * ext4_initxattrs - Implements the initxattrs operation within the extended metadata subsystem.
@@ -3796,6 +3850,7 @@ ext4_initxattrs(struct inode *inode, const struct xattr *xattr_array,
 	}
 	return err;
 }
+
 
 /**
  * ext4_init_security - Initialises subsystem state and establishes the resources required by later operations.
@@ -4055,6 +4110,7 @@ __ext4_set_acl(handle_t *handle, struct inode *inode, int type,
 	return error;
 }
 
+
 /**
  * ext4_set_acl - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -4175,6 +4231,7 @@ static struct kmem_cache *mb_entry_cache;
 static unsigned long mb_cache_shrink(struct mb_cache *cache,
 				     unsigned long nr_to_scan);
 
+
 /**
  * mb_cache_entry_head - Implements the mb cache entry head operation within the extended metadata subsystem.
  *
@@ -4248,6 +4305,7 @@ int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
 	return 0;
 }
 
+
 /**
  * __mb_cache_entry_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -4280,6 +4338,7 @@ void mb_cache_entry_wait_unused(struct mb_cache_entry *entry)
 {
 	wait_var_event(&entry->e_refcnt, atomic_read(&entry->e_refcnt) <= 2);
 }
+
 
 /**
  * __entry_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -4426,6 +4485,7 @@ void mb_cache_entry_touch(struct mb_cache *cache,
 	set_bit(MBE_REFERENCED_B, &entry->e_flags);
 }
 
+
 /**
  * mb_cache_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -4481,6 +4541,7 @@ static unsigned long mb_cache_shrink(struct mb_cache *cache,
 	return shrunk;
 }
 
+
 /**
  * mb_cache_scan - Implements the mb cache scan operation within the extended metadata subsystem.
  *
@@ -4498,6 +4559,7 @@ static unsigned long mb_cache_scan(struct shrinker *shrink,
 
 
 #define SHRINK_DIVISOR 16
+
 
 /**
  * mb_cache_shrink_worker - Implements the mb cache shrink worker operation within the extended metadata subsystem.
@@ -4593,6 +4655,7 @@ void mb_cache_destroy(struct mb_cache *cache)
 	kfree(cache);
 }
 
+
 /**
  * infiltratr_mbcache_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -4608,6 +4671,7 @@ int __init infiltratr_mbcache_init(void)
 		return -ENOMEM;
 	return 0;
 }
+
 
 /**
  * infiltratr_mbcache_exit - Tears down subsystem state after users have been quiesced.

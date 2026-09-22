@@ -31,6 +31,7 @@
 #include <trace/events/ext4.h>
 static struct kmem_cache *ext4_fc_dentry_cachep;
 
+
 /**
  * ext4_end_buffer_io_sync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
@@ -55,6 +56,7 @@ static void ext4_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 	unlock_buffer(bh);
 }
 
+
 /**
  * ext4_fc_reset_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -70,6 +72,7 @@ static inline void ext4_fc_reset_inode(struct inode *inode)
 	ei->i_fc_lblk_start = 0;
 	ei->i_fc_lblk_len = 0;
 }
+
 
 /**
  * ext4_fc_init_inode - Initialises subsystem state and establishes the resources required by later operations.
@@ -123,6 +126,7 @@ __releases(&EXT4_SB(inode->i_sb)->s_fc_lock)
 	schedule();
 	finish_wait(wq, &wait.wq_entry);
 }
+
 
 /**
  * ext4_fc_disabled - Implements the fc disabled operation within the fast-commit engine subsystem.
@@ -330,6 +334,7 @@ static int ext4_fc_track_template(
 	return ret;
 }
 
+
 /**
  * struct __track_dentry_update_args - Private EXT4 state/data structure used by fast-commit engine.
  *
@@ -417,6 +422,7 @@ static int __track_dentry_update(handle_t *handle, struct inode *inode,
 	return 0;
 }
 
+
 /**
  * __ext4_fc_track_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -439,6 +445,7 @@ void __ext4_fc_track_unlink(handle_t *handle,
 	trace_ext4_fc_track_unlink(handle, inode, dentry, ret);
 }
 
+
 /**
  * ext4_fc_track_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -459,6 +466,7 @@ void ext4_fc_track_unlink(handle_t *handle, struct dentry *dentry)
 
 	__ext4_fc_track_unlink(handle, inode, dentry);
 }
+
 
 /**
  * __ext4_fc_track_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -482,6 +490,7 @@ void __ext4_fc_track_link(handle_t *handle,
 	trace_ext4_fc_track_link(handle, inode, dentry, ret);
 }
 
+
 /**
  * ext4_fc_track_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -502,6 +511,7 @@ void ext4_fc_track_link(handle_t *handle, struct dentry *dentry)
 
 	__ext4_fc_track_link(handle, inode, dentry);
 }
+
 
 /**
  * __ext4_fc_track_create - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -524,6 +534,7 @@ void __ext4_fc_track_create(handle_t *handle, struct inode *inode,
 					(void *)&args, 0);
 	trace_ext4_fc_track_create(handle, inode, dentry, ret);
 }
+
 
 /**
  * ext4_fc_track_create - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -566,6 +577,7 @@ static int __track_inode(handle_t *handle, struct inode *inode, void *arg,
 	return 0;
 }
 
+
 /**
  * ext4_fc_track_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -596,6 +608,7 @@ void ext4_fc_track_inode(handle_t *handle, struct inode *inode)
 	ret = ext4_fc_track_template(handle, inode, __track_inode, NULL, 1);
 	trace_ext4_fc_track_inode(handle, inode, ret);
 }
+
 
 /**
  * struct __track_range_args - Private EXT4 state/data structure used by fast-commit engine.
@@ -644,6 +657,7 @@ static int __track_range(handle_t *handle, struct inode *inode, void *arg,
 	return 0;
 }
 
+
 /**
  * ext4_fc_track_range - Implements the fc track range operation within the fast-commit engine subsystem.
  *
@@ -680,6 +694,7 @@ void ext4_fc_track_range(handle_t *handle, struct inode *inode, ext4_lblk_t star
 
 	trace_ext4_fc_track_range(handle, inode, start, end, ret);
 }
+
 
 /**
  * ext4_fc_submit_bh - Implements the fc submit bh operation within the fast-commit engine subsystem.
@@ -1135,6 +1150,7 @@ lock_and_exit:
 	return ret;
 }
 
+
 /**
  * ext4_fc_perform_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
@@ -1209,6 +1225,7 @@ out:
 	blk_finish_plug(&plug);
 	return ret;
 }
+
 
 /**
  * ext4_fc_update_stats - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1420,6 +1437,7 @@ struct ext4_fc_tl_mem {
 	u16 fc_len;
 };
 
+
 /**
  * tl_to_darg - Implements the tl to darg operation within the fast-commit engine subsystem.
  *
@@ -1440,6 +1458,7 @@ static inline void tl_to_darg(struct dentry_info_args *darg,
 	darg->dname = val + offsetof(struct ext4_fc_dentry_info, fc_dname);
 	darg->dname_len = tl->fc_len - sizeof(struct ext4_fc_dentry_info);
 }
+
 
 /**
  * ext4_fc_get_tl - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1505,6 +1524,7 @@ static int ext4_fc_replay_unlink(struct super_block *sb,
 	iput(inode);
 	return ret;
 }
+
 
 /**
  * ext4_fc_replay_link_internal - Participates in crash recovery and reconstruction of durable filesystem state.
@@ -2039,6 +2059,7 @@ out:
 	return ret;
 }
 
+
 /**
  * ext4_fc_set_bitmaps_and_counters - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -2144,6 +2165,7 @@ void ext4_fc_replay_cleanup(struct super_block *sb)
 	kfree(sbi->s_fc_replay_state.fc_regions);
 	kfree(sbi->s_fc_replay_state.fc_modified_inodes);
 }
+
 
 /**
  * ext4_fc_value_len_isvalid - Implements the fc value len isvalid operation within the fast-commit engine subsystem.
@@ -2409,6 +2431,7 @@ static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 	return ret;
 }
 
+
 /**
  * ext4_fc_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -2440,6 +2463,7 @@ static const char * const fc_ineligible_reasons[] = {
 	[EXT4_FC_REASON_ENCRYPTED_FILENAME] = "Encrypted filename",
 };
 
+
 /**
  * ext4_fc_info_show - Implements the fc info show operation within the fast-commit engine subsystem.
  *
@@ -2470,6 +2494,7 @@ int ext4_fc_info_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+
 /**
  * ext4_fc_init_dentry_cache - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -2488,6 +2513,7 @@ int __init ext4_fc_init_dentry_cache(void)
 
 	return 0;
 }
+
 
 /**
  * ext4_fc_destroy_dentry_cache - Tears down subsystem state after users have been quiesced.

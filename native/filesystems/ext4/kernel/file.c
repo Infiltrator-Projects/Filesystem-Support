@@ -80,6 +80,7 @@ static bool ext4_should_use_dio(struct kiocb *iocb, struct iov_iter *iter)
 	return IS_ALIGNED(iocb->ki_pos | iov_iter_alignment(iter), dio_align);
 }
 
+
 /**
  * ext4_dio_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -116,6 +117,8 @@ static ssize_t ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 }
 
 #ifdef CONFIG_FS_DAX
+
+
 /**
  * ext4_dax_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -150,6 +153,7 @@ static ssize_t ext4_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 }
 #endif
 
+
 /**
  * ext4_file_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -177,6 +181,7 @@ static ssize_t ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 	return generic_file_read_iter(iocb, to);
 }
+
 
 /**
  * ext4_file_splice_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -247,6 +252,7 @@ ext4_unaligned_io(struct inode *inode, struct iov_iter *from, loff_t pos)
 	return false;
 }
 
+
 /**
  * ext4_extending_io - Implements the extending io operation within the regular-file vfs operations subsystem.
  *
@@ -296,6 +302,7 @@ static bool ext4_overwrite_io(struct inode *inode,
 	return true;
 }
 
+
 /**
  * ext4_generic_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -329,6 +336,7 @@ static ssize_t ext4_generic_write_checks(struct kiocb *iocb,
 	return iov_iter_count(from);
 }
 
+
 /**
  * ext4_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -350,6 +358,7 @@ static ssize_t ext4_write_checks(struct kiocb *iocb, struct iov_iter *from)
 		return ret;
 	return count;
 }
+
 
 /**
  * ext4_buffered_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -381,6 +390,7 @@ out:
 		return ret;
 	return generic_write_sync(iocb, ret);
 }
+
 
 /**
  * ext4_handle_inode_extension - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -450,6 +460,7 @@ static void ext4_inode_extension_cleanup(struct inode *inode, bool need_trunc)
 		ext4_journal_stop(handle);
 	}
 }
+
 
 /**
  * ext4_dio_write_end_io - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -550,6 +561,7 @@ out:
 		inode_unlock(inode);
 	return ret;
 }
+
 
 /**
  * ext4_dio_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -669,6 +681,8 @@ out:
 }
 
 #ifdef CONFIG_FS_DAX
+
+
 /**
  * ext4_dax_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -732,6 +746,7 @@ out:
 }
 #endif
 
+
 /**
  * ext4_file_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -759,6 +774,8 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 }
 
 #ifdef CONFIG_FS_DAX
+
+
 /**
  * ext4_dax_huge_fault - Implements the dax huge fault operation within the regular-file vfs operations subsystem.
  *
@@ -816,6 +833,7 @@ retry:
 	return result;
 }
 
+
 /**
  * ext4_dax_fault - Implements the dax fault operation within the regular-file vfs operations subsystem.
  *
@@ -844,6 +862,7 @@ static const struct vm_operations_struct ext4_file_vm_ops = {
 	.map_pages	= filemap_map_pages,
 	.page_mkwrite   = ext4_page_mkwrite,
 };
+
 
 /**
  * ext4_file_mmap - Implements the file mmap operation within the regular-file vfs operations subsystem.
@@ -874,6 +893,7 @@ static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 	}
 	return 0;
 }
+
 
 /**
  * ext4_sample_last_mounted - Implements the sample last mounted operation within the regular-file vfs operations subsystem.
@@ -929,6 +949,7 @@ out:
 	sb_end_intwrite(sb);
 	return err;
 }
+
 
 /**
  * ext4_file_open - Implements the file open operation within the regular-file vfs operations subsystem.
@@ -1076,6 +1097,7 @@ static int ext4_sync_parent(struct inode *inode)
 	return ret;
 }
 
+
 /**
  * ext4_fsync_nojournal - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
@@ -1110,6 +1132,7 @@ static int ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
 
 	return ret;
 }
+
 
 /**
  * ext4_fsync_journal - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.

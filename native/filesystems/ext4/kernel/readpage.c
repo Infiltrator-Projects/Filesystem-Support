@@ -87,6 +87,7 @@ enum bio_post_read_step {
 	STEP_MAX,
 };
 
+
 /**
  * struct bio_post_read_ctx - Private EXT4 state/data structure used by read-side mapped i/o.
  *
@@ -99,6 +100,7 @@ struct bio_post_read_ctx {
 	unsigned int cur_step;
 	unsigned int enabled_steps;
 };
+
 
 /**
  * __read_end_io - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -121,6 +123,7 @@ static void __read_end_io(struct bio *bio)
 
 static void bio_post_read_processing(struct bio_post_read_ctx *ctx);
 
+
 /**
  * decrypt_work - Implements the decrypt work operation within the read-side mapped i/o subsystem.
  *
@@ -140,6 +143,7 @@ static void decrypt_work(struct work_struct *work)
 	else
 		__read_end_io(bio);
 }
+
 
 /**
  * verity_work - Implements the verity work operation within the read-side mapped i/o subsystem.
@@ -164,6 +168,7 @@ static void verity_work(struct work_struct *work)
 
 	__read_end_io(bio);
 }
+
 
 /**
  * bio_post_read_processing - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -199,6 +204,7 @@ static void bio_post_read_processing(struct bio_post_read_ctx *ctx)
 	}
 }
 
+
 /**
  * bio_post_read_required - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -233,6 +239,7 @@ static void mpage_end_io(struct bio *bio)
 	__read_end_io(bio);
 }
 
+
 /**
  * ext4_need_verity - Implements the need verity operation within the read-side mapped i/o subsystem.
  *
@@ -246,6 +253,7 @@ static inline bool ext4_need_verity(const struct inode *inode, pgoff_t idx)
 	return fsverity_active(inode) &&
 	       idx < DIV_ROUND_UP(inode->i_size, PAGE_SIZE);
 }
+
 
 /**
  * ext4_set_bio_post_read_ctx - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -278,6 +286,7 @@ static void ext4_set_bio_post_read_ctx(struct bio *bio,
 	}
 }
 
+
 /**
  * ext4_readpage_limit - Implements the readpage limit operation within the read-side mapped i/o subsystem.
  *
@@ -293,6 +302,7 @@ static inline loff_t ext4_readpage_limit(struct inode *inode)
 
 	return i_size_read(inode);
 }
+
 
 /**
  * ext4_mpage_readpages - Implements the mpage readpages operation within the read-side mapped i/o subsystem.
@@ -474,6 +484,7 @@ next_page:
 	return 0;
 }
 
+
 /**
  * ext4_init_post_read_processing - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -500,6 +511,7 @@ fail_free_cache:
 fail:
 	return -ENOMEM;
 }
+
 
 /**
  * ext4_exit_post_read_processing - Tears down subsystem state after users have been quiesced.

@@ -137,6 +137,7 @@ __releases(&journal->j_state_lock)
 	}
 }
 
+
 /**
  * __flush_batch - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *

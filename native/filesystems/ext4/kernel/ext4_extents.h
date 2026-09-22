@@ -105,6 +105,7 @@ struct ext4_extent_header {
 	(sizeof(struct ext4_extent_header) + \
 	 (sizeof(struct ext4_extent) * le16_to_cpu((hdr)->eh_max)))
 
+
 /**
  * find_ext4_extent_tail - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -177,6 +178,7 @@ struct partial_cluster {
 	((EXT_FIRST_INDEX((__hdr__)) + le16_to_cpu((__hdr__)->eh_max) - 1)) \
 					: NULL)
 
+
 /**
  * ext_inode_hdr - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -189,6 +191,7 @@ static inline struct ext4_extent_header *ext_inode_hdr(struct inode *inode)
 {
 	return (struct ext4_extent_header *) EXT4_I(inode)->i_data;
 }
+
 
 /**
  * ext_block_hdr - Implements the ext block hdr operation within the extent-tree representation subsystem.
@@ -203,6 +206,7 @@ static inline struct ext4_extent_header *ext_block_hdr(struct buffer_head *bh)
 	return (struct ext4_extent_header *) bh->b_data;
 }
 
+
 /**
  * ext_depth - Implements the ext depth operation within the extent-tree representation subsystem.
  *
@@ -215,6 +219,7 @@ static inline unsigned short ext_depth(struct inode *inode)
 {
 	return le16_to_cpu(ext_inode_hdr(inode)->eh_depth);
 }
+
 
 /**
  * ext4_ext_mark_unwritten - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -231,6 +236,7 @@ static inline void ext4_ext_mark_unwritten(struct ext4_extent *ext)
 	ext->ee_len |= cpu_to_le16(EXT_INIT_MAX_LEN);
 }
 
+
 /**
  * ext4_ext_is_unwritten - Implements the ext is unwritten operation within the extent-tree representation subsystem.
  *
@@ -244,6 +250,7 @@ static inline int ext4_ext_is_unwritten(struct ext4_extent *ext)
 
 	return (le16_to_cpu(ext->ee_len) > EXT_INIT_MAX_LEN);
 }
+
 
 /**
  * ext4_ext_get_actual_len - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -259,6 +266,7 @@ static inline int ext4_ext_get_actual_len(struct ext4_extent *ext)
 		le16_to_cpu(ext->ee_len) :
 		(le16_to_cpu(ext->ee_len) - EXT_INIT_MAX_LEN));
 }
+
 
 /**
  * ext4_ext_mark_initialized - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.

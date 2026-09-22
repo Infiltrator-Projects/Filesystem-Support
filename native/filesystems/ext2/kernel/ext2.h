@@ -50,6 +50,7 @@ typedef unsigned long ext2_fsblk_t;
 
 #define E2FSBLK "%lu"
 
+
 /**
  * struct ext2_reserve_window - Private EXT2 state/data structure used by ext2 shared model.
  *
@@ -60,6 +61,7 @@ struct ext2_reserve_window {
 	ext2_fsblk_t		_rsv_start;
 	ext2_fsblk_t		_rsv_end;
 };
+
 
 /**
  * struct ext2_reserve_window_node - Private EXT2 state/data structure used by ext2 shared model.
@@ -73,6 +75,7 @@ struct ext2_reserve_window_node {
 	__u32			rsv_alloc_hit;
 	struct ext2_reserve_window	rsv_window;
 };
+
 
 /**
  * struct ext2_block_alloc_info - Private EXT2 state/data structure used by ext2 shared model.
@@ -146,6 +149,7 @@ struct ext2_sb_info {
 	u64 s_dax_part_off;
 };
 
+
 /**
  * sb_bgl_lock - Implements the sb bgl lock operation within the ext2 shared model subsystem.
  *
@@ -192,6 +196,7 @@ sb_bgl_lock(struct ext2_sb_info *sbi, unsigned int block_group)
 
 
 #define EXT2_GOOD_OLD_FIRST_INO	11
+
 
 /**
  * EXT2_SB - Implements the EXT2 SB operation within the ext2 shared model subsystem.
@@ -586,6 +591,7 @@ struct ext2_dir_entry_2 {
 					 ~EXT2_DIR_ROUND)
 #define EXT2_MAX_REC_LEN		((1<<16)-1)
 
+
 /**
  * verify_offsets - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -765,6 +771,7 @@ extern const struct inode_operations ext2_special_inode_operations;
 extern const struct inode_operations ext2_fast_symlink_inode_operations;
 extern const struct inode_operations ext2_symlink_inode_operations;
 
+
 /**
  * ext2_group_first_block_no - Implements the group first block no operation within the ext2 shared model subsystem.
  *
@@ -779,6 +786,7 @@ ext2_group_first_block_no(struct super_block *sb, unsigned long group_no)
 	return group_no * (ext2_fsblk_t)EXT2_BLOCKS_PER_GROUP(sb) +
 		le32_to_cpu(EXT2_SB(sb)->s_es->s_first_data_block);
 }
+
 
 /**
  * ext2_group_last_block_no - Implements the group last block no operation within the ext2 shared model subsystem.
@@ -826,6 +834,7 @@ typedef struct {
 	__le32		a_version;
 } ext2_acl_header;
 
+
 /**
  * ext2_acl_size - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -845,6 +854,7 @@ static inline size_t ext2_acl_size(int count)
 		       (count - 4) * sizeof(ext2_acl_entry);
 	}
 }
+
 
 /**
  * ext2_acl_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -883,6 +893,7 @@ extern int ext2_init_acl (struct inode *, struct inode *);
 #define ext2_get_acl	NULL
 #define ext2_set_acl	NULL
 
+
 /**
  * ext2_init_acl - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -915,6 +926,7 @@ static inline int ext2_init_acl (struct inode *inode, struct inode *dir)
 #define	EXT2_XATTR_INDEX_LUSTRE			5
 #define EXT2_XATTR_INDEX_SECURITY	        6
 
+
 /**
  * struct ext2_xattr_header - Private EXT2 state/data structure used by ext2 shared model.
  *
@@ -928,6 +940,7 @@ struct ext2_xattr_header {
 	__le32	h_hash;
 	__u32	h_reserved[4];
 };
+
 
 /**
  * struct ext2_xattr_entry - Private EXT2 state/data structure used by ext2 shared model.
@@ -979,6 +992,7 @@ extern const struct xattr_handler * const ext2_xattr_handlers[];
 
 # else
 
+
 /**
  * ext2_xattr_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -993,6 +1007,7 @@ ext2_xattr_get(struct inode *inode, int name_index,
 {
 	return -EOPNOTSUPP;
 }
+
 
 /**
  * ext2_xattr_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
@@ -1009,6 +1024,7 @@ ext2_xattr_set(struct inode *inode, int name_index, const char *name,
 	return -EOPNOTSUPP;
 }
 
+
 /**
  * ext2_xattr_delete_inode - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
@@ -1021,6 +1037,7 @@ static inline void
 ext2_xattr_delete_inode(struct inode *inode)
 {
 }
+
 
 /**
  * ext2_xattr_destroy_cache - Tears down subsystem state after users have been quiesced.
@@ -1043,6 +1060,8 @@ static inline void ext2_xattr_destroy_cache(struct mb_cache *cache)
 extern int ext2_init_security(struct inode *inode, struct inode *dir,
 			      const struct qstr *qstr);
 #else
+
+
 /**
  * ext2_init_security - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1076,6 +1095,7 @@ enum {
 	MBE_REUSABLE_B
 };
 
+
 /**
  * struct mb_cache_entry - Private EXT2 state/data structure used by ext2 shared model.
  *
@@ -1106,6 +1126,8 @@ int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
 void __mb_cache_entry_free(struct mb_cache *cache,
 			   struct mb_cache_entry *entry);
 void mb_cache_entry_wait_unused(struct mb_cache_entry *entry);
+
+
 /**
  * mb_cache_entry_put - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *

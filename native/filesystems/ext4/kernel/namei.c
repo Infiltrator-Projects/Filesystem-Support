@@ -70,6 +70,7 @@
 #define NAMEI_RA_BLOCKS  4
 #define NAMEI_RA_SIZE	     (NAMEI_RA_CHUNKS * NAMEI_RA_BLOCKS)
 
+
 /**
  * ext4_append - Implements the append operation within the namespace mutation subsystem.
  *
@@ -135,6 +136,7 @@ typedef enum {
 
 #define ext4_read_dirblock(inode, block, type) \
 	__ext4_read_dirblock((inode), (block), (type), __func__, __LINE__)
+
 
 /**
  * __ext4_read_dirblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -245,6 +247,7 @@ struct fake_dirent
 	u8 file_type;
 };
 
+
 /**
  * struct dx_countlimit - Private EXT4 state/data structure used by namespace mutation.
  *
@@ -256,6 +259,7 @@ struct dx_countlimit
 	__le16 limit;
 	__le16 count;
 };
+
 
 /**
  * struct dx_entry - Private EXT4 state/data structure used by namespace mutation.
@@ -294,6 +298,7 @@ struct dx_root
 	struct dx_entry	entries[];
 };
 
+
 /**
  * struct dx_node - Private EXT4 state/data structure used by namespace mutation.
  *
@@ -319,6 +324,7 @@ struct dx_frame
 	struct dx_entry *entries;
 	struct dx_entry *at;
 };
+
 
 /**
  * struct dx_map_entry - Private EXT4 state/data structure used by namespace mutation.
@@ -444,6 +450,7 @@ static struct ext4_dir_entry_tail *get_dirent_tail(struct inode *inode,
 	return t;
 }
 
+
 /**
  * ext4_dirblock_csum - Implements the dirblock csum operation within the namespace mutation subsystem.
  *
@@ -465,6 +472,7 @@ static __le32 ext4_dirblock_csum(struct inode *inode, void *dirent, int size)
 #define warn_no_space_for_csum(inode)					\
 	__warn_no_space_for_csum((inode), __func__, __LINE__)
 
+
 /**
  * __warn_no_space_for_csum - Implements the warn no space for csum operation within the namespace mutation subsystem.
  *
@@ -479,6 +487,7 @@ static void __warn_no_space_for_csum(struct inode *inode, const char *func,
 	__ext4_warning_inode(inode, func, line,
 		"No space for directory leaf checksum. Please run e2fsck -D.");
 }
+
 
 /**
  * ext4_dirblock_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
@@ -508,6 +517,7 @@ int ext4_dirblock_csum_verify(struct inode *inode, struct buffer_head *bh)
 	return 1;
 }
 
+
 /**
  * ext4_dirblock_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -534,6 +544,7 @@ static void ext4_dirblock_csum_set(struct inode *inode,
 					     (char *)t - bh->b_data);
 }
 
+
 /**
  * ext4_handle_dirty_dirblock - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -549,6 +560,7 @@ int ext4_handle_dirty_dirblock(handle_t *handle,
 	ext4_dirblock_csum_set(inode, bh);
 	return ext4_handle_dirty_metadata(handle, inode, bh);
 }
+
 
 /**
  * get_dx_countlimit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -587,6 +599,7 @@ static struct dx_countlimit *get_dx_countlimit(struct inode *inode,
 	return (struct dx_countlimit *)(((void *)dirent) + count_offset);
 }
 
+
 /**
  * ext4_dx_csum - Implements the dx csum operation within the namespace mutation subsystem.
  *
@@ -612,6 +625,7 @@ static __le32 ext4_dx_csum(struct inode *inode, struct ext4_dir_entry *dirent,
 
 	return cpu_to_le32(csum);
 }
+
 
 /**
  * ext4_dx_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
@@ -651,6 +665,7 @@ static int ext4_dx_csum_verify(struct inode *inode,
 	return 1;
 }
 
+
 /**
  * ext4_dx_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -684,6 +699,7 @@ static void ext4_dx_csum_set(struct inode *inode, struct ext4_dir_entry *dirent)
 
 	t->dt_checksum = ext4_dx_csum(inode, dirent, count_offset, count, t);
 }
+
 
 /**
  * ext4_handle_dirty_dx_node - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -731,6 +747,7 @@ static inline ext4_lblk_t dx_get_block(struct dx_entry *entry)
 	return le32_to_cpu(entry->block) & 0x0fffffff;
 }
 
+
 /**
  * dx_set_block - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -743,6 +760,7 @@ static inline void dx_set_block(struct dx_entry *entry, ext4_lblk_t value)
 {
 	entry->block = cpu_to_le32(value);
 }
+
 
 /**
  * dx_get_hash - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -757,6 +775,7 @@ static inline unsigned dx_get_hash(struct dx_entry *entry)
 	return le32_to_cpu(entry->hash);
 }
 
+
 /**
  * dx_set_hash - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -769,6 +788,7 @@ static inline void dx_set_hash(struct dx_entry *entry, unsigned value)
 {
 	entry->hash = cpu_to_le32(value);
 }
+
 
 /**
  * dx_get_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -783,6 +803,7 @@ static inline unsigned dx_get_count(struct dx_entry *entries)
 	return le16_to_cpu(((struct dx_countlimit *) entries)->count);
 }
 
+
 /**
  * dx_get_limit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -795,6 +816,7 @@ static inline unsigned dx_get_limit(struct dx_entry *entries)
 {
 	return le16_to_cpu(((struct dx_countlimit *) entries)->limit);
 }
+
 
 /**
  * dx_set_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -809,6 +831,7 @@ static inline void dx_set_count(struct dx_entry *entries, unsigned value)
 	((struct dx_countlimit *) entries)->count = cpu_to_le16(value);
 }
 
+
 /**
  * dx_set_limit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -821,6 +844,7 @@ static inline void dx_set_limit(struct dx_entry *entries, unsigned value)
 {
 	((struct dx_countlimit *) entries)->limit = cpu_to_le16(value);
 }
+
 
 /**
  * dx_root_limit - Implements the dx root limit operation within the namespace mutation subsystem.
@@ -840,6 +864,7 @@ static inline unsigned dx_root_limit(struct inode *dir, unsigned infosize)
 		entry_space -= sizeof(struct dx_tail);
 	return entry_space / sizeof(struct dx_entry);
 }
+
 
 /**
  * dx_node_limit - Implements the dx node limit operation within the namespace mutation subsystem.
@@ -861,6 +886,8 @@ static inline unsigned dx_node_limit(struct inode *dir)
 
 
 #ifdef DX_DEBUG
+
+
 /**
  * dx_show_index - Implements the dx show index operation within the namespace mutation subsystem.
  *
@@ -881,6 +908,7 @@ static void dx_show_index(char * label, struct dx_entry *entries)
 	printk(KERN_CONT "\n");
 }
 
+
 /**
  * struct stats - Private EXT4 state/data structure used by namespace mutation.
  *
@@ -893,6 +921,7 @@ struct stats
 	unsigned space;
 	unsigned bcount;
 };
+
 
 /**
  * dx_show_leaf - Implements the dx show leaf operation within the namespace mutation subsystem.
@@ -991,6 +1020,7 @@ static struct stats dx_show_leaf(struct inode *dir,
 	return (struct stats) { names, space, 1 };
 }
 
+
 /**
  * dx_show_entries - Implements the dx show entries operation within the namespace mutation subsystem.
  *
@@ -1056,6 +1086,8 @@ static inline void htree_rep_invariant_check(struct dx_entry *at,
 	ASSERT(at == target - 1);
 }
 #else
+
+
 /**
  * htree_rep_invariant_check - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -1240,6 +1272,7 @@ fail:
 			"Corrupt directory, running e2fsck is recommended");
 	return ret_err;
 }
+
 
 /**
  * dx_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1552,6 +1585,7 @@ errout:
 	return (err);
 }
 
+
 /**
  * search_dirblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1654,6 +1688,7 @@ static void dx_sort_map (struct dx_map_entry *map, unsigned count)
 	} while(more);
 }
 
+
 /**
  * dx_insert_block - Implements the dx insert block operation within the namespace mutation subsystem.
  *
@@ -1677,6 +1712,8 @@ static void dx_insert_block(struct dx_frame *frame, u32 hash, ext4_lblk_t block)
 }
 
 #if IS_ENABLED(CONFIG_UNICODE)
+
+
 /**
  * ext4_fname_setup_ci_filename - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1810,6 +1847,7 @@ int ext4_search_dir(struct buffer_head *bh, char *search_buf, int buf_size,
 	}
 	return 0;
 }
+
 
 /**
  * is_dx_internal_node - Implements the is dx internal node operation within the namespace mutation subsystem.
@@ -1986,6 +2024,7 @@ cleanup_and_exit:
 	return ret;
 }
 
+
 /**
  * ext4_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2015,6 +2054,7 @@ static struct buffer_head *ext4_find_entry(struct inode *dir,
 	return bh;
 }
 
+
 /**
  * ext4_lookup_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2042,6 +2082,7 @@ static struct buffer_head *ext4_lookup_entry(struct inode *dir,
 	ext4_fname_free_filename(&fname);
 	return bh;
 }
+
 
 /**
  * ext4_dx_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2103,6 +2144,7 @@ success:
 	dx_release(frames);
 	return bh;
 }
+
 
 /**
  * ext4_lookup - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2391,6 +2433,7 @@ journal_error:
 	return ERR_PTR(err);
 }
 
+
 /**
  * ext4_find_dest_de - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2432,6 +2475,7 @@ int ext4_find_dest_de(struct inode *dir, struct inode *inode,
 	*dest_de = de;
 	return 0;
 }
+
 
 /**
  * ext4_insert_dentry - Implements the insert dentry operation within the namespace mutation subsystem.
@@ -2522,6 +2566,7 @@ static int add_dirent_to_buf(handle_t *handle, struct ext4_filename *fname,
 		ext4_std_error(dir->i_sb, err);
 	return err ? err : err2;
 }
+
 
 /**
  * ext4_check_dx_root - Validates state before it is trusted by the remainder of the filesystem.
@@ -3078,6 +3123,7 @@ int ext4_generic_delete_entry(struct inode *dir,
 	return -ENOENT;
 }
 
+
 /**
  * ext4_delete_entry - Implements the delete entry operation within the namespace mutation subsystem.
  *
@@ -3233,6 +3279,7 @@ retry:
 	return err;
 }
 
+
 /**
  * ext4_mknod - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -3274,6 +3321,7 @@ retry:
 		goto retry;
 	return err;
 }
+
 
 /**
  * ext4_tmpfile - Implements the tmpfile operation within the namespace mutation subsystem.
@@ -3324,6 +3372,7 @@ err_unlock_inode:
 	return err;
 }
 
+
 /**
  * ext4_init_dot_dotdot - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -3360,6 +3409,7 @@ struct ext4_dir_entry_2 *ext4_init_dot_dotdot(struct inode *inode,
 
 	return ext4_next_entry(de, blocksize);
 }
+
 
 /**
  * ext4_init_new_dir - Initialises subsystem state and establishes the resources required by later operations.
@@ -3409,6 +3459,7 @@ out:
 	brelse(dir_block);
 	return err;
 }
+
 
 /**
  * ext4_mkdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -3563,6 +3614,7 @@ bool ext4_empty_dir(struct inode *inode)
 	return true;
 }
 
+
 /**
  * ext4_rmdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -3653,6 +3705,7 @@ end_rmdir:
 	return retval;
 }
 
+
 /**
  * __ext4_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -3728,6 +3781,7 @@ out_bh:
 	return retval;
 }
 
+
 /**
  * ext4_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -3764,6 +3818,7 @@ out_trace:
 	return retval;
 }
 
+
 /**
  * ext4_init_symlink_block - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -3797,6 +3852,7 @@ out:
 	brelse(bh);
 	return err;
 }
+
 
 /**
  * ext4_symlink - Implements the symlink operation within the namespace mutation subsystem.
@@ -3892,6 +3948,7 @@ out_retry:
 	return err;
 }
 
+
 /**
  * __ext4_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -3936,6 +3993,7 @@ retry:
 		goto retry;
 	return err;
 }
+
 
 /**
  * ext4_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -4026,6 +4084,7 @@ static struct buffer_head *ext4_get_first_dir_block(handle_t *handle,
 	return ext4_get_first_inline_block(inode, parent_de, retval);
 }
 
+
 /**
  * struct ext4_renament - Private EXT4 state/data structure used by namespace mutation.
  *
@@ -4049,6 +4108,7 @@ struct ext4_renament {
 	struct ext4_dir_entry_2 *parent_de;
 	int dir_inlined;
 };
+
 
 /**
  * ext4_rename_dir_prepare - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -4077,6 +4137,7 @@ static int ext4_rename_dir_prepare(handle_t *handle, struct ext4_renament *ent, 
 	return ext4_journal_get_write_access(handle, ent->dir->i_sb,
 					     ent->dir_bh, EXT4_JTR_NONE);
 }
+
 
 /**
  * ext4_rename_dir_finish - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -4115,6 +4176,7 @@ static int ext4_rename_dir_finish(handle_t *handle, struct ext4_renament *ent,
 	return 0;
 }
 
+
 /**
  * ext4_setent - Implements the setent operation within the namespace mutation subsystem.
  *
@@ -4150,6 +4212,7 @@ static int ext4_setent(handle_t *handle, struct ext4_renament *ent,
 	return retval;
 }
 
+
 /**
  * ext4_resetent - Implements the resetent operation within the namespace mutation subsystem.
  *
@@ -4180,6 +4243,7 @@ static void ext4_resetent(handle_t *handle, struct ext4_renament *ent,
 	brelse(old.bh);
 }
 
+
 /**
  * ext4_find_delete_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -4204,6 +4268,7 @@ static int ext4_find_delete_entry(handle_t *handle, struct inode *dir,
 	}
 	return retval;
 }
+
 
 /**
  * ext4_rename_delete - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -4241,6 +4306,7 @@ static void ext4_rename_delete(handle_t *handle, struct ext4_renament *ent,
 	}
 }
 
+
 /**
  * ext4_update_dir_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -4259,6 +4325,7 @@ static void ext4_update_dir_count(handle_t *handle, struct ext4_renament *ent)
 		ext4_mark_inode_dirty(handle, ent->dir);
 	}
 }
+
 
 /**
  * ext4_whiteout_for_rename - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -4542,6 +4609,7 @@ release_bh:
 	return retval;
 }
 
+
 /**
  * ext4_cross_rename - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -4680,6 +4748,7 @@ end_rename:
 		ext4_journal_stop(handle);
 	return retval;
 }
+
 
 /**
  * ext4_rename2 - Implements the rename2 operation within the namespace mutation subsystem.

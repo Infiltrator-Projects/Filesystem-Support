@@ -81,6 +81,8 @@ MODULE_PARM_DESC(jbd2_debug, "Debugging level for jbd2");
 static int jbd2_journal_create_slab(size_t slab_size);
 
 #ifdef CONFIG_JBD2_DEBUG
+
+
 /**
  * __jbd2_debug - Implements the debug operation within the jbd2 journal core subsystem.
  *
@@ -232,6 +234,7 @@ end_loop:
 	return 0;
 }
 
+
 /**
  * jbd2_journal_start_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -252,6 +255,7 @@ static int jbd2_journal_start_thread(journal_t *journal)
 	wait_event(journal->j_wait_done_commit, journal->j_task != NULL);
 	return 0;
 }
+
 
 /**
  * journal_kill_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -275,6 +279,7 @@ static void journal_kill_thread(journal_t *journal)
 	write_unlock(&journal->j_state_lock);
 }
 
+
 /**
  * jbd2_data_needs_escaping - Implements the data needs escaping operation within the jbd2 journal core subsystem.
  *
@@ -287,6 +292,7 @@ static inline bool jbd2_data_needs_escaping(char *data)
 {
 	return *((__be32 *)data) == cpu_to_be32(JBD2_MAGIC_NUMBER);
 }
+
 
 /**
  * jbd2_data_do_escape - Implements the data do escape operation within the jbd2 journal core subsystem.
@@ -441,6 +447,7 @@ static int __jbd2_log_start_commit(journal_t *journal, tid_t target)
 			  journal->j_running_transaction->t_tid : 0);
 	return 0;
 }
+
 
 /**
  * jbd2_log_start_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
@@ -726,6 +733,7 @@ static int __jbd2_fc_end_commit(journal_t *journal, tid_t tid, bool fallback)
 	return 0;
 }
 
+
 /**
  * jbd2_fc_end_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
@@ -738,6 +746,7 @@ int jbd2_fc_end_commit(journal_t *journal)
 {
 	return __jbd2_fc_end_commit(journal, 0, false);
 }
+
 
 /**
  * jbd2_fc_end_commit_fallback - Advances journalled state toward a durable transaction or checkpoint boundary.
@@ -902,6 +911,7 @@ int jbd2_fc_wait_bufs(journal_t *journal, int num_blks)
 	return 0;
 }
 
+
 /**
  * jbd2_fc_release_bufs - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1003,6 +1013,7 @@ jbd2_journal_get_descriptor_buffer(transaction_t *transaction, int type)
 	BUFFER_TRACE(bh, "return this buffer");
 	return bh;
 }
+
 
 /**
  * jbd2_descriptor_block_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1123,6 +1134,7 @@ void jbd2_update_log_tail(journal_t *journal, tid_t tid, unsigned long block)
 	mutex_unlock(&journal->j_checkpoint_mutex);
 }
 
+
 /**
  * struct jbd2_stats_proc_session - Private EXT4 state/data structure used by jbd2 journal core.
  *
@@ -1135,6 +1147,7 @@ struct jbd2_stats_proc_session {
 	int start;
 	int max;
 };
+
 
 /**
  * jbd2_seq_info_start - Implements the seq info start operation within the jbd2 journal core subsystem.
@@ -1149,6 +1162,7 @@ static void *jbd2_seq_info_start(struct seq_file *seq, loff_t *pos)
 	return *pos ? NULL : SEQ_START_TOKEN;
 }
 
+
 /**
  * jbd2_seq_info_next - Implements the seq info next operation within the jbd2 journal core subsystem.
  *
@@ -1162,6 +1176,7 @@ static void *jbd2_seq_info_next(struct seq_file *seq, void *v, loff_t *pos)
 	(*pos)++;
 	return NULL;
 }
+
 
 /**
  * jbd2_seq_info_show - Implements the seq info show operation within the jbd2 journal core subsystem.
@@ -1208,6 +1223,7 @@ static int jbd2_seq_info_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+
 /**
  * jbd2_seq_info_stop - Implements the seq info stop operation within the jbd2 journal core subsystem.
  *
@@ -1226,6 +1242,7 @@ static const struct seq_operations jbd2_seq_info_ops = {
 	.stop   = jbd2_seq_info_stop,
 	.show   = jbd2_seq_info_show,
 };
+
 
 /**
  * jbd2_seq_info_open - Implements the seq info open operation within the jbd2 journal core subsystem.
@@ -1267,6 +1284,7 @@ static int jbd2_seq_info_open(struct inode *inode, struct file *file)
 
 }
 
+
 /**
  * jbd2_seq_info_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1293,6 +1311,7 @@ static const struct proc_ops jbd2_info_proc_ops = {
 
 static struct proc_dir_entry *proc_jbd2_stats;
 
+
 /**
  * jbd2_stats_proc_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1309,6 +1328,7 @@ static void jbd2_stats_proc_init(journal_t *journal)
 				 &jbd2_info_proc_ops, journal);
 	}
 }
+
 
 /**
  * jbd2_stats_proc_exit - Tears down subsystem state after users have been quiesced.
@@ -1507,6 +1527,7 @@ static int journal_check_superblock(journal_t *journal)
 	return 0;
 }
 
+
 /**
  * journal_revoke_records_per_block - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1529,6 +1550,7 @@ static int journal_revoke_records_per_block(journal_t *journal)
 		space -= sizeof(struct jbd2_journal_block_tail);
 	return space / record_size;
 }
+
 
 /**
  * jbd2_journal_get_max_txn_bufs - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2332,6 +2354,7 @@ int jbd2_journal_check_available_features(journal_t *journal, unsigned long comp
 	return 0;
 }
 
+
 /**
  * jbd2_journal_initialize_fast_commit - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -2704,6 +2727,7 @@ void jbd2_journal_ack_err(journal_t *journal)
 	write_unlock(&journal->j_state_lock);
 }
 
+
 /**
  * jbd2_journal_blocks_per_page - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -2772,6 +2796,7 @@ static void jbd2_journal_destroy_slabs(void)
 	}
 }
 
+
 /**
  * jbd2_journal_create_slab - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -2811,6 +2836,7 @@ static int jbd2_journal_create_slab(size_t size)
 	return 0;
 }
 
+
 /**
  * get_slab - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2829,6 +2855,7 @@ static struct kmem_cache *get_slab(size_t size)
 	BUG_ON(jbd2_slab[i] == NULL);
 	return jbd2_slab[i];
 }
+
 
 /**
  * jbd2_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -2855,6 +2882,7 @@ void *jbd2_alloc(size_t size, gfp_t flags)
 	return ptr;
 }
 
+
 /**
  * jbd2_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -2876,6 +2904,7 @@ static struct kmem_cache *jbd2_journal_head_cache;
 #ifdef CONFIG_JBD2_DEBUG
 static atomic_t nr_journal_heads = ATOMIC_INIT(0);
 #endif
+
 
 /**
  * jbd2_journal_init_journal_head_cache - Initialises subsystem state and establishes the resources required by later operations.
@@ -2899,6 +2928,7 @@ static int __init jbd2_journal_init_journal_head_cache(void)
 	}
 	return 0;
 }
+
 
 /**
  * jbd2_journal_destroy_journal_head_cache - Tears down subsystem state after users have been quiesced.
@@ -2940,6 +2970,7 @@ static struct journal_head *journal_alloc_journal_head(void)
 	spin_lock_init(&ret->b_state_lock);
 	return ret;
 }
+
 
 /**
  * journal_free_journal_head - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -3026,6 +3057,7 @@ struct journal_head *jbd2_journal_grab_journal_head(struct buffer_head *bh)
 	return jh;
 }
 
+
 /**
  * __journal_remove_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -3051,6 +3083,7 @@ static void __journal_remove_journal_head(struct buffer_head *bh)
 	jh->b_bh = NULL;
 	clear_buffer_jbd(bh);
 }
+
 
 /**
  * journal_release_journal_head - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -3159,6 +3192,7 @@ restart:
 
 #define JBD2_STATS_PROC_NAME "fs/jbd2"
 
+
 /**
  * jbd2_create_jbd_stats_proc_entry - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -3171,6 +3205,7 @@ static void __init jbd2_create_jbd_stats_proc_entry(void)
 {
 	proc_jbd2_stats = proc_mkdir(JBD2_STATS_PROC_NAME, NULL);
 }
+
 
 /**
  * jbd2_remove_jbd_stats_proc_entry - Implements the remove jbd stats proc entry operation within the jbd2 journal core subsystem.
@@ -3195,6 +3230,7 @@ static void __exit jbd2_remove_jbd_stats_proc_entry(void)
 
 struct kmem_cache *jbd2_handle_cache, *jbd2_inode_cache;
 
+
 /**
  * jbd2_journal_init_inode_cache - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -3213,6 +3249,7 @@ static int __init jbd2_journal_init_inode_cache(void)
 	}
 	return 0;
 }
+
 
 /**
  * jbd2_journal_init_handle_cache - Initialises subsystem state and establishes the resources required by later operations.
@@ -3233,6 +3270,7 @@ static int __init jbd2_journal_init_handle_cache(void)
 	return 0;
 }
 
+
 /**
  * jbd2_journal_destroy_inode_cache - Tears down subsystem state after users have been quiesced.
  *
@@ -3246,6 +3284,7 @@ static void jbd2_journal_destroy_inode_cache(void)
 	kmem_cache_destroy(jbd2_inode_cache);
 	jbd2_inode_cache = NULL;
 }
+
 
 /**
  * jbd2_journal_destroy_handle_cache - Tears down subsystem state after users have been quiesced.
@@ -3288,6 +3327,7 @@ static int __init journal_init_caches(void)
 	return ret;
 }
 
+
 /**
  * jbd2_journal_destroy_caches - Tears down subsystem state after users have been quiesced.
  *
@@ -3306,6 +3346,7 @@ static void jbd2_journal_destroy_caches(void)
 	jbd2_journal_destroy_transaction_cache();
 	jbd2_journal_destroy_slabs();
 }
+
 
 /**
  * infiltratr_jbd2_init - Initialises subsystem state and establishes the resources required by later operations.
@@ -3326,6 +3367,7 @@ int __init infiltratr_jbd2_init(void)
 		jbd2_journal_destroy_caches();
 	return ret;
 }
+
 
 /**
  * infiltratr_jbd2_exit - Tears down subsystem state after users have been quiesced.

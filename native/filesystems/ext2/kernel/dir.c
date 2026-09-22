@@ -72,6 +72,7 @@ static inline unsigned ext2_rec_len_from_disk(__le16 dlen)
 	return len;
 }
 
+
 /**
  * ext2_rec_len_to_disk - Implements the rec len to disk operation within the directory representation subsystem.
  *
@@ -125,6 +126,7 @@ ext2_last_byte(struct inode *inode, unsigned long page_nr)
 	return last_byte;
 }
 
+
 /**
  * ext2_commit_chunk - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
@@ -147,6 +149,7 @@ static void ext2_commit_chunk(struct folio *folio, loff_t pos, unsigned len)
 	}
 	folio_unlock(folio);
 }
+
 
 /**
  * ext2_check_folio - Validates state before it is trusted by the remainder of the filesystem.
@@ -302,6 +305,7 @@ static inline ext2_dirent *ext2_next_entry(ext2_dirent *p)
 			ext2_rec_len_from_disk(p->rec_len));
 }
 
+
 /**
  * ext2_validate_entry - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -323,6 +327,7 @@ ext2_validate_entry(char *base, unsigned offset, unsigned mask)
 	return offset_in_page(p);
 }
 
+
 /**
  * ext2_set_de_type - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -338,6 +343,7 @@ static inline void ext2_set_de_type(ext2_dirent *de, struct inode *inode)
 	else
 		de->file_type = 0;
 }
+
 
 /**
  * ext2_readdir - Implements the readdir operation within the directory representation subsystem.
@@ -500,6 +506,7 @@ struct ext2_dir_entry_2 *ext2_dotdot(struct inode *dir, struct folio **foliop)
 	return NULL;
 }
 
+
 /**
  * ext2_inode_by_name - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -522,6 +529,7 @@ int ext2_inode_by_name(struct inode *dir, const struct qstr *child, ino_t *ino)
 	return 0;
 }
 
+
 /**
  * ext2_prepare_chunk - Implements the prepare chunk operation within the directory representation subsystem.
  *
@@ -534,6 +542,7 @@ static int ext2_prepare_chunk(struct folio *folio, loff_t pos, unsigned len)
 {
 	return __block_write_begin(folio, pos, len, ext2_get_block);
 }
+
 
 /**
  * ext2_handle_dirsync - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -552,6 +561,7 @@ static int ext2_handle_dirsync(struct inode *dir)
 		err = sync_inode_metadata(dir, 1);
 	return err;
 }
+
 
 /**
  * ext2_set_link - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -836,6 +846,7 @@ not_empty:
 	return 0;
 }
 
+
 /**
  * ext2_dir_open - Implements the dir open operation within the directory representation subsystem.
  *
@@ -852,6 +863,7 @@ static int ext2_dir_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+
 /**
  * ext2_dir_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -865,6 +877,7 @@ static int ext2_dir_release(struct inode *inode, struct file *file)
 	kfree(file->private_data);
 	return 0;
 }
+
 
 /**
  * ext2_dir_llseek - Implements the dir llseek operation within the directory representation subsystem.

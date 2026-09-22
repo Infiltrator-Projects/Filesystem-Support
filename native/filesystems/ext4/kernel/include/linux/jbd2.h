@@ -151,6 +151,7 @@ typedef struct journal_block_tag3_s
 	__be32		t_checksum;
 } journal_block_tag3_t;
 
+
 /**
  * struct journal_block_tag_s - Private EXT4 state/data structure used by embedded jbd2 contract.
  *
@@ -289,6 +290,7 @@ enum jbd_state_bits {
 	BH_JBDPrivateStart,
 };
 
+
 /**
  * jh2bh - Implements the jh2bh operation within the embedded jbd2 contract subsystem.
  *
@@ -314,6 +316,7 @@ static inline struct buffer_head *jh2bh(struct journal_head *jh)
 	return jh->b_bh;
 }
 
+
 /**
  * bh2jh - Implements the bh2jh operation within the embedded jbd2 contract subsystem.
  *
@@ -327,6 +330,7 @@ static inline struct journal_head *bh2jh(struct buffer_head *bh)
 	return bh->b_private;
 }
 
+
 /**
  * jbd_lock_bh_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -339,6 +343,7 @@ static inline void jbd_lock_bh_journal_head(struct buffer_head *bh)
 {
 	bit_spin_lock(BH_JournalHead, &bh->b_state);
 }
+
 
 /**
  * jbd_unlock_bh_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -563,6 +568,7 @@ struct transaction_s
 	struct list_head	t_private_list;
 };
 
+
 /**
  * struct transaction_run_stats_s - Private EXT4 state/data structure used by embedded jbd2 contract.
  *
@@ -582,6 +588,7 @@ struct transaction_run_stats_s {
 	__u32			rs_blocks_logged;
 };
 
+
 /**
  * struct transaction_stats_s - Private EXT4 state/data structure used by embedded jbd2 contract.
  *
@@ -593,6 +600,7 @@ struct transaction_stats_s {
 	unsigned long		ts_requested;
 	struct transaction_run_stats_s run;
 };
+
 
 /**
  * jbd2_time_diff - Implements the time diff operation within the embedded jbd2 contract subsystem.
@@ -612,6 +620,7 @@ jbd2_time_diff(unsigned long start, unsigned long end)
 }
 
 #define JBD2_NR_BATCH	64
+
 
 /**
  * enum passtype - Private EXT4 state/value set used by embedded jbd2 contract.
@@ -989,6 +998,8 @@ extern bool __jbd2_journal_refile_buffer(struct journal_head *);
 extern void jbd2_journal_refile_buffer(journal_t *, struct journal_head *);
 extern void __jbd2_journal_file_buffer(struct journal_head *, transaction_t *, int);
 extern void jbd2_journal_file_buffer(struct journal_head *, transaction_t *, int);
+
+
 /**
  * jbd2_file_log_bh - Implements the file log bh operation within the embedded jbd2 contract subsystem.
  *
@@ -1001,6 +1012,8 @@ static inline void jbd2_file_log_bh(struct list_head *head, struct buffer_head *
 {
 	list_add_tail(&bh->b_assoc_buffers, head);
 }
+
+
 /**
  * jbd2_unfile_log_bh - Implements the unfile log bh operation within the embedded jbd2 contract subsystem.
  *
@@ -1175,6 +1188,7 @@ extern struct kmem_cache *jbd2_handle_cache;
 #define jbd2_alloc_handle(_gfp_flags)	\
 		((handle_t *)kmem_cache_zalloc(jbd2_handle_cache, _gfp_flags))
 
+
 /**
  * jbd2_free_handle - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1194,6 +1208,7 @@ extern struct kmem_cache *jbd2_inode_cache;
 
 #define jbd2_alloc_inode(_gfp_flags)	\
 		((struct jbd2_inode *)kmem_cache_alloc(jbd2_inode_cache, _gfp_flags))
+
 
 /**
  * jbd2_free_inode - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1266,6 +1281,7 @@ static inline int is_journal_aborted(journal_t *journal)
 	return journal->j_flags & JBD2_ABORT;
 }
 
+
 /**
  * is_handle_aborted - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1281,6 +1297,7 @@ static inline int is_handle_aborted(handle_t *handle)
 	return is_journal_aborted(handle->h_transaction->t_journal);
 }
 
+
 /**
  * jbd2_journal_abort_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1293,6 +1310,7 @@ static inline void jbd2_journal_abort_handle(handle_t *handle)
 {
 	handle->h_aborted = 1;
 }
+
 
 /**
  * jbd2_init_fs_dev_write_error - Initialises subsystem state and establishes the resources required by later operations.
@@ -1309,6 +1327,7 @@ static inline void jbd2_init_fs_dev_write_error(journal_t *journal)
 
 	errseq_check_and_advance(&mapping->wb_err, &journal->j_fs_dev_wb_err);
 }
+
 
 /**
  * jbd2_check_fs_dev_write_error - Validates state before it is trusted by the remainder of the filesystem.
@@ -1343,6 +1362,7 @@ static inline int tid_gt(tid_t x, tid_t y)
 	return (difference > 0);
 }
 
+
 /**
  * tid_geq - Implements the tid geq operation within the embedded jbd2 contract subsystem.
  *
@@ -1360,6 +1380,7 @@ static inline int tid_geq(tid_t x, tid_t y)
 extern int jbd2_journal_blocks_per_page(struct inode *inode);
 extern size_t journal_tag_bytes(journal_t *journal);
 
+
 /**
  * jbd2_journal_has_csum_v2or3_feature - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1372,6 +1393,7 @@ static inline bool jbd2_journal_has_csum_v2or3_feature(journal_t *j)
 {
 	return jbd2_has_feature_csum2(j) || jbd2_has_feature_csum3(j);
 }
+
 
 /**
  * jbd2_journal_has_csum_v2or3 - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -1388,6 +1410,7 @@ static inline int jbd2_journal_has_csum_v2or3(journal_t *journal)
 
 	return journal->j_chksum_driver != NULL;
 }
+
 
 /**
  * jbd2_journal_get_num_fc_blks - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1435,6 +1458,7 @@ static inline unsigned long jbd2_log_space_left(journal_t *journal)
 
 
 #define JBD_MAX_CHECKSUM_SIZE 4
+
 
 /**
  * jbd2_chksum - Implements the chksum operation within the embedded jbd2 contract subsystem.
@@ -1485,6 +1509,7 @@ static inline tid_t  jbd2_get_latest_transaction(journal_t *journal)
 	read_unlock(&journal->j_state_lock);
 	return tid;
 }
+
 
 /**
  * jbd2_handle_buffer_credits - Coordinates a journal transaction or journal-owned buffer/state transition.

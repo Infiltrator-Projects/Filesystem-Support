@@ -50,6 +50,7 @@ static __le32 ext4_mmp_csum(struct super_block *sb, struct mmp_struct *mmp)
 	return cpu_to_le32(csum);
 }
 
+
 /**
  * ext4_mmp_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -65,6 +66,7 @@ static int ext4_mmp_csum_verify(struct super_block *sb, struct mmp_struct *mmp)
 
 	return mmp->mmp_checksum == ext4_mmp_csum(sb, mmp);
 }
+
 
 /**
  * ext4_mmp_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -106,6 +108,7 @@ static int write_mmp_block_thawed(struct super_block *sb,
 		return -EIO;
 	return 0;
 }
+
 
 /**
  * write_mmp_block - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -313,6 +316,7 @@ wait_to_exit:
 	set_current_state(TASK_RUNNING);
 	return retval;
 }
+
 
 /**
  * ext4_stop_mmpd - Implements the stop mmpd operation within the multiple-mount protection subsystem.

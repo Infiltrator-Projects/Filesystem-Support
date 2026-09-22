@@ -65,6 +65,7 @@ enum {
 struct ext4_sb_info;
 struct ext4_extent;
 
+
 /**
  * struct extent_status - Private EXT4 state/data structure used by extent-status interfaces.
  *
@@ -78,6 +79,7 @@ struct extent_status {
 	ext4_fsblk_t es_pblk;
 };
 
+
 /**
  * struct ext4_es_tree - Private EXT4 state/data structure used by extent-status interfaces.
  *
@@ -88,6 +90,7 @@ struct ext4_es_tree {
 	struct rb_root root;
 	struct extent_status *cache_es;
 };
+
 
 /**
  * struct ext4_es_stats - Private EXT4 state/data structure used by extent-status interfaces.
@@ -116,6 +119,7 @@ struct pending_reservation {
 	struct rb_node rb_node;
 	ext4_lblk_t lclu;
 };
+
 
 /**
  * struct ext4_pending_tree - Private EXT4 state/data structure used by extent-status interfaces.
@@ -153,6 +157,7 @@ extern bool ext4_es_scan_clu(struct inode *inode,
 			     int (*matching_fn)(struct extent_status *es),
 			     ext4_lblk_t lblk);
 
+
 /**
  * ext4_es_status - Implements the es status operation within the extent-status interfaces subsystem.
  *
@@ -165,6 +170,7 @@ static inline unsigned int ext4_es_status(struct extent_status *es)
 {
 	return es->es_pblk >> ES_SHIFT;
 }
+
 
 /**
  * ext4_es_type - Implements the es type operation within the extent-status interfaces subsystem.
@@ -179,6 +185,7 @@ static inline unsigned int ext4_es_type(struct extent_status *es)
 	return (es->es_pblk >> ES_SHIFT) & ES_TYPE_MASK;
 }
 
+
 /**
  * ext4_es_is_written - Implements the es is written operation within the extent-status interfaces subsystem.
  *
@@ -191,6 +198,7 @@ static inline int ext4_es_is_written(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_WRITTEN) != 0;
 }
+
 
 /**
  * ext4_es_is_unwritten - Implements the es is unwritten operation within the extent-status interfaces subsystem.
@@ -205,6 +213,7 @@ static inline int ext4_es_is_unwritten(struct extent_status *es)
 	return (ext4_es_type(es) & EXTENT_STATUS_UNWRITTEN) != 0;
 }
 
+
 /**
  * ext4_es_is_delayed - Implements the es is delayed operation within the extent-status interfaces subsystem.
  *
@@ -217,6 +226,7 @@ static inline int ext4_es_is_delayed(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_DELAYED) != 0;
 }
+
 
 /**
  * ext4_es_is_hole - Implements the es is hole operation within the extent-status interfaces subsystem.
@@ -231,6 +241,7 @@ static inline int ext4_es_is_hole(struct extent_status *es)
 	return (ext4_es_type(es) & EXTENT_STATUS_HOLE) != 0;
 }
 
+
 /**
  * ext4_es_is_mapped - Implements the es is mapped operation within the extent-status interfaces subsystem.
  *
@@ -243,6 +254,7 @@ static inline int ext4_es_is_mapped(struct extent_status *es)
 {
 	return (ext4_es_is_written(es) || ext4_es_is_unwritten(es));
 }
+
 
 /**
  * ext4_es_set_referenced - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -257,6 +269,7 @@ static inline void ext4_es_set_referenced(struct extent_status *es)
 	es->es_pblk |= ((ext4_fsblk_t)EXTENT_STATUS_REFERENCED) << ES_SHIFT;
 }
 
+
 /**
  * ext4_es_clear_referenced - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -269,6 +282,7 @@ static inline void ext4_es_clear_referenced(struct extent_status *es)
 {
 	es->es_pblk &= ~(((ext4_fsblk_t)EXTENT_STATUS_REFERENCED) << ES_SHIFT);
 }
+
 
 /**
  * ext4_es_is_referenced - Implements the es is referenced operation within the extent-status interfaces subsystem.
@@ -283,6 +297,7 @@ static inline int ext4_es_is_referenced(struct extent_status *es)
 	return (ext4_es_status(es) & EXTENT_STATUS_REFERENCED) != 0;
 }
 
+
 /**
  * ext4_es_pblock - Implements the es pblock operation within the extent-status interfaces subsystem.
  *
@@ -295,6 +310,7 @@ static inline ext4_fsblk_t ext4_es_pblock(struct extent_status *es)
 {
 	return es->es_pblk & ~ES_MASK;
 }
+
 
 /**
  * ext4_es_show_pblock - Implements the es show pblock operation within the extent-status interfaces subsystem.
@@ -309,6 +325,7 @@ static inline ext4_fsblk_t ext4_es_show_pblock(struct extent_status *es)
 	ext4_fsblk_t pblock = ext4_es_pblock(es);
 	return pblock == ~ES_MASK ? 0 : pblock;
 }
+
 
 /**
  * ext4_es_store_pblock - Implements the es store pblock operation within the extent-status interfaces subsystem.
@@ -326,6 +343,7 @@ static inline void ext4_es_store_pblock(struct extent_status *es,
 	block = (pb & ~ES_MASK) | (es->es_pblk & ES_MASK);
 	es->es_pblk = block;
 }
+
 
 /**
  * ext4_es_store_pblock_status - Implements the es store pblock status operation within the extent-status interfaces subsystem.

@@ -66,6 +66,7 @@ static int ext2_sync_fs(struct super_block *sb, int wait);
 static int ext2_freeze(struct super_block *sb);
 static int ext2_unfreeze(struct super_block *sb);
 
+
 /**
  * ext2_error - Implements the error operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -108,6 +109,7 @@ void ext2_error(struct super_block *sb, const char *function,
 		sb->s_flags |= SB_RDONLY;
 	}
 }
+
 
 /**
  * ext2_msg - Implements the msg operation within the mount, superblock and module lifecycle subsystem.
@@ -164,6 +166,7 @@ void ext2_update_dynamic_rev(struct super_block *sb)
 #ifdef CONFIG_QUOTA
 static int ext2_quota_off(struct super_block *sb, int type);
 
+
 /**
  * ext2_quota_off_umount - Implements the quota off umount operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -180,6 +183,8 @@ static void ext2_quota_off_umount(struct super_block *sb)
 		ext2_quota_off(sb, type);
 }
 #else
+
+
 /**
  * ext2_quota_off_umount - Implements the quota off umount operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -192,6 +197,7 @@ static inline void ext2_quota_off_umount(struct super_block *sb)
 {
 }
 #endif
+
 
 /**
  * ext2_put_super - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -237,6 +243,7 @@ static void ext2_put_super (struct super_block * sb)
 
 static struct kmem_cache * ext2_inode_cachep;
 
+
 /**
  * ext2_alloc_inode - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -260,6 +267,7 @@ static struct inode *ext2_alloc_inode(struct super_block *sb)
 	return &ei->vfs_inode;
 }
 
+
 /**
  * ext2_free_in_core_inode - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -272,6 +280,7 @@ static void ext2_free_in_core_inode(struct inode *inode)
 {
 	kmem_cache_free(ext2_inode_cachep, EXT2_I(inode));
 }
+
 
 /**
  * init_once - Initialises subsystem state and establishes the resources required by later operations.
@@ -292,6 +301,7 @@ static void init_once(void *foo)
 	mutex_init(&ei->truncate_mutex);
 	inode_init_once(&ei->vfs_inode);
 }
+
 
 /**
  * init_inodecache - Initialises subsystem state and establishes the resources required by later operations.
@@ -314,6 +324,7 @@ static int __init init_inodecache(void)
 	return 0;
 }
 
+
 /**
  * destroy_inodecache - Tears down subsystem state after users have been quiesced.
  *
@@ -329,6 +340,7 @@ static void destroy_inodecache(void)
 	rcu_barrier();
 	kmem_cache_destroy(ext2_inode_cachep);
 }
+
 
 /**
  * ext2_show_options - Implements the show options operation within the mount, superblock and module lifecycle subsystem.
@@ -425,6 +437,8 @@ static ssize_t ext2_quota_read(struct super_block *sb, int type, char *data, siz
 static ssize_t ext2_quota_write(struct super_block *sb, int type, const char *data, size_t len, loff_t off);
 static int ext2_quota_on(struct super_block *sb, int type, int format_id,
 			 const struct path *path);
+
+
 /**
  * ext2_get_dquots - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -469,6 +483,7 @@ static const struct super_operations ext2_sops = {
 #endif
 };
 
+
 /**
  * ext2_nfs_get_inode - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -499,6 +514,7 @@ static struct inode *ext2_nfs_get_inode(struct super_block *sb,
 	return inode;
 }
 
+
 /**
  * ext2_fh_to_dentry - Implements the fh to dentry operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -513,6 +529,7 @@ static struct dentry *ext2_fh_to_dentry(struct super_block *sb, struct fid *fid,
 	return generic_fh_to_dentry(sb, fid, fh_len, fh_type,
 				    ext2_nfs_get_inode);
 }
+
 
 /**
  * ext2_fh_to_parent - Implements the fh to parent operation within the mount, superblock and module lifecycle subsystem.
@@ -535,6 +552,7 @@ static const struct export_operations ext2_export_ops = {
 	.fh_to_parent = ext2_fh_to_parent,
 	.get_parent = ext2_get_parent,
 };
+
 
 /**
  * get_sb_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -605,6 +623,7 @@ static const match_table_t tokens = {
 	{Opt_noreservation, "noreservation"},
 	{Opt_err, NULL}
 };
+
 
 /**
  * parse_options - Implements the parse options operation within the mount, superblock and module lifecycle subsystem.
@@ -778,6 +797,7 @@ static int parse_options(char *options, struct super_block *sb,
 	return 1;
 }
 
+
 /**
  * ext2_setup_super - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -835,6 +855,7 @@ static int ext2_setup_super (struct super_block * sb,
 			sbi->s_mount_opt);
 	return res;
 }
+
 
 /**
  * ext2_check_descriptors - Validates state before it is trusted by the remainder of the filesystem.
@@ -948,6 +969,7 @@ check_lfs:
 	return res;
 }
 
+
 /**
  * descriptor_loc - Implements the descriptor loc operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -972,6 +994,7 @@ static unsigned long descriptor_loc(struct super_block *sb,
 
 	return ext2_group_first_block_no(sb, bg) + ext2_bg_has_super(sb, bg);
 }
+
 
 /**
  * ext2_fill_super - Constructs and validates the mounted filesystem state before it is published to VFS.
@@ -1384,6 +1407,7 @@ failed_sbi:
 	return ret;
 }
 
+
 /**
  * ext2_clear_super_error - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1405,6 +1429,7 @@ static void ext2_clear_super_error(struct super_block *sb)
 		set_buffer_uptodate(sbh);
 	}
 }
+
 
 /**
  * ext2_sync_super - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
@@ -1456,6 +1481,7 @@ static int ext2_sync_fs(struct super_block *sb, int wait)
 	return 0;
 }
 
+
 /**
  * ext2_freeze - Implements the freeze operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1482,6 +1508,7 @@ static int ext2_freeze(struct super_block *sb)
 	return 0;
 }
 
+
 /**
  * ext2_unfreeze - Implements the unfreeze operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1498,6 +1525,7 @@ static int ext2_unfreeze(struct super_block *sb)
 	return 0;
 }
 
+
 /**
  * ext2_write_super - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1511,6 +1539,7 @@ static void ext2_write_super(struct super_block *sb)
 	if (!sb_rdonly(sb))
 		ext2_sync_fs(sb, 1);
 }
+
 
 /**
  * ext2_remount - Implements the remount operation within the mount, superblock and module lifecycle subsystem.
@@ -1597,6 +1626,7 @@ out_set:
 	return 0;
 }
 
+
 /**
  * ext2_statfs - Implements the statfs operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1651,6 +1681,7 @@ static int ext2_statfs (struct dentry * dentry, struct kstatfs * buf)
 	spin_unlock(&sbi->s_lock);
 	return 0;
 }
+
 
 /**
  * ext2_mount - Implements a mount-path operation for the owning filesystem.
@@ -1780,6 +1811,7 @@ out:
 	return len - towrite;
 }
 
+
 /**
  * ext2_quota_on - Implements the quota on operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -1808,6 +1840,7 @@ static int ext2_quota_on(struct super_block *sb, int type, int format_id,
 
 	return 0;
 }
+
 
 /**
  * ext2_quota_off - Implements the quota off operation within the mount, superblock and module lifecycle subsystem.
@@ -1852,6 +1885,7 @@ static struct file_system_type ext2_fs_type = {
 };
 MODULE_ALIAS_FS("ext2");
 
+
 /**
  * ext2_core_init_fs - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1876,6 +1910,7 @@ out:
 	return err;
 }
 
+
 /**
  * ext2_core_exit_fs - Tears down subsystem state after users have been quiesced.
  *
@@ -1896,6 +1931,8 @@ MODULE_LICENSE("GPL");
 #ifdef CONFIG_EXT2_FS_XATTR
 int infiltratr_mbcache_init(void);
 void infiltratr_mbcache_exit(void);
+
+
 /**
  * ext2_mbcache_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1905,6 +1942,8 @@ void infiltratr_mbcache_exit(void);
  * rollback, abort or retry policy.
  */
 static int ext2_mbcache_init(void) { return infiltratr_mbcache_init(); }
+
+
 /**
  * ext2_mbcache_exit - Tears down subsystem state after users have been quiesced.
  *
@@ -1915,6 +1954,8 @@ static int ext2_mbcache_init(void) { return infiltratr_mbcache_init(); }
  */
 static void ext2_mbcache_exit(void) { infiltratr_mbcache_exit(); }
 #else
+
+
 /**
  * ext2_mbcache_init - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1924,6 +1965,8 @@ static void ext2_mbcache_exit(void) { infiltratr_mbcache_exit(); }
  * rollback, abort or retry policy.
  */
 static int ext2_mbcache_init(void) { return 0; }
+
+
 /**
  * ext2_mbcache_exit - Tears down subsystem state after users have been quiesced.
  *
@@ -1934,6 +1977,7 @@ static int ext2_mbcache_init(void) { return 0; }
  */
 static void ext2_mbcache_exit(void) { }
 #endif
+
 
 /**
  * init_ext2_fs - Initialises subsystem state and establishes the resources required by later operations.
@@ -1953,6 +1997,7 @@ static int __init init_ext2_fs(void)
 		ext2_mbcache_exit();
 	return err;
 }
+
 
 /**
  * exit_ext2_fs - Tears down subsystem state after users have been quiesced.

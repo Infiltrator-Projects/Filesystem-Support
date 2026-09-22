@@ -109,6 +109,7 @@ handle_t *ext3_journal_start_sb(struct super_block *sb, int nblocks)
 	return journal_start(journal, nblocks);
 }
 
+
 /**
  * __ext3_journal_stop - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -133,6 +134,7 @@ int __ext3_journal_stop(const char *where, handle_t *handle)
 		__ext3_std_error(sb, where, err);
 	return err;
 }
+
 
 /**
  * ext3_journal_abort_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -162,6 +164,7 @@ void ext3_journal_abort_handle(const char *caller, const char *err_fn,
 
 	journal_abort_handle(handle);
 }
+
 
 /**
  * ext3_msg - Implements the msg operation within the mount, superblock and module lifecycle subsystem.
@@ -227,6 +230,7 @@ static void ext3_handle_error(struct super_block *sb)
 			sb->s_id);
 }
 
+
 /**
  * ext3_error - Implements the error operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -253,6 +257,7 @@ void ext3_error(struct super_block *sb, const char *function,
 
 	ext3_handle_error(sb);
 }
+
 
 /**
  * ext3_decode_error - Implements the decode error operation within the mount, superblock and module lifecycle subsystem.
@@ -364,6 +369,7 @@ void ext3_abort(struct super_block *sb, const char *function,
 		journal_abort(EXT3_SB(sb)->s_journal, -EIO);
 }
 
+
 /**
  * ext3_warning - Implements the warning operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -388,6 +394,7 @@ void ext3_warning(struct super_block *sb, const char *function,
 
 	va_end(args);
 }
+
 
 /**
  * ext3_update_dynamic_rev - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -456,6 +463,7 @@ static void ext3_blkdev_put(struct block_device *bdev)
 	blkdev_put(bdev, FMODE_READ|FMODE_WRITE|FMODE_EXCL);
 }
 
+
 /**
  * ext3_blkdev_remove - Implements the blkdev remove operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -474,6 +482,7 @@ static void ext3_blkdev_remove(struct ext3_sb_info *sbi)
 	}
 }
 
+
 /**
  * orphan_list_entry - Implements the orphan list entry operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -486,6 +495,7 @@ static inline struct inode *orphan_list_entry(struct list_head *l)
 {
 	return &list_entry(l, struct ext3_inode_info, i_orphan)->vfs_inode;
 }
+
 
 /**
  * dump_orphan_list - Implements the dump orphan list operation within the mount, superblock and module lifecycle subsystem.
@@ -512,6 +522,7 @@ static void dump_orphan_list(struct super_block *sb, struct ext3_sb_info *sbi)
 		       NEXT_ORPHAN(inode));
 	}
 }
+
 
 /**
  * ext3_put_super - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -603,6 +614,7 @@ static struct inode *ext3_alloc_inode(struct super_block *sb)
 	return &ei->vfs_inode;
 }
 
+
 /**
  * ext3_drop_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -619,6 +631,7 @@ static int ext3_drop_inode(struct inode *inode)
 	return drop;
 }
 
+
 /**
  * ext3_i_callback - Implements the i callback operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -632,6 +645,7 @@ static void ext3_i_callback(struct rcu_head *head)
 	struct inode *inode = container_of(head, struct inode, i_rcu);
 	kmem_cache_free(ext3_inode_cachep, EXT3_I(inode));
 }
+
 
 /**
  * ext3_destroy_inode - Tears down subsystem state after users have been quiesced.
@@ -654,6 +668,7 @@ static void ext3_destroy_inode(struct inode *inode)
 	call_rcu(&inode->i_rcu, ext3_i_callback);
 }
 
+
 /**
  * init_once - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -673,6 +688,7 @@ static void init_once(void *foo)
 	mutex_init(&ei->truncate_mutex);
 	inode_init_once(&ei->vfs_inode);
 }
+
 
 /**
  * init_inodecache - Initialises subsystem state and establishes the resources required by later operations.
@@ -694,6 +710,7 @@ static int __init init_inodecache(void)
 	return 0;
 }
 
+
 /**
  * destroy_inodecache - Tears down subsystem state after users have been quiesced.
  *
@@ -709,6 +726,7 @@ static void destroy_inodecache(void)
 	rcu_barrier();
 	kmem_cache_destroy(ext3_inode_cachep);
 }
+
 
 /**
  * ext3_show_quota_options - Implements the show quota options operation within the mount, superblock and module lifecycle subsystem.
@@ -753,6 +771,7 @@ static inline void ext3_show_quota_options(struct seq_file *seq, struct super_bl
 		seq_puts(seq, ",grpquota");
 #endif
 }
+
 
 /**
  * data_mode_string - Implements the data mode string operation within the mount, superblock and module lifecycle subsystem.
@@ -894,6 +913,7 @@ static struct inode *ext3_nfs_get_inode(struct super_block *sb,
 	return inode;
 }
 
+
 /**
  * ext3_fh_to_dentry - Implements the fh to dentry operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -908,6 +928,7 @@ static struct dentry *ext3_fh_to_dentry(struct super_block *sb, struct fid *fid,
 	return generic_fh_to_dentry(sb, fid, fh_len, fh_type,
 				    ext3_nfs_get_inode);
 }
+
 
 /**
  * ext3_fh_to_parent - Implements the fh to parent operation within the mount, superblock and module lifecycle subsystem.
@@ -963,6 +984,8 @@ static ssize_t ext3_quota_read(struct super_block *sb, int type, char *data,
 			       size_t len, loff_t off);
 static ssize_t ext3_quota_write(struct super_block *sb, int type,
 				const char *data, size_t len, loff_t off);
+
+
 /**
  * ext3_get_dquots - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1099,6 +1122,7 @@ static const match_table_t tokens = {
 	{Opt_err, NULL},
 };
 
+
 /**
  * get_sb_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1129,6 +1153,8 @@ static ext3_fsblk_t get_sb_block(void **data, struct super_block *sb)
 }
 
 #ifdef CONFIG_QUOTA
+
+
 /**
  * set_qf_name - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1177,6 +1203,7 @@ static int set_qf_name(struct super_block *sb, int qtype, substring_t *args)
 	return 1;
 }
 
+
 /**
  * clear_qf_name - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1202,6 +1229,7 @@ static int clear_qf_name(struct super_block *sb, int qtype) {
 	return 1;
 }
 #endif
+
 
 /**
  * parse_options - Implements the parse options operation within the mount, superblock and module lifecycle subsystem.
@@ -1598,6 +1626,7 @@ set_qf_format:
 	return 1;
 }
 
+
 /**
  * ext3_setup_super - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -1894,6 +1923,7 @@ static loff_t ext3_max_size(int bits)
 
 	return res;
 }
+
 
 /**
  * descriptor_loc - Implements the descriptor loc operation within the mount, superblock and module lifecycle subsystem.
@@ -2408,6 +2438,7 @@ static void ext3_init_journal_params(struct super_block *sb, journal_t *journal)
 	spin_unlock(&journal->j_state_lock);
 }
 
+
 /**
  * ext3_get_journal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2453,6 +2484,7 @@ static journal_t *ext3_get_journal(struct super_block *sb,
 	ext3_init_journal_params(sb, journal);
 	return journal;
 }
+
 
 /**
  * ext3_get_dev_journal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2546,6 +2578,7 @@ out_bdev:
 	ext3_blkdev_put(bdev);
 	return NULL;
 }
+
 
 /**
  * ext3_load_journal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2641,6 +2674,7 @@ static int ext3_load_journal(struct super_block *sb,
 	return 0;
 }
 
+
 /**
  * ext3_create_journal - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -2690,6 +2724,7 @@ static int ext3_create_journal(struct super_block *sb,
 
 	return 0;
 }
+
 
 /**
  * ext3_commit_super - Advances journalled state toward a durable transaction or checkpoint boundary.
@@ -2824,6 +2859,7 @@ int ext3_force_commit(struct super_block *sb)
 	return ret;
 }
 
+
 /**
  * ext3_sync_fs - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
@@ -2904,6 +2940,7 @@ static int ext3_unfreeze(struct super_block *sb)
 	}
 	return 0;
 }
+
 
 /**
  * ext3_remount - Implements the remount operation within the mount, superblock and module lifecycle subsystem.
@@ -3044,6 +3081,7 @@ restore_opts:
 	return err;
 }
 
+
 /**
  * ext3_statfs - Implements the statfs operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -3108,6 +3146,7 @@ static int ext3_statfs (struct dentry * dentry, struct kstatfs * buf)
 
 #ifdef CONFIG_QUOTA
 
+
 /**
  * dquot_to_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -3120,6 +3159,7 @@ static inline struct inode *dquot_to_inode(struct dquot *dquot)
 {
 	return sb_dqopt(dquot->dq_sb)->files[dquot->dq_id.type];
 }
+
 
 /**
  * ext3_write_dquot - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -3147,6 +3187,7 @@ static int ext3_write_dquot(struct dquot *dquot)
 	return ret;
 }
 
+
 /**
  * ext3_acquire_dquot - Implements the acquire dquot operation within the mount, superblock and module lifecycle subsystem.
  *
@@ -3170,6 +3211,7 @@ static int ext3_acquire_dquot(struct dquot *dquot)
 		ret = err;
 	return ret;
 }
+
 
 /**
  * ext3_release_dquot - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -3198,6 +3240,7 @@ static int ext3_release_dquot(struct dquot *dquot)
 	return ret;
 }
 
+
 /**
  * ext3_mark_dquot_dirty - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -3217,6 +3260,7 @@ static int ext3_mark_dquot_dirty(struct dquot *dquot)
 		return dquot_mark_dquot_dirty(dquot);
 	}
 }
+
 
 /**
  * ext3_write_info - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -3417,6 +3461,7 @@ out:
 
 #endif
 
+
 /**
  * ext3_mount - Implements a mount-path operation for the owning filesystem.
  *
@@ -3439,6 +3484,7 @@ static struct file_system_type ext3_fs_type = {
 	.fs_flags	= FS_REQUIRES_DEV,
 };
 MODULE_ALIAS_FS("ext3");
+
 
 /**
  * ext3_core_init_fs - Initialises subsystem state and establishes the resources required by later operations.
@@ -3467,6 +3513,7 @@ out1:
 	return err;
 }
 
+
 /**
  * ext3_core_exit_fs - Tears down subsystem state after users have been quiesced.
  *
@@ -3489,6 +3536,7 @@ int infiltratr_ext3_mbcache_init(void);
 void infiltratr_ext3_mbcache_exit(void);
 int infiltratr_ext3_jbd_init(void);
 void infiltratr_ext3_jbd_exit(void);
+
 
 /**
  * init_ext3_fs - Initialises subsystem state and establishes the resources required by later operations.
@@ -3516,6 +3564,7 @@ static int __init init_ext3_fs(void)
 	return err;
 }
 
+
 /**
  * exit_ext3_fs - Tears down subsystem state after users have been quiesced.
  *
@@ -3530,6 +3579,7 @@ static void __exit exit_ext3_fs(void)
 	infiltratr_ext3_jbd_exit();
 	infiltratr_ext3_mbcache_exit();
 }
+
 
 /**
  * __ext3_journal_get_undo_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -3552,6 +3602,7 @@ int __ext3_journal_get_undo_access(const char *where, handle_t *handle,
 	return err;
 }
 
+
 /**
  * __ext3_journal_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -3568,6 +3619,7 @@ int __ext3_journal_get_write_access(const char *where, handle_t *handle,
 		ext3_journal_abort_handle(where, __func__, bh, handle,err);
 	return err;
 }
+
 
 /**
  * __ext3_journal_forget - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -3586,6 +3638,7 @@ int __ext3_journal_forget(const char *where, handle_t *handle,
 	return err;
 }
 
+
 /**
  * __ext3_journal_revoke - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -3603,6 +3656,7 @@ int __ext3_journal_revoke(const char *where, handle_t *handle,
 	return err;
 }
 
+
 /**
  * __ext3_journal_get_create_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -3619,6 +3673,7 @@ int __ext3_journal_get_create_access(const char *where,
 		ext3_journal_abort_handle(where, __func__, bh, handle,err);
 	return err;
 }
+
 
 /**
  * __ext3_journal_dirty_metadata - Coordinates a journal transaction or journal-owned buffer/state transition.

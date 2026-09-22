@@ -29,6 +29,7 @@
 
 #define EXT4_MAX_ORPHAN_FILE_BLOCKS 512
 
+
 /**
  * ext4_orphan_file_add - Implements the orphan file add operation within the orphan-file management subsystem.
  *
@@ -187,6 +188,7 @@ out:
 	return err;
 }
 
+
 /**
  * ext4_orphan_file_del - Implements the orphan file del operation within the orphan-file management subsystem.
  *
@@ -319,6 +321,8 @@ out_brelse:
 }
 
 #ifdef CONFIG_QUOTA
+
+
 /**
  * ext4_quota_on_mount - Implements a mount-path operation for the owning filesystem.
  *
@@ -335,6 +339,7 @@ static int ext4_quota_on_mount(struct super_block *sb, int type)
 		EXT4_SB(sb)->s_jquota_fmt, type);
 }
 #endif
+
 
 /**
  * ext4_process_orphan - Implements the process orphan operation within the orphan-file management subsystem.
@@ -517,6 +522,7 @@ void ext4_orphan_cleanup(struct super_block *sb, struct ext4_super_block *es)
 	sb->s_flags = s_flags;
 }
 
+
 /**
  * ext4_release_orphan_info - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -537,6 +543,7 @@ void ext4_release_orphan_info(struct super_block *sb)
 	kvfree(oi->of_binfo);
 }
 
+
 /**
  * ext4_orphan_block_tail - Implements the orphan block tail operation within the orphan-file management subsystem.
  *
@@ -552,6 +559,7 @@ static struct ext4_orphan_block_tail *ext4_orphan_block_tail(
 	return (struct ext4_orphan_block_tail *)(bh->b_data + sb->s_blocksize -
 				sizeof(struct ext4_orphan_block_tail));
 }
+
 
 /**
  * ext4_orphan_file_block_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
@@ -608,6 +616,7 @@ void ext4_orphan_file_block_trigger(struct jbd2_buffer_trigger_type *triggers,
 	ot = ext4_orphan_block_tail(sb, bh);
 	ot->ob_checksum = cpu_to_le32(csum);
 }
+
 
 /**
  * ext4_init_orphan_info - Initialises subsystem state and establishes the resources required by later operations.
@@ -693,6 +702,7 @@ out_put:
 	iput(inode);
 	return ret;
 }
+
 
 /**
  * ext4_orphan_file_empty - Implements the orphan file empty operation within the orphan-file management subsystem.

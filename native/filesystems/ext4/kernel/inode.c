@@ -76,6 +76,7 @@ static void ext4_journalled_zero_new_buffers(handle_t *handle,
 					    struct folio *folio,
 					    unsigned from, unsigned to);
 
+
 /**
  * ext4_inode_csum - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -116,6 +117,7 @@ static __u32 ext4_inode_csum(struct inode *inode, struct ext4_inode *raw,
 	return csum;
 }
 
+
 /**
  * ext4_inode_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -145,6 +147,7 @@ static int ext4_inode_csum_verify(struct inode *inode, struct ext4_inode *raw,
 	return provided == calculated;
 }
 
+
 /**
  * ext4_inode_csum_set - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -169,6 +172,7 @@ void ext4_inode_csum_set(struct inode *inode, struct ext4_inode *raw,
 	    EXT4_FITS_IN_INODE(raw, ei, i_checksum_hi))
 		raw->i_checksum_hi = cpu_to_le16(csum >> 16);
 }
+
 
 /**
  * ext4_begin_ordered_truncate - Implements the begin ordered truncate operation within the inode mapping and lifecycle subsystem.
@@ -346,6 +350,8 @@ no_delete:
 }
 
 #ifdef CONFIG_QUOTA
+
+
 /**
  * ext4_get_reserved_space - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -407,6 +413,7 @@ void ext4_da_update_reserve_space(struct inode *inode,
 		ext4_discard_preallocations(inode);
 }
 
+
 /**
  * __check_block_validity - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -433,6 +440,7 @@ static int __check_block_validity(struct inode *inode, const char *func,
 	}
 	return 0;
 }
+
 
 /**
  * ext4_issue_zeroout - Implements the issue zeroout operation within the inode mapping and lifecycle subsystem.
@@ -461,6 +469,8 @@ int ext4_issue_zeroout(struct inode *inode, ext4_lblk_t lblk, ext4_fsblk_t pblk,
 	__check_block_validity((inode), __func__, __LINE__, (map))
 
 #ifdef ES_AGGRESSIVE_TEST
+
+
 /**
  * ext4_map_blocks_es_recheck - Implements the map blocks es recheck operation within the inode mapping and lifecycle subsystem.
  *
@@ -503,6 +513,7 @@ static void ext4_map_blocks_es_recheck(handle_t *handle,
 }
 #endif
 
+
 /**
  * ext4_map_query_blocks - Implements the map query blocks operation within the inode mapping and lifecycle subsystem.
  *
@@ -539,6 +550,7 @@ static int ext4_map_query_blocks(handle_t *handle, struct inode *inode,
 			      map->m_pblk, status, 0);
 	return retval;
 }
+
 
 /**
  * ext4_map_create_blocks - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -768,6 +780,7 @@ static void ext4_update_bh_state(struct buffer_head *bh, unsigned long flags)
 	} while (unlikely(!try_cmpxchg(&bh->b_state, &old_state, new_state)));
 }
 
+
 /**
  * _ext4_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -801,6 +814,7 @@ static int _ext4_get_block(struct inode *inode, sector_t iblock,
 	}
 	return ret;
 }
+
 
 /**
  * ext4_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -914,6 +928,7 @@ errout:
 	return ERR_PTR(err);
 }
 
+
 /**
  * ext4_bread - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -993,6 +1008,7 @@ out_brelse:
 	return err;
 }
 
+
 /**
  * ext4_walk_page_buffers - Implements the walk page buffers operation within the inode mapping and lifecycle subsystem.
  *
@@ -1052,6 +1068,7 @@ static int ext4_dirty_journalled_data(handle_t *handle, struct buffer_head *bh)
 	return ext4_handle_dirty_metadata(handle, NULL, bh);
 }
 
+
 /**
  * do_journal_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1069,6 +1086,7 @@ int do_journal_get_write_access(handle_t *handle, struct inode *inode,
 	return ext4_journal_get_write_access(handle, inode->i_sb, bh,
 					    EXT4_JTR_NONE);
 }
+
 
 /**
  * ext4_block_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1421,6 +1439,7 @@ static void ext4_journalled_zero_new_buffers(handle_t *handle,
 	} while (bh != head);
 }
 
+
 /**
  * ext4_journalled_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1538,6 +1557,7 @@ static int ext4_da_reserve_space(struct inode *inode, int nr_resv)
 	return 0;
 }
 
+
 /**
  * ext4_da_release_space - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1603,6 +1623,7 @@ struct mpage_da_data {
 	unsigned int journalled_more_data:1;
 };
 
+
 /**
  * mpage_release_unused_pages - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -1664,6 +1685,7 @@ static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 		folio_batch_release(&fbatch);
 	}
 }
+
 
 /**
  * ext4_print_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1921,6 +1943,7 @@ int ext4_da_get_block_prep(struct inode *inode, sector_t iblock,
 	return 0;
 }
 
+
 /**
  * mpage_folio_done - Implements the mpage folio done operation within the inode mapping and lifecycle subsystem.
  *
@@ -1934,6 +1957,7 @@ static void mpage_folio_done(struct mpage_da_data *mpd, struct folio *folio)
 	mpd->first_page += folio_nr_pages(folio);
 	folio_unlock(folio);
 }
+
 
 /**
  * mpage_submit_folio - Implements the mpage submit folio operation within the inode mapping and lifecycle subsystem.
@@ -2187,6 +2211,7 @@ out:
 	return err;
 }
 
+
 /**
  * mpage_map_one_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
@@ -2336,6 +2361,7 @@ static int ext4_da_writepages_trans_blocks(struct inode *inode)
 				MAX_WRITEPAGES_EXTENT_LEN + bpp - 1, bpp);
 }
 
+
 /**
  * ext4_journal_folio_buffers - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -2364,6 +2390,7 @@ static int ext4_journal_folio_buffers(handle_t *handle, struct folio *folio,
 
 	return ret;
 }
+
 
 /**
  * mpage_journal_page_buffers - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -2520,6 +2547,7 @@ out:
 		ext4_journal_stop(handle);
 	return err;
 }
+
 
 /**
  * ext4_do_writepages - Implements the do writepages operation within the inode mapping and lifecycle subsystem.
@@ -2711,6 +2739,7 @@ out_writepages:
 	return ret;
 }
 
+
 /**
  * ext4_writepages - Implements the writepages operation within the inode mapping and lifecycle subsystem.
  *
@@ -2745,6 +2774,7 @@ static int ext4_writepages(struct address_space *mapping,
 	return ret;
 }
 
+
 /**
  * ext4_normal_submit_inode_data_buffers - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -2768,6 +2798,7 @@ int ext4_normal_submit_inode_data_buffers(struct jbd2_inode *jinode)
 	};
 	return ext4_do_writepages(&mpd);
 }
+
 
 /**
  * ext4_dax_writepages - Implements the dax writepages operation within the inode mapping and lifecycle subsystem.
@@ -2798,6 +2829,7 @@ static int ext4_dax_writepages(struct address_space *mapping,
 	ext4_writepages_up_read(inode->i_sb, alloc_ctx);
 	return ret;
 }
+
 
 /**
  * ext4_nonda_switch - Implements the nonda switch operation within the inode mapping and lifecycle subsystem.
@@ -2830,6 +2862,7 @@ static int ext4_nonda_switch(struct super_block *sb)
 	}
 	return 0;
 }
+
 
 /**
  * ext4_da_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -2924,6 +2957,7 @@ static int ext4_da_should_update_i_disksize(struct folio *folio,
 	return 1;
 }
 
+
 /**
  * ext4_da_do_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -2986,6 +3020,7 @@ static int ext4_da_do_write_end(struct address_space *mapping,
 
 	return copied;
 }
+
 
 /**
  * ext4_da_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -3076,6 +3111,7 @@ out:
 	return ret;
 }
 
+
 /**
  * ext4_read_folio - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -3100,6 +3136,7 @@ static int ext4_read_folio(struct file *file, struct folio *folio)
 	return ret;
 }
 
+
 /**
  * ext4_readahead - Implements the readahead operation within the inode mapping and lifecycle subsystem.
  *
@@ -3119,6 +3156,7 @@ static void ext4_readahead(struct readahead_control *rac)
 	ext4_mpage_readpages(inode, rac, NULL);
 }
 
+
 /**
  * ext4_invalidate_folio - Implements the invalidate folio operation within the inode mapping and lifecycle subsystem.
  *
@@ -3137,6 +3175,7 @@ static void ext4_invalidate_folio(struct folio *folio, size_t offset,
 
 	block_invalidate_folio(folio, offset, length);
 }
+
 
 /**
  * __ext4_journalled_invalidate_folio - Implements the journalled invalidate folio operation within the inode mapping and lifecycle subsystem.
@@ -3176,6 +3215,7 @@ static void ext4_journalled_invalidate_folio(struct folio *folio,
 	WARN_ON(__ext4_journalled_invalidate_folio(folio, offset, length) < 0);
 }
 
+
 /**
  * ext4_release_folio - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -3199,6 +3239,7 @@ static bool ext4_release_folio(struct folio *folio, gfp_t wait)
 	else
 		return try_to_free_buffers(folio);
 }
+
 
 /**
  * ext4_inode_datasync_dirty - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -3226,6 +3267,7 @@ static bool ext4_inode_datasync_dirty(struct inode *inode)
 		return true;
 	return inode->i_state & I_DIRTY_DATASYNC;
 }
+
 
 /**
  * ext4_set_iomap - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -3280,6 +3322,7 @@ static void ext4_set_iomap(struct inode *inode, struct iomap *iomap,
 		iomap->addr = IOMAP_NULL_ADDR;
 	}
 }
+
 
 /**
  * ext4_iomap_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -3384,6 +3427,7 @@ out:
 	return 0;
 }
 
+
 /**
  * ext4_iomap_overwrite_begin - Implements the iomap overwrite begin operation within the inode mapping and lifecycle subsystem.
  *
@@ -3404,6 +3448,7 @@ static int ext4_iomap_overwrite_begin(struct inode *inode, loff_t offset,
 	WARN_ON_ONCE(!ret && iomap->type != IOMAP_MAPPED);
 	return ret;
 }
+
 
 /**
  * ext4_iomap_end - Implements the iomap end operation within the inode mapping and lifecycle subsystem.
@@ -3433,6 +3478,7 @@ const struct iomap_ops ext4_iomap_overwrite_ops = {
 	.iomap_begin		= ext4_iomap_overwrite_begin,
 	.iomap_end		= ext4_iomap_end,
 };
+
 
 /**
  * ext4_iomap_begin_report - Implements the iomap begin report operation within the inode mapping and lifecycle subsystem.
@@ -3508,6 +3554,7 @@ static bool ext4_journalled_dirty_folio(struct address_space *mapping,
 	return filemap_dirty_folio(mapping, folio);
 }
 
+
 /**
  * ext4_dirty_folio - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -3522,6 +3569,7 @@ static bool ext4_dirty_folio(struct address_space *mapping, struct folio *folio)
 	WARN_ON_ONCE(!folio_buffers(folio));
 	return block_dirty_folio(mapping, folio);
 }
+
 
 /**
  * ext4_iomap_swap_activate - Implements the iomap swap activate operation within the inode mapping and lifecycle subsystem.
@@ -3592,6 +3640,7 @@ static const struct address_space_operations ext4_dax_aops = {
 	.bmap			= ext4_bmap,
 	.swap_activate		= ext4_iomap_swap_activate,
 };
+
 
 /**
  * ext4_set_aops - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -3778,6 +3827,7 @@ static int ext4_block_truncate_page(handle_t *handle,
 	return ext4_block_zero_page_range(handle, mapping, from, length);
 }
 
+
 /**
  * ext4_zero_partial_blocks - Implements the zero partial blocks operation within the inode mapping and lifecycle subsystem.
  *
@@ -3823,6 +3873,7 @@ int ext4_zero_partial_blocks(handle_t *handle, struct inode *inode,
 						 partial_end + 1);
 	return err;
 }
+
 
 /**
  * ext4_can_truncate - Implements the can truncate operation within the inode mapping and lifecycle subsystem.
@@ -3879,6 +3930,7 @@ int ext4_update_disksize_before_punch(struct inode *inode, loff_t offset,
 	return ret;
 }
 
+
 /**
  * ext4_truncate_folio - Implements the truncate folio operation within the inode mapping and lifecycle subsystem.
  *
@@ -3906,6 +3958,7 @@ static inline void ext4_truncate_folio(struct inode *inode,
 	folio_unlock(folio);
 	folio_put(folio);
 }
+
 
 /**
  * ext4_truncate_page_cache_block_range - Implements the truncate page cache block range operation within the inode mapping and lifecycle subsystem.
@@ -3946,6 +3999,7 @@ truncate_pagecache:
 	return 0;
 }
 
+
 /**
  * ext4_wait_dax_page - Implements the wait dax page operation within the inode mapping and lifecycle subsystem.
  *
@@ -3960,6 +4014,7 @@ static void ext4_wait_dax_page(struct inode *inode)
 	schedule();
 	filemap_invalidate_lock(inode->i_mapping);
 }
+
 
 /**
  * ext4_break_layouts - Implements the break layouts operation within the inode mapping and lifecycle subsystem.
@@ -4102,6 +4157,7 @@ out_handle:
 	return ret;
 }
 
+
 /**
  * ext4_inode_attach_jinode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -4233,6 +4289,7 @@ out_trace:
 	return err;
 }
 
+
 /**
  * ext4_inode_peek_iversion - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -4248,6 +4305,7 @@ static inline u64 ext4_inode_peek_iversion(const struct inode *inode)
 	else
 		return inode_peek_iversion(inode);
 }
+
 
 /**
  * ext4_inode_blocks_set - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -4292,6 +4350,7 @@ static int ext4_inode_blocks_set(struct ext4_inode *raw_inode,
 	}
 	return 0;
 }
+
 
 /**
  * ext4_fill_raw_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -4530,6 +4589,7 @@ has_buffer:
 	return 0;
 }
 
+
 /**
  * __ext4_get_inode_loc_noinmem - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -4553,6 +4613,7 @@ static int __ext4_get_inode_loc_noinmem(struct inode *inode,
 
 	return ret;
 }
+
 
 /**
  * ext4_get_inode_loc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -4592,6 +4653,7 @@ int ext4_get_fc_inode_loc(struct super_block *sb, unsigned long ino,
 	return __ext4_get_inode_loc(sb, ino, NULL, iloc, NULL);
 }
 
+
 /**
  * ext4_should_enable_dax - Implements the should enable dax operation within the inode mapping and lifecycle subsystem.
  *
@@ -4623,6 +4685,7 @@ static bool ext4_should_enable_dax(struct inode *inode)
 
 	return ext4_test_inode_flag(inode, EXT4_INODE_DAX);
 }
+
 
 /**
  * ext4_set_inode_flags - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -4666,6 +4729,7 @@ void ext4_set_inode_flags(struct inode *inode, bool init)
 			S_ENCRYPTED|S_CASEFOLD|S_VERITY);
 }
 
+
 /**
  * ext4_inode_blocks - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -4695,6 +4759,7 @@ static blkcnt_t ext4_inode_blocks(struct ext4_inode *raw_inode,
 		return le32_to_cpu(raw_inode->i_blocks_lo);
 	}
 }
+
 
 /**
  * ext4_iget_extra_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -4730,6 +4795,7 @@ static inline int ext4_iget_extra_inode(struct inode *inode,
 	return 0;
 }
 
+
 /**
  * ext4_get_projid - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -4762,6 +4828,7 @@ static inline void ext4_inode_set_iversion_queried(struct inode *inode, u64 val)
 	else
 		inode_set_iversion_queried(inode, val);
 }
+
 
 /**
  * check_igot_inode - Validates state before it is trusted by the remainder of the filesystem.
@@ -4806,6 +4873,7 @@ error:
 	ext4_error_inode(inode, function, line, 0, err_str);
 	return -EFSCORRUPTED;
 }
+
 
 /**
  * __ext4_iget - Implements the iget operation within the inode mapping and lifecycle subsystem.
@@ -5138,6 +5206,7 @@ bad_inode:
 	iget_failed(inode);
 	return ERR_PTR(ret);
 }
+
 
 /**
  * __ext4_update_other_inode_time - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -5606,6 +5675,7 @@ err_out:
 	return error;
 }
 
+
 /**
  * ext4_dio_alignment - Implements the dio alignment operation within the inode mapping and lifecycle subsystem.
  *
@@ -5629,6 +5699,7 @@ u32 ext4_dio_alignment(struct inode *inode)
 	}
 	return 1;
 }
+
 
 /**
  * ext4_getattr - Implements the getattr operation within the inode mapping and lifecycle subsystem.
@@ -5695,6 +5766,7 @@ int ext4_getattr(struct mnt_idmap *idmap, const struct path *path,
 	return 0;
 }
 
+
 /**
  * ext4_file_getattr - Implements the file getattr operation within the inode mapping and lifecycle subsystem.
  *
@@ -5722,6 +5794,7 @@ int ext4_file_getattr(struct mnt_idmap *idmap,
 	stat->blocks += delalloc_blocks << (inode->i_sb->s_blocksize_bits - 9);
 	return 0;
 }
+
 
 /**
  * ext4_index_trans_blocks - Implements the index trans blocks operation within the inode mapping and lifecycle subsystem.
@@ -5875,6 +5948,7 @@ ext4_reserve_inode_write(handle_t *handle, struct inode *inode,
 	return err;
 }
 
+
 /**
  * __ext4_expand_extra_isize - Implements the expand extra isize operation within the inode mapping and lifecycle subsystem.
  *
@@ -5971,6 +6045,7 @@ static int ext4_try_to_expand_extra_isize(struct inode *inode,
 
 	return error;
 }
+
 
 /**
  * ext4_expand_extra_isize - Implements the expand extra isize operation within the inode mapping and lifecycle subsystem.
@@ -6078,6 +6153,7 @@ void ext4_dirty_inode(struct inode *inode, int flags)
 	ext4_journal_stop(handle);
 }
 
+
 /**
  * ext4_change_inode_journal_flag - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -6151,6 +6227,7 @@ int ext4_change_inode_journal_flag(struct inode *inode, int val)
 	return err;
 }
 
+
 /**
  * ext4_bh_unmapped - Implements the bh unmapped operation within the inode mapping and lifecycle subsystem.
  *
@@ -6164,6 +6241,7 @@ static int ext4_bh_unmapped(handle_t *handle, struct inode *inode,
 {
 	return !buffer_mapped(bh);
 }
+
 
 /**
  * ext4_page_mkwrite - Implements the page mkwrite operation within the inode mapping and lifecycle subsystem.
@@ -6335,6 +6413,7 @@ static const char *ext4_encrypted_get_link(struct dentry *dentry,
 	return paddr;
 }
 
+
 /**
  * ext4_encrypted_symlink_getattr - Implements the encrypted symlink getattr operation within the inode mapping and lifecycle subsystem.
  *
@@ -6353,6 +6432,7 @@ static int ext4_encrypted_symlink_getattr(struct mnt_idmap *idmap,
 	return fscrypt_symlink_getattr(path, stat);
 }
 
+
 /**
  * ext4_free_link - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -6365,6 +6445,7 @@ static void ext4_free_link(void *bh)
 {
 	brelse(bh);
 }
+
 
 /**
  * ext4_get_link - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.

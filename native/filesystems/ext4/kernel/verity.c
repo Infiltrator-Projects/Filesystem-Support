@@ -33,6 +33,7 @@
 #include "ext4_extents.h"
 #include "ext4_jbd2.h"
 
+
 /**
  * ext4_verity_metadata_pos - Implements the verity metadata pos operation within the fs-verity integration subsystem.
  *
@@ -121,6 +122,7 @@ static int pagecache_write(struct inode *inode, const void *buf, size_t count,
 	return 0;
 }
 
+
 /**
  * ext4_begin_enable_verity - Implements the begin enable verity operation within the fs-verity integration subsystem.
  *
@@ -207,6 +209,7 @@ static int ext4_write_verity_descriptor(struct inode *inode, const void *desc,
 			       desc_size_pos);
 }
 
+
 /**
  * ext4_end_enable_verity - Implements the end enable verity operation within the fs-verity integration subsystem.
  *
@@ -276,6 +279,7 @@ cleanup:
 	ext4_clear_inode_state(inode, EXT4_STATE_VERITY_IN_PROGRESS);
 	return err;
 }
+
 
 /**
  * ext4_get_verity_descriptor_location - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -347,6 +351,7 @@ bad:
 	return -EFSCORRUPTED;
 }
 
+
 /**
  * ext4_get_verity_descriptor - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -375,6 +380,7 @@ static int ext4_get_verity_descriptor(struct inode *inode, void *buf,
 	}
 	return desc_size;
 }
+
 
 /**
  * ext4_read_merkle_tree_page - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -406,6 +412,7 @@ static struct page *ext4_read_merkle_tree_page(struct inode *inode,
 	}
 	return folio_file_page(folio, index);
 }
+
 
 /**
  * ext4_write_merkle_tree_block - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.

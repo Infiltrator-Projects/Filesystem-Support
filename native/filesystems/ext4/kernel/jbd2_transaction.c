@@ -56,6 +56,8 @@ static void __jbd2_journal_temp_unlink_buffer(struct journal_head *jh);
 static void __jbd2_journal_unfile_buffer(struct journal_head *jh);
 
 static struct kmem_cache *transaction_cache;
+
+
 /**
  * jbd2_journal_init_transaction_cache - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -79,6 +81,7 @@ int __init jbd2_journal_init_transaction_cache(void)
 	return 0;
 }
 
+
 /**
  * jbd2_journal_destroy_transaction_cache - Tears down subsystem state after users have been quiesced.
  *
@@ -92,6 +95,7 @@ void jbd2_journal_destroy_transaction_cache(void)
 	kmem_cache_destroy(transaction_cache);
 	transaction_cache = NULL;
 }
+
 
 /**
  * jbd2_journal_free_transaction - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -221,6 +225,7 @@ static void wait_transaction_switching(journal_t *journal)
 	schedule();
 	finish_wait(&journal->j_wait_transaction_locked, &wait);
 }
+
 
 /**
  * sub_reserved_credits - Implements the sub reserved credits operation within the jbd2 transaction api subsystem.
@@ -478,6 +483,7 @@ static handle_t *new_handle(int nblocks)
 	return handle;
 }
 
+
 /**
  * jbd2__journal_start - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -551,6 +557,7 @@ handle_t *jbd2_journal_start(journal_t *journal, int nblocks)
 	return jbd2__journal_start(journal, nblocks, 0, 0, GFP_NOFS, 0, 0);
 }
 
+
 /**
  * __jbd2_journal_unreserve_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -568,6 +575,7 @@ static void __jbd2_journal_unreserve_handle(handle_t *handle, transaction_t *t)
 	if (t)
 		atomic_sub(handle->h_total_credits, &t->t_outstanding_credits);
 }
+
 
 /**
  * jbd2_journal_free_reserved - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -696,6 +704,7 @@ error_out:
 	read_unlock(&journal->j_state_lock);
 	return result;
 }
+
 
 /**
  * stop_this_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -891,6 +900,7 @@ void jbd2_journal_unlock_updates (journal_t *journal)
 	write_unlock(&journal->j_state_lock);
 	wake_up_all(&journal->j_wait_transaction_locked);
 }
+
 
 /**
  * warn_dirty_buffer - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1303,6 +1313,7 @@ void jbd2_journal_set_triggers(struct buffer_head *bh,
 	jbd2_journal_put_journal_head(jh);
 }
 
+
 /**
  * jbd2_buffer_frozen_trigger - Implements the buffer frozen trigger operation within the jbd2 transaction api subsystem.
  *
@@ -1321,6 +1332,7 @@ void jbd2_buffer_frozen_trigger(struct journal_head *jh, void *mapped_data,
 
 	triggers->t_frozen(triggers, bh, mapped_data, bh->b_size);
 }
+
 
 /**
  * jbd2_buffer_abort_trigger - Implements the buffer abort trigger operation within the jbd2 transaction api subsystem.
@@ -1819,6 +1831,7 @@ static void __jbd2_journal_unfile_buffer(struct journal_head *jh)
 	jh->b_transaction = NULL;
 }
 
+
 /**
  * jbd2_journal_unfile_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -2166,6 +2179,7 @@ void __jbd2_journal_file_buffer(struct journal_head *jh,
 		set_buffer_jbddirty(bh);
 }
 
+
 /**
  * jbd2_journal_file_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -2314,6 +2328,7 @@ done:
 	return 0;
 }
 
+
 /**
  * jbd2_journal_inode_ranged_write - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -2329,6 +2344,7 @@ int jbd2_journal_inode_ranged_write(handle_t *handle,
 			JI_WRITE_DATA | JI_WAIT_DATA, start_byte,
 			start_byte + length - 1);
 }
+
 
 /**
  * jbd2_journal_inode_ranged_wait - Coordinates a journal transaction or journal-owned buffer/state transition.

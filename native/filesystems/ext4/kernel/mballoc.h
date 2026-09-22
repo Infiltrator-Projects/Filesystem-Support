@@ -101,6 +101,7 @@ struct ext4_free_data {
 	tid_t				efd_tid;
 };
 
+
 /**
  * struct ext4_prealloc_space - Private EXT4 state/data structure used by multiblock-allocation interfaces.
  *
@@ -137,6 +138,7 @@ enum {
 	MB_GROUP_PA = 1
 };
 
+
 /**
  * struct ext4_free_extent - Private EXT4 state/data structure used by multiblock-allocation interfaces.
  *
@@ -152,6 +154,8 @@ struct ext4_free_extent {
 
 
 #define PREALLOC_TB_SIZE 10
+
+
 /**
  * struct ext4_locality_group - Private EXT4 state/data structure used by multiblock-allocation interfaces.
  *
@@ -166,6 +170,7 @@ struct ext4_locality_group {
 	struct list_head	lg_prealloc_list[PREALLOC_TB_SIZE];
 	spinlock_t		lg_prealloc_lock;
 };
+
 
 /**
  * struct ext4_allocation_context - Private EXT4 state/data structure used by multiblock-allocation interfaces.
@@ -221,6 +226,7 @@ struct ext4_allocation_context {
 #define AC_STATUS_FOUND		2
 #define AC_STATUS_BREAK		3
 
+
 /**
  * struct ext4_buddy - Private EXT4 state/data structure used by multiblock-allocation interfaces.
  *
@@ -238,6 +244,7 @@ struct ext4_buddy {
 	ext4_group_t bd_group;
 };
 
+
 /**
  * ext4_grp_offs_to_block - Implements the grp offs to block operation within the multiblock-allocation interfaces subsystem.
  *
@@ -253,6 +260,7 @@ static inline ext4_fsblk_t ext4_grp_offs_to_block(struct super_block *sb,
 		(fex->fe_start << EXT4_SB(sb)->s_cluster_bits);
 }
 
+
 /**
  * extent_logical_end - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
@@ -267,6 +275,7 @@ static inline loff_t extent_logical_end(struct ext4_sb_info *sbi,
 
 	return (loff_t)fex->fe_logical + EXT4_C2B(sbi, fex->fe_len);
 }
+
 
 /**
  * pa_logical_end - Implements the pa logical end operation within the multiblock-allocation interfaces subsystem.

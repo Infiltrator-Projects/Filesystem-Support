@@ -246,6 +246,7 @@ out:
 	return EXT4_QUERY_RANGE_CONTINUE;
 }
 
+
 /**
  * ext4_fsmap_next_pblk - Implements the fsmap next pblk operation within the physical-space mapping subsystem.
  *
@@ -258,6 +259,7 @@ static inline ext4_fsblk_t ext4_fsmap_next_pblk(struct ext4_fsmap *fmr)
 {
 	return fmr->fmr_physical + fmr->fmr_length;
 }
+
 
 /**
  * ext4_getfsmap_meta_helper - Implements the getfsmap meta helper operation within the physical-space mapping subsystem.

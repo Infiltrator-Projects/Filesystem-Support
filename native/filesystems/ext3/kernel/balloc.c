@@ -105,6 +105,7 @@ struct ext3_group_desc * ext3_get_group_desc(struct super_block * sb,
 	return desc + offset;
 }
 
+
 /**
  * ext3_valid_block_bitmap - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -205,6 +206,8 @@ read_block_bitmap(struct super_block *sb, unsigned int block_group)
 
 
 #if 1
+
+
 /**
  * __rsv_window_dump - Implements the rsv window dump operation within the block allocation subsystem.
  *
@@ -1452,6 +1455,7 @@ out:
 	return 0;
 }
 
+
 /**
  * ext3_new_block - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -1530,6 +1534,7 @@ ext3_fsblk_t ext3_count_free_blocks(struct super_block *sb)
 #endif
 }
 
+
 /**
  * test_root - Implements the test root operation within the block allocation subsystem.
  *
@@ -1546,6 +1551,7 @@ static inline int test_root(int a, int b)
 		num *= b;
 	return num == a;
 }
+
 
 /**
  * ext3_group_sparse - Implements the group sparse operation within the block allocation subsystem.
@@ -1583,6 +1589,7 @@ int ext3_bg_has_super(struct super_block *sb, int group)
 	return 1;
 }
 
+
 /**
  * ext3_bg_num_gdb_meta - Implements the bg num gdb meta operation within the block allocation subsystem.
  *
@@ -1601,6 +1608,7 @@ static unsigned long ext3_bg_num_gdb_meta(struct super_block *sb, int group)
 		return 1;
 	return 0;
 }
+
 
 /**
  * ext3_bg_num_gdb_nometa - Implements the bg num gdb nometa operation within the block allocation subsystem.
@@ -1872,6 +1880,7 @@ out:
 
 
 #ifdef EXT3FS_DEBUG
+
 
 /**
  * ext3_count_free - Computes derived filesystem state used for validation, accounting or policy decisions.

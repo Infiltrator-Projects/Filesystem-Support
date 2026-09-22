@@ -54,6 +54,7 @@
 #define NAMEI_RA_BLOCKS  4
 #define NAMEI_RA_SIZE        (NAMEI_RA_CHUNKS * NAMEI_RA_BLOCKS)
 
+
 /**
  * ext3_append - Implements the append operation within the namespace mutation subsystem.
  *
@@ -100,6 +101,7 @@ struct fake_dirent
 	u8 file_type;
 };
 
+
 /**
  * struct dx_countlimit - Private EXT3 state/data structure used by namespace mutation.
  *
@@ -111,6 +113,7 @@ struct dx_countlimit
 	__le16 limit;
 	__le16 count;
 };
+
 
 /**
  * struct dx_entry - Private EXT3 state/data structure used by namespace mutation.
@@ -149,6 +152,7 @@ struct dx_root
 	struct dx_entry	entries[0];
 };
 
+
 /**
  * struct dx_node - Private EXT3 state/data structure used by namespace mutation.
  *
@@ -174,6 +178,7 @@ struct dx_frame
 	struct dx_entry *entries;
 	struct dx_entry *at;
 };
+
 
 /**
  * struct dx_map_entry - Private EXT3 state/data structure used by namespace mutation.
@@ -251,6 +256,7 @@ static inline unsigned dx_get_block (struct dx_entry *entry)
 	return le32_to_cpu(entry->block) & 0x00ffffff;
 }
 
+
 /**
  * dx_set_block - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -263,6 +269,7 @@ static inline void dx_set_block (struct dx_entry *entry, unsigned value)
 {
 	entry->block = cpu_to_le32(value);
 }
+
 
 /**
  * dx_get_hash - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -277,6 +284,7 @@ static inline unsigned dx_get_hash (struct dx_entry *entry)
 	return le32_to_cpu(entry->hash);
 }
 
+
 /**
  * dx_set_hash - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -289,6 +297,7 @@ static inline void dx_set_hash (struct dx_entry *entry, unsigned value)
 {
 	entry->hash = cpu_to_le32(value);
 }
+
 
 /**
  * dx_get_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -303,6 +312,7 @@ static inline unsigned dx_get_count (struct dx_entry *entries)
 	return le16_to_cpu(((struct dx_countlimit *) entries)->count);
 }
 
+
 /**
  * dx_get_limit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -315,6 +325,7 @@ static inline unsigned dx_get_limit (struct dx_entry *entries)
 {
 	return le16_to_cpu(((struct dx_countlimit *) entries)->limit);
 }
+
 
 /**
  * dx_set_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -329,6 +340,7 @@ static inline void dx_set_count (struct dx_entry *entries, unsigned value)
 	((struct dx_countlimit *) entries)->count = cpu_to_le16(value);
 }
 
+
 /**
  * dx_set_limit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -341,6 +353,7 @@ static inline void dx_set_limit (struct dx_entry *entries, unsigned value)
 {
 	((struct dx_countlimit *) entries)->limit = cpu_to_le16(value);
 }
+
 
 /**
  * dx_root_limit - Implements the dx root limit operation within the namespace mutation subsystem.
@@ -356,6 +369,7 @@ static inline unsigned dx_root_limit (struct inode *dir, unsigned infosize)
 		EXT3_DIR_REC_LEN(2) - infosize;
 	return entry_space / sizeof(struct dx_entry);
 }
+
 
 /**
  * dx_node_limit - Implements the dx node limit operation within the namespace mutation subsystem.
@@ -373,6 +387,8 @@ static inline unsigned dx_node_limit (struct inode *dir)
 
 
 #ifdef DX_DEBUG
+
+
 /**
  * dx_show_index - Implements the dx show index operation within the namespace mutation subsystem.
  *
@@ -392,6 +408,7 @@ static void dx_show_index (char * label, struct dx_entry *entries)
         printk("\n");
 }
 
+
 /**
  * struct stats - Private EXT3 state/data structure used by namespace mutation.
  *
@@ -404,6 +421,7 @@ struct stats
 	unsigned space;
 	unsigned bcount;
 };
+
 
 /**
  * dx_show_leaf - Implements the dx show leaf operation within the namespace mutation subsystem.
@@ -442,6 +460,7 @@ static struct stats dx_show_leaf(struct dx_hash_info *hinfo, struct ext3_dir_ent
 	printk("(%i)\n", names);
 	return (struct stats) { names, space, 1 };
 }
+
 
 /**
  * dx_show_entries - Implements the dx show entries operation within the namespace mutation subsystem.
@@ -629,6 +648,7 @@ fail:
 			     "recommended.", dir->i_ino);
 	return NULL;
 }
+
 
 /**
  * dx_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -911,6 +931,7 @@ static void dx_sort_map (struct dx_map_entry *map, unsigned count)
 	} while(more);
 }
 
+
 /**
  * dx_insert_block - Implements the dx insert block operation within the namespace mutation subsystem.
  *
@@ -932,6 +953,7 @@ static void dx_insert_block(struct dx_frame *frame, u32 hash, u32 block)
 	dx_set_block(new, block);
 	dx_set_count(entries, count + 1);
 }
+
 
 /**
  * ext3_update_dx_flag - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1131,6 +1153,7 @@ cleanup_and_exit:
 	return ret;
 }
 
+
 /**
  * ext3_dx_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1188,6 +1211,7 @@ errout:
 	dx_release (frames);
 	return NULL;
 }
+
 
 /**
  * ext3_lookup - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1268,6 +1292,7 @@ static unsigned char ext3_type_by_mode[S_IFMT >> S_SHIFT] = {
 	[S_IFSOCK >> S_SHIFT]	= EXT3_FT_SOCK,
 	[S_IFLNK >> S_SHIFT]	= EXT3_FT_SYMLINK,
 };
+
 
 /**
  * ext3_set_de_type - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1882,6 +1907,7 @@ journal_error:
 	return -ENOENT;
 }
 
+
 /**
  * ext3_add_nondir - Implements the add nondir operation within the namespace mutation subsystem.
  *
@@ -1948,6 +1974,7 @@ retry:
 	return err;
 }
 
+
 /**
  * ext3_mknod - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -1992,6 +2019,7 @@ retry:
 		goto retry;
 	return err;
 }
+
 
 /**
  * ext3_tmpfile - Implements the tmpfile operation within the namespace mutation subsystem.
@@ -2038,6 +2066,7 @@ err_unlock_inode:
 	unlock_new_inode(inode);
 	return err;
 }
+
 
 /**
  * ext3_mkdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
@@ -2340,6 +2369,7 @@ out_brelse:
 	goto out_err;
 }
 
+
 /**
  * ext3_rmdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -2407,6 +2437,7 @@ end_rmdir:
 	return retval;
 }
 
+
 /**
  * ext3_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -2472,6 +2503,7 @@ end_unlink:
 	trace_ext3_unlink_exit(dentry, retval);
 	return retval;
 }
+
 
 /**
  * ext3_symlink - Implements the symlink operation within the namespace mutation subsystem.
@@ -2567,6 +2599,7 @@ err_drop_inode:
 	iput(inode);
 	return err;
 }
+
 
 /**
  * ext3_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.

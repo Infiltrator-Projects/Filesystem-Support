@@ -73,6 +73,8 @@ static void __journal_abort_soft (journal_t *journal, int errno);
 static const char *journal_dev_name(journal_t *journal, char *buffer);
 
 #ifdef CONFIG_JBD_DEBUG
+
+
 /**
  * __jbd_debug - Implements the debug operation within the journal core subsystem.
  *
@@ -210,6 +212,7 @@ end_loop:
 	return 0;
 }
 
+
 /**
  * journal_start_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -229,6 +232,7 @@ static int journal_start_thread(journal_t *journal)
 	wait_event(journal->j_wait_done_commit, journal->j_task != NULL);
 	return 0;
 }
+
 
 /**
  * journal_kill_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -419,6 +423,7 @@ int __log_start_commit(journal_t *journal, tid_t target)
 		    journal->j_running_transaction->t_tid : 0);
 	return 0;
 }
+
 
 /**
  * log_start_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
@@ -986,6 +991,7 @@ int journal_create(journal_t *journal)
 	return journal_reset(journal);
 }
 
+
 /**
  * journal_write_superblock - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1442,6 +1448,7 @@ int journal_update_format (journal_t *journal)
 	return -EINVAL;
 }
 
+
 /**
  * journal_convert_superblock_v1 - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1722,6 +1729,7 @@ void journal_ack_err(journal_t *journal)
 	spin_unlock(&journal->j_state_lock);
 }
 
+
 /**
  * journal_blocks_per_page - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1740,6 +1748,7 @@ static struct kmem_cache *journal_head_cache;
 #ifdef CONFIG_JBD_DEBUG
 static atomic_t nr_journal_heads = ATOMIC_INIT(0);
 #endif
+
 
 /**
  * journal_init_journal_head_cache - Initialises subsystem state and establishes the resources required by later operations.
@@ -1766,6 +1775,7 @@ static int journal_init_journal_head_cache(void)
 	}
 	return retval;
 }
+
 
 /**
  * journal_destroy_journal_head_cache - Tears down subsystem state after users have been quiesced.
@@ -1812,6 +1822,7 @@ static struct journal_head *journal_alloc_journal_head(void)
 	}
 	return ret;
 }
+
 
 /**
  * journal_free_journal_head - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -1898,6 +1909,7 @@ struct journal_head *journal_grab_journal_head(struct buffer_head *bh)
 	return jh;
 }
 
+
 /**
  * __journal_remove_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -1964,6 +1976,7 @@ u8 journal_enable_debug __read_mostly;
 static struct dentry *jbd_debugfs_dir;
 static struct dentry *jbd_debug;
 
+
 /**
  * jbd_create_debugfs_entry - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -1981,6 +1994,7 @@ static void __init jbd_create_debugfs_entry(void)
 					       &journal_enable_debug);
 }
 
+
 /**
  * jbd_remove_debugfs_entry - Implements the remove debugfs entry operation within the journal core subsystem.
  *
@@ -1997,6 +2011,7 @@ static void __exit jbd_remove_debugfs_entry(void)
 
 #else
 
+
 /**
  * jbd_create_debugfs_entry - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
@@ -2008,6 +2023,7 @@ static void __exit jbd_remove_debugfs_entry(void)
 static inline void jbd_create_debugfs_entry(void)
 {
 }
+
 
 /**
  * jbd_remove_debugfs_entry - Implements the remove debugfs entry operation within the journal core subsystem.
@@ -2024,6 +2040,7 @@ static inline void jbd_remove_debugfs_entry(void)
 #endif
 
 struct kmem_cache *jbd_handle_cache;
+
 
 /**
  * journal_init_handle_cache - Initialises subsystem state and establishes the resources required by later operations.
@@ -2046,6 +2063,7 @@ static int __init journal_init_handle_cache(void)
 	}
 	return 0;
 }
+
 
 /**
  * journal_destroy_handle_cache - Tears down subsystem state after users have been quiesced.
@@ -2082,6 +2100,7 @@ static int __init journal_init_caches(void)
 	return ret;
 }
 
+
 /**
  * journal_destroy_caches - Tears down subsystem state after users have been quiesced.
  *
@@ -2096,6 +2115,7 @@ static void journal_destroy_caches(void)
 	journal_destroy_journal_head_cache();
 	journal_destroy_handle_cache();
 }
+
 
 /**
  * infiltratr_ext3_jbd_init - Initialises subsystem state and establishes the resources required by later operations.
@@ -2117,6 +2137,7 @@ int __init infiltratr_ext3_jbd_init(void)
 	jbd_create_debugfs_entry();
 	return ret;
 }
+
 
 /**
  * infiltratr_ext3_jbd_exit - Tears down subsystem state after users have been quiesced.

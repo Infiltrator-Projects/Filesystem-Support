@@ -82,6 +82,7 @@ static inline int ext2_inode_is_fast_symlink(struct inode *inode)
 
 static void ext2_truncate_blocks(struct inode *inode, loff_t offset);
 
+
 /**
  * ext2_write_failed - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -157,6 +158,7 @@ typedef struct {
 	struct buffer_head *bh;
 } Indirect;
 
+
 /**
  * add_chain - Implements the add chain operation within the inode mapping and lifecycle subsystem.
  *
@@ -170,6 +172,7 @@ static inline void add_chain(Indirect *p, struct buffer_head *bh, __le32 *v)
 	p->key = *(p->p = v);
 	p->bh = bh;
 }
+
 
 /**
  * verify_chain - Validates state before it is trusted by the remainder of the filesystem.
@@ -688,6 +691,7 @@ cleanup:
 	return err;
 }
 
+
 /**
  * ext2_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -718,6 +722,7 @@ int ext2_get_block(struct inode *inode, sector_t iblock,
 	return 0;
 
 }
+
 
 /**
  * ext2_iomap_begin - Implements the iomap begin operation within the inode mapping and lifecycle subsystem.
@@ -782,6 +787,7 @@ static int ext2_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 	return 0;
 }
 
+
 /**
  * ext2_iomap_end - Implements the iomap end operation within the inode mapping and lifecycle subsystem.
  *
@@ -811,6 +817,7 @@ const struct iomap_ops ext2_iomap_ops = {
 	.iomap_end		= ext2_iomap_end,
 };
 
+
 /**
  * ext2_fiemap - Implements the fiemap operation within the inode mapping and lifecycle subsystem.
  *
@@ -838,6 +845,7 @@ int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 	return ret;
 }
 
+
 /**
  * ext2_read_folio - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -851,6 +859,7 @@ static int ext2_read_folio(struct file *file, struct folio *folio)
 	return mpage_read_folio(folio, ext2_get_block);
 }
 
+
 /**
  * ext2_readahead - Implements the readahead operation within the inode mapping and lifecycle subsystem.
  *
@@ -863,6 +872,7 @@ static void ext2_readahead(struct readahead_control *rac)
 {
 	mpage_readahead(rac, ext2_get_block);
 }
+
 
 /**
  * ext2_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -884,6 +894,7 @@ ext2_write_begin(struct file *file, struct address_space *mapping,
 	return ret;
 }
 
+
 /**
  * ext2_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -904,6 +915,7 @@ static int ext2_write_end(struct file *file, struct address_space *mapping,
 	return ret;
 }
 
+
 /**
  * ext2_bmap - Implements the bmap operation within the inode mapping and lifecycle subsystem.
  *
@@ -916,6 +928,7 @@ static sector_t ext2_bmap(struct address_space *mapping, sector_t block)
 {
 	return generic_block_bmap(mapping,block,ext2_get_block);
 }
+
 
 /**
  * ext2_writepages - Implements the writepages operation within the inode mapping and lifecycle subsystem.
@@ -930,6 +943,7 @@ ext2_writepages(struct address_space *mapping, struct writeback_control *wbc)
 {
 	return mpage_writepages(mapping, wbc, ext2_get_block);
 }
+
 
 /**
  * ext2_dax_writepages - Implements the dax writepages operation within the inode mapping and lifecycle subsystem.
@@ -1211,6 +1225,7 @@ do_indirects:
 	mutex_unlock(&ei->truncate_mutex);
 }
 
+
 /**
  * ext2_truncate_blocks - Implements the truncate blocks operation within the inode mapping and lifecycle subsystem.
  *
@@ -1231,6 +1246,7 @@ static void ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	__ext2_truncate_blocks(inode, offset);
 	filemap_invalidate_unlock(inode->i_mapping);
 }
+
 
 /**
  * ext2_setsize - Implements the setsize operation within the inode mapping and lifecycle subsystem.
@@ -1278,6 +1294,7 @@ static int ext2_setsize(struct inode *inode, loff_t newsize)
 
 	return 0;
 }
+
 
 /**
  * ext2_get_inode - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1329,6 +1346,7 @@ Egdp:
 	return ERR_PTR(-EIO);
 }
 
+
 /**
  * ext2_set_inode_flags - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -1357,6 +1375,7 @@ void ext2_set_inode_flags(struct inode *inode)
 		inode->i_flags |= S_DAX;
 }
 
+
 /**
  * ext2_set_file_ops - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1374,6 +1393,7 @@ void ext2_set_file_ops(struct inode *inode)
 	else
 		inode->i_mapping->a_ops = &ext2_aops;
 }
+
 
 /**
  * ext2_iget - Implements the iget operation within the inode mapping and lifecycle subsystem.
@@ -1510,6 +1530,7 @@ bad_inode:
 	return ERR_PTR(ret);
 }
 
+
 /**
  * __ext2_write_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -1618,6 +1639,7 @@ static int __ext2_write_inode(struct inode *inode, int do_sync)
 	return err;
 }
 
+
 /**
  * ext2_write_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -1630,6 +1652,7 @@ int ext2_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
 	return __ext2_write_inode(inode, wbc->sync_mode == WB_SYNC_ALL);
 }
+
 
 /**
  * ext2_getattr - Implements the getattr operation within the inode mapping and lifecycle subsystem.
@@ -1664,6 +1687,7 @@ int ext2_getattr(struct mnt_idmap *idmap, const struct path *path,
 	generic_fillattr(&nop_mnt_idmap, request_mask, inode, stat);
 	return 0;
 }
+
 
 /**
  * ext2_setattr - Implements the setattr operation within the inode mapping and lifecycle subsystem.

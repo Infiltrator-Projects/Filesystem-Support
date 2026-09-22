@@ -38,6 +38,7 @@
 #define outside(b, first, last)	((b) < (first) || (b) >= (last))
 #define inside(b, first, last)	((b) >= (first) && (b) < (last))
 
+
 /**
  * verify_group_input - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -137,6 +138,7 @@ static int verify_group_input(struct super_block *sb,
 
 	return err;
 }
+
 
 /**
  * bclean - Implements the bclean operation within the online resize subsystem.

@@ -62,6 +62,7 @@ struct recovery_info
 	int		nr_revoke_hits;
 };
 
+
 /**
  * enum passtype - Private EXT3 state/value set used by journal recovery.
  *
@@ -93,6 +94,8 @@ static void journal_brelse_array(struct buffer_head *b[], int n)
 
 
 #define MAXBUF 8
+
+
 /**
  * do_readahead - Implements the do readahead operation within the journal recovery subsystem.
  *
@@ -340,6 +343,7 @@ int journal_skip_recovery(journal_t *journal)
 	journal->j_tail = 0;
 	return err;
 }
+
 
 /**
  * do_one_pass - Implements the do one pass operation within the journal recovery subsystem.

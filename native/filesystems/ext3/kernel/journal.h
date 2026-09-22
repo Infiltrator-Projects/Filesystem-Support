@@ -77,6 +77,7 @@ void __jbd_debug(int level, const char *file, const char *func,
 #define jbd_debug(n, fmt, a...)
 #endif
 
+
 /**
  * jbd_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -89,6 +90,7 @@ static inline void *jbd_alloc(size_t size, gfp_t flags)
 {
 	return (void *)__get_free_pages(flags, get_order(size));
 }
+
 
 /**
  * jbd_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -651,6 +653,7 @@ void journal_put_journal_head(struct journal_head *jh);
 
 extern struct kmem_cache *jbd_handle_cache;
 
+
 /**
  * jbd_alloc_handle - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
@@ -663,6 +666,7 @@ static inline handle_t *jbd_alloc_handle(gfp_t gfp_flags)
 {
 	return kmem_cache_zalloc(jbd_handle_cache, gfp_flags);
 }
+
 
 /**
  * jbd_free_handle - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -725,6 +729,7 @@ static inline int is_journal_aborted(journal_t *journal)
 	return journal->j_flags & JFS_ABORT;
 }
 
+
 /**
  * is_handle_aborted - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -739,6 +744,7 @@ static inline int is_handle_aborted(handle_t *handle)
 		return 1;
 	return is_journal_aborted(handle->h_transaction->t_journal);
 }
+
 
 /**
  * journal_abort_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -769,6 +775,7 @@ static inline int tid_gt(tid_t x, tid_t y)
 	int difference = (x - y);
 	return (difference > 0);
 }
+
 
 /**
  * tid_geq - Implements the tid geq operation within the embedded jbd contract subsystem.

@@ -126,6 +126,7 @@ typedef __u32 ext4_lblk_t;
 
 typedef unsigned int ext4_group_t;
 
+
 /**
  * enum SHIFT_DIRECTION - Private EXT4 state/value set used by ext4 shared model.
  *
@@ -196,6 +197,7 @@ enum criteria {
 
 #define EXT4_MB_STRICT_CHECK		0x4000
 
+
 /**
  * struct ext4_allocation_request - Private EXT4 state/data structure used by ext4 shared model.
  *
@@ -256,6 +258,7 @@ struct ext4_system_blocks {
 #define EXT4_IO_END_UNWRITTEN	0x0001
 #define EXT4_IO_END_FAILED	0x0002
 
+
 /**
  * struct ext4_io_end_vec - Private EXT4 state/data structure used by ext4 shared model.
  *
@@ -286,6 +289,7 @@ typedef struct ext4_io_end {
 	refcount_t		count;
 	struct list_head	list_vec;
 } ext4_io_end_t;
+
 
 /**
  * struct ext4_io_submit - Private EXT4 state/data structure used by ext4 shared model.
@@ -589,6 +593,7 @@ enum {
 #define TEST_FLAG_VALUE(FLAG) (EXT4_##FLAG##_FL == (1U << EXT4_INODE_##FLAG))
 #define CHECK_FLAG_VALUE(FLAG) BUILD_BUG_ON(!TEST_FLAG_VALUE(FLAG))
 
+
 /**
  * ext4_check_flag_values - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -820,6 +825,7 @@ static inline __le32 ext4_encode_extra_time(struct timespec64 ts)
 	u32 extra = ((ts.tv_sec - (s32)ts.tv_sec) >> 32) & EXT4_EPOCH_MASK;
 	return cpu_to_le32(extra | (ts.tv_nsec << EXT4_EPOCH_BITS));
 }
+
 
 /**
  * ext4_decode_extra_time - Implements the decode extra time operation within the ext4 shared model subsystem.
@@ -1311,6 +1317,7 @@ enum ext4_journal_trigger_type {
 
 #define EXT4_JOURNAL_TRIGGER_COUNT EXT4_JTR_NONE
 
+
 /**
  * struct ext4_journal_trigger - Private EXT4 state/data structure used by ext4 shared model.
  *
@@ -1321,6 +1328,7 @@ struct ext4_journal_trigger {
 	struct jbd2_buffer_trigger_type tr_triggers;
 	struct super_block *sb;
 };
+
 
 /**
  * EXT4_TRIGGER - Implements the EXT4 TRIGGER operation within the ext4 shared model subsystem.
@@ -1350,6 +1358,7 @@ struct ext4_orphan_block_tail {
 	__le32 ob_checksum;
 };
 
+
 /**
  * ext4_inodes_per_orphan_block - Implements the inodes per orphan block operation within the ext4 shared model subsystem.
  *
@@ -1363,6 +1372,7 @@ static inline int ext4_inodes_per_orphan_block(struct super_block *sb)
 	return (sb->s_blocksize - sizeof(struct ext4_orphan_block_tail)) /
 			sizeof(u32);
 }
+
 
 /**
  * struct ext4_orphan_block - Private EXT4 state/data structure used by ext4 shared model.
@@ -1643,6 +1653,7 @@ struct ext4_sb_info {
 	struct ext4_fc_replay_state s_fc_replay_state;
 };
 
+
 /**
  * EXT4_SB - Implements the EXT4 SB operation within the ext4 shared model subsystem.
  *
@@ -1655,6 +1666,8 @@ static inline struct ext4_sb_info *EXT4_SB(struct super_block *sb)
 {
 	return sb->s_fs_info;
 }
+
+
 /**
  * EXT4_I - Implements the EXT4 I operation within the ext4 shared model subsystem.
  *
@@ -1667,6 +1680,7 @@ static inline struct ext4_inode_info *EXT4_I(struct inode *inode)
 {
 	return container_of(inode, struct ext4_inode_info, vfs_inode);
 }
+
 
 /**
  * ext4_writepages_down_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -1682,6 +1696,7 @@ static inline int ext4_writepages_down_read(struct super_block *sb)
 	return memalloc_nofs_save();
 }
 
+
 /**
  * ext4_writepages_up_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -1695,6 +1710,7 @@ static inline void ext4_writepages_up_read(struct super_block *sb, int ctx)
 	memalloc_nofs_restore(ctx);
 	percpu_up_read(&EXT4_SB(sb)->s_writepages_rwsem);
 }
+
 
 /**
  * ext4_writepages_down_write - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -1710,6 +1726,7 @@ static inline int ext4_writepages_down_write(struct super_block *sb)
 	return memalloc_nofs_save();
 }
 
+
 /**
  * ext4_writepages_up_write - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1723,6 +1740,7 @@ static inline void ext4_writepages_up_write(struct super_block *sb, int ctx)
 	memalloc_nofs_restore(ctx);
 	percpu_up_write(&EXT4_SB(sb)->s_writepages_rwsem);
 }
+
 
 /**
  * ext4_valid_inum - Validates state before it is trusted by the remainder of the filesystem.
@@ -1756,6 +1774,7 @@ enum {
 	EXT4_MF_JOURNAL_DESTROY
 };
 
+
 /**
  * ext4_set_mount_flag - Implements a mount-path operation for the owning filesystem.
  *
@@ -1769,6 +1788,7 @@ static inline void ext4_set_mount_flag(struct super_block *sb, int bit)
 	set_bit(bit, &EXT4_SB(sb)->s_mount_flags);
 }
 
+
 /**
  * ext4_clear_mount_flag - Implements a mount-path operation for the owning filesystem.
  *
@@ -1781,6 +1801,7 @@ static inline void ext4_clear_mount_flag(struct super_block *sb, int bit)
 {
 	clear_bit(bit, &EXT4_SB(sb)->s_mount_flags);
 }
+
 
 /**
  * ext4_test_mount_flag - Implements a mount-path operation for the owning filesystem.
@@ -1804,6 +1825,7 @@ static inline int ext4_test_mount_flag(struct super_block *sb, int bit)
 #define EXT4_SIM_INODE_CRC	6
 #define EXT4_SIM_DIRBLOCK_EIO	7
 #define EXT4_SIM_DIRBLOCK_CRC	8
+
 
 /**
  * ext4_simulate_fail - Implements the simulate fail operation within the ext4 shared model subsystem.
@@ -1887,6 +1909,8 @@ static inline int ext4_test_inode_state(struct inode *inode, int bit);
 static inline void ext4_set_inode_state(struct inode *inode, int bit);
 static inline void ext4_clear_inode_state(struct inode *inode, int bit);
 #if (BITS_PER_LONG < 64)
+
+
 /**
  * ext4_clear_state_flags - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1902,6 +1926,8 @@ static inline void ext4_clear_state_flags(struct ext4_inode_info *ei)
 	(ei)->i_state_flags = 0;
 }
 #else
+
+
 /**
  * ext4_clear_state_flags - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -1922,6 +1948,7 @@ static inline void ext4_clear_state_flags(struct ext4_inode_info *ei)
 
 #define EXT4_SB(sb)	(sb)
 #endif
+
 
 /**
  * ext4_verity_in_progress - Implements the verity in progress operation within the ext4 shared model subsystem.
@@ -2167,6 +2194,7 @@ static inline bool ext4_has_unknown_ext##ver##_incompat_features(struct super_bl
 		cpu_to_le32(~EXT##ver##_FEATURE_INCOMPAT_SUPP)) != 0); \
 }
 
+
 /**
  * ext4_has_compat_features - Implements the has compat features operation within the ext4 shared model subsystem.
  *
@@ -2183,6 +2211,8 @@ static inline bool ext4_has_compat_features(struct super_block *sb)
 {
 	return (EXT4_SB(sb)->s_es->s_feature_compat != 0);
 }
+
+
 /**
  * ext4_has_ro_compat_features - Implements the has ro compat features operation within the ext4 shared model subsystem.
  *
@@ -2195,6 +2225,8 @@ static inline bool ext4_has_ro_compat_features(struct super_block *sb)
 {
 	return (EXT4_SB(sb)->s_es->s_feature_ro_compat != 0);
 }
+
+
 /**
  * ext4_has_incompat_features - Implements the has incompat features operation within the ext4 shared model subsystem.
  *
@@ -2214,6 +2246,7 @@ extern int ext4_feature_set_ok(struct super_block *sb, int readonly);
 #define EXT4_FLAGS_RESIZING	0
 #define EXT4_FLAGS_SHUTDOWN	1
 #define EXT4_FLAGS_BDEV_IS_DAX	2
+
 
 /**
  * ext4_forced_shutdown - Implements the forced shutdown operation within the ext4 shared model subsystem.
@@ -2307,6 +2340,7 @@ struct ext4_dir_entry_2 {
 #define EXT4_DIRENT_HASH(entry) le32_to_cpu(EXT4_DIRENT_HASHES(entry)->hash)
 #define EXT4_DIRENT_MINOR_HASH(entry) \
 		le32_to_cpu(EXT4_DIRENT_HASHES(entry)->minor_hash)
+
 
 /**
  * ext4_hash_in_dirent - Implements the hash in dirent operation within the ext4 shared model subsystem.
@@ -2402,6 +2436,7 @@ ext4_rec_len_from_disk(__le16 dlen, unsigned blocksize)
 #endif
 }
 
+
 /**
  * ext4_rec_len_to_disk - Implements the rec len to disk operation within the ext4 shared model subsystem.
  *
@@ -2444,6 +2479,7 @@ static inline __le16 ext4_rec_len_to_disk(unsigned len, unsigned blocksize)
 #define DX_HASH_TEA_UNSIGNED		5
 #define DX_HASH_SIPHASH			6
 #define DX_HASH_LAST 			DX_HASH_SIPHASH
+
 
 /**
  * ext4_chksum - Implements the chksum operation within the ext4 shared model subsystem.
@@ -2519,6 +2555,7 @@ struct ext4_iloc
 	ext4_group_t block_group;
 };
 
+
 /**
  * ext4_raw_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -2531,6 +2568,7 @@ static inline struct ext4_inode *ext4_raw_inode(struct ext4_iloc *iloc)
 {
 	return (struct ext4_inode *) (iloc->bh->b_data + iloc->offset);
 }
+
 
 /**
  * ext4_is_quota_file - Implements the is quota file operation within the ext4 shared model subsystem.
@@ -2588,6 +2626,7 @@ ext4_group_first_block_no(struct super_block *sb, ext4_group_t group_no)
 #define	EXT4_HTREE_LEVEL_COMPAT	2
 #define	EXT4_HTREE_LEVEL	3
 
+
 /**
  * ext4_dir_htree_level - Implements the dir htree level operation within the ext4 shared model subsystem.
  *
@@ -2621,6 +2660,7 @@ struct ext4_lazy_init {
 	struct mutex		li_list_mtx;
 };
 
+
 /**
  * enum ext4_li_mode - Private EXT4 state/value set used by ext4 shared model.
  *
@@ -2631,6 +2671,7 @@ enum ext4_li_mode {
 	EXT4_LI_MODE_PREFETCH_BBITMAP,
 	EXT4_LI_MODE_ITABLE,
 };
+
 
 /**
  * struct ext4_li_request - Private EXT4 state/data structure used by ext4 shared model.
@@ -2648,6 +2689,7 @@ struct ext4_li_request {
 	unsigned long		lr_timeout;
 };
 
+
 /**
  * struct ext4_features - Private EXT4 state/data structure used by ext4 shared model.
  *
@@ -2664,6 +2706,7 @@ struct ext4_features {
 #define EXT4_MMP_SEQ_CLEAN 0xFF4D4D50U
 #define EXT4_MMP_SEQ_FSCK  0xE24D4D50U
 #define EXT4_MMP_SEQ_MAX   0xE24D4D4FU
+
 
 /**
  * struct mmp_struct - Private EXT4 state/data structure used by ext4 shared model.
@@ -2773,6 +2816,7 @@ extern int ext4_fname_setup_ci_filename(struct inode *dir,
 					const struct qstr *iname,
 					struct ext4_filename *fname);
 
+
 /**
  * ext4_fname_free_ci_filename - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -2787,6 +2831,8 @@ static inline void ext4_fname_free_ci_filename(struct ext4_filename *fname)
 	fname->cf_name.name = NULL;
 }
 #else
+
+
 /**
  * ext4_fname_setup_ci_filename - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -2801,6 +2847,7 @@ static inline int ext4_fname_setup_ci_filename(struct inode *dir,
 {
 	return 0;
 }
+
 
 /**
  * ext4_fname_free_ci_filename - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
@@ -2830,6 +2877,8 @@ void ext4_fname_free_filename(struct ext4_filename *fname);
 int ext4_ioctl_get_encryption_pwsalt(struct file *filp, void __user *arg);
 
 #else
+
+
 /**
  * ext4_fname_setup_filename - Initialises subsystem state and establishes the resources required by later operations.
  *
@@ -2850,6 +2899,7 @@ static inline int ext4_fname_setup_filename(struct inode *dir,
 	return ext4_fname_setup_ci_filename(dir, iname, fname);
 }
 
+
 /**
  * ext4_fname_prepare_lookup - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -2865,6 +2915,7 @@ static inline int ext4_fname_prepare_lookup(struct inode *dir,
 	return ext4_fname_setup_filename(dir, &dentry->d_name, 1, fname);
 }
 
+
 /**
  * ext4_fname_free_filename - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -2877,6 +2928,7 @@ static inline void ext4_fname_free_filename(struct ext4_filename *fname)
 {
 	ext4_fname_free_ci_filename(fname);
 }
+
 
 /**
  * ext4_ioctl_get_encryption_pwsalt - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -2916,6 +2968,8 @@ void ext4_insert_dentry(struct inode *dir, struct inode *inode,
 			struct ext4_dir_entry_2 *de,
 			int buf_size,
 			struct ext4_filename *fname);
+
+
 /**
  * ext4_update_dx_flag - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -2936,6 +2990,7 @@ static inline void ext4_update_dx_flag(struct inode *inode)
 static const unsigned char ext4_filetype_table[] = {
 	DT_UNKNOWN, DT_REG, DT_DIR, DT_CHR, DT_BLK, DT_FIFO, DT_SOCK, DT_LNK
 };
+
 
 /**
  * get_dtype - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -3048,6 +3103,8 @@ extern int ext4_trim_fs(struct super_block *, struct fstrim_range *);
 extern void ext4_process_freed_data(struct super_block *sb, tid_t commit_tid);
 extern void ext4_mb_mark_bb(struct super_block *sb, ext4_fsblk_t block,
 			    int len, bool state);
+
+
 /**
  * ext4_mb_cr_expensive - Implements the mb cr expensive operation within the ext4 shared model subsystem.
  *
@@ -3384,6 +3441,7 @@ extern void ext4_group_desc_csum_set(struct super_block *sb, __u32 group,
 extern int ext4_register_li_request(struct super_block *sb,
 				    ext4_group_t first_not_zeroed);
 
+
 /**
  * ext4_has_metadata_csum - Implements the has metadata csum operation within the ext4 shared model subsystem.
  *
@@ -3400,6 +3458,7 @@ static inline int ext4_has_metadata_csum(struct super_block *sb)
 	return ext4_has_feature_metadata_csum(sb) &&
 	       (EXT4_SB(sb)->s_chksum_driver != NULL);
 }
+
 
 /**
  * ext4_has_group_desc_csum - Implements the has group desc csum operation within the ext4 shared model subsystem.
@@ -3419,6 +3478,7 @@ static inline int ext4_has_group_desc_csum(struct super_block *sb)
 		? (ext4_fsblk_t)le32_to_cpu(es->name##_hi) << 32 : 0) | \
 		le32_to_cpu(es->name##_lo))
 
+
 /**
  * ext4_blocks_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -3431,6 +3491,7 @@ static inline ext4_fsblk_t ext4_blocks_count(struct ext4_super_block *es)
 {
 	return ext4_read_incompat_64bit_val(es, s_blocks_count);
 }
+
 
 /**
  * ext4_r_blocks_count - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -3445,6 +3506,7 @@ static inline ext4_fsblk_t ext4_r_blocks_count(struct ext4_super_block *es)
 	return ext4_read_incompat_64bit_val(es, s_r_blocks_count);
 }
 
+
 /**
  * ext4_free_blocks_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -3457,6 +3519,7 @@ static inline ext4_fsblk_t ext4_free_blocks_count(struct ext4_super_block *es)
 {
 	return ext4_read_incompat_64bit_val(es, s_free_blocks_count);
 }
+
 
 /**
  * ext4_blocks_count_set - Computes derived filesystem state used for validation, accounting or policy decisions.
@@ -3473,6 +3536,7 @@ static inline void ext4_blocks_count_set(struct ext4_super_block *es,
 	es->s_blocks_count_hi = cpu_to_le32(blk >> 32);
 }
 
+
 /**
  * ext4_free_blocks_count_set - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -3488,6 +3552,7 @@ static inline void ext4_free_blocks_count_set(struct ext4_super_block *es,
 	es->s_free_blocks_count_hi = cpu_to_le32(blk >> 32);
 }
 
+
 /**
  * ext4_r_blocks_count_set - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
@@ -3502,6 +3567,7 @@ static inline void ext4_r_blocks_count_set(struct ext4_super_block *es,
 	es->s_r_blocks_count_lo = cpu_to_le32((u32)blk);
 	es->s_r_blocks_count_hi = cpu_to_le32(blk >> 32);
 }
+
 
 /**
  * ext4_isize - Implements the isize operation within the ext4 shared model subsystem.
@@ -3521,6 +3587,7 @@ static inline loff_t ext4_isize(struct super_block *sb,
 
 	return (loff_t) le32_to_cpu(raw_inode->i_size_lo);
 }
+
 
 /**
  * ext4_isize_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -3553,6 +3620,7 @@ static inline ext4_group_t ext4_get_groups_count(struct super_block *sb)
 	return ngroups;
 }
 
+
 /**
  * ext4_flex_group - Implements the flex group operation within the ext4 shared model subsystem.
  *
@@ -3567,6 +3635,7 @@ static inline ext4_group_t ext4_flex_group(struct ext4_sb_info *sbi,
 	return block_group >> sbi->s_log_groups_per_flex;
 }
 
+
 /**
  * ext4_flex_bg_size - Implements the flex bg size operation within the ext4 shared model subsystem.
  *
@@ -3579,6 +3648,7 @@ static inline unsigned int ext4_flex_bg_size(struct ext4_sb_info *sbi)
 {
 	return 1 << sbi->s_log_groups_per_flex;
 }
+
 
 /**
  * ext4_get_maxbytes - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -3655,6 +3725,7 @@ static inline int ext4_update_inode_size(struct inode *inode, loff_t newsize)
 int ext4_update_disksize_before_punch(struct inode *inode, loff_t offset,
 				      loff_t len);
 
+
 /**
  * struct ext4_group_info - Private EXT4 state/data structure used by ext4 shared model.
  *
@@ -3713,6 +3784,7 @@ struct ext4_group_info {
 #define EXT4_MAX_CONTENTION		8
 #define EXT4_CONTENTION_THRESHOLD	2
 
+
 /**
  * ext4_group_lock_ptr - Implements the group lock ptr operation within the ext4 shared model subsystem.
  *
@@ -3741,6 +3813,7 @@ static inline int ext4_fs_is_busy(struct ext4_sb_info *sbi)
 	return (atomic_read(&sbi->s_lock_busy) > EXT4_CONTENTION_THRESHOLD);
 }
 
+
 /**
  * ext4_try_lock_group - Implements the try lock group operation within the ext4 shared model subsystem.
  *
@@ -3758,6 +3831,7 @@ static inline bool ext4_try_lock_group(struct super_block *sb, ext4_group_t grou
 	atomic_add_unless(&EXT4_SB(sb)->s_lock_busy, -1, 0);
 	return true;
 }
+
 
 /**
  * ext4_lock_group - Implements the lock group operation within the ext4 shared model subsystem.
@@ -3778,6 +3852,7 @@ static inline void ext4_lock_group(struct super_block *sb, ext4_group_t group)
 	}
 }
 
+
 /**
  * ext4_unlock_group - Implements the unlock group operation within the ext4 shared model subsystem.
  *
@@ -3793,6 +3868,8 @@ static inline void ext4_unlock_group(struct super_block *sb,
 }
 
 #ifdef CONFIG_QUOTA
+
+
 /**
  * ext4_quota_capable - Implements the quota capable operation within the ext4 shared model subsystem.
  *
@@ -3805,6 +3882,7 @@ static inline bool ext4_quota_capable(struct super_block *sb)
 {
 	return (test_opt(sb, QUOTA) || ext4_has_feature_quota(sb));
 }
+
 
 /**
  * ext4_is_quota_journalled - Implements the is quota journalled operation within the ext4 shared model subsystem.
@@ -3896,6 +3974,7 @@ extern int ext4_inline_data_truncate(struct inode *inode, int *has_inline);
 
 extern int ext4_convert_inline_data(struct inode *inode);
 
+
 /**
  * ext4_has_inline_data - Implements the has inline data operation within the ext4 shared model subsystem.
  *
@@ -3937,6 +4016,7 @@ static const unsigned char ext4_type_by_mode[(S_IFMT >> S_SHIFT) + 1] = {
 	[S_IFSOCK >> S_SHIFT]	= EXT4_FT_SOCK,
 	[S_IFLNK >> S_SHIFT]	= EXT4_FT_SYMLINK,
 };
+
 
 /**
  * ext4_set_de_type - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -4091,6 +4171,7 @@ extern void ext4_orphan_file_block_trigger(
 
 #define BH_BITMAP_UPTODATE BH_JBDPrivateStart
 
+
 /**
  * bitmap_uptodate - Implements the bitmap uptodate operation within the ext4 shared model subsystem.
  *
@@ -4104,6 +4185,8 @@ static inline int bitmap_uptodate(struct buffer_head *bh)
 	return (buffer_uptodate(bh) &&
 			test_bit(BH_BITMAP_UPTODATE, &(bh)->b_state));
 }
+
+
 /**
  * set_bitmap_uptodate - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -4126,6 +4209,7 @@ extern wait_queue_head_t ext4__ioend_wq[EXT4_WQ_HASH_SZ];
 extern int ext4_resize_begin(struct super_block *sb);
 extern int ext4_resize_end(struct super_block *sb, bool update_backups);
 
+
 /**
  * ext4_set_io_unwritten_flag - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
@@ -4142,6 +4226,7 @@ static inline void ext4_set_io_unwritten_flag(struct inode *inode,
 		atomic_inc(&EXT4_I(inode)->i_unwritten);
 	}
 }
+
 
 /**
  * ext4_clear_io_unwritten_flag - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
@@ -4166,6 +4251,7 @@ static inline void ext4_clear_io_unwritten_flag(ext4_io_end_t *io_end)
 extern const struct iomap_ops ext4_iomap_ops;
 extern const struct iomap_ops ext4_iomap_overwrite_ops;
 extern const struct iomap_ops ext4_iomap_report_ops;
+
 
 /**
  * ext4_buffer_uptodate - Implements the buffer uptodate operation within the ext4 shared model subsystem.

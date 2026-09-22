@@ -188,6 +188,7 @@ static int journal_write_commit_record(journal_t *journal,
 	return (ret == -EIO);
 }
 
+
 /**
  * journal_do_submit_data - Coordinates a journal transaction or journal-owned buffer/state transition.
  *

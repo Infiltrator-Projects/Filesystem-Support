@@ -26,6 +26,7 @@
 
 #include <trace/events/ext4.h>
 
+
 /**
  * ext4_inode_journal_mode - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -132,6 +133,7 @@ static int ext4_journal_check_start(struct super_block *sb)
 	return 0;
 }
 
+
 /**
  * __ext4_journal_start_sb - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -165,6 +167,7 @@ handle_t *__ext4_journal_start_sb(struct inode *inode,
 	return jbd2__journal_start(journal, blocks, rsv_blocks, revoke_creds,
 				   GFP_NOFS, type, line);
 }
+
 
 /**
  * __ext4_journal_stop - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -201,6 +204,7 @@ int __ext4_journal_stop(const char *where, unsigned int line, handle_t *handle)
 	return err;
 }
 
+
 /**
  * __ext4_journal_start_reserved - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -233,6 +237,7 @@ handle_t *__ext4_journal_start_reserved(handle_t *handle, unsigned int line,
 	return handle;
 }
 
+
 /**
  * __ext4_journal_ensure_credits - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -255,6 +260,7 @@ int __ext4_journal_ensure_credits(handle_t *handle, int check_cred,
 	revoke_cred = max(0, revoke_cred - handle->h_revoke_credits);
 	return ext4_journal_extend(handle, extend_cred, revoke_cred);
 }
+
 
 /**
  * ext4_journal_abort_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -289,6 +295,7 @@ static void ext4_journal_abort_handle(const char *caller, unsigned int line,
 	jbd2_journal_abort_handle(handle);
 }
 
+
 /**
  * ext4_check_bdev_write_error - Validates state before it is trusted by the remainder of the filesystem.
  *
@@ -313,6 +320,7 @@ static void ext4_check_bdev_write_error(struct super_block *sb)
 				       "Error while async write back metadata");
 	}
 }
+
 
 /**
  * __ext4_journal_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -409,6 +417,7 @@ int __ext4_forget(const char *where, unsigned int line, handle_t *handle,
 	return err;
 }
 
+
 /**
  * __ext4_journal_get_create_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -440,6 +449,7 @@ int __ext4_journal_get_create_access(const char *where, unsigned int line,
 		&EXT4_SB(sb)->s_journal_triggers[trigger_type].tr_triggers);
 	return 0;
 }
+
 
 /**
  * __ext4_handle_dirty_metadata - Coordinates a journal transaction or journal-owned buffer/state transition.

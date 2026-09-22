@@ -260,6 +260,7 @@ fallback:
 	return -1;
 }
 
+
 /**
  * find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -610,6 +611,7 @@ bad_orphan:
 error:
 	return ERR_PTR(err);
 }
+
 
 /**
  * ext3_count_free_inodes - Computes derived filesystem state used for validation, accounting or policy decisions.

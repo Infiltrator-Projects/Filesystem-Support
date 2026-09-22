@@ -130,6 +130,7 @@ static inline void _ext4_journal_callback_add(handle_t *handle,
 	list_add_tail(&jce->jce_list, &handle->h_transaction->t_private_list);
 }
 
+
 /**
  * ext4_journal_callback_add - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -250,6 +251,7 @@ static inline int ext4_handle_valid(handle_t *handle)
 	return 1;
 }
 
+
 /**
  * ext4_handle_sync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
@@ -263,6 +265,7 @@ static inline void ext4_handle_sync(handle_t *handle)
 	if (ext4_handle_valid(handle))
 		handle->h_sync = 1;
 }
+
 
 /**
  * ext4_handle_is_aborted - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -279,6 +282,7 @@ static inline int ext4_handle_is_aborted(handle_t *handle)
 	return 0;
 }
 
+
 /**
  * ext4_free_metadata_revoke_credits - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -293,6 +297,7 @@ static inline int ext4_free_metadata_revoke_credits(struct super_block *sb,
 
 	return blocks * EXT4_SB(sb)->s_cluster_ratio;
 }
+
 
 /**
  * ext4_trans_default_revoke_credits - Implements the trans default revoke credits operation within the ext4 journaling contract subsystem.
@@ -323,6 +328,7 @@ static inline int ext4_trans_default_revoke_credits(struct super_block *sb)
 	__ext4_journal_start((inode), __LINE__, (type), (blocks), 0,	\
 			     (revoke_creds))
 
+
 /**
  * __ext4_journal_start - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -349,6 +355,7 @@ static inline handle_t *__ext4_journal_start(struct inode *inode,
 handle_t *__ext4_journal_start_reserved(handle_t *handle, unsigned int line,
 					int type);
 
+
 /**
  * ext4_journal_current_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -361,6 +368,7 @@ static inline handle_t *ext4_journal_current_handle(void)
 {
 	return journal_current_handle();
 }
+
 
 /**
  * ext4_journal_extend - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -376,6 +384,7 @@ static inline int ext4_journal_extend(handle_t *handle, int nblocks, int revoke)
 		return jbd2_journal_extend(handle, nblocks, revoke);
 	return 0;
 }
+
 
 /**
  * ext4_journal_restart - Coordinates a journal transaction or journal-owned buffer/state transition.
@@ -432,6 +441,7 @@ static inline int ext4_journal_ensure_credits(handle_t *handle, int credits,
 				revoke_creds, 0);
 }
 
+
 /**
  * ext4_journal_blocks_per_page - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -447,6 +457,7 @@ static inline int ext4_journal_blocks_per_page(struct inode *inode)
 	return 0;
 }
 
+
 /**
  * ext4_journal_force_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
@@ -461,6 +472,7 @@ static inline int ext4_journal_force_commit(journal_t *journal)
 		return jbd2_journal_force_commit(journal);
 	return 0;
 }
+
 
 /**
  * ext4_jbd2_inode_add_write - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
@@ -479,6 +491,7 @@ static inline int ext4_jbd2_inode_add_write(handle_t *handle,
 	return 0;
 }
 
+
 /**
  * ext4_jbd2_inode_add_wait - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
@@ -495,6 +508,7 @@ static inline int ext4_jbd2_inode_add_wait(handle_t *handle,
 				EXT4_I(inode)->jinode, start_byte, length);
 	return 0;
 }
+
 
 /**
  * ext4_update_inode_fsync_trans - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
@@ -527,6 +541,7 @@ int ext4_force_commit(struct super_block *sb);
 
 int ext4_inode_journal_mode(struct inode *inode);
 
+
 /**
  * ext4_should_journal_data - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
@@ -539,6 +554,7 @@ static inline int ext4_should_journal_data(struct inode *inode)
 {
 	return ext4_inode_journal_mode(inode) & EXT4_INODE_JOURNAL_DATA_MODE;
 }
+
 
 /**
  * ext4_should_order_data - Implements the should order data operation within the ext4 journaling contract subsystem.
@@ -553,6 +569,7 @@ static inline int ext4_should_order_data(struct inode *inode)
 	return ext4_inode_journal_mode(inode) & EXT4_INODE_ORDERED_DATA_MODE;
 }
 
+
 /**
  * ext4_should_writeback_data - Implements the should writeback data operation within the ext4 journaling contract subsystem.
  *
@@ -565,6 +582,7 @@ static inline int ext4_should_writeback_data(struct inode *inode)
 {
 	return ext4_inode_journal_mode(inode) & EXT4_INODE_WRITEBACK_DATA_MODE;
 }
+
 
 /**
  * ext4_free_data_revoke_credits - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.

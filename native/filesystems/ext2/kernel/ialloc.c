@@ -71,6 +71,7 @@ error_out:
 	return bh;
 }
 
+
 /**
  * ext2_release_inode - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
@@ -223,6 +224,7 @@ static int find_group_dir(struct super_block *sb, struct inode *parent)
 #define INODE_COST 64
 #define BLOCK_COST 256
 
+
 /**
  * find_group_orlov - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -337,6 +339,7 @@ found:
 	return group;
 }
 
+
 /**
  * find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
@@ -388,6 +391,7 @@ static int find_group_other(struct super_block *sb, struct inode *parent)
 found:
 	return group;
 }
+
 
 /**
  * ext2_new_inode - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
@@ -581,6 +585,7 @@ fail:
 	iput(inode);
 	return ERR_PTR(err);
 }
+
 
 /**
  * ext2_count_free_inodes - Computes derived filesystem state used for validation, accounting or policy decisions.
