@@ -219,6 +219,10 @@ jobs:
           add_ext34_embedded_support native/filesystems/ext4/kernel ext4
           bash tools/shape-ext4.sh native/filesystems/ext4/kernel
 
+          # Apply generic safety contracts learned from Common while keeping
+          # the kernel drivers independent of the userspace Common library.
+          python3 tools/harden-ext-ranges.py
+
           # Replace inherited engineering prose with the Filesystem Support
           # commentary layer. The tool proves that only comments changed.
           python3 tools/recomment-ext-family.py --write
