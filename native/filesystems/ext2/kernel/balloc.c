@@ -35,6 +35,7 @@
  */
 
 #include "ext2.h"
+#include <linux/overflow.h>
 #include <linux/quotaops.h>
 #include <linux/slab.h>
 #include <linux/sched.h>
@@ -718,8 +719,8 @@ static int find_next_reservable_window(
 {
 	struct rb_node *next;
 	struct ext2_reserve_window_node *rsv, *prev;
-	ext2_fsblk_t cur;
-	int size = my_rsv->rsv_goal_size;
+	ext2_fsblk_t cur, end;
+	unsigned int size = my_rsv->rsv_goal_size;
 
 
 	cur = start_block;
@@ -728,11 +729,15 @@ static int find_next_reservable_window(
 		return -1;
 
 	while (1) {
-		if (cur <= rsv->rsv_end)
-			cur = rsv->rsv_end + 1;
+		if (cur <= rsv->rsv_end) {
+			if (check_add_overflow(rsv->rsv_end, (ext2_fsblk_t)1,
+				       &cur))
+				return -1;
+		}
 
 
-		if (cur > last_block)
+		if (cur > last_block || size == 0 ||
+		    check_add_overflow(cur, (ext2_fsblk_t)(size - 1), &end))
 			return -1;
 
 		prev = rsv;
@@ -743,7 +748,7 @@ static int find_next_reservable_window(
 		if (!next)
 			break;
 
-		if (cur + size <= rsv->rsv_start) {
+		if (end < rsv->rsv_start) {
 
 
 			break;
@@ -756,7 +761,7 @@ static int find_next_reservable_window(
 
 
 	my_rsv->rsv_start = cur;
-	my_rsv->rsv_end = cur + size - 1;
+	my_rsv->rsv_end = end;
 	my_rsv->rsv_alloc_hit = 0;
 
 	if (prev != my_rsv)
