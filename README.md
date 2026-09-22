@@ -36,8 +36,8 @@ The greenfield source architecture is defined in
 
 ## Shared library pin
 
-Filesystem Support is pinned to Infiltratr Common **1.19.22**, commit
-`302c44eb7436803dee020667453a9a0681da8bbf`.
+Filesystem Support is pinned to Infiltratr Common **1.19.24**, commit
+`748e089ae175329471d4cf375522c44081371bd5`.
 
 ## Design
 
