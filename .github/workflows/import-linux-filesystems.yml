@@ -219,6 +219,10 @@ jobs:
           add_ext34_embedded_support native/filesystems/ext4/kernel ext4
           bash tools/shape-ext4.sh native/filesystems/ext4/kernel
 
+          # Replace inherited engineering prose with the Filesystem Support
+          # commentary layer. The tool proves that only comments changed.
+          python3 tools/recomment-ext-family.py --write
+
           copy_tree fs/xfs native/filesystems/xfs/kernel
           copy_tree fs/btrfs native/filesystems/btrfs/kernel
           copy_tree fs/f2fs native/filesystems/f2fs/kernel
