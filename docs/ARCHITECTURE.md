@@ -40,3 +40,14 @@ The GUI, probes and package-removal simulation run unprivileged. Actual APT and 
 ## Shared code
 
 Infiltratr Common is pinned as a git submodule. Filesystem Support consumes its project identity validation, deterministic case-insensitive search primitive and canonical design metrics instead of copying those functions locally.
+
+
+## Native implementation destination
+
+The current Debian/FUSE/DKMS action model is a transition architecture, not the final filesystem implementation strategy.
+
+For conventional local filesystems, the long-term provider is an Infiltrator-owned out-of-tree Linux VFS module installed against the distribution kernel. Filesystem Support must not require kernel patching or a custom kernel merely to add a filesystem implementation.
+
+FUSE and third-party Debian packages remain fallback providers until our native implementation reaches the required maturity.
+
+The detailed architecture, lifecycle, Secure Boot policy, kernel-update handling, module-suite design, testing stages, userspace exceptions and migration roadmap are defined in [`NATIVE_FILESYSTEM_VISION.md`](NATIVE_FILESYSTEM_VISION.md).

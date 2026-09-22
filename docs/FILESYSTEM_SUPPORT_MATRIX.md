@@ -129,3 +129,14 @@ Package removal is simulated before privilege escalation. Removal is refused whe
 ## Project rule
 
 When support is added, removed or materially changed in `src/catalog.cpp`, this matrix must be updated in the same commit. CI treats a missing or duplicated support-row anchor as a failure.
+
+
+## Long-term native-provider policy
+
+The **Support path** column above describes the provider available to Filesystem Support today. It is not necessarily the project's final implementation.
+
+For conventional local filesystems, the long-term goal is an Infiltrator-owned loadable Linux VFS module managed by Filesystem Support, with no custom kernel requirement and no FUSE process in normal operation.
+
+High-level cloud, network, archive and device protocols may remain userspace-backed when moving their TLS, authentication or application-protocol stacks into the kernel would be technically unsound. Those targets should converge on a shared Infiltrator userspace storage service rather than a multitude of unrelated helpers.
+
+The complete policy is defined in [`NATIVE_FILESYSTEM_VISION.md`](NATIVE_FILESYSTEM_VISION.md).

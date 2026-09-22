@@ -15,6 +15,9 @@ The catalogue intentionally includes kernel-only support where Debian may ship t
 The complete, enumerated support contract is maintained in
 [`docs/FILESYSTEM_SUPPORT_MATRIX.md`](docs/FILESYSTEM_SUPPORT_MATRIX.md). CI verifies that every compiled catalogue ID is represented there exactly once.
 
+The long-term native implementation strategy is defined in
+[`docs/NATIVE_FILESYSTEM_VISION.md`](docs/NATIVE_FILESYSTEM_VISION.md). The target is a coherent suite of Infiltrator-owned filesystem implementations: native out-of-tree VFS modules for conventional local filesystems, without requiring a custom kernel, and a shared userspace storage service only for targets that are fundamentally high-level network/device protocols.
+
 ## Safety and package policy
 
 - The GUI itself remains unprivileged.
