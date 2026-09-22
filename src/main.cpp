@@ -28,7 +28,7 @@ const InfiltratrProjectInfo kProjectInfo = {
     "Shannon Smith",
     "https://github.com/Infiltrator-Projects/Filesystem-Support",
     "GPL-3.0-or-later",
-    "Install and inspect filesystem support on Linux Mint and compatible systems.",
+    "Install and inspect filesystem support on Debian and compatible systems.",
     "drive-harddisk",
     "Copyright (c) 2026 Shannon Smith"
 };
@@ -253,7 +253,7 @@ void activate(GtkApplication* application, gpointer user_data)
     gtk_header_bar_set_title(GTK_HEADER_BAR(header), kProjectInfo.program_name);
     gtk_header_bar_set_subtitle(
         GTK_HEADER_BAR(header),
-        "Add filesystem support without remembering package names");
+        "Add Debian filesystem support without remembering package names");
     gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header), TRUE);
 
     GtkWidget* about = gtk_button_new_with_label("About");

@@ -3,6 +3,8 @@
 
 #include <glib.h>
 
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -68,6 +70,42 @@ CommandResult run_command(const std::vector<std::string>& arguments)
     return result;
 }
 
+bool filesystem_registered(const std::string_view name)
+{
+    std::ifstream stream("/proc/filesystems");
+    std::string line;
+
+    while (std::getline(stream, line)) {
+        std::istringstream parser(line);
+        std::string token;
+        std::string last;
+
+        while (parser >> token) {
+            last = token;
+        }
+
+        if (last == name) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+std::string join_names(const std::vector<std::string>& names)
+{
+    std::string joined;
+
+    for (const auto& name : names) {
+        if (!joined.empty()) {
+            joined += ", ";
+        }
+        joined += name;
+    }
+
+    return joined;
+}
+
 } // namespace
 
 bool package_installed(const std::string_view package)
@@ -82,7 +120,24 @@ bool package_installed(const std::string_view package)
         "-f=${db:Status-Status}",
         std::string(package)
     });
+
     return result.exit_status == 0 && result.output == "installed";
+}
+
+bool package_available(const std::string_view package)
+{
+    if (package.empty()) {
+        return false;
+    }
+
+    const auto result = run_command({
+        "apt-cache",
+        "--no-all-versions",
+        "show",
+        std::string(package)
+    });
+
+    return result.exit_status == 0 && !result.output.empty();
 }
 
 bool module_available(const std::string_view module)
@@ -91,11 +146,22 @@ bool module_available(const std::string_view module)
         return false;
     }
 
+    if (filesystem_registered(module)) {
+        return true;
+    }
+
+    const std::string sys_module =
+        "/sys/module/" + std::string(module);
+    if (g_file_test(sys_module.c_str(), G_FILE_TEST_IS_DIR)) {
+        return true;
+    }
+
     const auto result = run_command({
         "modinfo",
         "-n",
         std::string(module)
     });
+
     return result.exit_status == 0 && !result.output.empty();
 }
 
@@ -113,23 +179,37 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
 
     result.package_requirement_met = true;
     for (const auto package : descriptor.packages) {
-        if (!package_installed(package)) {
-            result.package_requirement_met = false;
+        if (package_installed(package)) {
+            continue;
+        }
+
+        result.package_requirement_met = false;
+
+        if (package_available(package)) {
             result.missing_packages.emplace_back(package);
+        } else {
+            result.repository_packages_available = false;
+            result.unavailable_packages.emplace_back(package);
         }
     }
 
     if (result.module_requirement_met && result.package_requirement_met) {
         result.state = SupportState::Ready;
-        result.detail = "Support is installed on this system.";
+        result.detail = "Support is installed on this Debian system.";
+    } else if (!result.unavailable_packages.empty()) {
+        result.state = SupportState::Unavailable;
+        result.detail =
+            "Not available from the configured Debian repositories: " +
+            join_names(result.unavailable_packages) + ".";
     } else if (!result.missing_packages.empty()) {
         result.state = SupportState::Installable;
         result.detail = result.module_requirement_met
-            ? "Kernel support is present; additional userspace tools can be installed."
-            : "Required support is incomplete; install the distribution package(s) and re-check.";
+            ? "Kernel support is present; Debian packages are available to install."
+            : "Debian packages are available; install them and the driver will be re-checked.";
     } else if (!result.module_requirement_met) {
         result.state = SupportState::Unavailable;
-        result.detail = "The running kernel does not expose the required filesystem driver.";
+        result.detail =
+            "The running Debian kernel does not expose the required filesystem driver.";
     } else {
         result.state = SupportState::Incomplete;
         result.detail = "Filesystem support is only partially available.";
