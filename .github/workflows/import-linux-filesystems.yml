@@ -47,39 +47,114 @@ jobs:
             cp -a "/tmp/linux/$source_path/." "$destination/"
           }
 
-          copy_mbcache() {
+          embed_mbcache() {
             local destination="$1"
-            rm -rf "$destination"
             mkdir -p "$destination/include/linux"
             git -C /tmp/linux show HEAD:fs/mbcache.c > "$destination/mbcache.c"
             git -C /tmp/linux show HEAD:include/linux/mbcache.h > "$destination/include/linux/mbcache.h"
-            printf '%s\n' 'obj-m += mbcache.o' > "$destination/Makefile"
+
+            sed -i \
+              -e 's/static int __init mbcache_init(void)/int __init infiltratr_mbcache_init(void)/' \
+              -e 's/static void __exit mbcache_exit(void)/void __exit infiltratr_mbcache_exit(void)/' \
+              -e '/^module_init(mbcache_init)$/d' \
+              -e '/^module_exit(mbcache_exit)$/d' \
+              -e '/^MODULE_AUTHOR(/d' \
+              -e '/^MODULE_DESCRIPTION(/d' \
+              -e '/^MODULE_LICENSE(/d' \
+              -e '/^[[:space:]]*EXPORT_SYMBOL/d' \
+              "$destination/mbcache.c"
           }
 
-          copy_jbd2() {
+          embed_jbd2() {
             local destination="$1"
-            copy_tree fs/jbd2 "$destination"
-            sed -i 's/obj-$(CONFIG_JBD2) += jbd2.o/obj-m += jbd2.o/' "$destination/Makefile"
             mkdir -p "$destination/include/linux" "$destination/include/trace/events"
+
+            for source in checkpoint commit journal recovery revoke transaction; do
+              cp "/tmp/linux/fs/jbd2/${source}.c" "$destination/jbd2_${source}.c"
+              sed -i '/^[[:space:]]*EXPORT_SYMBOL/d' "$destination/jbd2_${source}.c"
+            done
+
             git -C /tmp/linux show HEAD:include/linux/jbd2.h > "$destination/include/linux/jbd2.h"
             git -C /tmp/linux show HEAD:include/trace/events/jbd2.h > "$destination/include/trace/events/jbd2.h"
+
+            # Each filesystem owns its embedded journal code. It is not a
+            # second kernel module and therefore must not have its own
+            # module_init/module_exit or exported symbol namespace.
+            sed -i \
+              -e 's/static int __init journal_init(void)/int __init infiltratr_jbd2_init(void)/' \
+              -e 's/static void __exit journal_exit(void)/void __exit infiltratr_jbd2_exit(void)/' \
+              -e '/^module_init(journal_init);$/d' \
+              -e '/^module_exit(journal_exit);$/d' \
+              -e '/^MODULE_DESCRIPTION(/d' \
+              -e '/^MODULE_LICENSE(/d' \
+              "$destination/jbd2_journal.c"
+
+            # Do not create a shared /proc/fs/jbd2 endpoint from two separate
+            # filesystem modules.
+            perl -0pi -e 's/\n\tif \(ret == 0\) \{\n\t\tjbd2_create_jbd_stats_proc_entry\(\);\n\t\} else \{\n\t\tjbd2_journal_destroy_caches\(\);\n\t\}/\n\tif (ret != 0)\n\t\tjbd2_journal_destroy_caches();/s' "$destination/jbd2_journal.c"
+            sed -i '/^[[:space:]]*jbd2_remove_jbd_stats_proc_entry();$/d' "$destination/jbd2_journal.c"
+          }
+
+          add_ext2_embedded_support() {
+            local destination="$1"
+            embed_mbcache "$destination"
+            cat >> "$destination/Makefile" <<'EOF'
+
+# Infiltrator: mbcache is linked into ext2.ko; no mbcache.ko is produced.
+ext2-y += mbcache.o
+ccflags-y += -I$(src)/include
+EOF
+
+            perl -0pi -e 's/static int __init init_ext2_fs\(void\)/static int __init ext2_core_init_fs(void)/' "$destination/super.c"
+            perl -0pi -e 's/static void __exit exit_ext2_fs\(void\)/static void __exit ext2_core_exit_fs(void)/' "$destination/super.c"
+            perl -0pi -e 's/module_init\(init_ext2_fs\)\nmodule_exit\(exit_ext2_fs\)/int infiltratr_mbcache_init(void);\nvoid infiltratr_mbcache_exit(void);\n\nstatic int __init init_ext2_fs(void)\n{\n\tint err = infiltratr_mbcache_init();\n\tif (err)\n\t\treturn err;\n\terr = ext2_core_init_fs();\n\tif (err)\n\t\tinfiltratr_mbcache_exit();\n\treturn err;\n}\n\nstatic void __exit exit_ext2_fs(void)\n{\n\text2_core_exit_fs();\n\tinfiltratr_mbcache_exit();\n}\n\nmodule_init(init_ext2_fs)\nmodule_exit(exit_ext2_fs)/s' "$destination/super.c"
+          }
+
+          add_ext34_embedded_support() {
+            local destination="$1"
+            local module_name="$2"
+
+            embed_mbcache "$destination"
+            embed_jbd2 "$destination"
+
+            cat >> "$destination/Makefile" <<EOF
+
+# Infiltrator: JBD2 and mbcache are linked into ${module_name}.ko.
+# No jbd2.ko or mbcache.ko is produced.
+${module_name}-y += mbcache.o jbd2_transaction.o jbd2_commit.o \\
+    jbd2_recovery.o jbd2_checkpoint.o jbd2_revoke.o jbd2_journal.o
+ccflags-y += -I\$(src)/include
+EOF
+
+            # Give the embedded trace-events namespace to the owning filesystem
+            # so EXT3 and EXT4 can coexist without sharing a trace system.
+            sed -i "s/^#define TRACE_SYSTEM jbd2/#define TRACE_SYSTEM infiltratr_${module_name}_jbd2/" \
+              "$destination/include/trace/events/jbd2.h"
+
+            local core_init="${module_name}_core_init_fs"
+            local core_exit="${module_name}_core_exit_fs"
+            local module_init_name="${module_name}_init_fs"
+            local module_exit_name="${module_name}_exit_fs"
+
+            perl -0pi -e "s/static int __init ext4_init_fs\\(void\\)/static int __init ${core_init}(void)/" "$destination/super.c"
+            perl -0pi -e "s/static void __exit ext4_exit_fs\\(void\\)/static void __exit ${core_exit}(void)/" "$destination/super.c"
+            perl -0pi -e "s/module_init\\(ext4_init_fs\\)\\nmodule_exit\\(ext4_exit_fs\\)/int infiltratr_mbcache_init(void);\\nvoid infiltratr_mbcache_exit(void);\\nint infiltratr_jbd2_init(void);\\nvoid infiltratr_jbd2_exit(void);\\n\\nstatic int __init ${module_init_name}(void)\\n{\\n\\tint err = infiltratr_mbcache_init();\\n\\tif (err)\\n\\t\\treturn err;\\n\\terr = infiltratr_jbd2_init();\\n\\tif (err) {\\n\\t\\tinfiltratr_mbcache_exit();\\n\\t\\treturn err;\\n\\t}\\n\\terr = ${core_init}();\\n\\tif (err) {\\n\\t\\tinfiltratr_jbd2_exit();\\n\\t\\tinfiltratr_mbcache_exit();\\n\\t}\\n\\treturn err;\\n}\\n\\nstatic void __exit ${module_exit_name}(void)\\n{\\n\\t${core_exit}();\\n\\tinfiltratr_jbd2_exit();\\n\\tinfiltratr_mbcache_exit();\\n}\\n\\nmodule_init(${module_init_name})\\nmodule_exit(${module_exit_name})/s" "$destination/super.c"
           }
 
           # EXT2, EXT3 and EXT4 are deliberately independent source trees.
-          # Duplication here is intentional; later refactoring must not collapse
-          # them back into one implementation.
+          # Duplication is intentional for now. Each tree builds exactly one
+          # filesystem module with its required support code embedded into it.
           rm -rf native/filesystems/ext
+          rm -rf native/filesystems/ext2/support native/filesystems/ext3/support native/filesystems/ext4/support
 
           copy_tree fs/ext2 native/filesystems/ext2/kernel
           sed -i 's/obj-$(CONFIG_EXT2_FS) += ext2.o/obj-m += ext2.o/' native/filesystems/ext2/kernel/Makefile
-          copy_mbcache native/filesystems/ext2/support/mbcache
+          add_ext2_embedded_support native/filesystems/ext2/kernel
 
           copy_tree fs/ext4 native/filesystems/ext3/kernel
-          copy_jbd2 native/filesystems/ext3/support/jbd2
-          copy_mbcache native/filesystems/ext3/support/mbcache
           # Remove EXT2 registration from the EXT3 copy and remove the EXT4
-          # filesystem type entirely. Internal ext4_* symbol names remain
-          # temporarily; this is an intentionally duplicated starting point.
+          # filesystem type entirely. Internal ext4_* names are intentionally
+          # retained until later refactoring.
           perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\n/#define IS_EXT2_SB(sb) (0)\n\n/s' native/filesystems/ext3/kernel/super.c
           perl -0pi -e 's/static struct file_system_type ext4_fs_type = \{.*?MODULE_ALIAS_FS\("ext4"\);\n//s' native/filesystems/ext3/kernel/super.c
           perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\nstatic inline void register_as_ext3\(void\).*?static inline int ext3_feature_set_ok\(struct super_block \*sb\)/static inline int ext2_feature_set_ok(struct super_block *sb) { return 0; }\n\nstatic inline int ext3_feature_set_ok(struct super_block *sb)/s' native/filesystems/ext3/kernel/super.c
@@ -97,18 +172,21 @@ jobs:
           sed -i '/MODULE_ALIAS_FS("ext4");/d' native/filesystems/ext3/kernel/super.c
           sed -i 's/MODULE_DESCRIPTION("Fourth Extended Filesystem")/MODULE_DESCRIPTION("Third Extended Filesystem")/' native/filesystems/ext3/kernel/super.c
           sed -i '/ext4-inode-test-objs/d; /CONFIG_EXT4_KUNIT_TESTS/d' native/filesystems/ext3/kernel/Makefile
+          # EXT3 is a copied implementation, so do not export duplicate ext4_*
+          # symbols into the global kernel symbol namespace.
+          find native/filesystems/ext3/kernel -maxdepth 1 -type f -name '*.c' -exec sed -i '/^[[:space:]]*EXPORT_SYMBOL/d' {} +
+          add_ext34_embedded_support native/filesystems/ext3/kernel ext3
 
           copy_tree fs/ext4 native/filesystems/ext4/kernel
-          copy_jbd2 native/filesystems/ext4/support/jbd2
-          copy_mbcache native/filesystems/ext4/support/mbcache
-          # EXT4 must register only EXT4. Strip the compatibility filesystem
-          # types and registration helpers from this independent copy.
+          # EXT4 must register only EXT4. Strip compatibility registrations.
           perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\n\nstatic struct file_system_type ext3_fs_type = \{.*?#define IS_EXT3_SB\(sb\) \(\(sb\)->s_type == &ext3_fs_type\)\n/#define IS_EXT2_SB(sb) (0)\n#define IS_EXT3_SB(sb) (0)\n/s' native/filesystems/ext4/kernel/super.c
           perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\nstatic inline void register_as_ext3\(void\).*?static inline int ext3_feature_set_ok\(struct super_block \*sb\)\n\{.*?\n\}/static inline int ext2_feature_set_ok(struct super_block *sb) { return 0; }\nstatic inline int ext3_feature_set_ok(struct super_block *sb) { return 0; }/s' native/filesystems/ext4/kernel/super.c
           sed -i '/^[[:space:]]*register_as_ext3();$/d; /^[[:space:]]*register_as_ext2();$/d; /^[[:space:]]*unregister_as_ext3();$/d; /^[[:space:]]*unregister_as_ext2();$/d' native/filesystems/ext4/kernel/super.c
           sed -i '/MODULE_ALIAS_FS("ext3");/d; /MODULE_ALIAS("ext3");/d' native/filesystems/ext4/kernel/super.c
           sed -i 's/obj-$(CONFIG_EXT4_FS) += ext4.o/obj-m += ext4.o/' native/filesystems/ext4/kernel/Makefile
           sed -i '/ext4-inode-test-objs/d; /CONFIG_EXT4_KUNIT_TESTS/d' native/filesystems/ext4/kernel/Makefile
+          add_ext34_embedded_support native/filesystems/ext4/kernel ext4
+
           copy_tree fs/xfs native/filesystems/xfs/kernel
           copy_tree fs/btrfs native/filesystems/btrfs/kernel
           copy_tree fs/f2fs native/filesystems/f2fs/kernel
