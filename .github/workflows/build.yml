@@ -19,6 +19,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev
 
+      - name: Audit EXT commentary
+        run: python3 tools/recomment-ext-family.py --check
+
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
