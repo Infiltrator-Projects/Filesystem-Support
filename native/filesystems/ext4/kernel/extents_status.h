@@ -36,14 +36,6 @@
 #define ES_AGGRESSIVE_TEST__
 
 
-/**
- * no_printk - Implements the no printk operation within the extent-status interfaces subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 enum {
 	ES_WRITTEN_B,
 	ES_UNWRITTEN_B,
@@ -166,8 +158,8 @@ extern bool ext4_es_scan_clu(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline unsigned int ext4_es_status(struct extent_status *es)
 {
@@ -179,8 +171,8 @@ static inline unsigned int ext4_es_status(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline unsigned int ext4_es_type(struct extent_status *es)
 {
@@ -192,8 +184,8 @@ static inline unsigned int ext4_es_type(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_es_is_written(struct extent_status *es)
 {
@@ -205,8 +197,8 @@ static inline int ext4_es_is_written(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_es_is_unwritten(struct extent_status *es)
 {
@@ -218,8 +210,8 @@ static inline int ext4_es_is_unwritten(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_es_is_delayed(struct extent_status *es)
 {
@@ -231,8 +223,8 @@ static inline int ext4_es_is_delayed(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_es_is_hole(struct extent_status *es)
 {
@@ -244,8 +236,8 @@ static inline int ext4_es_is_hole(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_es_is_mapped(struct extent_status *es)
 {
@@ -257,8 +249,8 @@ static inline int ext4_es_is_mapped(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_es_set_referenced(struct extent_status *es)
 {
@@ -266,12 +258,12 @@ static inline void ext4_es_set_referenced(struct extent_status *es)
 }
 
 /**
- * ext4_es_clear_referenced - Implements the es clear referenced operation within the extent-status interfaces subsystem.
+ * ext4_es_clear_referenced - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_es_clear_referenced(struct extent_status *es)
 {
@@ -283,8 +275,8 @@ static inline void ext4_es_clear_referenced(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_es_is_referenced(struct extent_status *es)
 {
@@ -296,8 +288,8 @@ static inline int ext4_es_is_referenced(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline ext4_fsblk_t ext4_es_pblock(struct extent_status *es)
 {
@@ -309,8 +301,8 @@ static inline ext4_fsblk_t ext4_es_pblock(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline ext4_fsblk_t ext4_es_show_pblock(struct extent_status *es)
 {
@@ -323,8 +315,8 @@ static inline ext4_fsblk_t ext4_es_show_pblock(struct extent_status *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_es_store_pblock(struct extent_status *es,
 					ext4_fsblk_t pb)
@@ -340,8 +332,8 @@ static inline void ext4_es_store_pblock(struct extent_status *es,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_es_store_pblock_status(struct extent_status *es,
 					       ext4_fsblk_t pb,

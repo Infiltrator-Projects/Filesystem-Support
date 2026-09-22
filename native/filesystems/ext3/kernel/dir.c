@@ -53,12 +53,12 @@ static unsigned char ext3_filetype_table[] = {
 static int ext3_dx_readdir(struct file *, struct dir_context *);
 
 /**
- * get_dtype - Implements the get dtype operation within the directory representation subsystem.
+ * get_dtype - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned char get_dtype(struct super_block *sb, int filetype)
 {
@@ -75,8 +75,8 @@ static unsigned char get_dtype(struct super_block *sb, int filetype)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int is_dx_dir(struct inode *inode)
 {
@@ -96,8 +96,8 @@ static int is_dx_dir(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_check_dir_entry (const char * function, struct inode * dir,
 			  struct ext3_dir_entry_2 * de,
@@ -135,8 +135,8 @@ int ext3_check_dir_entry (const char * function, struct inode * dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_readdir(struct file *file, struct dir_context *ctx)
 {
@@ -246,8 +246,8 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int is_32bit_api(void)
 {
@@ -264,8 +264,8 @@ static inline int is_32bit_api(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline loff_t hash2pos(struct file *filp, __u32 major, __u32 minor)
 {
@@ -281,8 +281,8 @@ static inline loff_t hash2pos(struct file *filp, __u32 major, __u32 minor)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline __u32 pos2maj_hash(struct file *filp, loff_t pos)
 {
@@ -298,8 +298,8 @@ static inline __u32 pos2maj_hash(struct file *filp, loff_t pos)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline __u32 pos2min_hash(struct file *filp, loff_t pos)
 {
@@ -312,12 +312,12 @@ static inline __u32 pos2min_hash(struct file *filp, loff_t pos)
 
 
 /**
- * ext3_get_htree_eof - Implements the get htree eof operation within the directory representation subsystem.
+ * ext3_get_htree_eof - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline loff_t ext3_get_htree_eof(struct file *filp)
 {
@@ -334,8 +334,8 @@ static inline loff_t ext3_get_htree_eof(struct file *filp)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static loff_t ext3_dir_llseek(struct file *file, loff_t offset, int whence)
 {
@@ -374,8 +374,8 @@ struct fname {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void free_rb_tree_fname(struct rb_root *root)
 {
@@ -396,8 +396,8 @@ static void free_rb_tree_fname(struct rb_root *root)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dir_private_info *ext3_htree_create_dir_info(struct file *filp,
 							   loff_t pos)
@@ -417,8 +417,8 @@ static struct dir_private_info *ext3_htree_create_dir_info(struct file *filp,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext3_htree_free_dir_info(struct dir_private_info *p)
 {
@@ -432,8 +432,8 @@ void ext3_htree_free_dir_info(struct dir_private_info *p)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_htree_store_dirent(struct file *dir_file, __u32 hash,
 			     __u32 minor_hash,
@@ -493,8 +493,8 @@ int ext3_htree_store_dirent(struct file *dir_file, __u32 hash,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool call_filldir(struct file *file, struct dir_context *ctx,
 			struct fname *fname)
@@ -525,8 +525,8 @@ static bool call_filldir(struct file *file, struct dir_context *ctx,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_dx_readdir(struct file *file, struct dir_context *ctx)
 {
@@ -614,8 +614,8 @@ finished:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_release_dir (struct inode * inode, struct file * filp)
 {
@@ -645,8 +645,8 @@ const struct file_operations ext3_dir_operations = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void TEA_transform(__u32 buf[4], __u32 const in[])
 {
@@ -671,8 +671,8 @@ static void TEA_transform(__u32 buf[4], __u32 const in[])
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static __u32 dx_hack_hash_unsigned(const char *name, int len)
 {
@@ -695,8 +695,8 @@ static __u32 dx_hack_hash_unsigned(const char *name, int len)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static __u32 dx_hack_hash_signed(const char *name, int len)
 {
@@ -719,8 +719,8 @@ static __u32 dx_hack_hash_signed(const char *name, int len)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void str2hashbuf_signed(const char *msg, int len, __u32 *buf, int num)
 {
@@ -755,8 +755,8 @@ static void str2hashbuf_signed(const char *msg, int len, __u32 *buf, int num)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void str2hashbuf_unsigned(const char *msg, int len, __u32 *buf, int num)
 {
@@ -792,8 +792,8 @@ static void str2hashbuf_unsigned(const char *msg, int len, __u32 *buf, int num)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3fs_dirhash(const char *name, int len, struct dx_hash_info *hinfo)
 {

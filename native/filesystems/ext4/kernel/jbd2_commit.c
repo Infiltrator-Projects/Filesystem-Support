@@ -50,12 +50,12 @@
 
 
 /**
- * journal_end_buffer_io_sync - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * journal_end_buffer_io_sync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 {
@@ -80,8 +80,8 @@ static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void release_buffer_page(struct buffer_head *bh)
 {
@@ -115,8 +115,8 @@ nope:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void jbd2_commit_block_csum_set(journal_t *j, struct buffer_head *bh)
 {
@@ -140,8 +140,8 @@ static void jbd2_commit_block_csum_set(journal_t *j, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int journal_submit_commit_record(journal_t *journal,
 					transaction_t *commit_transaction,
@@ -196,8 +196,8 @@ static int journal_submit_commit_record(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int journal_wait_on_commit_record(journal_t *journal,
 					 struct buffer_head *bh)
@@ -220,8 +220,8 @@ static int journal_wait_on_commit_record(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int jbd2_submit_inode_data(journal_t *journal, struct jbd2_inode *jinode)
 {
@@ -238,8 +238,8 @@ int jbd2_submit_inode_data(journal_t *journal, struct jbd2_inode *jinode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int jbd2_wait_inode_data(journal_t *journal, struct jbd2_inode *jinode)
 {
@@ -257,8 +257,8 @@ int jbd2_wait_inode_data(journal_t *journal, struct jbd2_inode *jinode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int journal_submit_data_buffers(journal_t *journal,
 		transaction_t *commit_transaction)
@@ -294,8 +294,8 @@ static int journal_submit_data_buffers(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int jbd2_journal_finish_inode_data_buffers(struct jbd2_inode *jinode)
 {
@@ -312,8 +312,8 @@ int jbd2_journal_finish_inode_data_buffers(struct jbd2_inode *jinode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int journal_finish_inode_data_buffers(journal_t *journal,
 		transaction_t *commit_transaction)
@@ -366,8 +366,8 @@ static int journal_finish_inode_data_buffers(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static __u32 jbd2_checksum_data(__u32 crc32_sum, struct buffer_head *bh)
 {
@@ -386,8 +386,8 @@ static __u32 jbd2_checksum_data(__u32 crc32_sum, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void write_tag_block(journal_t *j, journal_block_tag_t *tag,
 				   unsigned long long block)
@@ -402,8 +402,8 @@ static void write_tag_block(journal_t *j, journal_block_tag_t *tag,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void jbd2_block_tag_csum_set(journal_t *j, journal_block_tag_t *tag,
 				    struct buffer_head *bh, __u32 sequence)
@@ -434,8 +434,8 @@ static void jbd2_block_tag_csum_set(journal_t *j, journal_block_tag_t *tag,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void jbd2_journal_commit_transaction(journal_t *journal)
 {

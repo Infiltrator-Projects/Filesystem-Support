@@ -27,8 +27,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_truncate_failed_write(struct inode *inode)
 {
@@ -47,8 +47,8 @@ static inline void ext4_truncate_failed_write(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline unsigned long ext4_blocks_for_truncate(struct inode *inode)
 {

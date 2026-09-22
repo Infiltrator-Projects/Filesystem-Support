@@ -43,12 +43,12 @@
 #define EXT4_INLINE_DOTDOT_SIZE		4
 
 /**
- * ext4_get_inline_size - Implements the get inline size operation within the inline-data support subsystem.
+ * ext4_get_inline_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_get_inline_size(struct inode *inode)
 {
@@ -59,12 +59,12 @@ static int ext4_get_inline_size(struct inode *inode)
 }
 
 /**
- * get_max_inline_xattr_value_size - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * get_max_inline_xattr_value_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int get_max_inline_xattr_value_size(struct inode *inode,
 					   struct ext4_iloc *iloc)
@@ -134,12 +134,12 @@ out:
 
 
 /**
- * ext4_get_max_inline_size - Implements the get max inline size operation within the inline-data support subsystem.
+ * ext4_get_max_inline_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_get_max_inline_size(struct inode *inode)
 {
@@ -171,12 +171,12 @@ int ext4_get_max_inline_size(struct inode *inode)
 
 
 /**
- * ext4_find_inline_data_nolock - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_find_inline_data_nolock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_find_inline_data_nolock(struct inode *inode)
 {
@@ -218,12 +218,12 @@ out:
 }
 
 /**
- * ext4_read_inline_data - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_read_inline_data - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_read_inline_data(struct inode *inode, void *buffer,
 				 unsigned int len,
@@ -270,8 +270,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_write_inline_data(struct inode *inode, struct ext4_iloc *iloc,
 				   void *buffer, loff_t pos, unsigned int len)
@@ -317,8 +317,8 @@ static void ext4_write_inline_data(struct inode *inode, struct ext4_iloc *iloc,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_create_inline_data(handle_t *handle,
 				   struct inode *inode, unsigned len)
@@ -394,8 +394,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_update_inline_data(handle_t *handle, struct inode *inode,
 				   unsigned int len)
@@ -473,8 +473,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_prepare_inline_data(handle_t *handle, struct inode *inode,
 				    loff_t len)
@@ -507,8 +507,8 @@ static int ext4_prepare_inline_data(handle_t *handle, struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_destroy_inline_data_nolock(handle_t *handle,
 					   struct inode *inode)
@@ -578,12 +578,12 @@ out:
 }
 
 /**
- * ext4_read_inline_folio - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_read_inline_folio - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_read_inline_folio(struct inode *inode, struct folio *folio)
 {
@@ -632,8 +632,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_readpage_inline(struct inode *inode, struct folio *folio)
 {
@@ -664,8 +664,8 @@ int ext4_readpage_inline(struct inode *inode, struct folio *folio)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_convert_inline_data_to_extent(struct address_space *mapping,
 					      struct inode *inode)
@@ -781,8 +781,8 @@ out_nofolio:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_try_to_write_inline_data(struct address_space *mapping,
 				  struct inode *inode,
@@ -868,8 +868,8 @@ convert:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_write_inline_data_end(struct inode *inode, loff_t pos, unsigned len,
 			       unsigned copied, struct folio *folio)
@@ -941,8 +941,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_da_convert_inline_data_to_extent(struct address_space *mapping,
 						 struct inode *inode,
@@ -1001,8 +1001,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_da_write_inline_data_begin(struct address_space *mapping,
 				    struct inode *inode,
@@ -1087,8 +1087,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_show_inline_dir(struct inode *dir, struct buffer_head *bh,
 			  void *inline_start, int inline_size)
@@ -1123,8 +1123,8 @@ void ext4_show_inline_dir(struct inode *dir, struct buffer_head *bh,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_add_dirent_to_inline(handle_t *handle,
 				     struct ext4_filename *fname,
@@ -1158,12 +1158,12 @@ static int ext4_add_dirent_to_inline(handle_t *handle,
 }
 
 /**
- * ext4_get_inline_xattr_pos - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ext4_get_inline_xattr_pos - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void *ext4_get_inline_xattr_pos(struct inode *inode,
 				       struct ext4_iloc *iloc)
@@ -1186,8 +1186,8 @@ static void *ext4_get_inline_xattr_pos(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_update_final_de(void *de_buf, int old_size, int new_size)
 {
@@ -1219,8 +1219,8 @@ static void ext4_update_final_de(void *de_buf, int old_size, int new_size)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_update_inline_dir(handle_t *handle, struct inode *dir,
 				  struct ext4_iloc *iloc)
@@ -1249,8 +1249,8 @@ static int ext4_update_inline_dir(handle_t *handle, struct inode *dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_restore_inline_data(handle_t *handle, struct inode *inode,
 				     struct ext4_iloc *iloc,
@@ -1274,8 +1274,8 @@ static void ext4_restore_inline_data(handle_t *handle, struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_finish_convert_inline_dir(handle_t *handle,
 					  struct inode *inode,
@@ -1324,8 +1324,8 @@ static int ext4_finish_convert_inline_dir(handle_t *handle,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_convert_inline_data_nolock(handle_t *handle,
 					   struct inode *inode,
@@ -1415,8 +1415,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_try_add_inline_entry(handle_t *handle, struct ext4_filename *fname,
 			      struct inode *dir, struct inode *inode)
@@ -1484,8 +1484,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_inlinedir_to_tree(struct file *dir_file,
 			   struct inode *dir, ext4_lblk_t block,
@@ -1599,12 +1599,12 @@ out:
 
 
 /**
- * ext4_read_inline_dir - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_read_inline_dir - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_read_inline_dir(struct file *file,
 			 struct dir_context *ctx,
@@ -1720,12 +1720,12 @@ out:
 }
 
 /**
- * ext4_read_inline_link - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_read_inline_link - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void *ext4_read_inline_link(struct inode *inode)
 {
@@ -1757,12 +1757,12 @@ out:
 }
 
 /**
- * ext4_get_first_inline_block - Implements the get first inline block operation within the inline-data support subsystem.
+ * ext4_get_first_inline_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct buffer_head *ext4_get_first_inline_block(struct inode *inode,
 					struct ext4_dir_entry_2 **parent_de,
@@ -1785,8 +1785,8 @@ struct buffer_head *ext4_get_first_inline_block(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_try_create_inline_dir(handle_t *handle, struct inode *parent,
 			       struct inode *inode)
@@ -1819,12 +1819,12 @@ out:
 }
 
 /**
- * ext4_find_inline_entry - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_find_inline_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct buffer_head *ext4_find_inline_entry(struct inode *dir,
 					struct ext4_filename *fname,
@@ -1894,8 +1894,8 @@ out_find:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_delete_inline_entry(handle_t *handle,
 			     struct inode *dir,
@@ -1953,12 +1953,12 @@ out:
 
 
 /**
- * ext4_get_inline_entry - Implements the get inline entry operation within the inline-data support subsystem.
+ * ext4_get_inline_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline struct ext4_dir_entry_2 *
 ext4_get_inline_entry(struct inode *inode,
@@ -1991,8 +1991,8 @@ ext4_get_inline_entry(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 bool empty_inline_dir(struct inode *dir, int *has_inline_data)
 {
@@ -2062,8 +2062,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_destroy_inline_data(handle_t *handle, struct inode *inode)
 {
@@ -2081,8 +2081,8 @@ int ext4_destroy_inline_data(handle_t *handle, struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_inline_data_iomap(struct inode *inode, struct iomap *iomap)
 {
@@ -2121,8 +2121,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_inline_data_truncate(struct inode *inode, int *has_inline)
 {
@@ -2237,8 +2237,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_convert_inline_data(struct inode *inode)
 {

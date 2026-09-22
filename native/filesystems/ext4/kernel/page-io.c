@@ -52,8 +52,8 @@ static struct kmem_cache *io_end_vec_cachep;
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int __init ext4_init_pageio(void)
 {
@@ -74,8 +74,8 @@ int __init ext4_init_pageio(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_exit_pageio(void)
 {
@@ -88,8 +88,8 @@ void ext4_exit_pageio(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct ext4_io_end_vec *ext4_alloc_io_end_vec(ext4_io_end_t *io_end)
 {
@@ -108,8 +108,8 @@ struct ext4_io_end_vec *ext4_alloc_io_end_vec(ext4_io_end_t *io_end)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_free_io_end_vec(ext4_io_end_t *io_end)
 {
@@ -128,8 +128,8 @@ static void ext4_free_io_end_vec(ext4_io_end_t *io_end)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct ext4_io_end_vec *ext4_last_io_end_vec(ext4_io_end_t *io_end)
 {
@@ -143,8 +143,8 @@ struct ext4_io_end_vec *ext4_last_io_end_vec(ext4_io_end_t *io_end)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void buffer_io_error(struct buffer_head *bh)
 {
@@ -158,8 +158,8 @@ static void buffer_io_error(struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_finish_bio(struct bio *bio)
 {
@@ -213,8 +213,8 @@ static void ext4_finish_bio(struct bio *bio)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_release_io_end(ext4_io_end_t *io_end)
 {
@@ -239,8 +239,8 @@ static void ext4_release_io_end(ext4_io_end_t *io_end)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_end_io_end(ext4_io_end_t *io_end)
 {
@@ -278,8 +278,8 @@ static int ext4_end_io_end(ext4_io_end_t *io_end)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void dump_completed_IO(struct inode *inode, struct list_head *head)
 {
@@ -310,8 +310,8 @@ static void dump_completed_IO(struct inode *inode, struct list_head *head)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_add_complete_io(ext4_io_end_t *io_end)
 {
@@ -336,8 +336,8 @@ static void ext4_add_complete_io(ext4_io_end_t *io_end)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_do_flush_completed_IO(struct inode *inode,
 				      struct list_head *head)
@@ -371,8 +371,8 @@ static int ext4_do_flush_completed_IO(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_end_io_rsv_work(struct work_struct *work)
 {
@@ -386,8 +386,8 @@ void ext4_end_io_rsv_work(struct work_struct *work)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 ext4_io_end_t *ext4_init_io_end(struct inode *inode, gfp_t flags)
 {
@@ -403,12 +403,12 @@ ext4_io_end_t *ext4_init_io_end(struct inode *inode, gfp_t flags)
 }
 
 /**
- * ext4_put_io_end_defer - Implements the put io end defer operation within the writeback page i/o subsystem.
+ * ext4_put_io_end_defer - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_put_io_end_defer(ext4_io_end_t *io_end)
 {
@@ -423,12 +423,12 @@ void ext4_put_io_end_defer(ext4_io_end_t *io_end)
 }
 
 /**
- * ext4_put_io_end - Implements the put io end operation within the writeback page i/o subsystem.
+ * ext4_put_io_end - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_put_io_end(ext4_io_end_t *io_end)
 {
@@ -447,12 +447,12 @@ int ext4_put_io_end(ext4_io_end_t *io_end)
 }
 
 /**
- * ext4_get_io_end - Implements the get io end operation within the writeback page i/o subsystem.
+ * ext4_get_io_end - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 ext4_io_end_t *ext4_get_io_end(ext4_io_end_t *io_end)
 {
@@ -466,8 +466,8 @@ ext4_io_end_t *ext4_get_io_end(ext4_io_end_t *io_end)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_end_bio(struct bio *bio)
 {
@@ -517,8 +517,8 @@ static void ext4_end_bio(struct bio *bio)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_io_submit(struct ext4_io_submit *io)
 {
@@ -537,8 +537,8 @@ void ext4_io_submit(struct ext4_io_submit *io)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_io_submit_init(struct ext4_io_submit *io,
 			 struct writeback_control *wbc)
@@ -553,8 +553,8 @@ void ext4_io_submit_init(struct ext4_io_submit *io,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void io_submit_init_bio(struct ext4_io_submit *io,
 			       struct buffer_head *bh)
@@ -577,8 +577,8 @@ static void io_submit_init_bio(struct ext4_io_submit *io,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void io_submit_add_bh(struct ext4_io_submit *io,
 			     struct inode *inode,
@@ -604,8 +604,8 @@ submit_and_retry:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_bio_write_folio(struct ext4_io_submit *io, struct folio *folio,
 		size_t len)

@@ -44,12 +44,12 @@
 
 
 /**
- * ext2_get_group_desc - Implements the get group desc operation within the block allocation subsystem.
+ * ext2_get_group_desc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct ext2_group_desc * ext2_get_group_desc(struct super_block * sb,
 					     unsigned int block_group,
@@ -88,8 +88,8 @@ struct ext2_group_desc * ext2_get_group_desc(struct super_block * sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_valid_block_bitmap(struct super_block *sb,
 					struct ext2_group_desc *desc,
@@ -144,12 +144,12 @@ err_out:
 
 
 /**
- * read_block_bitmap - Reads or materialises filesystem state for validation or higher-level processing.
+ * read_block_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *
 read_block_bitmap(struct super_block *sb, unsigned int block_group)
@@ -194,8 +194,8 @@ read_block_bitmap(struct super_block *sb, unsigned int block_group)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void group_adjust_blocks(struct super_block *sb, int group_no,
 	struct ext2_group_desc *desc, struct buffer_head *bh, int count)
@@ -219,8 +219,8 @@ static void group_adjust_blocks(struct super_block *sb, int group_no,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void __rsv_window_dump(struct rb_root *root, int verbose,
 			      const char *fn)
@@ -265,28 +265,20 @@ restart:
 	BUG_ON(bad);
 }
 #define rsv_window_dump(root, verbose) \
-/**
- * rsv_window_dump - Implements the rsv window dump operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 	__rsv_window_dump((root), (verbose), __func__)
 #else
-#define rsv_window_dump(root, verbose) do {}/**
+#define rsv_window_dump(root, verbose) do {} while (0)
+#endif
+
+
+/**
  * goal_in_my_reservation - Implements the goal in my reservation operation within the block allocation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
- while (0)
-#endif
-
-
 static int
 goal_in_my_reservation(struct ext2_reserve_window *rsv, ext2_grpblk_t grp_goal,
 			unsigned int group, struct super_block * sb)
@@ -307,12 +299,12 @@ goal_in_my_reservation(struct ext2_reserve_window *rsv, ext2_grpblk_t grp_goal,
 
 
 /**
- * search_reserve_window - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * search_reserve_window - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct ext2_reserve_window_node *
 search_reserve_window(struct rb_root *root, ext2_fsblk_t goal)
@@ -348,8 +340,8 @@ search_reserve_window(struct rb_root *root, ext2_fsblk_t goal)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_rsv_window_add(struct super_block *sb,
 		    struct ext2_reserve_window_node *rsv)
@@ -387,8 +379,8 @@ void ext2_rsv_window_add(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void rsv_window_remove(struct super_block *sb,
 			      struct ext2_reserve_window_node *rsv)
@@ -405,8 +397,8 @@ static void rsv_window_remove(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int rsv_is_empty(struct ext2_reserve_window *rsv)
 {
@@ -420,8 +412,8 @@ static inline int rsv_is_empty(struct ext2_reserve_window *rsv)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_init_block_alloc_info(struct inode *inode)
 {
@@ -454,8 +446,8 @@ void ext2_init_block_alloc_info(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_discard_reservation(struct inode *inode)
 {
@@ -482,8 +474,8 @@ void ext2_discard_reservation(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_free_blocks(struct inode * inode, ext2_fsblk_t block,
 		      unsigned long count)
@@ -576,12 +568,12 @@ error_return:
 
 
 /**
- * bitmap_search_next_usable_block - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * bitmap_search_next_usable_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ext2_grpblk_t
 bitmap_search_next_usable_block(ext2_grpblk_t start, struct buffer_head *bh,
@@ -597,12 +589,12 @@ bitmap_search_next_usable_block(ext2_grpblk_t start, struct buffer_head *bh,
 
 
 /**
- * find_next_usable_block - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_next_usable_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ext2_grpblk_t
 find_next_usable_block(int start, struct buffer_head *bh, int maxblocks)
@@ -643,8 +635,8 @@ find_next_usable_block(int start, struct buffer_head *bh, int maxblocks)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_try_to_allocate(struct super_block *sb, int group,
@@ -706,12 +698,12 @@ fail_access:
 
 
 /**
- * find_next_reservable_window - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_next_reservable_window - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int find_next_reservable_window(
 				struct ext2_reserve_window_node *search_head,
@@ -775,8 +767,8 @@ static int find_next_reservable_window(
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int alloc_new_reservation(struct ext2_reserve_window_node *my_rsv,
 		ext2_grpblk_t grp_goal, struct super_block *sb,
@@ -870,8 +862,8 @@ retry:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void try_to_extend_reservation(struct ext2_reserve_window_node *my_rsv,
 			struct super_block *sb, int size)
@@ -904,8 +896,8 @@ static void try_to_extend_reservation(struct ext2_reserve_window_node *my_rsv,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ext2_grpblk_t
 ext2_try_to_allocate_with_rsv(struct super_block *sb, unsigned int group,
@@ -979,8 +971,8 @@ ext2_try_to_allocate_with_rsv(struct super_block *sb, unsigned int group,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_has_free_blocks(struct ext2_sb_info *sbi)
 {
@@ -1003,8 +995,8 @@ static int ext2_has_free_blocks(struct ext2_sb_info *sbi)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext2_data_block_valid(struct ext2_sb_info *sbi, ext2_fsblk_t start_blk,
 			  unsigned int count)
@@ -1028,8 +1020,8 @@ int ext2_data_block_valid(struct ext2_sb_info *sbi, ext2_fsblk_t start_blk,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 ext2_fsblk_t ext2_new_blocks(struct inode *inode, ext2_fsblk_t goal,
 		    unsigned long *count, int *errp, unsigned int flags)
@@ -1228,12 +1220,12 @@ out:
 #ifdef EXT2FS_DEBUG
 
 /**
- * ext2_count_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext2_count_free - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 unsigned long ext2_count_free(struct buffer_head *map, unsigned int numchars)
 {
@@ -1243,12 +1235,12 @@ unsigned long ext2_count_free(struct buffer_head *map, unsigned int numchars)
 #endif
 
 /**
- * ext2_count_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext2_count_free_blocks - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 unsigned long ext2_count_free_blocks (struct super_block * sb)
 {
@@ -1299,8 +1291,8 @@ unsigned long ext2_count_free_blocks (struct super_block * sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int test_root(int a, int b)
 {
@@ -1316,8 +1308,8 @@ static inline int test_root(int a, int b)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_group_sparse(int group)
 {
@@ -1333,8 +1325,8 @@ static int ext2_group_sparse(int group)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext2_bg_has_super(struct super_block *sb, int group)
 {
@@ -1350,8 +1342,8 @@ int ext2_bg_has_super(struct super_block *sb, int group)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 unsigned long ext2_bg_num_gdb(struct super_block *sb, int group)
 {

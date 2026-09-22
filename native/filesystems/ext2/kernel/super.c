@@ -71,8 +71,8 @@ static int ext2_unfreeze(struct super_block *sb);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_error(struct super_block *sb, const char *function,
 		const char *fmt, ...)
@@ -114,8 +114,8 @@ void ext2_error(struct super_block *sb, const char *function,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_msg(struct super_block *sb, const char *prefix,
 		const char *fmt, ...)
@@ -139,8 +139,8 @@ void ext2_msg(struct super_block *sb, const char *prefix,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_update_dynamic_rev(struct super_block *sb)
 {
@@ -169,8 +169,8 @@ static int ext2_quota_off(struct super_block *sb, int type);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_quota_off_umount(struct super_block *sb)
 {
@@ -185,8 +185,8 @@ static void ext2_quota_off_umount(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext2_quota_off_umount(struct super_block *sb)
 {
@@ -194,12 +194,12 @@ static inline void ext2_quota_off_umount(struct super_block *sb)
 #endif
 
 /**
- * ext2_put_super - Implements the put super operation within the mount, superblock and module lifecycle subsystem.
+ * ext2_put_super - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_put_super (struct super_block * sb)
 {
@@ -242,8 +242,8 @@ static struct kmem_cache * ext2_inode_cachep;
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct inode *ext2_alloc_inode(struct super_block *sb)
 {
@@ -265,8 +265,8 @@ static struct inode *ext2_alloc_inode(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_free_in_core_inode(struct inode *inode)
 {
@@ -278,8 +278,8 @@ static void ext2_free_in_core_inode(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void init_once(void *foo)
 {
@@ -298,8 +298,8 @@ static void init_once(void *foo)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int __init init_inodecache(void)
 {
@@ -319,8 +319,8 @@ static int __init init_inodecache(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void destroy_inodecache(void)
 {
@@ -335,8 +335,8 @@ static void destroy_inodecache(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_show_options(struct seq_file *seq, struct dentry *root)
 {
@@ -426,12 +426,12 @@ static ssize_t ext2_quota_write(struct super_block *sb, int type, const char *da
 static int ext2_quota_on(struct super_block *sb, int type, int format_id,
 			 const struct path *path);
 /**
- * ext2_get_dquots - Implements the get dquots operation within the mount, superblock and module lifecycle subsystem.
+ * ext2_get_dquots - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dquot __rcu **ext2_get_dquots(struct inode *inode)
 {
@@ -470,12 +470,12 @@ static const struct super_operations ext2_sops = {
 };
 
 /**
- * ext2_nfs_get_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext2_nfs_get_inode - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct inode *ext2_nfs_get_inode(struct super_block *sb,
 		u64 ino, u32 generation)
@@ -504,8 +504,8 @@ static struct inode *ext2_nfs_get_inode(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dentry *ext2_fh_to_dentry(struct super_block *sb, struct fid *fid,
 		int fh_len, int fh_type)
@@ -519,8 +519,8 @@ static struct dentry *ext2_fh_to_dentry(struct super_block *sb, struct fid *fid,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dentry *ext2_fh_to_parent(struct super_block *sb, struct fid *fid,
 		int fh_len, int fh_type)
@@ -537,12 +537,12 @@ static const struct export_operations ext2_export_ops = {
 };
 
 /**
- * get_sb_block - Implements the get sb block operation within the mount, superblock and module lifecycle subsystem.
+ * get_sb_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned long get_sb_block(void **data)
 {
@@ -611,8 +611,8 @@ static const match_table_t tokens = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int parse_options(char *options, struct super_block *sb,
 			 struct ext2_mount_options *opts)
@@ -783,8 +783,8 @@ static int parse_options(char *options, struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_setup_super (struct super_block * sb,
 			      struct ext2_super_block * es,
@@ -841,8 +841,8 @@ static int ext2_setup_super (struct super_block * sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_check_descriptors(struct super_block *sb)
 {
@@ -894,8 +894,8 @@ static int ext2_check_descriptors(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static loff_t ext2_max_size(int bits)
 {
@@ -953,8 +953,8 @@ check_lfs:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned long descriptor_loc(struct super_block *sb,
 				    unsigned long logic_sb_block,
@@ -978,8 +978,8 @@ static unsigned long descriptor_loc(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 {
@@ -1385,12 +1385,12 @@ failed_sbi:
 }
 
 /**
- * ext2_clear_super_error - Implements the clear super error operation within the mount, superblock and module lifecycle subsystem.
+ * ext2_clear_super_error - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_clear_super_error(struct super_block *sb)
 {
@@ -1411,8 +1411,8 @@ static void ext2_clear_super_error(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_sync_super(struct super_block *sb, struct ext2_super_block *es,
 		     int wait)
@@ -1435,8 +1435,8 @@ void ext2_sync_super(struct super_block *sb, struct ext2_super_block *es,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_sync_fs(struct super_block *sb, int wait)
 {
@@ -1461,8 +1461,8 @@ static int ext2_sync_fs(struct super_block *sb, int wait)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_freeze(struct super_block *sb)
 {
@@ -1487,8 +1487,8 @@ static int ext2_freeze(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_unfreeze(struct super_block *sb)
 {
@@ -1503,8 +1503,8 @@ static int ext2_unfreeze(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_write_super(struct super_block *sb)
 {
@@ -1517,8 +1517,8 @@ static void ext2_write_super(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_remount (struct super_block * sb, int * flags, char * data)
 {
@@ -1602,8 +1602,8 @@ out_set:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_statfs (struct dentry * dentry, struct kstatfs * buf)
 {
@@ -1657,8 +1657,8 @@ static int ext2_statfs (struct dentry * dentry, struct kstatfs * buf)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dentry *ext2_mount(struct file_system_type *fs_type,
 	int flags, const char *dev_name, void *data)
@@ -1670,12 +1670,12 @@ static struct dentry *ext2_mount(struct file_system_type *fs_type,
 
 
 /**
- * ext2_quota_read - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext2_quota_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext2_quota_read(struct super_block *sb, int type, char *data,
 			       size_t len, loff_t off)
@@ -1726,8 +1726,8 @@ static ssize_t ext2_quota_read(struct super_block *sb, int type, char *data,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext2_quota_write(struct super_block *sb, int type,
 				const char *data, size_t len, loff_t off)
@@ -1785,8 +1785,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_quota_on(struct super_block *sb, int type, int format_id,
 			 const struct path *path)
@@ -1814,8 +1814,8 @@ static int ext2_quota_on(struct super_block *sb, int type, int format_id,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_quota_off(struct super_block *sb, int type)
 {
@@ -1857,8 +1857,8 @@ MODULE_ALIAS_FS("ext2");
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int __init ext2_core_init_fs(void)
 {
@@ -1881,8 +1881,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void __exit ext2_core_exit_fs(void)
 {
@@ -1901,8 +1901,8 @@ void infiltratr_mbcache_exit(void);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_mbcache_init(void) { return infiltratr_mbcache_init(); }
 /**
@@ -1910,8 +1910,8 @@ static int ext2_mbcache_init(void) { return infiltratr_mbcache_init(); }
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_mbcache_exit(void) { infiltratr_mbcache_exit(); }
 #else
@@ -1920,8 +1920,8 @@ static void ext2_mbcache_exit(void) { infiltratr_mbcache_exit(); }
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_mbcache_init(void) { return 0; }
 /**
@@ -1929,8 +1929,8 @@ static int ext2_mbcache_init(void) { return 0; }
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_mbcache_exit(void) { }
 #endif
@@ -1940,8 +1940,8 @@ static void ext2_mbcache_exit(void) { }
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int __init init_ext2_fs(void)
 {
@@ -1959,8 +1959,8 @@ static int __init init_ext2_fs(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void __exit exit_ext2_fs(void)
 {

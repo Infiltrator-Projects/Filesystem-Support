@@ -53,15 +53,7 @@
 			inode->i_sb->s_id, inode->i_ino); \
 		printk(f); \
 		printk("\n"); \
-	}/**
- * ea_bdebug - Implements the ea bdebug operation within the extended metadata subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
- while (0)
+	} while (0)
 # define ea_bdebug(bh, f...) do { \
 		printk(KERN_DEBUG "block %pg:%lu: ", \
 			bh->b_bdev, (unsigned long) bh->b_blocknr); \
@@ -110,8 +102,8 @@ const struct xattr_handler * const ext2_xattr_handlers[] = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline const char *ext2_xattr_prefix(int name_index,
 					    struct dentry *dentry)
@@ -132,8 +124,8 @@ static inline const char *ext2_xattr_prefix(int name_index,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool
 ext2_xattr_header_valid(struct ext2_xattr_header *header)
@@ -150,8 +142,8 @@ ext2_xattr_header_valid(struct ext2_xattr_header *header)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool
 ext2_xattr_entry_valid(struct ext2_xattr_entry *entry,
@@ -180,8 +172,8 @@ ext2_xattr_entry_valid(struct ext2_xattr_entry *entry,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_cmp_entry(int name_index, size_t name_len, const char *name,
@@ -200,12 +192,12 @@ ext2_xattr_cmp_entry(int name_index, size_t name_len, const char *name,
 
 
 /**
- * ext2_xattr_get - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ext2_xattr_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int
 ext2_xattr_get(struct inode *inode, int name_index, const char *name,
@@ -295,8 +287,8 @@ cleanup:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_list(struct dentry *dentry, char *buffer, size_t buffer_size)
@@ -383,8 +375,8 @@ cleanup:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 ssize_t
 ext2_listxattr(struct dentry *dentry, char *buffer, size_t size)
@@ -398,8 +390,8 @@ ext2_listxattr(struct dentry *dentry, char *buffer, size_t size)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_xattr_update_super_block(struct super_block *sb)
 {
@@ -419,8 +411,8 @@ static void ext2_xattr_update_super_block(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int
 ext2_xattr_set(struct inode *inode, int name_index, const char *name,
@@ -659,8 +651,8 @@ cleanup:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_xattr_release_block(struct inode *inode,
 				     struct buffer_head *bh)
@@ -712,8 +704,8 @@ retry_ref:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_set2(struct inode *inode, struct buffer_head *old_bh,
@@ -823,8 +815,8 @@ cleanup:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void
 ext2_xattr_delete_inode(struct inode *inode)
@@ -873,8 +865,8 @@ cleanup:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_cache_insert(struct mb_cache *cache, struct buffer_head *bh)
@@ -900,8 +892,8 @@ ext2_xattr_cache_insert(struct mb_cache *cache, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_cmp(struct ext2_xattr_header *header1,
@@ -937,12 +929,12 @@ ext2_xattr_cmp(struct ext2_xattr_header *header1,
 
 
 /**
- * ext2_xattr_cache_find - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ext2_xattr_cache_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *
 ext2_xattr_cache_find(struct inode *inode, struct ext2_xattr_header *header)
@@ -996,8 +988,8 @@ ext2_xattr_cache_find(struct inode *inode, struct ext2_xattr_header *header)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext2_xattr_hash_entry(struct ext2_xattr_header *header,
 					 struct ext2_xattr_entry *entry)
@@ -1036,8 +1028,8 @@ static inline void ext2_xattr_hash_entry(struct ext2_xattr_header *header,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_xattr_rehash(struct ext2_xattr_header *header,
 			      struct ext2_xattr_entry *entry)
@@ -1070,8 +1062,8 @@ static void ext2_xattr_rehash(struct ext2_xattr_header *header,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct mb_cache *ext2_xattr_create_cache(void)
 {
@@ -1083,8 +1075,8 @@ struct mb_cache *ext2_xattr_create_cache(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_xattr_destroy_cache(struct mb_cache *cache)
 {
@@ -1098,8 +1090,8 @@ void ext2_xattr_destroy_cache(struct mb_cache *cache)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool
 ext2_xattr_user_list(struct dentry *dentry)
@@ -1108,12 +1100,12 @@ ext2_xattr_user_list(struct dentry *dentry)
 }
 
 /**
- * ext2_xattr_user_get - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ext2_xattr_user_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_user_get(const struct xattr_handler *handler,
@@ -1131,8 +1123,8 @@ ext2_xattr_user_get(const struct xattr_handler *handler,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_user_set(const struct xattr_handler *handler,
@@ -1161,8 +1153,8 @@ const struct xattr_handler ext2_xattr_user_handler = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool
 ext2_xattr_trusted_list(struct dentry *dentry)
@@ -1171,12 +1163,12 @@ ext2_xattr_trusted_list(struct dentry *dentry)
 }
 
 /**
- * ext2_xattr_trusted_get - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ext2_xattr_trusted_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_trusted_get(const struct xattr_handler *handler,
@@ -1192,8 +1184,8 @@ ext2_xattr_trusted_get(const struct xattr_handler *handler,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_trusted_set(const struct xattr_handler *handler,
@@ -1217,12 +1209,12 @@ const struct xattr_handler ext2_xattr_trusted_handler = {
 
 
 /**
- * ext2_xattr_security_get - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ext2_xattr_security_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_security_get(const struct xattr_handler *handler,
@@ -1238,8 +1230,8 @@ ext2_xattr_security_get(const struct xattr_handler *handler,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext2_xattr_security_set(const struct xattr_handler *handler,
@@ -1257,8 +1249,8 @@ ext2_xattr_security_set(const struct xattr_handler *handler,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_initxattrs(struct inode *inode, const struct xattr *xattr_array,
 			   void *fs_info)
@@ -1281,8 +1273,8 @@ static int ext2_initxattrs(struct inode *inode, const struct xattr *xattr_array,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int
 ext2_init_security(struct inode *inode, struct inode *dir,
@@ -1307,8 +1299,8 @@ const struct xattr_handler ext2_xattr_security_handler = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct posix_acl *
 ext2_acl_from_disk(const void *value, size_t size)
@@ -1385,8 +1377,8 @@ fail:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void *
 ext2_acl_to_disk(const struct posix_acl *acl, size_t *size)
@@ -1439,12 +1431,12 @@ fail:
 
 
 /**
- * ext2_get_acl - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ext2_get_acl - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct posix_acl *
 ext2_get_acl(struct inode *inode, int type, bool rcu)
@@ -1490,8 +1482,8 @@ ext2_get_acl(struct inode *inode, int type, bool rcu)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 __ext2_set_acl(struct inode *inode, struct posix_acl *acl, int type)
@@ -1535,8 +1527,8 @@ __ext2_set_acl(struct inode *inode, struct posix_acl *acl, int type)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int
 ext2_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
@@ -1569,8 +1561,8 @@ ext2_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int
 ext2_init_acl(struct inode *inode, struct inode *dir)
@@ -1633,8 +1625,8 @@ static unsigned long mb_cache_shrink(struct mb_cache *cache,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline struct hlist_bl_head *mb_cache_entry_head(struct mb_cache *cache,
 							u32 key)
@@ -1651,8 +1643,8 @@ static inline struct hlist_bl_head *mb_cache_entry_head(struct mb_cache *cache,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
 			  u64 value, bool reusable)
@@ -1706,8 +1698,8 @@ int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __mb_cache_entry_free(struct mb_cache *cache, struct mb_cache_entry *entry)
 {
@@ -1726,8 +1718,8 @@ void __mb_cache_entry_free(struct mb_cache *cache, struct mb_cache_entry *entry)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void mb_cache_entry_wait_unused(struct mb_cache_entry *entry)
 {
@@ -1735,12 +1727,12 @@ void mb_cache_entry_wait_unused(struct mb_cache_entry *entry)
 }
 
 /**
- * __entry_find - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * __entry_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct mb_cache_entry *__entry_find(struct mb_cache *cache,
 					   struct mb_cache_entry *entry,
@@ -1776,12 +1768,12 @@ out:
 
 
 /**
- * mb_cache_entry_find_first - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * mb_cache_entry_find_first - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct mb_cache_entry *mb_cache_entry_find_first(struct mb_cache *cache,
 						 u32 key)
@@ -1791,12 +1783,12 @@ struct mb_cache_entry *mb_cache_entry_find_first(struct mb_cache *cache,
 
 
 /**
- * mb_cache_entry_find_next - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * mb_cache_entry_find_next - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct mb_cache_entry *mb_cache_entry_find_next(struct mb_cache *cache,
 						struct mb_cache_entry *entry)
@@ -1806,12 +1798,12 @@ struct mb_cache_entry *mb_cache_entry_find_next(struct mb_cache *cache,
 
 
 /**
- * mb_cache_entry_get - Implements the mb cache entry get operation within the extended metadata subsystem.
+ * mb_cache_entry_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct mb_cache_entry *mb_cache_entry_get(struct mb_cache *cache, u32 key,
 					  u64 value)
@@ -1835,12 +1827,12 @@ out:
 
 
 /**
- * mb_cache_entry_delete_or_get - Implements the mb cache entry delete or get operation within the extended metadata subsystem.
+ * mb_cache_entry_delete_or_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct mb_cache_entry *mb_cache_entry_delete_or_get(struct mb_cache *cache,
 						    u32 key, u64 value)
@@ -1870,8 +1862,8 @@ struct mb_cache_entry *mb_cache_entry_delete_or_get(struct mb_cache *cache,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void mb_cache_entry_touch(struct mb_cache *cache,
 			  struct mb_cache_entry *entry)
@@ -1884,8 +1876,8 @@ void mb_cache_entry_touch(struct mb_cache *cache,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned long mb_cache_count(struct shrinker *shrink,
 				    struct shrink_control *sc)
@@ -1901,8 +1893,8 @@ static unsigned long mb_cache_count(struct shrinker *shrink,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned long mb_cache_shrink(struct mb_cache *cache,
 				     unsigned long nr_to_scan)
@@ -1939,8 +1931,8 @@ static unsigned long mb_cache_shrink(struct mb_cache *cache,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned long mb_cache_scan(struct shrinker *shrink,
 				   struct shrink_control *sc)
@@ -1957,8 +1949,8 @@ static unsigned long mb_cache_scan(struct shrinker *shrink,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void mb_cache_shrink_worker(struct work_struct *work)
 {
@@ -1973,8 +1965,8 @@ static void mb_cache_shrink_worker(struct work_struct *work)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct mb_cache *mb_cache_create(int bucket_bits)
 {
@@ -2026,8 +2018,8 @@ err_out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void mb_cache_destroy(struct mb_cache *cache)
 {
@@ -2051,8 +2043,8 @@ void mb_cache_destroy(struct mb_cache *cache)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int __init infiltratr_mbcache_init(void)
 {
@@ -2067,8 +2059,8 @@ int __init infiltratr_mbcache_init(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __exit infiltratr_mbcache_exit(void)
 {

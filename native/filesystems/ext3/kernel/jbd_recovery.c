@@ -82,8 +82,8 @@ static int scan_revoke_records(journal_t *, struct buffer_head *,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void journal_brelse_array(struct buffer_head *b[], int n)
 {
@@ -98,8 +98,8 @@ static void journal_brelse_array(struct buffer_head *b[], int n)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int do_readahead(journal_t *journal, unsigned int start)
 {
@@ -162,8 +162,8 @@ failed:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int jread(struct buffer_head **bhp, journal_t *journal,
 		 unsigned int offset)
@@ -216,8 +216,8 @@ static int jread(struct buffer_head **bhp, journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int count_tags(struct buffer_head *bh, int size)
 {
@@ -244,28 +244,20 @@ static int count_tags(struct buffer_head *bh, int size)
 
 
 #define wrap(journal, var)						\
-/**
- * wrap - Implements the wrap operation within the journal recovery subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 do {									\
 	if (var >= (journal)->j_last)					\
 		var -= ((journal)->j_last - (journal)->j_first);	\
-}/**
+} while (0)
+
+
+/**
  * journal_recover - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
- while (0)
-
-
 int journal_recover(journal_t *journal)
 {
 	int			err, err2;
@@ -319,8 +311,8 @@ int journal_recover(journal_t *journal)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int journal_skip_recovery(journal_t *journal)
 {
@@ -354,8 +346,8 @@ int journal_skip_recovery(journal_t *journal)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int do_one_pass(journal_t *journal,
 			struct recovery_info *info, enum passtype pass)
@@ -577,8 +569,8 @@ static int do_one_pass(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int scan_revoke_records(journal_t *journal, struct buffer_head *bh,
 			       tid_t sequence, struct recovery_info *info)

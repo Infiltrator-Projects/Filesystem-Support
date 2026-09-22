@@ -128,14 +128,6 @@ struct ext4_fc_tail {
 #define EXT4_FC_TAG_BASE_LEN (sizeof(struct ext4_fc_tl))
 
 
-/**
- * EXT4_FC_TAG_BASE_LEN - Implements the EXT4 FC TAG BASE LEN operation within the fast-commit record format subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 enum {
 	EXT4_FC_STATUS_OK = 0,
 	EXT4_FC_STATUS_INELIGIBLE,
@@ -235,8 +227,8 @@ struct ext4_fc_replay_state {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline const char *tag2str(__u16 tag)
 {

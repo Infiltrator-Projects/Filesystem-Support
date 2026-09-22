@@ -120,8 +120,8 @@ struct ext4_journal_cb_entry {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void _ext4_journal_callback_add(handle_t *handle,
 			struct ext4_journal_cb_entry *jce)
@@ -135,8 +135,8 @@ static inline void _ext4_journal_callback_add(handle_t *handle,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_journal_callback_add(handle_t *handle,
 			void (*func)(struct super_block *sb,
@@ -160,8 +160,8 @@ static inline void ext4_journal_callback_add(handle_t *handle,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline bool ext4_journal_callback_try_del(handle_t *handle,
 					     struct ext4_journal_cb_entry *jce)
@@ -240,8 +240,8 @@ int __ext4_journal_stop(const char *where, unsigned int line, handle_t *handle);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_handle_valid(handle_t *handle)
 {
@@ -251,12 +251,12 @@ static inline int ext4_handle_valid(handle_t *handle)
 }
 
 /**
- * ext4_handle_sync - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ext4_handle_sync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_handle_sync(handle_t *handle)
 {
@@ -269,8 +269,8 @@ static inline void ext4_handle_sync(handle_t *handle)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_handle_is_aborted(handle_t *handle)
 {
@@ -284,8 +284,8 @@ static inline int ext4_handle_is_aborted(handle_t *handle)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_free_metadata_revoke_credits(struct super_block *sb,
 						    int blocks)
@@ -299,8 +299,8 @@ static inline int ext4_free_metadata_revoke_credits(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_trans_default_revoke_credits(struct super_block *sb)
 {
@@ -308,14 +308,6 @@ static inline int ext4_trans_default_revoke_credits(struct super_block *sb)
 }
 
 #define ext4_journal_start_sb(sb, type, nblocks)			\
-/**
- * __ext4_journal_start - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 	__ext4_journal_start_sb(NULL, (sb), __LINE__, (type), (nblocks), 0,\
 				ext4_trans_default_revoke_credits(sb))
 
@@ -331,6 +323,14 @@ static inline int ext4_trans_default_revoke_credits(struct super_block *sb)
 	__ext4_journal_start((inode), __LINE__, (type), (blocks), 0,	\
 			     (revoke_creds))
 
+/**
+ * __ext4_journal_start - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 static inline handle_t *__ext4_journal_start(struct inode *inode,
 					     unsigned int line, int type,
 					     int blocks, int rsv_blocks,
@@ -354,8 +354,8 @@ handle_t *__ext4_journal_start_reserved(handle_t *handle, unsigned int line,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline handle_t *ext4_journal_current_handle(void)
 {
@@ -367,8 +367,8 @@ static inline handle_t *ext4_journal_current_handle(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_journal_extend(handle_t *handle, int nblocks, int revoke)
 {
@@ -382,8 +382,8 @@ static inline int ext4_journal_extend(handle_t *handle, int nblocks, int revoke)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_journal_restart(handle_t *handle, int nblocks,
 				       int revoke)
@@ -398,14 +398,6 @@ int __ext4_journal_ensure_credits(handle_t *handle, int check_cred,
 
 
 #define ext4_journal_ensure_credits_fn(handle, check_cred, extend_cred,	\
-/**
- * ext4_journal_ensure_credits_fn - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 				       revoke_cred, fn) \
 ({									\
 	__label__ __ensure_end;						\
@@ -422,17 +414,17 @@ int __ext4_journal_ensure_credits(handle_t *handle, int check_cred,
 		err = 1;						\
 __ensure_end:								\
 	err;								\
-}/**
+})
+
+
+/**
  * ext4_journal_ensure_credits - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
-)
-
-
 static inline int ext4_journal_ensure_credits(handle_t *handle, int credits,
 					      int revoke_creds)
 {
@@ -445,8 +437,8 @@ static inline int ext4_journal_ensure_credits(handle_t *handle, int credits,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_journal_blocks_per_page(struct inode *inode)
 {
@@ -460,8 +452,8 @@ static inline int ext4_journal_blocks_per_page(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_journal_force_commit(journal_t *journal)
 {
@@ -475,8 +467,8 @@ static inline int ext4_journal_force_commit(journal_t *journal)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_jbd2_inode_add_write(handle_t *handle,
 		struct inode *inode, loff_t start_byte, loff_t length)
@@ -492,8 +484,8 @@ static inline int ext4_jbd2_inode_add_write(handle_t *handle,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_jbd2_inode_add_wait(handle_t *handle,
 		struct inode *inode, loff_t start_byte, loff_t length)
@@ -505,12 +497,12 @@ static inline int ext4_jbd2_inode_add_wait(handle_t *handle,
 }
 
 /**
- * ext4_update_inode_fsync_trans - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext4_update_inode_fsync_trans - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_update_inode_fsync_trans(handle_t *handle,
 						 struct inode *inode,
@@ -540,8 +532,8 @@ int ext4_inode_journal_mode(struct inode *inode);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_should_journal_data(struct inode *inode)
 {
@@ -553,8 +545,8 @@ static inline int ext4_should_journal_data(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_should_order_data(struct inode *inode)
 {
@@ -566,8 +558,8 @@ static inline int ext4_should_order_data(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_should_writeback_data(struct inode *inode)
 {
@@ -579,8 +571,8 @@ static inline int ext4_should_writeback_data(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_free_data_revoke_credits(struct inode *inode, int blocks)
 {
@@ -599,8 +591,8 @@ static inline int ext4_free_data_revoke_credits(struct inode *inode, int blocks)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_should_dioread_nolock(struct inode *inode)
 {
@@ -624,8 +616,8 @@ static inline int ext4_should_dioread_nolock(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_journal_destroy(struct ext4_sb_info *sbi, journal_t *journal)
 {

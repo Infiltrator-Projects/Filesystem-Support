@@ -62,8 +62,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext2_add_nondir(struct dentry *dentry, struct inode *inode)
 {
@@ -79,12 +79,12 @@ static inline int ext2_add_nondir(struct dentry *dentry, struct inode *inode)
 
 
 /**
- * ext2_lookup - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext2_lookup - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dentry *ext2_lookup(struct inode * dir, struct dentry *dentry, unsigned int flags)
 {
@@ -113,12 +113,12 @@ static struct dentry *ext2_lookup(struct inode * dir, struct dentry *dentry, uns
 }
 
 /**
- * ext2_get_parent - Implements the get parent operation within the namespace mutation subsystem.
+ * ext2_get_parent - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct dentry *ext2_get_parent(struct dentry *child)
 {
@@ -138,8 +138,8 @@ struct dentry *ext2_get_parent(struct dentry *child)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_create (struct mnt_idmap * idmap,
 			struct inode * dir, struct dentry * dentry,
@@ -166,8 +166,8 @@ static int ext2_create (struct mnt_idmap * idmap,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
 			struct file *file, umode_t mode)
@@ -188,8 +188,8 @@ static int ext2_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_mknod (struct mnt_idmap * idmap, struct inode * dir,
 	struct dentry *dentry, umode_t mode, dev_t rdev)
@@ -217,8 +217,8 @@ static int ext2_mknod (struct mnt_idmap * idmap, struct inode * dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_symlink (struct mnt_idmap * idmap, struct inode * dir,
 	struct dentry * dentry, const char * symname)
@@ -272,8 +272,8 @@ out_fail:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_link (struct dentry * old_dentry, struct inode * dir,
 	struct dentry *dentry)
@@ -304,8 +304,8 @@ static int ext2_link (struct dentry * old_dentry, struct inode * dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_mkdir(struct mnt_idmap * idmap,
 	struct inode * dir, struct dentry * dentry, umode_t mode)
@@ -356,8 +356,8 @@ out_dir:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_unlink(struct inode *dir, struct dentry *dentry)
 {
@@ -393,8 +393,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_rmdir (struct inode * dir, struct dentry *dentry)
 {
@@ -417,8 +417,8 @@ static int ext2_rmdir (struct inode * dir, struct dentry *dentry)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_rename (struct mnt_idmap * idmap,
 			struct inode * old_dir, struct dentry * old_dentry,

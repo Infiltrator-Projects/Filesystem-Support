@@ -41,12 +41,12 @@
 
 
 /**
- * read_inode_bitmap - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * read_inode_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *
 read_inode_bitmap(struct super_block * sb, unsigned long block_group)
@@ -74,8 +74,8 @@ error_out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext3_free_inode (handle_t *handle, struct inode * inode)
 {
@@ -169,12 +169,12 @@ error_return:
 
 
 /**
- * find_group_orlov - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_group_orlov - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int find_group_orlov(struct super_block *sb, struct inode *parent)
 {
@@ -261,12 +261,12 @@ fallback:
 }
 
 /**
- * find_group_other - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int find_group_other(struct super_block *sb, struct inode *parent)
 {
@@ -315,8 +315,8 @@ static int find_group_other(struct super_block *sb, struct inode *parent)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct inode *ext3_new_inode(handle_t *handle, struct inode * dir,
 			     const struct qstr *qstr, umode_t mode)
@@ -535,12 +535,12 @@ fail_drop:
 
 
 /**
- * ext3_orphan_get - Implements the orphan get operation within the inode allocation subsystem.
+ * ext3_orphan_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct inode *ext3_orphan_get(struct super_block *sb, unsigned long ino)
 {
@@ -612,12 +612,12 @@ error:
 }
 
 /**
- * ext3_count_free_inodes - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext3_count_free_inodes - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 unsigned long ext3_count_free_inodes (struct super_block * sb)
 {
@@ -671,8 +671,8 @@ unsigned long ext3_count_free_inodes (struct super_block * sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 unsigned long ext3_count_dirs (struct super_block * sb)
 {

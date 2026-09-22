@@ -34,8 +34,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_orphan_file_add(handle_t *handle, struct inode *inode)
 {
@@ -107,8 +107,8 @@ static int ext4_orphan_file_add(handle_t *handle, struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_orphan_add(handle_t *handle, struct inode *inode)
 {
@@ -192,8 +192,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_orphan_file_del(handle_t *handle, struct inode *inode)
 {
@@ -232,8 +232,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_orphan_del(handle_t *handle, struct inode *inode)
 {
@@ -324,8 +324,8 @@ out_brelse:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_quota_on_mount(struct super_block *sb, int type)
 {
@@ -341,8 +341,8 @@ static int ext4_quota_on_mount(struct super_block *sb, int type)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_process_orphan(struct inode *inode,
 				int *nr_truncates, int *nr_orphans)
@@ -387,8 +387,8 @@ static void ext4_process_orphan(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_orphan_cleanup(struct super_block *sb, struct ext4_super_block *es)
 {
@@ -522,8 +522,8 @@ void ext4_orphan_cleanup(struct super_block *sb, struct ext4_super_block *es)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_release_orphan_info(struct super_block *sb)
 {
@@ -542,8 +542,8 @@ void ext4_release_orphan_info(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct ext4_orphan_block_tail *ext4_orphan_block_tail(
 						struct super_block *sb,
@@ -558,8 +558,8 @@ static struct ext4_orphan_block_tail *ext4_orphan_block_tail(
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_orphan_file_block_csum_verify(struct super_block *sb,
 					      struct buffer_head *bh)
@@ -587,8 +587,8 @@ static int ext4_orphan_file_block_csum_verify(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_orphan_file_block_trigger(struct jbd2_buffer_trigger_type *triggers,
 				    struct buffer_head *bh,
@@ -614,8 +614,8 @@ void ext4_orphan_file_block_trigger(struct jbd2_buffer_trigger_type *triggers,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_init_orphan_info(struct super_block *sb)
 {
@@ -699,8 +699,8 @@ out_put:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_orphan_file_empty(struct super_block *sb)
 {

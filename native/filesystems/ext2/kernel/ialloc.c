@@ -44,12 +44,12 @@
 
 
 /**
- * read_inode_bitmap - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * read_inode_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *
 read_inode_bitmap(struct super_block * sb, unsigned long block_group)
@@ -76,8 +76,8 @@ error_out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_release_inode(struct super_block *sb, int group, int dir)
 {
@@ -108,8 +108,8 @@ static void ext2_release_inode(struct super_block *sb, int group, int dir)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext2_free_inode (struct inode * inode)
 {
@@ -163,8 +163,8 @@ void ext2_free_inode (struct inode * inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext2_preread_inode(struct inode *inode)
 {
@@ -188,12 +188,12 @@ static void ext2_preread_inode(struct inode *inode)
 
 
 /**
- * find_group_dir - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_group_dir - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int find_group_dir(struct super_block *sb, struct inode *parent)
 {
@@ -224,12 +224,12 @@ static int find_group_dir(struct super_block *sb, struct inode *parent)
 #define BLOCK_COST 256
 
 /**
- * find_group_orlov - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_group_orlov - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int find_group_orlov(struct super_block *sb, struct inode *parent)
 {
@@ -338,12 +338,12 @@ found:
 }
 
 /**
- * find_group_other - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int find_group_other(struct super_block *sb, struct inode *parent)
 {
@@ -394,8 +394,8 @@ found:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct inode *ext2_new_inode(struct inode *dir, umode_t mode,
 			     const struct qstr *qstr)
@@ -583,12 +583,12 @@ fail:
 }
 
 /**
- * ext2_count_free_inodes - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext2_count_free_inodes - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 unsigned long ext2_count_free_inodes (struct super_block * sb)
 {
@@ -642,8 +642,8 @@ unsigned long ext2_count_free_inodes (struct super_block * sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 unsigned long ext2_count_dirs (struct super_block * sb)
 {

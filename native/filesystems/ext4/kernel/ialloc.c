@@ -60,8 +60,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_mark_bitmap_end(int start_bit, int end_bit, char *bitmap)
 {
@@ -78,12 +78,12 @@ void ext4_mark_bitmap_end(int start_bit, int end_bit, char *bitmap)
 }
 
 /**
- * ext4_end_bitmap_read - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_end_bitmap_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_end_bitmap_read(struct buffer_head *bh, int uptodate)
 {
@@ -100,8 +100,8 @@ void ext4_end_bitmap_read(struct buffer_head *bh, int uptodate)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_validate_inode_bitmap(struct super_block *sb,
 				      struct ext4_group_desc *desc,
@@ -142,12 +142,12 @@ verified:
 
 
 /**
- * ext4_read_inode_bitmap - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext4_read_inode_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *
 ext4_read_inode_bitmap(struct super_block *sb, ext4_group_t block_group)
@@ -249,8 +249,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_free_inode(handle_t *handle, struct inode *inode)
 {
@@ -395,12 +395,12 @@ struct orlov_stats {
 
 
 /**
- * get_orlov_stats - Implements the get orlov stats operation within the inode allocation subsystem.
+ * get_orlov_stats - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void get_orlov_stats(struct super_block *sb, ext4_group_t g,
 			    int flex_size, struct orlov_stats *stats)
@@ -430,12 +430,12 @@ static void get_orlov_stats(struct super_block *sb, ext4_group_t g,
 
 
 /**
- * find_group_orlov - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_group_orlov - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int find_group_orlov(struct super_block *sb, struct inode *parent,
 			    ext4_group_t *group, umode_t mode,
@@ -575,12 +575,12 @@ fallback_retry:
 }
 
 /**
- * find_group_other - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int find_group_other(struct super_block *sb, struct inode *parent,
 			    ext4_group_t *group, umode_t mode)
@@ -662,8 +662,8 @@ static int find_group_other(struct super_block *sb, struct inode *parent,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int recently_deleted(struct super_block *sb, ext4_group_t group, int ino)
 {
@@ -710,12 +710,12 @@ out:
 }
 
 /**
- * find_inode_bit - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * find_inode_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int find_inode_bit(struct super_block *sb, ext4_group_t group,
 			  struct buffer_head *bitmap, unsigned long *ino)
@@ -752,8 +752,8 @@ not_found:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_mark_inode_used(struct super_block *sb, int ino)
 {
@@ -871,8 +871,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_xattr_credits_for_new_inode(struct inode *dir, mode_t mode,
 					    bool encrypt)
@@ -925,8 +925,8 @@ static int ext4_xattr_credits_for_new_inode(struct inode *dir, mode_t mode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct inode *__ext4_new_inode(struct mnt_idmap *idmap,
 			       handle_t *handle, struct inode *dir,
@@ -1345,12 +1345,12 @@ out:
 
 
 /**
- * ext4_orphan_get - Implements the orphan get operation within the inode allocation subsystem.
+ * ext4_orphan_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct inode *ext4_orphan_get(struct super_block *sb, unsigned long ino)
 {
@@ -1417,12 +1417,12 @@ bad_orphan:
 }
 
 /**
- * ext4_count_free_inodes - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext4_count_free_inodes - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 unsigned long ext4_count_free_inodes(struct super_block *sb)
 {
@@ -1480,8 +1480,8 @@ unsigned long ext4_count_free_inodes(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 unsigned long ext4_count_dirs(struct super_block * sb)
 {
@@ -1503,8 +1503,8 @@ unsigned long ext4_count_dirs(struct super_block * sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_init_inode_table(struct super_block *sb, ext4_group_t group,
 				 int barrier)

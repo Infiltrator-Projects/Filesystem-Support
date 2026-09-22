@@ -46,12 +46,12 @@
 
 
 /**
- * journal_end_buffer_io_sync - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * journal_end_buffer_io_sync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 {
@@ -69,8 +69,8 @@ static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void release_buffer_page(struct buffer_head *bh)
 {
@@ -107,8 +107,8 @@ nope:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void release_data_buffer(struct buffer_head *bh)
 {
@@ -130,8 +130,8 @@ static void release_data_buffer(struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int inverted_lock(journal_t *journal, struct buffer_head *bh)
 {
@@ -149,8 +149,8 @@ static int inverted_lock(journal_t *journal, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int journal_write_commit_record(journal_t *journal,
 					transaction_t *commit_transaction)
@@ -193,8 +193,8 @@ static int journal_write_commit_record(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void journal_do_submit_data(struct buffer_head **wbuf, int bufs,
 				   int write_op)
@@ -215,8 +215,8 @@ static void journal_do_submit_data(struct buffer_head **wbuf, int bufs,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int journal_submit_data_buffers(journal_t *journal,
 				       transaction_t *commit_transaction,
@@ -316,8 +316,8 @@ write_out_data:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void journal_commit_transaction(journal_t *journal)
 {

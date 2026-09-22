@@ -38,8 +38,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline loff_t ext4_verity_metadata_pos(const struct inode *inode)
 {
@@ -48,12 +48,12 @@ static inline loff_t ext4_verity_metadata_pos(const struct inode *inode)
 
 
 /**
- * pagecache_read - Reads or materialises filesystem state for validation or higher-level processing.
+ * pagecache_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int pagecache_read(struct inode *inode, void *buf, size_t count,
 			  loff_t pos)
@@ -83,8 +83,8 @@ static int pagecache_read(struct inode *inode, void *buf, size_t count,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int pagecache_write(struct inode *inode, const void *buf, size_t count,
 			   loff_t pos)
@@ -126,8 +126,8 @@ static int pagecache_write(struct inode *inode, const void *buf, size_t count,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_begin_enable_verity(struct file *filp)
 {
@@ -184,8 +184,8 @@ static int ext4_begin_enable_verity(struct file *filp)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_write_verity_descriptor(struct inode *inode, const void *desc,
 					size_t desc_size, u64 merkle_tree_size)
@@ -212,8 +212,8 @@ static int ext4_write_verity_descriptor(struct inode *inode, const void *desc,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_end_enable_verity(struct file *filp, const void *desc,
 				  size_t desc_size, u64 merkle_tree_size)
@@ -278,12 +278,12 @@ cleanup:
 }
 
 /**
- * ext4_get_verity_descriptor_location - Implements the get verity descriptor location operation within the fs-verity integration subsystem.
+ * ext4_get_verity_descriptor_location - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_get_verity_descriptor_location(struct inode *inode,
 					       size_t *desc_size_ret,
@@ -348,12 +348,12 @@ bad:
 }
 
 /**
- * ext4_get_verity_descriptor - Implements the get verity descriptor operation within the fs-verity integration subsystem.
+ * ext4_get_verity_descriptor - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_get_verity_descriptor(struct inode *inode, void *buf,
 				      size_t buf_size)
@@ -377,12 +377,12 @@ static int ext4_get_verity_descriptor(struct inode *inode, void *buf,
 }
 
 /**
- * ext4_read_merkle_tree_page - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_read_merkle_tree_page - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct page *ext4_read_merkle_tree_page(struct inode *inode,
 					       pgoff_t index,
@@ -412,8 +412,8 @@ static struct page *ext4_read_merkle_tree_page(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_write_merkle_tree_block(struct inode *inode, const void *buf,
 					u64 pos, unsigned int size)

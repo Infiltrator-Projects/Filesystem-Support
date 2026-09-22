@@ -41,8 +41,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_fsmap_from_internal(struct super_block *sb, struct fsmap *dest,
 			      struct ext4_fsmap *src)
@@ -64,8 +64,8 @@ void ext4_fsmap_from_internal(struct super_block *sb, struct fsmap *dest,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_fsmap_to_internal(struct super_block *sb, struct ext4_fsmap *dest,
 			    struct fsmap *src)
@@ -118,8 +118,8 @@ struct ext4_getfsmap_dev {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_getfsmap_dev_compare(const void *p1, const void *p2)
 {
@@ -135,8 +135,8 @@ static int ext4_getfsmap_dev_compare(const void *p1, const void *p2)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool ext4_getfsmap_rec_before_low_key(struct ext4_getfsmap_info *info,
 					     struct ext4_fsmap *rec)
@@ -151,8 +151,8 @@ static bool ext4_getfsmap_rec_before_low_key(struct ext4_getfsmap_info *info,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_getfsmap_helper(struct super_block *sb,
 				struct ext4_getfsmap_info *info,
@@ -251,8 +251,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline ext4_fsblk_t ext4_fsmap_next_pblk(struct ext4_fsmap *fmr)
 {
@@ -264,8 +264,8 @@ static inline ext4_fsblk_t ext4_fsmap_next_pblk(struct ext4_fsmap *fmr)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_getfsmap_meta_helper(struct super_block *sb,
 				     ext4_group_t agno, ext4_grpblk_t start,
@@ -322,8 +322,8 @@ static int ext4_getfsmap_meta_helper(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_getfsmap_datadev_helper(struct super_block *sb,
 					ext4_group_t agno, ext4_grpblk_t start,
@@ -394,8 +394,8 @@ static int ext4_getfsmap_datadev_helper(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_getfsmap_logdev(struct super_block *sb, struct ext4_fsmap *keys,
 				struct ext4_getfsmap_info *info)
@@ -437,8 +437,8 @@ static int ext4_getfsmap_logdev(struct super_block *sb, struct ext4_fsmap *keys,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_getfsmap_fill(struct list_head *meta_list,
 				     ext4_fsblk_t fsb, ext4_fsblk_t len,
@@ -461,12 +461,12 @@ static inline int ext4_getfsmap_fill(struct list_head *meta_list,
 
 
 /**
- * ext4_getfsmap_find_sb - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_getfsmap_find_sb - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned int ext4_getfsmap_find_sb(struct super_block *sb,
 					  ext4_group_t agno,
@@ -520,8 +520,8 @@ static unsigned int ext4_getfsmap_find_sb(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_getfsmap_compare(void *priv,
 				 const struct list_head *a,
@@ -545,8 +545,8 @@ static int ext4_getfsmap_compare(void *priv,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_getfsmap_merge_fixed_metadata(struct list_head *meta_list)
 {
@@ -576,8 +576,8 @@ static void ext4_getfsmap_merge_fixed_metadata(struct list_head *meta_list)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_getfsmap_free_fixed_metadata(struct list_head *meta_list)
 {
@@ -592,12 +592,12 @@ static void ext4_getfsmap_free_fixed_metadata(struct list_head *meta_list)
 
 
 /**
- * ext4_getfsmap_find_fixed_metadata - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_getfsmap_find_fixed_metadata - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_getfsmap_find_fixed_metadata(struct super_block *sb,
 					     struct list_head *meta_list)
@@ -662,8 +662,8 @@ err:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_getfsmap_datadev(struct super_block *sb,
 				 struct ext4_fsmap *keys,
@@ -776,8 +776,8 @@ err:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool ext4_getfsmap_is_valid_device(struct super_block *sb,
 					  struct ext4_fsmap *fm)
@@ -798,8 +798,8 @@ static bool ext4_getfsmap_is_valid_device(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool ext4_getfsmap_check_keys(struct ext4_fsmap *low_key,
 				     struct ext4_fsmap *high_key)
@@ -830,8 +830,8 @@ static bool ext4_getfsmap_check_keys(struct ext4_fsmap *low_key,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_getfsmap(struct super_block *sb, struct ext4_fsmap_head *head,
 		  ext4_fsmap_format_t formatter, void *arg)

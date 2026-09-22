@@ -75,8 +75,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *ext4_append(handle_t *handle,
 					struct inode *inode,
@@ -134,16 +134,16 @@ typedef enum {
 } dirblock_type_t;
 
 #define ext4_read_dirblock(inode, block, type) \
+	__ext4_read_dirblock((inode), (block), (type), __func__, __LINE__)
+
 /**
- * __ext4_read_dirblock - Reads or materialises filesystem state for validation or higher-level processing.
+ * __ext4_read_dirblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
-	__ext4_read_dirblock((inode), (block), (type), __func__, __LINE__)
-
 static struct buffer_head *__ext4_read_dirblock(struct inode *inode,
 						ext4_lblk_t block,
 						dirblock_type_t type,
@@ -237,14 +237,6 @@ static struct buffer_head *__ext4_read_dirblock(struct inode *inode,
 #define dxtrace(command)
 #endif
 
-/**
- * dxtrace - Implements the dxtrace operation within the namespace mutation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 struct fake_dirent
 {
 	__le32 inode;
@@ -395,8 +387,8 @@ static int ext4_dx_add_entry(handle_t *handle, struct ext4_filename *fname,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_initialize_dirent_tail(struct buffer_head *bh,
 				 unsigned int blocksize)
@@ -411,12 +403,12 @@ void ext4_initialize_dirent_tail(struct buffer_head *bh,
 
 
 /**
- * get_dirent_tail - Implements the get dirent tail operation within the namespace mutation subsystem.
+ * get_dirent_tail - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct ext4_dir_entry_tail *get_dirent_tail(struct inode *inode,
 						   struct buffer_head *bh)
@@ -457,8 +449,8 @@ static struct ext4_dir_entry_tail *get_dirent_tail(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static __le32 ext4_dirblock_csum(struct inode *inode, void *dirent, int size)
 {
@@ -471,16 +463,16 @@ static __le32 ext4_dirblock_csum(struct inode *inode, void *dirent, int size)
 }
 
 #define warn_no_space_for_csum(inode)					\
+	__warn_no_space_for_csum((inode), __func__, __LINE__)
+
 /**
  * __warn_no_space_for_csum - Implements the warn no space for csum operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
-	__warn_no_space_for_csum((inode), __func__, __LINE__)
-
 static void __warn_no_space_for_csum(struct inode *inode, const char *func,
 				     unsigned int line)
 {
@@ -493,8 +485,8 @@ static void __warn_no_space_for_csum(struct inode *inode, const char *func,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_dirblock_csum_verify(struct inode *inode, struct buffer_head *bh)
 {
@@ -521,8 +513,8 @@ int ext4_dirblock_csum_verify(struct inode *inode, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_dirblock_csum_set(struct inode *inode,
 				 struct buffer_head *bh)
@@ -547,8 +539,8 @@ static void ext4_dirblock_csum_set(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_handle_dirty_dirblock(handle_t *handle,
 			       struct inode *inode,
@@ -559,12 +551,12 @@ int ext4_handle_dirty_dirblock(handle_t *handle,
 }
 
 /**
- * get_dx_countlimit - Implements the get dx countlimit operation within the namespace mutation subsystem.
+ * get_dx_countlimit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dx_countlimit *get_dx_countlimit(struct inode *inode,
 					       struct ext4_dir_entry *dirent,
@@ -600,8 +592,8 @@ static struct dx_countlimit *get_dx_countlimit(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static __le32 ext4_dx_csum(struct inode *inode, struct ext4_dir_entry *dirent,
 			   int count_offset, int count, struct dx_tail *t)
@@ -626,8 +618,8 @@ static __le32 ext4_dx_csum(struct inode *inode, struct ext4_dir_entry *dirent,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_dx_csum_verify(struct inode *inode,
 			       struct ext4_dir_entry *dirent)
@@ -664,8 +656,8 @@ static int ext4_dx_csum_verify(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_dx_csum_set(struct inode *inode, struct ext4_dir_entry *dirent)
 {
@@ -698,8 +690,8 @@ static void ext4_dx_csum_set(struct inode *inode, struct ext4_dir_entry *dirent)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_handle_dirty_dx_node(handle_t *handle,
 					    struct inode *inode,
@@ -715,8 +707,8 @@ static inline int ext4_handle_dirty_dx_node(handle_t *handle,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline struct ext4_dir_entry_2 *
 ext4_next_entry(struct ext4_dir_entry_2 *p, unsigned long blocksize)
@@ -727,12 +719,12 @@ ext4_next_entry(struct ext4_dir_entry_2 *p, unsigned long blocksize)
 
 
 /**
- * dx_get_block - Implements the dx get block operation within the namespace mutation subsystem.
+ * dx_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline ext4_lblk_t dx_get_block(struct dx_entry *entry)
 {
@@ -744,8 +736,8 @@ static inline ext4_lblk_t dx_get_block(struct dx_entry *entry)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void dx_set_block(struct dx_entry *entry, ext4_lblk_t value)
 {
@@ -753,12 +745,12 @@ static inline void dx_set_block(struct dx_entry *entry, ext4_lblk_t value)
 }
 
 /**
- * dx_get_hash - Implements the dx get hash operation within the namespace mutation subsystem.
+ * dx_get_hash - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline unsigned dx_get_hash(struct dx_entry *entry)
 {
@@ -770,8 +762,8 @@ static inline unsigned dx_get_hash(struct dx_entry *entry)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void dx_set_hash(struct dx_entry *entry, unsigned value)
 {
@@ -783,8 +775,8 @@ static inline void dx_set_hash(struct dx_entry *entry, unsigned value)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline unsigned dx_get_count(struct dx_entry *entries)
 {
@@ -792,12 +784,12 @@ static inline unsigned dx_get_count(struct dx_entry *entries)
 }
 
 /**
- * dx_get_limit - Implements the dx get limit operation within the namespace mutation subsystem.
+ * dx_get_limit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline unsigned dx_get_limit(struct dx_entry *entries)
 {
@@ -805,12 +797,12 @@ static inline unsigned dx_get_limit(struct dx_entry *entries)
 }
 
 /**
- * dx_set_count - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * dx_set_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void dx_set_count(struct dx_entry *entries, unsigned value)
 {
@@ -822,8 +814,8 @@ static inline void dx_set_count(struct dx_entry *entries, unsigned value)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void dx_set_limit(struct dx_entry *entries, unsigned value)
 {
@@ -835,8 +827,8 @@ static inline void dx_set_limit(struct dx_entry *entries, unsigned value)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline unsigned dx_root_limit(struct inode *dir, unsigned infosize)
 {
@@ -854,8 +846,8 @@ static inline unsigned dx_root_limit(struct inode *dir, unsigned infosize)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline unsigned dx_node_limit(struct inode *dir)
 {
@@ -874,8 +866,8 @@ static inline unsigned dx_node_limit(struct inode *dir)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void dx_show_index(char * label, struct dx_entry *entries)
 {
@@ -907,8 +899,8 @@ struct stats
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct stats dx_show_leaf(struct inode *dir,
 				struct dx_hash_info *hinfo,
@@ -1004,8 +996,8 @@ static struct stats dx_show_leaf(struct inode *dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct stats dx_show_entries(struct dx_hash_info *hinfo, struct inode *dir,
 			     struct dx_entry *entries, int levels)
@@ -1047,8 +1039,8 @@ struct stats dx_show_entries(struct dx_hash_info *hinfo, struct inode *dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void htree_rep_invariant_check(struct dx_entry *at,
 					     struct dx_entry *target,
@@ -1069,8 +1061,8 @@ static inline void htree_rep_invariant_check(struct dx_entry *at,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void htree_rep_invariant_check(struct dx_entry *at,
 					     struct dx_entry *target,
@@ -1085,8 +1077,8 @@ static inline void htree_rep_invariant_check(struct dx_entry *at,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dx_frame *
 dx_probe(struct ext4_filename *fname, struct inode *dir,
@@ -1254,8 +1246,8 @@ fail:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void dx_release(struct dx_frame *frames)
 {
@@ -1283,8 +1275,8 @@ static void dx_release(struct dx_frame *frames)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_htree_next_block(struct inode *dir, __u32 hash,
 				 struct dx_frame *frame,
@@ -1336,8 +1328,8 @@ static int ext4_htree_next_block(struct inode *dir, __u32 hash,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int htree_dirblock_to_tree(struct file *dir_file,
 				  struct inode *dir, ext4_lblk_t block,
@@ -1449,8 +1441,8 @@ errout:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 			 __u32 start_minor_hash, __u32 *next_hash)
@@ -1561,12 +1553,12 @@ errout:
 }
 
 /**
- * search_dirblock - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * search_dirblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int search_dirblock(struct buffer_head *bh,
 				  struct inode *dir,
@@ -1584,8 +1576,8 @@ static inline int search_dirblock(struct buffer_head *bh,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int dx_make_map(struct inode *dir, struct buffer_head *bh,
 		       struct dx_hash_info *hinfo,
@@ -1633,8 +1625,8 @@ static int dx_make_map(struct inode *dir, struct buffer_head *bh,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void dx_sort_map (struct dx_map_entry *map, unsigned count)
 {
@@ -1667,8 +1659,8 @@ static void dx_sort_map (struct dx_map_entry *map, unsigned count)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void dx_insert_block(struct dx_frame *frame, u32 hash, ext4_lblk_t block)
 {
@@ -1690,8 +1682,8 @@ static void dx_insert_block(struct dx_frame *frame, u32 hash, ext4_lblk_t block)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_fname_setup_ci_filename(struct inode *dir, const struct qstr *iname,
 				  struct ext4_filename *name)
@@ -1737,8 +1729,8 @@ int ext4_fname_setup_ci_filename(struct inode *dir, const struct qstr *iname,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool ext4_match(struct inode *parent,
 			      const struct ext4_filename *fname,
@@ -1778,12 +1770,12 @@ static bool ext4_match(struct inode *parent,
 
 
 /**
- * ext4_search_dir - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_search_dir - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_search_dir(struct buffer_head *bh, char *search_buf, int buf_size,
 		    struct inode *dir, struct ext4_filename *fname,
@@ -1824,8 +1816,8 @@ int ext4_search_dir(struct buffer_head *bh, char *search_buf, int buf_size,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int is_dx_internal_node(struct inode *dir, ext4_lblk_t block,
 			       struct ext4_dir_entry *de)
@@ -1845,12 +1837,12 @@ static int is_dx_internal_node(struct inode *dir, ext4_lblk_t block,
 
 
 /**
- * __ext4_find_entry - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * __ext4_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *__ext4_find_entry(struct inode *dir,
 					     struct ext4_filename *fname,
@@ -1995,12 +1987,12 @@ cleanup_and_exit:
 }
 
 /**
- * ext4_find_entry - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *ext4_find_entry(struct inode *dir,
 					   const struct qstr *d_name,
@@ -2024,12 +2016,12 @@ static struct buffer_head *ext4_find_entry(struct inode *dir,
 }
 
 /**
- * ext4_lookup_entry - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_lookup_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *ext4_lookup_entry(struct inode *dir,
 					     struct dentry *dentry,
@@ -2052,12 +2044,12 @@ static struct buffer_head *ext4_lookup_entry(struct inode *dir,
 }
 
 /**
- * ext4_dx_find_entry - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_dx_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head * ext4_dx_find_entry(struct inode *dir,
 			struct ext4_filename *fname,
@@ -2113,12 +2105,12 @@ success:
 }
 
 /**
- * ext4_lookup - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_lookup - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dentry *ext4_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 {
@@ -2174,12 +2166,12 @@ static struct dentry *ext4_lookup(struct inode *dir, struct dentry *dentry, unsi
 
 
 /**
- * ext4_get_parent - Implements the get parent operation within the namespace mutation subsystem.
+ * ext4_get_parent - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct dentry *ext4_get_parent(struct dentry *child)
 {
@@ -2210,8 +2202,8 @@ struct dentry *ext4_get_parent(struct dentry *child)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct ext4_dir_entry_2 *
 dx_move_dirents(struct inode *dir, char *from, char *to,
@@ -2248,8 +2240,8 @@ dx_move_dirents(struct inode *dir, char *from, char *to,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct ext4_dir_entry_2 *dx_pack_dirents(struct inode *dir, char *base,
 							unsigned int blocksize)
@@ -2279,8 +2271,8 @@ static struct ext4_dir_entry_2 *dx_pack_dirents(struct inode *dir, char *base,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 			struct buffer_head **bh,struct dx_frame *frame,
@@ -2400,12 +2392,12 @@ journal_error:
 }
 
 /**
- * ext4_find_dest_de - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_find_dest_de - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_find_dest_de(struct inode *dir, struct inode *inode,
 		      struct buffer_head *bh,
@@ -2446,8 +2438,8 @@ int ext4_find_dest_de(struct inode *dir, struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_insert_dentry(struct inode *dir,
 			struct inode *inode,
@@ -2487,8 +2479,8 @@ void ext4_insert_dentry(struct inode *dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int add_dirent_to_buf(handle_t *handle, struct ext4_filename *fname,
 			     struct inode *dir,
@@ -2536,8 +2528,8 @@ static int add_dirent_to_buf(handle_t *handle, struct ext4_filename *fname,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool ext4_check_dx_root(struct inode *dir, struct dx_root *root)
 {
@@ -2591,8 +2583,8 @@ corrupted:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int make_indexed_dir(handle_t *handle, struct ext4_filename *fname,
 			    struct inode *dir,
@@ -2734,8 +2726,8 @@ out_frames:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_add_entry(handle_t *handle, struct dentry *dentry,
 			  struct inode *inode)
@@ -2853,8 +2845,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_dx_add_entry(handle_t *handle, struct ext4_filename *fname,
 			     struct inode *dir, struct inode *inode)
@@ -3033,8 +3025,8 @@ cleanup:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_generic_delete_entry(struct inode *dir,
 			      struct ext4_dir_entry_2 *de_del,
@@ -3091,8 +3083,8 @@ int ext4_generic_delete_entry(struct inode *dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_delete_entry(handle_t *handle,
 			     struct inode *dir,
@@ -3141,8 +3133,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_inc_count(struct inode *inode)
 {
@@ -3158,8 +3150,8 @@ static void ext4_inc_count(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_dec_count(struct inode *inode)
 {
@@ -3173,8 +3165,8 @@ static void ext4_dec_count(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_add_nondir(handle_t *handle,
 		struct dentry *dentry, struct inode **inodep)
@@ -3203,8 +3195,8 @@ static int ext4_add_nondir(handle_t *handle,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_create(struct mnt_idmap *idmap, struct inode *dir,
 		       struct dentry *dentry, umode_t mode, bool excl)
@@ -3246,8 +3238,8 @@ retry:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_mknod(struct mnt_idmap *idmap, struct inode *dir,
 		      struct dentry *dentry, umode_t mode, dev_t rdev)
@@ -3288,8 +3280,8 @@ retry:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
 			struct file *file, umode_t mode)
@@ -3337,8 +3329,8 @@ err_unlock_inode:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct ext4_dir_entry_2 *ext4_init_dot_dotdot(struct inode *inode,
 			  struct ext4_dir_entry_2 *de,
@@ -3374,8 +3366,8 @@ struct ext4_dir_entry_2 *ext4_init_dot_dotdot(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_init_new_dir(handle_t *handle, struct inode *dir,
 			     struct inode *inode)
@@ -3423,8 +3415,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 		      struct dentry *dentry, umode_t mode)
@@ -3497,8 +3489,8 @@ out_retry:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 bool ext4_empty_dir(struct inode *inode)
 {
@@ -3576,8 +3568,8 @@ bool ext4_empty_dir(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_rmdir(struct inode *dir, struct dentry *dentry)
 {
@@ -3666,8 +3658,8 @@ end_rmdir:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int __ext4_unlink(struct inode *dir, const struct qstr *d_name,
 		  struct inode *inode,
@@ -3741,8 +3733,8 @@ out_bh:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_unlink(struct inode *dir, struct dentry *dentry)
 {
@@ -3777,8 +3769,8 @@ out_trace:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_init_symlink_block(handle_t *handle, struct inode *inode,
 				   struct fscrypt_str *disk_link)
@@ -3811,8 +3803,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_symlink(struct mnt_idmap *idmap, struct inode *dir,
 			struct dentry *dentry, const char *symname)
@@ -3905,8 +3897,8 @@ out_retry:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int __ext4_link(struct inode *dir, struct inode *inode, struct dentry *dentry)
 {
@@ -3950,8 +3942,8 @@ retry:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_link(struct dentry *old_dentry,
 		     struct inode *dir, struct dentry *dentry)
@@ -3979,12 +3971,12 @@ static int ext4_link(struct dentry *old_dentry,
 
 
 /**
- * ext4_get_first_dir_block - Implements the get first dir block operation within the namespace mutation subsystem.
+ * ext4_get_first_dir_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *ext4_get_first_dir_block(handle_t *handle,
 					struct inode *inode,
@@ -4063,8 +4055,8 @@ struct ext4_renament {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_rename_dir_prepare(handle_t *handle, struct ext4_renament *ent, bool is_cross)
 {
@@ -4091,8 +4083,8 @@ static int ext4_rename_dir_prepare(handle_t *handle, struct ext4_renament *ent, 
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_rename_dir_finish(handle_t *handle, struct ext4_renament *ent,
 				  unsigned dir_ino)
@@ -4128,8 +4120,8 @@ static int ext4_rename_dir_finish(handle_t *handle, struct ext4_renament *ent,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_setent(handle_t *handle, struct ext4_renament *ent,
 		       unsigned ino, unsigned file_type)
@@ -4163,8 +4155,8 @@ static int ext4_setent(handle_t *handle, struct ext4_renament *ent,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_resetent(handle_t *handle, struct ext4_renament *ent,
 			  unsigned ino, unsigned file_type)
@@ -4189,12 +4181,12 @@ static void ext4_resetent(handle_t *handle, struct ext4_renament *ent,
 }
 
 /**
- * ext4_find_delete_entry - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_find_delete_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_find_delete_entry(handle_t *handle, struct inode *dir,
 				  const struct qstr *d_name)
@@ -4218,8 +4210,8 @@ static int ext4_find_delete_entry(handle_t *handle, struct inode *dir,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_rename_delete(handle_t *handle, struct ext4_renament *ent,
 			       int force_reread)
@@ -4250,12 +4242,12 @@ static void ext4_rename_delete(handle_t *handle, struct ext4_renament *ent,
 }
 
 /**
- * ext4_update_dir_count - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext4_update_dir_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_update_dir_count(handle_t *handle, struct ext4_renament *ent)
 {
@@ -4273,8 +4265,8 @@ static void ext4_update_dir_count(handle_t *handle, struct ext4_renament *ent)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct inode *ext4_whiteout_for_rename(struct mnt_idmap *idmap,
 					      struct ext4_renament *ent,
@@ -4314,8 +4306,8 @@ retry:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 		       struct dentry *old_dentry, struct inode *new_dir,
@@ -4555,8 +4547,8 @@ release_bh:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 			     struct inode *new_dir, struct dentry *new_dentry)
@@ -4694,8 +4686,8 @@ end_rename:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_rename2(struct mnt_idmap *idmap,
 			struct inode *old_dir, struct dentry *old_dentry,

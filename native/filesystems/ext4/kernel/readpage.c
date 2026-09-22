@@ -101,12 +101,12 @@ struct bio_post_read_ctx {
 };
 
 /**
- * __read_end_io - Reads or materialises filesystem state for validation or higher-level processing.
+ * __read_end_io - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void __read_end_io(struct bio *bio)
 {
@@ -126,8 +126,8 @@ static void bio_post_read_processing(struct bio_post_read_ctx *ctx);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void decrypt_work(struct work_struct *work)
 {
@@ -146,8 +146,8 @@ static void decrypt_work(struct work_struct *work)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void verity_work(struct work_struct *work)
 {
@@ -166,12 +166,12 @@ static void verity_work(struct work_struct *work)
 }
 
 /**
- * bio_post_read_processing - Reads or materialises filesystem state for validation or higher-level processing.
+ * bio_post_read_processing - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void bio_post_read_processing(struct bio_post_read_ctx *ctx)
 {
@@ -200,12 +200,12 @@ static void bio_post_read_processing(struct bio_post_read_ctx *ctx)
 }
 
 /**
- * bio_post_read_required - Reads or materialises filesystem state for validation or higher-level processing.
+ * bio_post_read_required - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool bio_post_read_required(struct bio *bio)
 {
@@ -218,8 +218,8 @@ static bool bio_post_read_required(struct bio *bio)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void mpage_end_io(struct bio *bio)
 {
@@ -238,8 +238,8 @@ static void mpage_end_io(struct bio *bio)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline bool ext4_need_verity(const struct inode *inode, pgoff_t idx)
 {
@@ -248,12 +248,12 @@ static inline bool ext4_need_verity(const struct inode *inode, pgoff_t idx)
 }
 
 /**
- * ext4_set_bio_post_read_ctx - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_set_bio_post_read_ctx - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_set_bio_post_read_ctx(struct bio *bio,
 				       const struct inode *inode,
@@ -283,8 +283,8 @@ static void ext4_set_bio_post_read_ctx(struct bio *bio,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline loff_t ext4_readpage_limit(struct inode *inode)
 {
@@ -299,8 +299,8 @@ static inline loff_t ext4_readpage_limit(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_mpage_readpages(struct inode *inode,
 		struct readahead_control *rac, struct folio *folio)
@@ -479,8 +479,8 @@ next_page:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int __init ext4_init_post_read_processing(void)
 {
@@ -506,8 +506,8 @@ fail:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_exit_post_read_processing(void)
 {

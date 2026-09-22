@@ -63,8 +63,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool ext4_should_use_dio(struct kiocb *iocb, struct iov_iter *iter)
 {
@@ -81,12 +81,12 @@ static bool ext4_should_use_dio(struct kiocb *iocb, struct iov_iter *iter)
 }
 
 /**
- * ext4_dio_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_dio_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
@@ -117,12 +117,12 @@ static ssize_t ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 #ifdef CONFIG_FS_DAX
 /**
- * ext4_dax_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_dax_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
@@ -151,12 +151,12 @@ static ssize_t ext4_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 #endif
 
 /**
- * ext4_file_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_file_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
@@ -179,12 +179,12 @@ static ssize_t ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 }
 
 /**
- * ext4_file_splice_read - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_file_splice_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_file_splice_read(struct file *in, loff_t *ppos,
 				     struct pipe_inode_info *pipe,
@@ -203,8 +203,8 @@ static ssize_t ext4_file_splice_read(struct file *in, loff_t *ppos,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_release_file(struct inode *inode, struct file *filp)
 {
@@ -232,8 +232,8 @@ static int ext4_release_file(struct inode *inode, struct file *filp)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool
 ext4_unaligned_io(struct inode *inode, struct iov_iter *from, loff_t pos)
@@ -252,8 +252,8 @@ ext4_unaligned_io(struct inode *inode, struct iov_iter *from, loff_t pos)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool
 ext4_extending_io(struct inode *inode, loff_t offset, size_t len)
@@ -270,8 +270,8 @@ ext4_extending_io(struct inode *inode, loff_t offset, size_t len)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool ext4_overwrite_io(struct inode *inode,
 			      loff_t pos, loff_t len, bool *unwritten)
@@ -301,8 +301,8 @@ static bool ext4_overwrite_io(struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_generic_write_checks(struct kiocb *iocb,
 					 struct iov_iter *from)
@@ -334,8 +334,8 @@ static ssize_t ext4_generic_write_checks(struct kiocb *iocb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_write_checks(struct kiocb *iocb, struct iov_iter *from)
 {
@@ -356,8 +356,8 @@ static ssize_t ext4_write_checks(struct kiocb *iocb, struct iov_iter *from)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_buffered_write_iter(struct kiocb *iocb,
 					struct iov_iter *from)
@@ -387,8 +387,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_handle_inode_extension(struct inode *inode, loff_t offset,
 					   ssize_t written, ssize_t count)
@@ -421,8 +421,8 @@ static ssize_t ext4_handle_inode_extension(struct inode *inode, loff_t offset,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_inode_extension_cleanup(struct inode *inode, bool need_trunc)
 {
@@ -456,8 +456,8 @@ static void ext4_inode_extension_cleanup(struct inode *inode, bool need_trunc)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_dio_write_end_io(struct kiocb *iocb, ssize_t size,
 				 int error, unsigned int flags)
@@ -487,8 +487,8 @@ static const struct iomap_dio_ops ext4_dio_write_ops = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_dio_write_checks(struct kiocb *iocb, struct iov_iter *from,
 				     bool *ilock_shared, bool *extend,
@@ -556,8 +556,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
@@ -674,8 +674,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t
 ext4_dax_write_iter(struct kiocb *iocb, struct iov_iter *from)
@@ -737,8 +737,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t
 ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
@@ -764,8 +764,8 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static vm_fault_t ext4_dax_huge_fault(struct vm_fault *vmf, unsigned int order)
 {
@@ -821,8 +821,8 @@ retry:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static vm_fault_t ext4_dax_fault(struct vm_fault *vmf)
 {
@@ -850,8 +850,8 @@ static const struct vm_operations_struct ext4_file_vm_ops = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
@@ -880,8 +880,8 @@ static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_sample_last_mounted(struct super_block *sb,
 				    struct vfsmount *mnt)
@@ -935,8 +935,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_file_open(struct inode *inode, struct file *filp)
 {
@@ -974,8 +974,8 @@ static int ext4_file_open(struct inode *inode, struct file *filp)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 loff_t ext4_llseek(struct file *file, loff_t offset, int whence)
 {
@@ -1043,8 +1043,8 @@ const struct inode_operations ext4_file_inode_operations = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_sync_parent(struct inode *inode)
 {
@@ -1081,8 +1081,8 @@ static int ext4_sync_parent(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
 				int datasync, bool *needs_barrier)
@@ -1112,12 +1112,12 @@ static int ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
 }
 
 /**
- * ext4_fsync_journal - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ext4_fsync_journal - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_fsync_journal(struct inode *inode, bool datasync,
 			     bool *needs_barrier)
@@ -1143,8 +1143,8 @@ static int ext4_fsync_journal(struct inode *inode, bool datasync,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {

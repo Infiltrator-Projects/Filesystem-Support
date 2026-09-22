@@ -37,12 +37,12 @@
 
 
 /**
- * get_ext_path - Implements the get ext path operation within the extent relocation subsystem.
+ * get_ext_path - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline struct ext4_ext_path *
 get_ext_path(struct inode *inode, ext4_lblk_t lblock,
@@ -64,8 +64,8 @@ get_ext_path(struct inode *inode, ext4_lblk_t lblock,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void
 ext4_double_down_write_data_sem(struct inode *first, struct inode *second)
@@ -86,8 +86,8 @@ ext4_double_down_write_data_sem(struct inode *first, struct inode *second)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void
 ext4_double_up_write_data_sem(struct inode *orig_inode,
@@ -103,8 +103,8 @@ ext4_double_up_write_data_sem(struct inode *orig_inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 mext_check_coverage(struct inode *inode, ext4_lblk_t from, ext4_lblk_t count,
@@ -137,8 +137,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 mext_folio_double_lock(struct inode *inode1, struct inode *inode2,
@@ -189,8 +189,8 @@ mext_folio_double_lock(struct inode *inode1, struct inode *inode2,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int mext_page_mkuptodate(struct folio *folio, size_t from, size_t to)
 {
@@ -271,8 +271,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 move_extent_per_page(struct file *o_filp, struct inode *donor_inode,
@@ -453,8 +453,8 @@ repair_branches:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 mext_check_arguments(struct inode *orig_inode,
@@ -551,8 +551,8 @@ mext_check_arguments(struct inode *orig_inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int
 ext4_move_extents(struct file *o_filp, struct file *d_filp, __u64 orig_blk,

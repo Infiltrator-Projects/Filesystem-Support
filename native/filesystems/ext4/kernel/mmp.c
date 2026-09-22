@@ -36,8 +36,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static __le32 ext4_mmp_csum(struct super_block *sb, struct mmp_struct *mmp)
 {
@@ -55,8 +55,8 @@ static __le32 ext4_mmp_csum(struct super_block *sb, struct mmp_struct *mmp)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_mmp_csum_verify(struct super_block *sb, struct mmp_struct *mmp)
 {
@@ -71,8 +71,8 @@ static int ext4_mmp_csum_verify(struct super_block *sb, struct mmp_struct *mmp)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_mmp_csum_set(struct super_block *sb, struct mmp_struct *mmp)
 {
@@ -88,8 +88,8 @@ static void ext4_mmp_csum_set(struct super_block *sb, struct mmp_struct *mmp)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int write_mmp_block_thawed(struct super_block *sb,
 				  struct buffer_head *bh)
@@ -112,8 +112,8 @@ static int write_mmp_block_thawed(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int write_mmp_block(struct super_block *sb, struct buffer_head *bh)
 {
@@ -128,12 +128,12 @@ static int write_mmp_block(struct super_block *sb, struct buffer_head *bh)
 
 
 /**
- * read_mmp_block - Reads or materialises filesystem state for validation or higher-level processing.
+ * read_mmp_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int read_mmp_block(struct super_block *sb, struct buffer_head **bh,
 			  ext4_fsblk_t mmp_block)
@@ -182,8 +182,8 @@ warn_exit:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __dump_mmp_msg(struct super_block *sb, struct mmp_struct *mmp,
 		    const char *function, unsigned int line, const char *msg)
@@ -202,8 +202,8 @@ void __dump_mmp_msg(struct super_block *sb, struct mmp_struct *mmp,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int kmmpd(void *data)
 {
@@ -319,8 +319,8 @@ wait_to_exit:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_stop_mmpd(struct ext4_sb_info *sbi)
 {
@@ -337,8 +337,8 @@ void ext4_stop_mmpd(struct ext4_sb_info *sbi)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned int mmp_new_seq(void)
 {
@@ -351,8 +351,8 @@ static unsigned int mmp_new_seq(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_multi_mount_protect(struct super_block *sb,
 				    ext4_fsblk_t mmp_block)

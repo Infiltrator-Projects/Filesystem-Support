@@ -75,8 +75,8 @@ static int scan_revoke_records(journal_t *, struct buffer_head *,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void journal_brelse_array(struct buffer_head *b[], int n)
 {
@@ -91,8 +91,8 @@ static void journal_brelse_array(struct buffer_head *b[], int n)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int do_readahead(journal_t *journal, unsigned int start)
 {
@@ -155,8 +155,8 @@ failed:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int jread(struct buffer_head **bhp, journal_t *journal,
 		 unsigned int offset)
@@ -211,8 +211,8 @@ static int jread(struct buffer_head **bhp, journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int jbd2_descriptor_block_csum_verify(journal_t *j, void *buf)
 {
@@ -239,8 +239,8 @@ static int jbd2_descriptor_block_csum_verify(journal_t *j, void *buf)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int count_tags(journal_t *journal, struct buffer_head *bh)
 {
@@ -271,27 +271,19 @@ static int count_tags(journal_t *journal, struct buffer_head *bh)
 
 
 #define wrap(journal, var)						\
-/**
- * wrap - Implements the wrap operation within the jbd2 recovery subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 do {									\
 	if (var >= (journal)->j_last)					\
 		var -= ((journal)->j_last - (journal)->j_first);	\
-}/**
+} while (0)
+
+/**
  * fc_do_one_pass - Implements the fc do one pass operation within the jbd2 recovery subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
- while (0)
-
 static int fc_do_one_pass(journal_t *journal,
 			  struct recovery_info *info, enum passtype pass)
 {
@@ -335,8 +327,8 @@ static int fc_do_one_pass(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int jbd2_journal_recover(journal_t *journal)
 {
@@ -396,8 +388,8 @@ int jbd2_journal_recover(journal_t *journal)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int jbd2_journal_skip_recovery(journal_t *journal)
 {
@@ -430,12 +422,12 @@ int jbd2_journal_skip_recovery(journal_t *journal)
 }
 
 /**
- * read_tag_block - Reads or materialises filesystem state for validation or higher-level processing.
+ * read_tag_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline unsigned long long read_tag_block(journal_t *journal,
 						journal_block_tag_t *tag)
@@ -452,8 +444,8 @@ static inline unsigned long long read_tag_block(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int calc_chksums(journal_t *journal, struct buffer_head *bh,
 			unsigned long *next_log_block, __u32 *crc32_sum)
@@ -488,8 +480,8 @@ static int calc_chksums(journal_t *journal, struct buffer_head *bh,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int jbd2_commit_block_csum_verify(journal_t *j, void *buf)
 {
@@ -514,8 +506,8 @@ static int jbd2_commit_block_csum_verify(journal_t *j, void *buf)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool jbd2_commit_block_csum_verify_partial(journal_t *j, void *buf)
 {
@@ -543,8 +535,8 @@ static bool jbd2_commit_block_csum_verify_partial(journal_t *j, void *buf)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int jbd2_block_tag_csum_verify(journal_t *j, journal_block_tag_t *tag,
 				      journal_block_tag3_t *tag3,
@@ -571,8 +563,8 @@ static int jbd2_block_tag_csum_verify(journal_t *j, journal_block_tag_t *tag,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int do_one_pass(journal_t *journal,
 			struct recovery_info *info, enum passtype pass)
@@ -946,8 +938,8 @@ static int do_one_pass(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int scan_revoke_records(journal_t *journal, struct buffer_head *bh,
 			       tid_t sequence, struct recovery_info *info)

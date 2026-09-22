@@ -40,12 +40,12 @@
 
 #ifdef CONFIG_FS_DAX
 /**
- * ext2_dax_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext2_dax_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext2_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
@@ -68,8 +68,8 @@ static ssize_t ext2_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext2_dax_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
@@ -107,8 +107,8 @@ out_unlock:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static vm_fault_t ext2_dax_fault(struct vm_fault *vmf)
 {
@@ -144,8 +144,8 @@ static const struct vm_operations_struct ext2_dax_vm_ops = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
@@ -166,8 +166,8 @@ static int ext2_file_mmap(struct file *file, struct vm_area_struct *vma)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_release_file (struct inode * inode, struct file * filp)
 {
@@ -184,8 +184,8 @@ static int ext2_release_file (struct inode * inode, struct file * filp)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext2_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
@@ -201,12 +201,12 @@ int ext2_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 }
 
 /**
- * ext2_dio_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext2_dio_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext2_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
@@ -226,8 +226,8 @@ static ssize_t ext2_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_dio_write_end_io(struct kiocb *iocb, ssize_t size,
 				 int error, unsigned int flags)
@@ -257,8 +257,8 @@ static const struct iomap_dio_ops ext2_dio_write_ops = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext2_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
@@ -330,12 +330,12 @@ out_unlock:
 }
 
 /**
- * ext2_file_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext2_file_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext2_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
@@ -354,8 +354,8 @@ static ssize_t ext2_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext2_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
@@ -374,8 +374,8 @@ static ssize_t ext2_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext2_file_open(struct inode *inode, struct file *filp)
 {
@@ -413,12 +413,12 @@ const struct inode_operations ext2_file_inode_operations = {
 
 
 /**
- * ext2_fileattr_get - Implements the fileattr get operation within the regular-file vfs operations subsystem.
+ * ext2_fileattr_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext2_fileattr_get(struct dentry *dentry, struct fileattr *fa)
 {
@@ -434,8 +434,8 @@ int ext2_fileattr_get(struct dentry *dentry, struct fileattr *fa)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext2_fileattr_set(struct mnt_idmap *idmap,
 		      struct dentry *dentry, struct fileattr *fa)
@@ -466,8 +466,8 @@ int ext2_fileattr_set(struct mnt_idmap *idmap,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 long ext2_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -557,8 +557,8 @@ setversion_out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT2
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 long ext2_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {

@@ -61,8 +61,8 @@ static int ext3_block_truncate_page(struct inode *inode, loff_t from);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_inode_is_fast_symlink(struct inode *inode)
 {
@@ -78,8 +78,8 @@ static int ext3_inode_is_fast_symlink(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_forget(handle_t *handle, int is_metadata, struct inode *inode,
 			struct buffer_head *bh, ext3_fsblk_t blocknr)
@@ -122,8 +122,8 @@ int ext3_forget(handle_t *handle, int is_metadata, struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned long blocks_for_truncate(struct inode *inode)
 {
@@ -148,8 +148,8 @@ static unsigned long blocks_for_truncate(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static handle_t *start_transaction(struct inode *inode)
 {
@@ -169,8 +169,8 @@ static handle_t *start_transaction(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int try_to_extend_transaction(handle_t *handle, struct inode *inode)
 {
@@ -187,8 +187,8 @@ static int try_to_extend_transaction(handle_t *handle, struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int truncate_restart_transaction(handle_t *handle, struct inode *inode)
 {
@@ -209,8 +209,8 @@ static int truncate_restart_transaction(handle_t *handle, struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext3_evict_inode (struct inode *inode)
 {
@@ -296,8 +296,8 @@ typedef struct {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void add_chain(Indirect *p, struct buffer_head *bh, __le32 *v)
 {
@@ -310,8 +310,8 @@ static inline void add_chain(Indirect *p, struct buffer_head *bh, __le32 *v)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int verify_chain(Indirect *from, Indirect *to)
 {
@@ -326,8 +326,8 @@ static int verify_chain(Indirect *from, Indirect *to)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_block_to_path(struct inode *inode,
 			long i_block, int offsets[4], int *boundary)
@@ -370,12 +370,12 @@ static int ext3_block_to_path(struct inode *inode,
 
 
 /**
- * ext3_get_branch - Implements the get branch operation within the inode mapping and lifecycle subsystem.
+ * ext3_get_branch - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static Indirect *ext3_get_branch(struct inode *inode, int depth, int *offsets,
 				 Indirect chain[4], int *err)
@@ -415,12 +415,12 @@ no_block:
 
 
 /**
- * ext3_find_near - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext3_find_near - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ext3_fsblk_t ext3_find_near(struct inode *inode, Indirect *ind)
 {
@@ -449,12 +449,12 @@ static ext3_fsblk_t ext3_find_near(struct inode *inode, Indirect *ind)
 
 
 /**
- * ext3_find_goal - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext3_find_goal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ext3_fsblk_t ext3_find_goal(struct inode *inode, long block,
 				   Indirect *partial)
@@ -478,8 +478,8 @@ static ext3_fsblk_t ext3_find_goal(struct inode *inode, long block,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_blks_to_allocate(Indirect *branch, int k, unsigned long blks,
 		int blocks_to_boundary)
@@ -510,8 +510,8 @@ static int ext3_blks_to_allocate(Indirect *branch, int k, unsigned long blks,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_alloc_blocks(handle_t *handle, struct inode *inode,
 			ext3_fsblk_t goal, int indirect_blks, int blks,
@@ -563,8 +563,8 @@ failed_out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_alloc_branch(handle_t *handle, struct inode *inode,
 			int indirect_blks, int *blks, ext3_fsblk_t goal,
@@ -646,8 +646,8 @@ failed:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_splice_branch(handle_t *handle, struct inode *inode,
 			long block, Indirect *where, int num, int blks)
@@ -724,12 +724,12 @@ err_out:
 
 
 /**
- * ext3_get_blocks_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ext3_get_blocks_handle - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_get_blocks_handle(handle_t *handle, struct inode *inode,
 		sector_t iblock, unsigned long maxblocks,
@@ -861,12 +861,12 @@ out:
 #define DIO_CREDITS 25
 
 /**
- * ext3_get_block - Implements the get block operation within the inode mapping and lifecycle subsystem.
+ * ext3_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_get_block(struct inode *inode, sector_t iblock,
 			struct buffer_head *bh_result, int create)
@@ -904,8 +904,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		u64 start, u64 len)
@@ -920,8 +920,8 @@ int ext3_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct buffer_head *ext3_getblk(handle_t *handle, struct inode *inode,
 				long block, int create, int *errp)
@@ -982,12 +982,12 @@ err:
 }
 
 /**
- * ext3_bread - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext3_bread - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct buffer_head *ext3_bread(handle_t *handle, struct inode *inode,
 			       int block, int create, int *err)
@@ -1015,8 +1015,8 @@ struct buffer_head *ext3_bread(handle_t *handle, struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int walk_page_buffers(	handle_t *handle,
 				struct buffer_head *head,
@@ -1052,12 +1052,12 @@ static int walk_page_buffers(	handle_t *handle,
 
 
 /**
- * do_journal_get_write_access - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * do_journal_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int do_journal_get_write_access(handle_t *handle,
 					struct buffer_head *bh)
@@ -1083,8 +1083,8 @@ static int do_journal_get_write_access(handle_t *handle,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext3_truncate_failed_write(struct inode *inode)
 {
@@ -1098,8 +1098,8 @@ static void ext3_truncate_failed_write(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext3_truncate_failed_direct_write(struct inode *inode)
 {
@@ -1112,8 +1112,8 @@ static void ext3_truncate_failed_direct_write(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_write_begin(struct file *file, struct address_space *mapping,
 				loff_t pos, unsigned len, unsigned flags,
@@ -1181,8 +1181,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_journal_dirty_data(handle_t *handle, struct buffer_head *bh)
 {
@@ -1199,8 +1199,8 @@ int ext3_journal_dirty_data(handle_t *handle, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int journal_dirty_data_fn(handle_t *handle, struct buffer_head *bh)
 {
@@ -1217,8 +1217,8 @@ static int journal_dirty_data_fn(handle_t *handle, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int write_end_fn(handle_t *handle, struct buffer_head *bh)
 {
@@ -1234,8 +1234,8 @@ static int write_end_fn(handle_t *handle, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void update_file_sizes(struct inode *inode, loff_t pos, unsigned copied)
 {
@@ -1254,8 +1254,8 @@ static void update_file_sizes(struct inode *inode, loff_t pos, unsigned copied)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_ordered_write_end(struct file *file,
 				struct address_space *mapping,
@@ -1297,8 +1297,8 @@ static int ext3_ordered_write_end(struct file *file,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_writeback_write_end(struct file *file,
 				struct address_space *mapping,
@@ -1330,8 +1330,8 @@ static int ext3_writeback_write_end(struct file *file,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_journalled_write_end(struct file *file,
 				struct address_space *mapping,
@@ -1393,8 +1393,8 @@ static int ext3_journalled_write_end(struct file *file,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static sector_t ext3_bmap(struct address_space *mapping, sector_t block)
 {
@@ -1423,8 +1423,8 @@ static sector_t ext3_bmap(struct address_space *mapping, sector_t block)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int bget_one(handle_t *handle, struct buffer_head *bh)
 {
@@ -1437,8 +1437,8 @@ static int bget_one(handle_t *handle, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int bput_one(handle_t *handle, struct buffer_head *bh)
 {
@@ -1451,8 +1451,8 @@ static int bput_one(handle_t *handle, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int buffer_unmapped(handle_t *handle, struct buffer_head *bh)
 {
@@ -1465,8 +1465,8 @@ static int buffer_unmapped(handle_t *handle, struct buffer_head *bh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_ordered_writepage(struct page *page,
 				struct writeback_control *wbc)
@@ -1535,8 +1535,8 @@ out_fail:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_writeback_writepage(struct page *page,
 				struct writeback_control *wbc)
@@ -1589,8 +1589,8 @@ out_fail:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_journalled_writepage(struct page *page,
 				struct writeback_control *wbc)
@@ -1660,8 +1660,8 @@ out_unlock:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_readpage(struct file *file, struct page *page)
 {
@@ -1674,8 +1674,8 @@ static int ext3_readpage(struct file *file, struct page *page)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int
 ext3_readpages(struct file *file, struct address_space *mapping,
@@ -1689,8 +1689,8 @@ ext3_readpages(struct file *file, struct address_space *mapping,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext3_invalidatepage(struct page *page, unsigned int offset,
 				unsigned int length)
@@ -1711,8 +1711,8 @@ static void ext3_invalidatepage(struct page *page, unsigned int offset,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_releasepage(struct page *page, gfp_t wait)
 {
@@ -1731,8 +1731,8 @@ static int ext3_releasepage(struct page *page, gfp_t wait)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext3_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 			      loff_t offset)
@@ -1824,8 +1824,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_journalled_set_page_dirty(struct page *page)
 {
@@ -1883,8 +1883,8 @@ static const struct address_space_operations ext3_journalled_aops = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext3_set_aops(struct inode *inode)
 {
@@ -1902,8 +1902,8 @@ void ext3_set_aops(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_block_truncate_page(struct inode *inode, loff_t from)
 {
@@ -2011,8 +2011,8 @@ unlock:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int all_zeroes(__le32 *p, __le32 *q)
 {
@@ -2024,12 +2024,12 @@ static inline int all_zeroes(__le32 *p, __le32 *q)
 
 
 /**
- * ext3_find_shared - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext3_find_shared - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static Indirect *ext3_find_shared(struct inode *inode, int depth,
 			int offsets[4], Indirect chain[4], __le32 *top)
@@ -2075,12 +2075,12 @@ no_top:
 
 
 /**
- * ext3_clear_blocks - Implements the clear blocks operation within the inode mapping and lifecycle subsystem.
+ * ext3_clear_blocks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext3_clear_blocks(handle_t *handle, struct inode *inode,
 		struct buffer_head *bh, ext3_fsblk_t block_to_free,
@@ -2123,8 +2123,8 @@ static void ext3_clear_blocks(handle_t *handle, struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext3_free_data(handle_t *handle, struct inode *inode,
 			   struct buffer_head *this_bh,
@@ -2195,8 +2195,8 @@ static void ext3_free_data(handle_t *handle, struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext3_free_branches(handle_t *handle, struct inode *inode,
 			       struct buffer_head *parent_bh,
@@ -2274,8 +2274,8 @@ static void ext3_free_branches(handle_t *handle, struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_can_truncate(struct inode *inode)
 {
@@ -2294,8 +2294,8 @@ int ext3_can_truncate(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext3_truncate(struct inode *inode)
 {
@@ -2423,12 +2423,12 @@ out_notrans:
 }
 
 /**
- * ext3_get_inode_block - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext3_get_inode_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ext3_fsblk_t ext3_get_inode_block(struct super_block *sb,
 		unsigned long ino, struct ext3_iloc *iloc)
@@ -2462,12 +2462,12 @@ static ext3_fsblk_t ext3_get_inode_block(struct super_block *sb,
 
 
 /**
- * __ext3_get_inode_loc - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * __ext3_get_inode_loc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int __ext3_get_inode_loc(struct inode *inode,
 				struct ext3_iloc *iloc, int in_mem)
@@ -2572,12 +2572,12 @@ has_buffer:
 }
 
 /**
- * ext3_get_inode_loc - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext3_get_inode_loc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_get_inode_loc(struct inode *inode, struct ext3_iloc *iloc)
 {
@@ -2591,8 +2591,8 @@ int ext3_get_inode_loc(struct inode *inode, struct ext3_iloc *iloc)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext3_set_inode_flags(struct inode *inode)
 {
@@ -2613,12 +2613,12 @@ void ext3_set_inode_flags(struct inode *inode)
 
 
 /**
- * ext3_get_inode_flags - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext3_get_inode_flags - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext3_get_inode_flags(struct ext3_inode_info *ei)
 {
@@ -2643,8 +2643,8 @@ void ext3_get_inode_flags(struct ext3_inode_info *ei)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 {
@@ -2814,8 +2814,8 @@ bad_inode:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_do_update_inode(handle_t *handle,
 				struct inode *inode,
@@ -2955,8 +2955,8 @@ out_brelse:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
@@ -2982,8 +2982,8 @@ int ext3_write_inode(struct inode *inode, struct writeback_control *wbc)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_setattr(struct dentry *dentry, struct iattr *attr)
 {
@@ -3088,8 +3088,8 @@ err_out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_writepage_trans_blocks(struct inode *inode)
 {
@@ -3117,8 +3117,8 @@ static int ext3_writepage_trans_blocks(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_mark_iloc_dirty(handle_t *handle,
 		struct inode *inode, struct ext3_iloc *iloc)
@@ -3140,8 +3140,8 @@ int ext3_mark_iloc_dirty(handle_t *handle,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int
 ext3_reserve_inode_write(handle_t *handle, struct inode *inode,
@@ -3169,8 +3169,8 @@ ext3_reserve_inode_write(handle_t *handle, struct inode *inode,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_mark_inode_dirty(handle_t *handle, struct inode *inode)
 {
@@ -3191,8 +3191,8 @@ int ext3_mark_inode_dirty(handle_t *handle, struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext3_dirty_inode(struct inode *inode, int flags)
 {
@@ -3225,8 +3225,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext3_pin_inode(handle_t *handle, struct inode *inode)
 {
@@ -3254,8 +3254,8 @@ static int ext3_pin_inode(handle_t *handle, struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_change_inode_journal_flag(struct inode *inode, int val)
 {

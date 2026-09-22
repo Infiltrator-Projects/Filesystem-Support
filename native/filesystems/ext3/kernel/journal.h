@@ -72,19 +72,19 @@ void __jbd_debug(int level, const char *file, const char *func,
 		 unsigned int line, const char *fmt, ...);
 
 #define jbd_debug(n, fmt, a...) \
-/**
- * jbd_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 	__jbd_debug((n), __FILE__, __func__, __LINE__, (fmt), ##a)
 #else
 #define jbd_debug(n, fmt, a...)
 #endif
 
+/**
+ * jbd_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 static inline void *jbd_alloc(size_t size, gfp_t flags)
 {
 	return (void *)__get_free_pages(flags, get_order(size));
@@ -95,8 +95,8 @@ static inline void *jbd_alloc(size_t size, gfp_t flags)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void jbd_free(void *ptr, size_t size)
 {
@@ -252,14 +252,6 @@ enum jbd_state_bits {
 	BH_JBDPrivateStart,
 };
 
-/**
- * __journal_expect - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 BUFFER_FNS(JBD, jbd)
 BUFFER_FNS(JWrite, jwrite)
 BUFFER_FNS(JBDDirty, jbddirty)
@@ -597,8 +589,8 @@ extern void		__wait_on_journal (journal_t *);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline handle_t *journal_current_handle(void)
 {
@@ -664,8 +656,8 @@ extern struct kmem_cache *jbd_handle_cache;
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline handle_t *jbd_alloc_handle(gfp_t gfp_flags)
 {
@@ -677,8 +669,8 @@ static inline handle_t *jbd_alloc_handle(gfp_t gfp_flags)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void jbd_free_handle(handle_t *handle)
 {
@@ -725,8 +717,8 @@ extern int	cleanup_journal_tail(journal_t *);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int is_journal_aborted(journal_t *journal)
 {
@@ -738,8 +730,8 @@ static inline int is_journal_aborted(journal_t *journal)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int is_handle_aborted(handle_t *handle)
 {
@@ -753,8 +745,8 @@ static inline int is_handle_aborted(handle_t *handle)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void journal_abort_handle(handle_t *handle)
 {
@@ -769,8 +761,8 @@ static inline void journal_abort_handle(handle_t *handle)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int tid_gt(tid_t x, tid_t y)
 {
@@ -783,8 +775,8 @@ static inline int tid_gt(tid_t x, tid_t y)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int tid_geq(tid_t x, tid_t y)
 {
@@ -800,8 +792,8 @@ extern int journal_blocks_per_page(struct inode *inode);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int jbd_space_needed(journal_t *journal)
 {
@@ -828,59 +820,11 @@ extern int jbd_blocks_per_page(struct inode *inode);
 
 #ifdef __KERNEL__
 
-#define buffer_trace_init(bh)	do /**
- * buffer_trace_init - Initialises subsystem state and establishes the resources required by later operations.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
-{}/**
- * print_buffer_fields - Implements the print buffer fields operation within the embedded jbd contract subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
- while (0)
-#define print_buffer_fields(bh)	do {}/**
- * print_buffer_trace - Implements the print buffer trace operation within the embedded jbd contract subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
- while (0)
-#define print_buffer_trace(bh)	do {}/**
- * BUFFER_TRACE - Implements the BUFFER TRACE operation within the embedded jbd contract subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
- while (0)
-#define BUFFER_TRACE(bh, info)	do {}/**
- * BUFFER_TRACE2 - Implements the BUFFER TRACE2 operation within the embedded jbd contract subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
- while (0)
-#define BUFFER_TRACE2(bh, bh2, info)	do {}/**
- * JBUFFER_TRACE - Implements the JBUFFER TRACE operation within the embedded jbd contract subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
- while (0)
+#define buffer_trace_init(bh)	do {} while (0)
+#define print_buffer_fields(bh)	do {} while (0)
+#define print_buffer_trace(bh)	do {} while (0)
+#define BUFFER_TRACE(bh, info)	do {} while (0)
+#define BUFFER_TRACE2(bh, bh2, info)	do {} while (0)
 #define JBUFFER_TRACE(jh, info)	do {} while (0)
 
 #endif

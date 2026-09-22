@@ -125,12 +125,12 @@ static const struct fs_context_operations ext4_context_ops = {
 
 
 /**
- * __ext4_read_bh - Reads or materialises filesystem state for validation or higher-level processing.
+ * __ext4_read_bh - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void __ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
 				  bh_end_io_t *end_io, bool simu_fail)
@@ -150,12 +150,12 @@ static inline void __ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
 }
 
 /**
- * ext4_read_bh_nowait - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_read_bh_nowait - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_read_bh_nowait(struct buffer_head *bh, blk_opf_t op_flags,
 			 bh_end_io_t *end_io, bool simu_fail)
@@ -170,12 +170,12 @@ void ext4_read_bh_nowait(struct buffer_head *bh, blk_opf_t op_flags,
 }
 
 /**
- * ext4_read_bh - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_read_bh - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
 		 bh_end_io_t *end_io, bool simu_fail)
@@ -196,12 +196,12 @@ int ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
 }
 
 /**
- * ext4_read_bh_lock - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_read_bh_lock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_read_bh_lock(struct buffer_head *bh, blk_opf_t op_flags, bool wait)
 {
@@ -215,12 +215,12 @@ int ext4_read_bh_lock(struct buffer_head *bh, blk_opf_t op_flags, bool wait)
 
 
 /**
- * __ext4_sb_bread_gfp - Reads or materialises filesystem state for validation or higher-level processing.
+ * __ext4_sb_bread_gfp - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *__ext4_sb_bread_gfp(struct super_block *sb,
 					       sector_t block,
@@ -244,12 +244,12 @@ static struct buffer_head *__ext4_sb_bread_gfp(struct super_block *sb,
 }
 
 /**
- * ext4_sb_bread - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_sb_bread - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct buffer_head *ext4_sb_bread(struct super_block *sb, sector_t block,
 				   blk_opf_t op_flags)
@@ -261,12 +261,12 @@ struct buffer_head *ext4_sb_bread(struct super_block *sb, sector_t block,
 }
 
 /**
- * ext4_sb_bread_unmovable - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_sb_bread_unmovable - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct buffer_head *ext4_sb_bread_unmovable(struct super_block *sb,
 					    sector_t block)
@@ -278,12 +278,12 @@ struct buffer_head *ext4_sb_bread_unmovable(struct super_block *sb,
 }
 
 /**
- * ext4_sb_bread_nofail - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_sb_bread_nofail - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 struct buffer_head *ext4_sb_bread_nofail(struct super_block *sb,
 					 sector_t block)
@@ -299,8 +299,8 @@ struct buffer_head *ext4_sb_bread_nofail(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_sb_breadahead_unmovable(struct super_block *sb, sector_t block)
 {
@@ -319,8 +319,8 @@ void ext4_sb_breadahead_unmovable(struct super_block *sb, sector_t block)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_verify_csum_type(struct super_block *sb,
 				 struct ext4_super_block *es)
@@ -336,8 +336,8 @@ static int ext4_verify_csum_type(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 __le32 ext4_superblock_csum(struct super_block *sb,
 			    struct ext4_super_block *es)
@@ -356,8 +356,8 @@ __le32 ext4_superblock_csum(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_superblock_csum_verify(struct super_block *sb,
 				       struct ext4_super_block *es)
@@ -373,8 +373,8 @@ static int ext4_superblock_csum_verify(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_superblock_csum_set(struct super_block *sb)
 {
@@ -391,8 +391,8 @@ void ext4_superblock_csum_set(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 ext4_fsblk_t ext4_block_bitmap(struct super_block *sb,
 			       struct ext4_group_desc *bg)
@@ -407,8 +407,8 @@ ext4_fsblk_t ext4_block_bitmap(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 ext4_fsblk_t ext4_inode_bitmap(struct super_block *sb,
 			       struct ext4_group_desc *bg)
@@ -423,8 +423,8 @@ ext4_fsblk_t ext4_inode_bitmap(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 ext4_fsblk_t ext4_inode_table(struct super_block *sb,
 			      struct ext4_group_desc *bg)
@@ -439,8 +439,8 @@ ext4_fsblk_t ext4_inode_table(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 __u32 ext4_free_group_clusters(struct super_block *sb,
 			       struct ext4_group_desc *bg)
@@ -451,12 +451,12 @@ __u32 ext4_free_group_clusters(struct super_block *sb,
 }
 
 /**
- * ext4_free_inodes_count - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext4_free_inodes_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 __u32 ext4_free_inodes_count(struct super_block *sb,
 			      struct ext4_group_desc *bg)
@@ -471,8 +471,8 @@ __u32 ext4_free_inodes_count(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 __u32 ext4_used_dirs_count(struct super_block *sb,
 			      struct ext4_group_desc *bg)
@@ -487,8 +487,8 @@ __u32 ext4_used_dirs_count(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 __u32 ext4_itable_unused_count(struct super_block *sb,
 			      struct ext4_group_desc *bg)
@@ -503,8 +503,8 @@ __u32 ext4_itable_unused_count(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_block_bitmap_set(struct super_block *sb,
 			   struct ext4_group_desc *bg, ext4_fsblk_t blk)
@@ -519,8 +519,8 @@ void ext4_block_bitmap_set(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_inode_bitmap_set(struct super_block *sb,
 			   struct ext4_group_desc *bg, ext4_fsblk_t blk)
@@ -535,8 +535,8 @@ void ext4_inode_bitmap_set(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_inode_table_set(struct super_block *sb,
 			  struct ext4_group_desc *bg, ext4_fsblk_t blk)
@@ -551,8 +551,8 @@ void ext4_inode_table_set(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_free_group_clusters_set(struct super_block *sb,
 				  struct ext4_group_desc *bg, __u32 count)
@@ -567,8 +567,8 @@ void ext4_free_group_clusters_set(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_free_inodes_set(struct super_block *sb,
 			  struct ext4_group_desc *bg, __u32 count)
@@ -583,8 +583,8 @@ void ext4_free_inodes_set(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_used_dirs_set(struct super_block *sb,
 			  struct ext4_group_desc *bg, __u32 count)
@@ -599,8 +599,8 @@ void ext4_used_dirs_set(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_itable_unused_set(struct super_block *sb,
 			  struct ext4_group_desc *bg, __u32 count)
@@ -615,8 +615,8 @@ void ext4_itable_unused_set(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void __ext4_update_tstamp(__le32 *lo, __u8 *hi, time64_t now)
 {
@@ -627,26 +627,18 @@ static void __ext4_update_tstamp(__le32 *lo, __u8 *hi, time64_t now)
 }
 
 /**
- * __ext4_get_tstamp - Implements the get tstamp operation within the mount, superblock and module lifecycle subsystem.
+ * __ext4_get_tstamp - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static time64_t __ext4_get_tstamp(__le32 *lo, __u8 *hi)
 {
 	return ((time64_t)(*hi) << 32) + le32_to_cpu(*lo);
 }
 #define ext4_update_tstamp(es, tstamp) \
-/**
- * ext4_maybe_update_superblock - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 	__ext4_update_tstamp(&(es)->tstamp, &(es)->tstamp ## _hi, \
 			     ktime_get_real_seconds())
 #define ext4_get_tstamp(es, tstamp) \
@@ -656,6 +648,14 @@ static time64_t __ext4_get_tstamp(__le32 *lo, __u8 *hi)
 #define EXT4_SB_REFRESH_INTERVAL_KB (16384)
 
 
+/**
+ * ext4_maybe_update_superblock - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 static void ext4_maybe_update_superblock(struct super_block *sb)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -692,8 +692,8 @@ static void ext4_maybe_update_superblock(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_journal_commit_callback(journal_t *journal, transaction_t *txn)
 {
@@ -725,8 +725,8 @@ static void ext4_journal_commit_callback(journal_t *journal, transaction_t *txn)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_journalled_writepage_callback(struct folio *folio,
 					      struct writeback_control *wbc,
@@ -758,8 +758,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_journalled_submit_inode_data_buffers(struct jbd2_inode *jinode)
 {
@@ -781,8 +781,8 @@ static int ext4_journalled_submit_inode_data_buffers(struct jbd2_inode *jinode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_journal_submit_inode_data_buffers(struct jbd2_inode *jinode)
 {
@@ -800,8 +800,8 @@ static int ext4_journal_submit_inode_data_buffers(struct jbd2_inode *jinode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_journal_finish_inode_data_buffers(struct jbd2_inode *jinode)
 {
@@ -818,8 +818,8 @@ static int ext4_journal_finish_inode_data_buffers(struct jbd2_inode *jinode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool system_going_down(void)
 {
@@ -838,15 +838,7 @@ struct ext4_err_translation {
 	int errno;
 };
 
-#define EXT4_ERR_TRANSLATE(err) /**
- * EXT4_ERR_TRANSLATE - Implements the EXT4 ERR TRANSLATE operation within the mount, superblock and module lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
-{ .code = EXT4_ERR_##err, .errno = err }
+#define EXT4_ERR_TRANSLATE(err) { .code = EXT4_ERR_##err, .errno = err }
 
 static struct ext4_err_translation err_translation[] = {
 	EXT4_ERR_TRANSLATE(EIO),
@@ -872,8 +864,8 @@ static struct ext4_err_translation err_translation[] = {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_errno_to_code(int errno)
 {
@@ -890,8 +882,8 @@ static int ext4_errno_to_code(int errno)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void save_error_info(struct super_block *sb, int error,
 			    __u32 ino, __u64 block,
@@ -928,8 +920,8 @@ static void save_error_info(struct super_block *sb, int error,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_handle_error(struct super_block *sb, bool force_ro, int error,
 			      __u32 ino, __u64 block,
@@ -978,8 +970,8 @@ static void ext4_handle_error(struct super_block *sb, bool force_ro, int error,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void update_super_work(struct work_struct *work)
 {
@@ -1031,17 +1023,17 @@ write_directly:
 }
 
 #define ext4_error_ratelimit(sb)					\
+		___ratelimit(&(EXT4_SB(sb)->s_err_ratelimit_state),	\
+			     "EXT4-fs error")
+
 /**
  * __ext4_error - Implements the error operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
-		___ratelimit(&(EXT4_SB(sb)->s_err_ratelimit_state),	\
-			     "EXT4-fs error")
-
 void __ext4_error(struct super_block *sb, const char *function,
 		  unsigned int line, bool force_ro, int error, __u64 block,
 		  const char *fmt, ...)
@@ -1072,8 +1064,8 @@ void __ext4_error(struct super_block *sb, const char *function,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __ext4_error_inode(struct inode *inode, const char *function,
 			unsigned int line, ext4_fsblk_t block, int error,
@@ -1113,8 +1105,8 @@ void __ext4_error_inode(struct inode *inode, const char *function,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __ext4_error_file(struct file *file, const char *function,
 		       unsigned int line, ext4_fsblk_t block,
@@ -1161,8 +1153,8 @@ void __ext4_error_file(struct file *file, const char *function,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 const char *ext4_decode_error(struct super_block *sb, int errno,
 			      char nbuf[16])
@@ -1209,8 +1201,8 @@ const char *ext4_decode_error(struct super_block *sb, int errno,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __ext4_std_error(struct super_block *sb, const char *function,
 		      unsigned int line, int errno)
@@ -1240,8 +1232,8 @@ void __ext4_std_error(struct super_block *sb, const char *function,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __ext4_msg(struct super_block *sb,
 		const char *prefix, const char *fmt, ...)
@@ -1271,8 +1263,8 @@ void __ext4_msg(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_warning_ratelimit(struct super_block *sb)
 {
@@ -1286,8 +1278,8 @@ static int ext4_warning_ratelimit(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __ext4_warning(struct super_block *sb, const char *function,
 		    unsigned int line, const char *fmt, ...)
@@ -1311,8 +1303,8 @@ void __ext4_warning(struct super_block *sb, const char *function,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __ext4_warning_inode(const struct inode *inode, const char *function,
 			  unsigned int line, const char *fmt, ...)
@@ -1337,8 +1329,8 @@ void __ext4_warning_inode(const struct inode *inode, const char *function,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void __ext4_grp_locked_error(const char *function, unsigned int line,
 			     struct super_block *sb, ext4_group_t grp,
@@ -1393,8 +1385,8 @@ __acquires(bitlock)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_mark_group_bitmap_corrupted(struct super_block *sb,
 				     ext4_group_t group,
@@ -1433,8 +1425,8 @@ void ext4_mark_group_bitmap_corrupted(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_update_dynamic_rev(struct super_block *sb)
 {
@@ -1460,8 +1452,8 @@ void ext4_update_dynamic_rev(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline struct inode *orphan_list_entry(struct list_head *l)
 {
@@ -1473,8 +1465,8 @@ static inline struct inode *orphan_list_entry(struct list_head *l)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void dump_orphan_list(struct super_block *sb, struct ext4_sb_info *sbi)
 {
@@ -1502,8 +1494,8 @@ static int ext4_quota_off(struct super_block *sb, int type);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_quotas_off(struct super_block *sb, int type)
 {
@@ -1516,12 +1508,12 @@ static inline void ext4_quotas_off(struct super_block *sb, int type)
 
 
 /**
- * get_qf_name - Implements the get qf name operation within the mount, superblock and module lifecycle subsystem.
+ * get_qf_name - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline char *get_qf_name(struct super_block *sb,
 				struct ext4_sb_info *sbi,
@@ -1536,8 +1528,8 @@ static inline char *get_qf_name(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_quotas_off(struct super_block *sb, int type)
 {
@@ -1549,8 +1541,8 @@ static inline void ext4_quotas_off(struct super_block *sb, int type)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_percpu_param_init(struct ext4_sb_info *sbi)
 {
@@ -1590,8 +1582,8 @@ static int ext4_percpu_param_init(struct ext4_sb_info *sbi)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_percpu_param_destroy(struct ext4_sb_info *sbi)
 {
@@ -1608,8 +1600,8 @@ static void ext4_percpu_param_destroy(struct ext4_sb_info *sbi)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_group_desc_free(struct ext4_sb_info *sbi)
 {
@@ -1627,8 +1619,8 @@ static void ext4_group_desc_free(struct ext4_sb_info *sbi)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_flex_groups_free(struct ext4_sb_info *sbi)
 {
@@ -1644,12 +1636,12 @@ static void ext4_flex_groups_free(struct ext4_sb_info *sbi)
 }
 
 /**
- * ext4_put_super - Implements the put super operation within the mount, superblock and module lifecycle subsystem.
+ * ext4_put_super - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_put_super(struct super_block *sb)
 {
@@ -1752,8 +1744,8 @@ static struct kmem_cache *ext4_inode_cachep;
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct inode *ext4_alloc_inode(struct super_block *sb)
 {
@@ -1800,8 +1792,8 @@ static struct inode *ext4_alloc_inode(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_drop_inode(struct inode *inode)
 {
@@ -1819,8 +1811,8 @@ static int ext4_drop_inode(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_free_in_core_inode(struct inode *inode)
 {
@@ -1837,8 +1829,8 @@ static void ext4_free_in_core_inode(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_destroy_inode(struct inode *inode)
 {
@@ -1865,8 +1857,8 @@ static void ext4_destroy_inode(struct inode *inode)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_shutdown(struct super_block *sb)
 {
@@ -1878,8 +1870,8 @@ static void ext4_shutdown(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void init_once(void *foo)
 {
@@ -1897,8 +1889,8 @@ static void init_once(void *foo)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int __init init_inodecache(void)
 {
@@ -1918,8 +1910,8 @@ static int __init init_inodecache(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void destroy_inodecache(void)
 {
@@ -1934,8 +1926,8 @@ static void destroy_inodecache(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_clear_inode(struct inode *inode)
 {
@@ -1956,12 +1948,12 @@ void ext4_clear_inode(struct inode *inode)
 }
 
 /**
- * ext4_nfs_get_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext4_nfs_get_inode - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct inode *ext4_nfs_get_inode(struct super_block *sb,
 					u64 ino, u32 generation)
@@ -1985,8 +1977,8 @@ static struct inode *ext4_nfs_get_inode(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dentry *ext4_fh_to_dentry(struct super_block *sb, struct fid *fid,
 					int fh_len, int fh_type)
@@ -2000,8 +1992,8 @@ static struct dentry *ext4_fh_to_dentry(struct super_block *sb, struct fid *fid,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dentry *ext4_fh_to_parent(struct super_block *sb, struct fid *fid,
 					int fh_len, int fh_type)
@@ -2015,8 +2007,8 @@ static struct dentry *ext4_fh_to_parent(struct super_block *sb, struct fid *fid,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_nfs_commit_metadata(struct inode *inode)
 {
@@ -2047,12 +2039,12 @@ static int ext4_quota_enable(struct super_block *sb, int type, int format_id,
 			     unsigned int flags);
 
 /**
- * ext4_get_dquots - Implements the get dquots operation within the mount, superblock and module lifecycle subsystem.
+ * ext4_get_dquots - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct dquot __rcu **ext4_get_dquots(struct inode *inode)
 {
@@ -2289,14 +2281,6 @@ static const struct fs_parameter_spec ext4_param_specs[] = {
 #define MOPT_SKIP	0x0080
 #define	MOPT_2		0x0100
 
-/**
- * DEFAULT_JOURNAL_IOPRIO - Implements the DEFAULT JOURNAL IOPRIO operation within the mount, superblock and module lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 static const struct mount_opts {
 	int	token;
 	int	mount_opt;
@@ -2373,14 +2357,6 @@ static const struct mount_opts {
 };
 
 #if IS_ENABLED(CONFIG_UNICODE)
-/**
- * IS_ENABLED - Implements the IS ENABLED operation within the mount, superblock and module lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 static const struct ext4_sb_encodings {
 	__u16 magic;
 	char *name;
@@ -2390,12 +2366,12 @@ static const struct ext4_sb_encodings {
 };
 
 /**
- * ext4_sb_read_encoding - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_sb_read_encoding - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static const struct ext4_sb_encodings *
 ext4_sb_read_encoding(const struct ext4_super_block *es)
@@ -2431,14 +2407,6 @@ ext4_sb_read_encoding(const struct ext4_super_block *es)
 #define EXT4_SPEC_s_sb_block			(1 << 18)
 #define EXT4_SPEC_mb_optimize_scan		(1 << 19)
 
-/**
- * EXT4_SPEC_mb_optimize_scan - Implements the EXT4 SPEC mb optimize scan operation within the mount, superblock and module lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 struct ext4_fs_context {
 	char		*s_qf_names[EXT4_MAXQUOTAS];
 	struct fscrypt_dummy_policy dummy_enc_policy;
@@ -2475,8 +2443,8 @@ struct ext4_fs_context {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_fc_free(struct fs_context *fc)
 {
@@ -2498,8 +2466,8 @@ static void ext4_fc_free(struct fs_context *fc)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_init_fs_context(struct fs_context *fc)
 {
@@ -2526,8 +2494,8 @@ int ext4_init_fs_context(struct fs_context *fc)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int note_qf_name(struct fs_context *fc, int qtype,
 		       struct fs_parameter *param)
@@ -2572,8 +2540,8 @@ static int note_qf_name(struct fs_context *fc, int qtype,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int unnote_qf_name(struct fs_context *fc, int qtype)
 {
@@ -2593,8 +2561,8 @@ static int unnote_qf_name(struct fs_context *fc, int qtype)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_parse_test_dummy_encryption(const struct fs_parameter *param,
 					    struct ext4_fs_context *ctx)
@@ -2620,14 +2588,6 @@ static int ext4_parse_test_dummy_encryption(const struct fs_parameter *param,
 }
 
 #define EXT4_SET_CTX(name)						\
-/**
- * name - Implements the name operation within the mount, superblock and module lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 static inline void ctx_set_##name(struct ext4_fs_context *ctx,		\
 				  unsigned long flag)			\
 {									\
@@ -2636,14 +2596,6 @@ static inline void ctx_set_##name(struct ext4_fs_context *ctx,		\
 }
 
 #define EXT4_CLEAR_CTX(name)						\
-/**
- * name - Implements the name operation within the mount, superblock and module lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 static inline void ctx_clear_##name(struct ext4_fs_context *ctx,	\
 				    unsigned long flag)			\
 {									\
@@ -2652,14 +2604,6 @@ static inline void ctx_clear_##name(struct ext4_fs_context *ctx,	\
 }
 
 #define EXT4_TEST_CTX(name)						\
-/**
- * name - Implements the name operation within the mount, superblock and module lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
- */
 static inline unsigned long						\
 ctx_test_##name(struct ext4_fs_context *ctx, unsigned long flag)	\
 {									\
@@ -2679,8 +2623,8 @@ EXT4_TEST_CTX(mount_opt2);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_parse_param(struct fs_context *fc, struct fs_parameter *param)
 {
@@ -2978,8 +2922,8 @@ static int ext4_parse_param(struct fs_context *fc, struct fs_parameter *param)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int parse_options(struct fs_context *fc, char *options)
 {
@@ -3033,8 +2977,8 @@ static int parse_options(struct fs_context *fc, char *options)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int parse_apply_sb_mount_options(struct super_block *sb,
 					struct ext4_fs_context *m_ctx)
@@ -3095,8 +3039,8 @@ out_free:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_apply_quota_options(struct fs_context *fc,
 				     struct super_block *sb)
@@ -3138,8 +3082,8 @@ static void ext4_apply_quota_options(struct fs_context *fc,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_check_quota_consistency(struct fs_context *fc,
 					struct super_block *sb)
@@ -3260,8 +3204,8 @@ err_jquota_specified:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_check_test_dummy_encryption(const struct fs_context *fc,
 					    struct super_block *sb)
@@ -3304,8 +3248,8 @@ static int ext4_check_test_dummy_encryption(const struct fs_context *fc,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_apply_test_dummy_encryption(struct ext4_fs_context *ctx,
 					     struct super_block *sb)
@@ -3324,8 +3268,8 @@ static void ext4_apply_test_dummy_encryption(struct ext4_fs_context *ctx,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_check_opt_consistency(struct fs_context *fc,
 				      struct super_block *sb)
@@ -3404,8 +3348,8 @@ fail_dax_change_remount:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_apply_options(struct fs_context *fc, struct super_block *sb)
 {
@@ -3445,8 +3389,8 @@ static void ext4_apply_options(struct fs_context *fc, struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_validate_options(struct fs_context *fc)
 {
@@ -3480,8 +3424,8 @@ static int ext4_validate_options(struct fs_context *fc)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline void ext4_show_quota_options(struct seq_file *seq,
 					   struct super_block *sb)
@@ -3523,8 +3467,8 @@ static inline void ext4_show_quota_options(struct seq_file *seq,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static const char *token2str(int token)
 {
@@ -3542,8 +3486,8 @@ static const char *token2str(int token)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int _ext4_show_options(struct seq_file *seq, struct super_block *sb,
 			      int nodefs)
@@ -3662,8 +3606,8 @@ static int _ext4_show_options(struct seq_file *seq, struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_show_options(struct seq_file *seq, struct dentry *root)
 {
@@ -3675,8 +3619,8 @@ static int ext4_show_options(struct seq_file *seq, struct dentry *root)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_seq_options_show(struct seq_file *seq, void *offset)
 {
@@ -3694,8 +3638,8 @@ int ext4_seq_options_show(struct seq_file *seq, void *offset)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_setup_super(struct super_block *sb, struct ext4_super_block *es,
 			    int read_only)
@@ -3760,8 +3704,8 @@ done:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_alloc_flex_bg_array(struct super_block *sb, ext4_group_t ngroup)
 {
@@ -3815,8 +3759,8 @@ int ext4_alloc_flex_bg_array(struct super_block *sb, ext4_group_t ngroup)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_fill_flex_info(struct super_block *sb)
 {
@@ -3857,8 +3801,8 @@ failed:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static __le16 ext4_group_desc_csum(struct super_block *sb, __u32 block_group,
 				   struct ext4_group_desc *gdp)
@@ -3909,8 +3853,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_group_desc_csum_verify(struct super_block *sb, __u32 block_group,
 				struct ext4_group_desc *gdp)
@@ -3927,8 +3871,8 @@ int ext4_group_desc_csum_verify(struct super_block *sb, __u32 block_group,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_group_desc_csum_set(struct super_block *sb, __u32 block_group,
 			      struct ext4_group_desc *gdp)
@@ -3944,8 +3888,8 @@ void ext4_group_desc_csum_set(struct super_block *sb, __u32 block_group,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_check_descriptors(struct super_block *sb,
 				  ext4_fsblk_t sb_block,
@@ -4072,8 +4016,8 @@ static int ext4_check_descriptors(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static loff_t ext4_max_size(int blkbits, int has_huge_files)
 {
@@ -4107,8 +4051,8 @@ static loff_t ext4_max_size(int blkbits, int has_huge_files)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static loff_t ext4_max_bitmap_size(int bits, int has_huge_files)
 {
@@ -4175,8 +4119,8 @@ check_lfs:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ext4_fsblk_t descriptor_loc(struct super_block *sb,
 				   ext4_fsblk_t logical_sb_block, int nr)
@@ -4203,12 +4147,12 @@ static ext4_fsblk_t descriptor_loc(struct super_block *sb,
 
 
 /**
- * ext4_get_stripe_size - Implements the get stripe size operation within the mount, superblock and module lifecycle subsystem.
+ * ext4_get_stripe_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned long ext4_get_stripe_size(struct ext4_sb_info *sbi)
 {
@@ -4239,8 +4183,8 @@ static unsigned long ext4_get_stripe_size(struct ext4_sb_info *sbi)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_feature_set_ok(struct super_block *sb, int readonly)
 {
@@ -4308,8 +4252,8 @@ int ext4_feature_set_ok(struct super_block *sb, int readonly)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void print_daily_error_info(struct timer_list *t)
 {
@@ -4360,8 +4304,8 @@ static void print_daily_error_info(struct timer_list *t)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_run_li_request(struct ext4_li_request *elr)
 {
@@ -4425,8 +4369,8 @@ static int ext4_run_li_request(struct ext4_li_request *elr)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_remove_li_request(struct ext4_li_request *elr)
 {
@@ -4443,8 +4387,8 @@ static void ext4_remove_li_request(struct ext4_li_request *elr)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_unregister_li_request(struct super_block *sb)
 {
@@ -4468,8 +4412,8 @@ static struct task_struct *ext4_lazyinit_task;
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_lazyinit_thread(void *arg)
 {
@@ -4564,12 +4508,12 @@ exit_thread:
 }
 
 /**
- * ext4_clear_request_list - Implements the clear request list operation within the mount, superblock and module lifecycle subsystem.
+ * ext4_clear_request_list - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_clear_request_list(void)
 {
@@ -4590,8 +4534,8 @@ static void ext4_clear_request_list(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_run_lazyinit_thread(void)
 {
@@ -4617,8 +4561,8 @@ static int ext4_run_lazyinit_thread(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ext4_group_t ext4_has_uninit_itable(struct super_block *sb)
 {
@@ -4645,8 +4589,8 @@ static ext4_group_t ext4_has_uninit_itable(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_li_info_new(void)
 {
@@ -4671,8 +4615,8 @@ static int ext4_li_info_new(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct ext4_li_request *ext4_li_request_new(struct super_block *sb,
 					    ext4_group_t start)
@@ -4702,8 +4646,8 @@ static struct ext4_li_request *ext4_li_request_new(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_register_li_request(struct super_block *sb,
 			     ext4_group_t first_not_zeroed)
@@ -4765,8 +4709,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_destroy_lazyinit_thread(void)
 {
@@ -4783,8 +4727,8 @@ static void ext4_destroy_lazyinit_thread(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int set_journal_csum_feature_set(struct super_block *sb)
 {
@@ -4831,8 +4775,8 @@ static int set_journal_csum_feature_set(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int count_overhead(struct super_block *sb, ext4_group_t grp,
 			  char *buf)
@@ -4900,8 +4844,8 @@ static int count_overhead(struct super_block *sb, ext4_group_t grp,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_calculate_overhead(struct super_block *sb)
 {
@@ -4955,8 +4899,8 @@ int ext4_calculate_overhead(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_set_resv_clusters(struct super_block *sb)
 {
@@ -4982,8 +4926,8 @@ static void ext4_set_resv_clusters(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static const char *ext4_quota_mode(struct super_block *sb)
 {
@@ -5005,8 +4949,8 @@ static const char *ext4_quota_mode(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_setup_csum_trigger(struct super_block *sb,
 				    enum ext4_journal_trigger_type type,
@@ -5027,8 +4971,8 @@ static void ext4_setup_csum_trigger(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_free_sbi(struct ext4_sb_info *sbi)
 {
@@ -5045,8 +4989,8 @@ static void ext4_free_sbi(struct ext4_sb_info *sbi)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct ext4_sb_info *ext4_alloc_sbi(struct super_block *sb)
 {
@@ -5079,8 +5023,8 @@ err_out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_set_def_opts(struct super_block *sb,
 			      struct ext4_super_block *es)
@@ -5141,8 +5085,8 @@ static void ext4_set_def_opts(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_handle_clustersize(struct super_block *sb)
 {
@@ -5203,8 +5147,8 @@ static int ext4_handle_clustersize(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_fast_commit_init(struct super_block *sb)
 {
@@ -5235,8 +5179,8 @@ static void ext4_fast_commit_init(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_inode_info_init(struct super_block *sb,
 				struct ext4_super_block *es)
@@ -5312,8 +5256,8 @@ static int ext4_inode_info_init(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_encoding_init(struct super_block *sb, struct ext4_super_block *es)
 {
@@ -5361,8 +5305,8 @@ static int ext4_encoding_init(struct super_block *sb, struct ext4_super_block *e
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int ext4_encoding_init(struct super_block *sb, struct ext4_super_block *es)
 {
@@ -5375,8 +5319,8 @@ static inline int ext4_encoding_init(struct super_block *sb, struct ext4_super_b
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_init_metadata_csum(struct super_block *sb, struct ext4_super_block *es)
 {
@@ -5427,8 +5371,8 @@ static int ext4_init_metadata_csum(struct super_block *sb, struct ext4_super_blo
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_check_feature_compatibility(struct super_block *sb,
 					    struct ext4_super_block *es,
@@ -5498,8 +5442,8 @@ static int ext4_check_feature_compatibility(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_check_geometry(struct super_block *sb,
 			       struct ext4_super_block *es)
@@ -5580,8 +5524,8 @@ static int ext4_check_geometry(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_group_desc_init(struct super_block *sb,
 				struct ext4_super_block *es,
@@ -5650,8 +5594,8 @@ static int ext4_group_desc_init(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_load_and_init_journal(struct super_block *sb,
 				      struct ext4_super_block *es,
@@ -5739,8 +5683,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_check_journal_data_mode(struct super_block *sb)
 {
@@ -5776,12 +5720,12 @@ static int ext4_check_journal_data_mode(struct super_block *sb)
 }
 
 /**
- * ext4_load_super - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_load_super - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_load_super(struct super_block *sb, ext4_fsblk_t *lsb,
 			   int silent)
@@ -5886,8 +5830,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_hash_info_init(struct super_block *sb)
 {
@@ -5935,8 +5879,8 @@ static int ext4_hash_info_init(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_block_group_meta_init(struct super_block *sb, int silent)
 {
@@ -5993,8 +5937,8 @@ static int ext4_block_group_meta_init(struct super_block *sb, int silent)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool ext4_is_stripe_incompatible(struct super_block *sb, unsigned long stripe)
 {
@@ -6008,8 +5952,8 @@ static bool ext4_is_stripe_incompatible(struct super_block *sb, unsigned long st
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int __ext4_fill_super(struct fs_context *fc, struct super_block *sb)
 {
@@ -6456,8 +6400,8 @@ out_fail:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_fill_super(struct super_block *sb, struct fs_context *fc)
 {
@@ -6510,12 +6454,12 @@ free_sbi:
 }
 
 /**
- * ext4_get_tree - Implements the get tree operation within the mount, superblock and module lifecycle subsystem.
+ * ext4_get_tree - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_get_tree(struct fs_context *fc)
 {
@@ -6528,8 +6472,8 @@ static int ext4_get_tree(struct fs_context *fc)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_init_journal_params(struct super_block *sb, journal_t *journal)
 {
@@ -6556,12 +6500,12 @@ static void ext4_init_journal_params(struct super_block *sb, journal_t *journal)
 }
 
 /**
- * ext4_get_journal_inode - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ext4_get_journal_inode - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct inode *ext4_get_journal_inode(struct super_block *sb,
 					     unsigned int journal_inum)
@@ -6596,8 +6540,8 @@ static struct inode *ext4_get_journal_inode(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_journal_bmap(journal_t *journal, sector_t *block)
 {
@@ -6626,8 +6570,8 @@ static int ext4_journal_bmap(journal_t *journal, sector_t *block)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static journal_t *ext4_open_inode_journal(struct super_block *sb,
 					  unsigned int journal_inum)
@@ -6652,12 +6596,12 @@ static journal_t *ext4_open_inode_journal(struct super_block *sb,
 }
 
 /**
- * ext4_get_journal_blkdev - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ext4_get_journal_blkdev - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct file *ext4_get_journal_blkdev(struct super_block *sb,
 					dev_t j_dev, ext4_fsblk_t *j_start,
@@ -6743,8 +6687,8 @@ out_bdev:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static journal_t *ext4_open_dev_journal(struct super_block *sb,
 					dev_t j_dev)
@@ -6786,12 +6730,12 @@ out_bdev:
 }
 
 /**
- * ext4_load_journal - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ext4_load_journal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_load_journal(struct super_block *sb,
 			     struct ext4_super_block *es,
@@ -6928,8 +6872,8 @@ err_out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_update_super(struct super_block *sb)
 {
@@ -7000,8 +6944,8 @@ static void ext4_update_super(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_commit_super(struct super_block *sb)
 {
@@ -7050,8 +6994,8 @@ static int ext4_commit_super(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_mark_recovery_complete(struct super_block *sb,
 				       struct ext4_super_block *es)
@@ -7094,8 +7038,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_clear_journal_err(struct super_block *sb,
 				   struct ext4_super_block *es)
@@ -7139,8 +7083,8 @@ static int ext4_clear_journal_err(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_force_commit(struct super_block *sb)
 {
@@ -7152,8 +7096,8 @@ int ext4_force_commit(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_sync_fs(struct super_block *sb, int wait)
 {
@@ -7201,8 +7145,8 @@ static int ext4_sync_fs(struct super_block *sb, int wait)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_freeze(struct super_block *sb)
 {
@@ -7238,8 +7182,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_unfreeze(struct super_block *sb)
 {
@@ -7282,8 +7226,8 @@ struct ext4_mount_options {
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int __ext4_remount(struct fs_context *fc, struct super_block *sb)
 {
@@ -7570,8 +7514,8 @@ restore_opts:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_reconfigure(struct fs_context *fc)
 {
@@ -7602,8 +7546,8 @@ static int ext4_reconfigure(struct fs_context *fc)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_statfs_project(struct super_block *sb,
 			       kprojid_t projid, struct kstatfs *buf)
@@ -7659,8 +7603,8 @@ static int ext4_statfs_project(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
@@ -7707,8 +7651,8 @@ static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline struct inode *dquot_to_inode(struct dquot *dquot)
 {
@@ -7720,8 +7664,8 @@ static inline struct inode *dquot_to_inode(struct dquot *dquot)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_write_dquot(struct dquot *dquot)
 {
@@ -7750,8 +7694,8 @@ static int ext4_write_dquot(struct dquot *dquot)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_acquire_dquot(struct dquot *dquot)
 {
@@ -7778,8 +7722,8 @@ static int ext4_acquire_dquot(struct dquot *dquot)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_release_dquot(struct dquot *dquot)
 {
@@ -7822,8 +7766,8 @@ static int ext4_release_dquot(struct dquot *dquot)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_mark_dquot_dirty(struct dquot *dquot)
 {
@@ -7842,8 +7786,8 @@ static int ext4_mark_dquot_dirty(struct dquot *dquot)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_write_info(struct super_block *sb, int type)
 {
@@ -7866,8 +7810,8 @@ static int ext4_write_info(struct super_block *sb, int type)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void lockdep_set_quota_inode(struct inode *inode, int subclass)
 {
@@ -7884,8 +7828,8 @@ static void lockdep_set_quota_inode(struct inode *inode, int subclass)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_quota_on(struct super_block *sb, int type, int format_id,
 			 const struct path *path)
@@ -7949,8 +7893,8 @@ static int ext4_quota_on(struct super_block *sb, int type, int format_id,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline bool ext4_check_quota_inum(int type, unsigned long qf_inum)
 {
@@ -7971,8 +7915,8 @@ static inline bool ext4_check_quota_inum(int type, unsigned long qf_inum)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_quota_enable(struct super_block *sb, int type, int format_id,
 			     unsigned int flags)
@@ -8020,8 +7964,8 @@ static int ext4_quota_enable(struct super_block *sb, int type, int format_id,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_enable_quotas(struct super_block *sb)
 {
@@ -8063,8 +8007,8 @@ int ext4_enable_quotas(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_quota_off(struct super_block *sb, int type)
 {
@@ -8112,12 +8056,12 @@ out:
 
 
 /**
- * ext4_quota_read - Reads or materialises filesystem state for validation or higher-level processing.
+ * ext4_quota_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_quota_read(struct super_block *sb, int type, char *data,
 			       size_t len, loff_t off)
@@ -8159,8 +8103,8 @@ static ssize_t ext4_quota_read(struct super_block *sb, int type, char *data,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static ssize_t ext4_quota_write(struct super_block *sb, int type,
 				const char *data, size_t len, loff_t off)
@@ -8227,8 +8171,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_kill_sb(struct super_block *sb)
 {
@@ -8259,8 +8203,8 @@ wait_queue_head_t ext4__ioend_wq[EXT4_WQ_HASH_SZ];
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int __init ext4_core_init_fs(void)
 {
@@ -8342,8 +8286,8 @@ out7:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void __exit ext4_core_exit_fs(void)
 {
@@ -8374,8 +8318,8 @@ void infiltratr_jbd2_exit(void);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int __init ext4_init_fs(void)
 {
@@ -8400,8 +8344,8 @@ static int __init ext4_init_fs(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void __exit ext4_exit_fs(void)
 {

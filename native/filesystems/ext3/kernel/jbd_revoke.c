@@ -164,8 +164,8 @@ static void flush_descriptor(journal_t *, struct journal_head *, int, int);
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static inline int hash(journal_t *journal, unsigned int block)
 {
@@ -179,8 +179,8 @@ static inline int hash(journal_t *journal, unsigned int block)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int insert_revoke_hash(journal_t *journal, unsigned int blocknr,
 			      tid_t seq)
@@ -211,12 +211,12 @@ oom:
 
 
 /**
- * find_revoke_record - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * find_revoke_record - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct jbd_revoke_record_s *find_revoke_record(journal_t *journal,
 						      unsigned int blocknr)
@@ -244,8 +244,8 @@ static struct jbd_revoke_record_s *find_revoke_record(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void journal_destroy_revoke_caches(void)
 {
@@ -264,8 +264,8 @@ void journal_destroy_revoke_caches(void)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int __init journal_init_revoke_caches(void)
 {
@@ -299,8 +299,8 @@ record_cache_failure:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct jbd_revoke_table_s *journal_init_revoke_table(int hash_size)
 {
@@ -333,8 +333,8 @@ out:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void journal_destroy_revoke_table(struct jbd_revoke_table_s *table)
 {
@@ -356,8 +356,8 @@ static void journal_destroy_revoke_table(struct jbd_revoke_table_s *table)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int journal_init_revoke(journal_t *journal, int hash_size)
 {
@@ -390,8 +390,8 @@ fail0:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void journal_destroy_revoke(journal_t *journal)
 {
@@ -411,8 +411,8 @@ void journal_destroy_revoke(journal_t *journal)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int journal_revoke(handle_t *handle, unsigned int blocknr,
 		   struct buffer_head *bh_in)
@@ -489,8 +489,8 @@ int journal_revoke(handle_t *handle, unsigned int blocknr,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int journal_cancel_revoke(handle_t *handle, struct journal_head *jh)
 {
@@ -548,8 +548,8 @@ int journal_cancel_revoke(handle_t *handle, struct journal_head *jh)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void journal_clear_buffer_revoked_flags(journal_t *journal)
 {
@@ -582,8 +582,8 @@ void journal_clear_buffer_revoked_flags(journal_t *journal)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void journal_switch_revoke_table(journal_t *journal)
 {
@@ -604,8 +604,8 @@ void journal_switch_revoke_table(journal_t *journal)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void journal_write_revoke_records(journal_t *journal,
 				  transaction_t *transaction, int write_op)
@@ -649,8 +649,8 @@ void journal_write_revoke_records(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void write_one_revoke_record(journal_t *journal,
 				    transaction_t *transaction,
@@ -707,8 +707,8 @@ static void write_one_revoke_record(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void flush_descriptor(journal_t *journal,
 			     struct journal_head *descriptor,
@@ -737,8 +737,8 @@ static void flush_descriptor(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int journal_set_revoke(journal_t *journal,
 		       unsigned int blocknr,
@@ -763,8 +763,8 @@ int journal_set_revoke(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int journal_test_revoke(journal_t *journal,
 			unsigned int blocknr,
@@ -786,8 +786,8 @@ int journal_test_revoke(journal_t *journal,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void journal_clear_revoke(journal_t *journal)
 {

@@ -34,8 +34,8 @@
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void ext4_fname_from_fscrypt_name(struct ext4_filename *dst,
 					 const struct fscrypt_name *src)
@@ -54,8 +54,8 @@ static void ext4_fname_from_fscrypt_name(struct ext4_filename *dst,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_fname_setup_filename(struct inode *dir, const struct qstr *iname,
 			      int lookup, struct ext4_filename *fname)
@@ -77,12 +77,12 @@ int ext4_fname_setup_filename(struct inode *dir, const struct qstr *iname,
 }
 
 /**
- * ext4_fname_prepare_lookup - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ * ext4_fname_prepare_lookup - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_fname_prepare_lookup(struct inode *dir, struct dentry *dentry,
 			      struct ext4_filename *fname)
@@ -107,8 +107,8 @@ int ext4_fname_prepare_lookup(struct inode *dir, struct dentry *dentry,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 void ext4_fname_free_filename(struct ext4_filename *fname)
 {
@@ -129,8 +129,8 @@ void ext4_fname_free_filename(struct ext4_filename *fname)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool uuid_is_zero(__u8 u[16])
 {
@@ -143,12 +143,12 @@ static bool uuid_is_zero(__u8 u[16])
 }
 
 /**
- * ext4_ioctl_get_encryption_pwsalt - Handles a filesystem-specific control operation exposed through the file API.
+ * ext4_ioctl_get_encryption_pwsalt - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext4_ioctl_get_encryption_pwsalt(struct file *filp, void __user *arg)
 {
@@ -194,12 +194,12 @@ pwsalt_err_exit:
 }
 
 /**
- * ext4_get_context - Implements the get context operation within the filesystem encryption integration subsystem.
+ * ext4_get_context - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_get_context(struct inode *inode, void *ctx, size_t len)
 {
@@ -212,8 +212,8 @@ static int ext4_get_context(struct inode *inode, void *ctx, size_t len)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int ext4_set_context(struct inode *inode, const void *ctx, size_t len,
 							void *fs_data)
@@ -289,12 +289,12 @@ retry:
 }
 
 /**
- * ext4_get_dummy_policy - Implements the get dummy policy operation within the filesystem encryption integration subsystem.
+ * ext4_get_dummy_policy - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static const union fscrypt_policy *ext4_get_dummy_policy(struct super_block *sb)
 {
@@ -306,8 +306,8 @@ static const union fscrypt_policy *ext4_get_dummy_policy(struct super_block *sb)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static bool ext4_has_stable_inodes(struct super_block *sb)
 {

@@ -38,6 +38,14 @@
 #define outside(b, first, last)	((b) < (first) || (b) >= (last))
 #define inside(b, first, last)	((b) >= (first) && (b) < (last))
 
+/**
+ * verify_group_input - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 static int verify_group_input(struct super_block *sb,
 			      struct ext3_new_group_data *input)
 {
@@ -135,8 +143,8 @@ static int verify_group_input(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static struct buffer_head *bclean(handle_t *handle, struct super_block *sb,
 				  ext3_fsblk_t blk)
@@ -166,8 +174,8 @@ static struct buffer_head *bclean(handle_t *handle, struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void mark_bitmap_end(int start_bit, int end_bit, char *bitmap)
 {
@@ -189,8 +197,8 @@ static void mark_bitmap_end(int start_bit, int end_bit, char *bitmap)
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int extend_or_restart_transaction(handle_t *handle, int thresh,
 					 struct buffer_head *bh)
@@ -221,8 +229,8 @@ static int extend_or_restart_transaction(handle_t *handle, int thresh,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int setup_new_group_blocks(struct super_block *sb,
 				  struct ext3_new_group_data *input)
@@ -387,8 +395,8 @@ exit_journal:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static unsigned ext3_list_backups(struct super_block *sb, unsigned *three,
 				  unsigned *five, unsigned *seven)
@@ -425,8 +433,8 @@ static unsigned ext3_list_backups(struct super_block *sb, unsigned *three,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int verify_reserved_gdb(struct super_block *sb,
 			       struct buffer_head *primary)
@@ -462,8 +470,8 @@ static int verify_reserved_gdb(struct super_block *sb,
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int add_new_gdb(handle_t *handle, struct inode *inode,
 		       struct ext3_new_group_data *input,
@@ -598,8 +606,8 @@ exit_bh:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 			      struct ext3_new_group_data *input)
@@ -699,8 +707,8 @@ exit_free:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 static void update_backups(struct super_block *sb,
 			   int blk_off, char *data, int size)
@@ -775,8 +783,8 @@ exit_err:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_group_add(struct super_block *sb, struct ext3_new_group_data *input)
 {
@@ -922,8 +930,8 @@ exit_put:
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
- * subsystem; propagate an error or leave state recoverable when the
- * operation cannot complete.
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
  */
 int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 		      ext3_fsblk_t n_blocks_count)
