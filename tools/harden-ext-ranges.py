@@ -34,7 +34,7 @@ replace_once(
 \t    (start_blk + count - 1 >= le32_to_cpu(sbi->s_es->s_blocks_count)))
 \t\treturn 0;
 
-
+\t/* Ensure we do not step over superblock */
 \tif ((start_blk <= sbi->s_sb_block) &&
 \t    (start_blk + count - 1 >= sbi->s_sb_block))
 \t\treturn 0;
@@ -150,7 +150,11 @@ replace_once(
 \t    (start_blk + count > ext4_blocks_count(sbi->s_es)))
 \t\treturn 0;
 
-
+\t/*
+\t * Lock the system zone to prevent it being released concurrently
+\t * when doing a remount which inverse current "[no]block_validity"
+\t * mount option.
+\t */
 \trcu_read_lock();
 """,
     """int ext4_sb_block_valid(struct super_block *sb, struct inode *inode,
