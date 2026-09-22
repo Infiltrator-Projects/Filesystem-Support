@@ -130,6 +130,13 @@ jobs:
 
           Debian-first filesystem support manager with 104 filesystem and storage-namespace implementations catalogued.
 
+          This release adds:
+          - safe Install / Remove actions for Debian package, FUSE and DKMS support
+          - Load / Unload controls for loadable filesystem kernel modules
+          - explicit Built into kernel and Requires different kernel states
+          - simulated package removal with Essential/Protected/unrelated-package guards
+          - provider classification and CI coverage for all 104 support targets
+
           Release assets:
           - Generic AMD64 Debian package
           - Native self-extracting .run installer
