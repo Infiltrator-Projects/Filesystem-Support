@@ -58,9 +58,7 @@ jobs:
           git -C /tmp/linux show HEAD:include/linux/mbcache.h > native/filesystems/ext/support/mbcache/include/linux/mbcache.h
           git -C /tmp/linux show HEAD:include/linux/jbd2.h > native/filesystems/ext/support/mbcache/include/linux/jbd2.h
           git -C /tmp/linux show HEAD:include/trace/events/jbd2.h > native/filesystems/ext/support/mbcache/include/trace/events/jbd2.h
-          cat > native/filesystems/ext/support/mbcache/Makefile <<'EOF'
-obj-m += mbcache.o
-EOF
+          printf '%s\n' 'obj-m += mbcache.o' > native/filesystems/ext/support/mbcache/Makefile
           copy_tree fs/xfs native/filesystems/xfs/kernel
           copy_tree fs/btrfs native/filesystems/btrfs/kernel
           copy_tree fs/f2fs native/filesystems/f2fs/kernel
