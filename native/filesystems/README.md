@@ -1,7 +1,10 @@
 # Native filesystem engines
 
-Each directory below this point owns exactly one filesystem format or one
-deliberately grouped format family.
+Each directory below this point owns exactly one catalogue filesystem implementation.
+
+EXT2, EXT3 and EXT4 are deliberately separate source trees. Shared ancestry is
+not a reason to collapse them into one implementation; any duplicated code is
+intentional until a later refactor can preserve independent module ownership.
 
 A conventional local filesystem is split into a format engine and a Linux VFS
 binding. The same format engine must run in userspace tests/fsinspect and in
