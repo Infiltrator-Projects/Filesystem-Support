@@ -128,11 +128,11 @@ jobs:
           cat > release-notes.md <<EOF
           Filesystem Support $version.
 
-          Debian-first filesystem support manager with 104 filesystem and storage-namespace implementations catalogued.
+          Debian-first filesystem support manager with 106 filesystem and storage-namespace implementations catalogued.
 
-          This release includes the 104-target Debian support manager and establishes the greenfield native filesystem implementation framework:
+          This release includes the 106-target Debian support manager and the greenfield native filesystem implementation framework:
           - kernel/userspace-neutral native filesystem engine contracts
-          - Common-backed exact userspace I/O and endian decoding
+          - Common 1.19.24-backed exact userspace I/O, endian decoding and shared portable primitives
           - bounds-checked byte-reader and filesystem descriptor ABI
           - generic fsinspect development harness
           - Linux kernel/Kbuild module layout without a fake placeholder driver
