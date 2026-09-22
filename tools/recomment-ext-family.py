@@ -516,6 +516,8 @@ def function_role(name: str, ctx: FileContext) -> str:
     bare = re.sub(r"^_+", "", name)
     words = set(humanise(bare).split())
 
+    if {"count", "calculate", "calc", "sum"} & words:
+        return "Computes derived filesystem state used for validation, accounting or policy decisions."
     if "fill" in words and "super" in words:
         return "Constructs and validates the mounted filesystem state before it is published to VFS."
     if "mount" in words:
@@ -524,16 +526,20 @@ def function_role(name: str, ctx: FileContext) -> str:
         return "Initialises subsystem state and establishes the resources required by later operations."
     if {"exit", "destroy", "teardown"} & words or bare.startswith(("exit_", "destroy_")):
         return "Tears down subsystem state after users have been quiesced."
-    if {"alloc", "allocate", "new"} & words:
-        return "Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants."
-    if {"free", "release", "discard"} & words:
-        return "Releases filesystem state and reconciles the corresponding accounting or ownership metadata."
     if {"validate", "verify", "check", "valid"} & words:
         return "Validates state before it is trusted by the remainder of the filesystem."
     if {"recover", "recovery", "replay"} & words:
         return "Participates in crash recovery and reconstruction of durable filesystem state."
     if {"commit", "checkpoint"} & words:
         return "Advances journalled state toward a durable transaction or checkpoint boundary."
+    if {"sync", "fsync", "flush"} & words:
+        return "Drives pending state toward the durability guarantee required by the calling VFS or journal interface."
+    if {"lookup", "find", "search", "get", "read", "bread", "load"} & words:
+        return "Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default."
+    if {"alloc", "allocate", "new"} & words:
+        return "Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants."
+    if {"free", "release", "discard", "put"} & words:
+        return "Releases filesystem state and reconciles the corresponding accounting or ownership metadata."
     if {"journal", "transaction", "handle"} & words:
         return "Coordinates a journal transaction or journal-owned buffer/state transition."
     if {"xattr", "acl"} & words:
@@ -542,22 +548,14 @@ def function_role(name: str, ctx: FileContext) -> str:
         return "Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants."
     if {"inode"} & words:
         return "Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation."
-    if {"lookup", "find", "search"} & words:
-        return "Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it."
-    if {"read", "bread", "load"} & words:
-        return "Reads or materialises filesystem state for validation or higher-level processing."
-    if {"write", "update", "set", "mark", "dirty"} & words:
+    if {"write", "update", "set", "mark", "dirty", "clear"} & words:
         return "Updates filesystem state under the ordering and persistence rules of the surrounding subsystem."
-    if {"sync", "fsync", "flush"} & words:
-        return "Drives pending state toward the durability guarantee required by the calling VFS or journal interface."
     if {"resize", "grow"} & words:
         return "Changes filesystem geometry while preserving address-space, allocation and recovery invariants."
     if {"ioctl"} & words:
         return "Handles a filesystem-specific control operation exposed through the file API."
     if {"rename", "unlink", "link", "mkdir", "rmdir", "create", "mknod"} & words:
         return "Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state."
-    if {"count", "calculate", "calc"} & words:
-        return "Computes derived filesystem state used for validation, accounting or policy decisions."
 
     return f"Implements the {humanise(name)} operation within the {ctx.title.lower()} subsystem."
 
@@ -569,8 +567,8 @@ def function_comment(name: str, ctx: FileContext) -> str:
         f" *\n"
         f" * Correctness contract: preserve the locking, lifetime, range and\n"
         f" * transaction preconditions established by the surrounding {ctx.fs.upper()}\n"
-        f" * subsystem; propagate an error or leave state recoverable when the\n"
-        f" * operation cannot complete.\n"
+        f" * subsystem. Failure handling must follow that subsystem's established\n"
+        f" * rollback, abort or retry policy.\n"
         f" */\n"
     )
 
@@ -613,9 +611,45 @@ def file_header(ctx: FileContext) -> str:
     )
 
 
+def preprocessor_ranges(text: str) -> list[tuple[int, int]]:
+    """Return physical ranges occupied by preprocessor directives, including continuations."""
+    ranges: list[tuple[int, int]] = []
+    offset = 0
+    active_start: int | None = None
+
+    for line in text.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if active_start is None and stripped.startswith("#"):
+            active_start = offset
+
+        if active_start is not None:
+            logical = line.rstrip("\r\n").rstrip()
+            if not logical.endswith("\\"):
+                ranges.append((active_start, offset + len(line)))
+                active_start = None
+
+        offset += len(line)
+
+    if active_start is not None:
+        ranges.append((active_start, len(text)))
+    return ranges
+
+
+def preprocessor_fingerprint(text: str) -> list[tuple[str, ...]]:
+    """Capture logical preprocessor directives so comment insertion cannot alter macro shape."""
+    clean = strip_c_comments(text)
+    logical = clean.replace("\\\n", "")
+    result: list[tuple[str, ...]] = []
+    for line in logical.splitlines():
+        if line.lstrip().startswith("#"):
+            result.append(tuple(TOKEN_RE.findall(line)))
+    return result
+
+
 def top_level_insertions(text: str, ctx: FileContext) -> list[tuple[int, str]]:
     """Find top-level function/type definitions in comment-free C."""
     insertions: dict[int, str] = {}
+    pp_ranges = preprocessor_ranges(text)
     depth = 0
     state = "normal"
     i = 0
@@ -626,6 +660,17 @@ def top_level_insertions(text: str, ctx: FileContext) -> list[tuple[int, str]]:
         while pos >= 0 and text[pos].isspace():
             pos -= 1
         return pos
+
+    def last_pp_end_before(pos: int) -> int:
+        end = 0
+        for start, stop in pp_ranges:
+            if stop <= pos:
+                end = max(end, stop)
+            elif start < pos < stop:
+                return stop
+            else:
+                break
+        return end
 
     while i < n:
         ch = text[i]
@@ -642,20 +687,18 @@ def top_level_insertions(text: str, ctx: FileContext) -> list[tuple[int, str]]:
 
             if ch == "{":
                 if depth == 0:
-                    candidate = text[stmt_start:i]
+                    candidate_start = max(stmt_start, last_pp_end_before(i))
+                    candidate = text[candidate_start:i]
                     stripped = candidate.strip()
-                    insertion_pos = stmt_start + (len(candidate) - len(candidate.lstrip()))
+                    insertion_pos = candidate_start + (len(candidate) - len(candidate.lstrip()))
 
-                    # Avoid placing generated documentation ahead of conditional
-                    # preprocessing that belongs to the declaration itself.
-                    pre_lines = candidate.splitlines(keepends=True)
-                    consumed = 0
-                    for line in pre_lines:
-                        if line.lstrip().startswith("#") or not line.strip():
-                            consumed += len(line)
-                        else:
-                            break
-                    insertion_pos = stmt_start + consumed
+                    # A generated block comment must never land inside a
+                    # preprocessor directive or its backslash continuation.
+                    if any(start <= insertion_pos < stop for start, stop in pp_ranges):
+                        insertion_pos = max(
+                            stop for start, stop in pp_ranges
+                            if start <= insertion_pos < stop
+                        )
 
                     # Function definition: identify the outermost final parameter
                     # list and the identifier immediately before it.
@@ -674,7 +717,7 @@ def top_level_insertions(text: str, ctx: FileContext) -> list[tuple[int, str]]:
                                     break
                             open_pos -= 1
                         if open_pos >= stmt_start:
-                            before = text[stmt_start:open_pos]
+                            before = text[candidate_start:open_pos]
                             # A top-level initialiser can contain calls before its
                             # opening brace; it is not a function definition.
                             if "=" not in before:
@@ -754,6 +797,8 @@ def recomment_c(path: pathlib.Path, original: str) -> str:
 
     if code_tokens(original) != code_tokens(rebuilt):
         raise RuntimeError(f"{path}: comment rewrite changed the C token stream")
+    if preprocessor_fingerprint(original) != preprocessor_fingerprint(rebuilt):
+        raise RuntimeError(f"{path}: comment rewrite changed preprocessor directive structure")
     return rebuilt
 
 
