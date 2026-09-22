@@ -194,6 +194,58 @@ replace_once(
 """,
 )
 
+
+# The system-zone tree uses the same interval contract. Compare distance
+# instead of constructing an exclusive endpoint, and reject impossible merged
+# counts before mutating a node.
+replace_once(
+    ROOT / "ext4/kernel/block_validity.c",
+    """\tif ((entry1->start_blk + entry1->count) == entry2->start_blk &&
+\t    entry1->ino == entry2->ino)
+""",
+    """\tif (entry2->start_blk >= entry1->start_blk &&
+\t    entry2->start_blk - entry1->start_blk == entry1->count &&
+\t    entry1->ino == entry2->ino)
+""",
+)
+
+replace_once(
+    ROOT / "ext4/kernel/block_validity.c",
+    """\t\telse if (start_blk >= (entry->start_blk + entry->count))
+\t\t\tn = &(*n)->rb_right;
+""",
+    """\t\telse if (start_blk >= entry->start_blk &&
+\t\t\t start_blk - entry->start_blk >= entry->count)
+\t\t\tn = &(*n)->rb_right;
+""",
+)
+
+replace_once(
+    ROOT / "ext4/kernel/block_validity.c",
+    """\t\tif (can_merge(entry, new_entry)) {
+\t\t\tnew_entry->start_blk = entry->start_blk;
+\t\t\tnew_entry->count += entry->count;
+""",
+    """\t\tif (can_merge(entry, new_entry)) {
+\t\t\tif (entry->count > UINT_MAX - new_entry->count)
+\t\t\t\treturn -EFSCORRUPTED;
+\t\t\tnew_entry->start_blk = entry->start_blk;
+\t\t\tnew_entry->count += entry->count;
+""",
+)
+
+replace_once(
+    ROOT / "ext4/kernel/block_validity.c",
+    """\t\tif (can_merge(new_entry, entry)) {
+\t\t\tnew_entry->count += entry->count;
+""",
+    """\t\tif (can_merge(new_entry, entry)) {
+\t\t\tif (entry->count > UINT_MAX - new_entry->count)
+\t\t\t\treturn -EFSCORRUPTED;
+\t\t\tnew_entry->count += entry->count;
+""",
+)
+
 replace_once(
     ROOT / "ext4/kernel/resize.c",
     """\tif (ext4_blocks_count(es) + input->blocks_count <
@@ -237,7 +289,8 @@ checks = {
     ROOT / "ext4/kernel/block_validity.c": (
         "start_blk + count < start_blk",
         "start_blk + count - 1 < entry->start_blk",
-        "entry->start_blk + entry->count",
+        "start_blk >= (entry->start_blk + entry->count)",
+        "(entry1->start_blk + entry1->count) == entry2->start_blk",
     ),
     ROOT / "ext4/kernel/resize.c": (
         "ext4_blocks_count(es) + input->blocks_count <",
