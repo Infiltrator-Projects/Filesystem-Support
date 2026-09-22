@@ -3,7 +3,7 @@
 # Makefile for the linux ext2-filesystem routines.
 #
 
-obj-$(CONFIG_EXT2_FS) += ext2.o
+obj-m += ext2.o
 
 ext2-y := balloc.o dir.o file.o ialloc.o inode.o \
 	  ioctl.o namei.o super.o symlink.o trace.o
