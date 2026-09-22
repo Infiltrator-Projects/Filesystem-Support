@@ -23,8 +23,8 @@ int main()
         return fail("catalogue validation failed");
     }
 
-    if (catalog().size() < 85U) {
-        return fail("expanded Debian catalogue contains fewer than 85 entries");
+    if (catalog().size() < 100U) {
+        return fail("expanded Debian catalogue contains fewer than 100 entries");
     }
 
     bool found_affs = false;
@@ -36,6 +36,10 @@ int main()
     bool found_sshfs = false;
     bool found_vmfs = false;
     bool found_zfs = false;
+    bool found_zonefs = false;
+    bool found_tmfs = false;
+    bool found_fosfat = false;
+    bool found_moosefs = false;
     bool hfs_uses_removed_package = false;
 
     for (const auto& entry : catalog()) {
@@ -57,6 +61,14 @@ int main()
             found_vmfs = true;
         } else if (entry.id == std::string_view("zfs")) {
             found_zfs = true;
+        } else if (entry.id == std::string_view("zonefs")) {
+            found_zonefs = true;
+        } else if (entry.id == std::string_view("tmfs")) {
+            found_tmfs = true;
+        } else if (entry.id == std::string_view("fosfat")) {
+            found_fosfat = true;
+        } else if (entry.id == std::string_view("moosefs")) {
+            found_moosefs = true;
         }
 
         if (entry.id == std::string_view("hfs")) {
@@ -79,6 +91,9 @@ int main()
     }
     if (!found_sshfs || !found_vmfs || !found_zfs) {
         return fail("network, virtualisation or pooled filesystem coverage is incomplete");
+    }
+    if (!found_zonefs || !found_tmfs || !found_fosfat || !found_moosefs) {
+        return fail("Debian stable specialist filesystem coverage is incomplete");
     }
     if (hfs_uses_removed_package) {
         return fail("HFS still references hfsutils, which is not in Debian trixie stable");

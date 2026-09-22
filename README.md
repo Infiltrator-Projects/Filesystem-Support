@@ -8,7 +8,7 @@ The program presents filesystem and filesystem-like mount implementations by hum
 
 ## Scope
 
-The catalogue covers native Linux filesystems, historical Unix/workstation formats, Microsoft and Apple formats, Amiga and retro filesystems, optical/image formats, clustered/distributed filesystems, network and cloud mounts, FUSE implementations, encrypted overlays, archive mounts and virtualisation filesystems.
+The catalogue covers more than 100 Debian-stable filesystem and storage-namespace implementations: native Linux filesystems, historical Unix/workstation formats, Microsoft and Apple formats, Amiga and retro filesystems, optical/image formats, clustered/distributed filesystems, network and cloud mounts, FUSE implementations, encrypted overlays, archive mounts, device filesystems and virtualisation filesystems.
 
 The catalogue intentionally includes kernel-only support where Debian may ship the driver but no separate userspace package. It also records important limitations such as read-only support, experimental write support, deprecated drivers and formats whose userspace tools are not in Debian stable.
 
