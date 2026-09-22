@@ -120,6 +120,16 @@ sed -i \
   -e '/^[[:space:]]*MODULE_LICENSE("GPL");/d' \
   "$root/xattr.c"
 
+# Match Common's checked-addition contract in kernel space by using Linux's
+# native overflow helper.  ext4_group_extend() computes the proposed size once
+# and all later operations consume that validated value.
+sed -i '/^#include <linux\/jiffies.h>$/a #include <linux/overflow.h>' "$root/resize.c"
+perl -0pi -e 's/	ext4_grpblk_t add;\n/	ext4_grpblk_t add;\n	ext4_fsblk_t new_blocks_count;\n/' "$root/resize.c"
+perl -0pi -e 's/	add = EXT4_BLOCKS_PER_GROUP\(sb\) - last;\n\n	if \(o_blocks_count \+ add < o_blocks_count\) \{\n		ext4_warning\(sb, "blocks_count overflow"\);\n		return -EINVAL;\n	\}\n\n	if \(o_blocks_count \+ add > n_blocks_count\)\n		add = n_blocks_count - o_blocks_count;\n\n	if \(o_blocks_count \+ add < n_blocks_count\)\n		ext4_warning\(sb, "will only finish group \(%llu blocks, %u new\)",\n			     o_blocks_count \+ add, add\);/	add = EXT4_BLOCKS_PER_GROUP(sb) - last;\n\n	if (check_add_overflow(o_blocks_count, (ext4_fsblk_t)add,\n			       &new_blocks_count)) {\n		ext4_warning(sb, "blocks_count overflow");\n		return -EINVAL;\n	}\n\n	if (new_blocks_count > n_blocks_count) {\n		add = n_blocks_count - o_blocks_count;\n		new_blocks_count = n_blocks_count;\n	}\n\n	if (new_blocks_count < n_blocks_count)\n		ext4_warning(sb, "will only finish group (%llu blocks, %u new)",\n			     new_blocks_count, add);/s' "$root/resize.c"
+sed -i \
+  -e 's/o_blocks_count + add - 1/new_blocks_count - 1/' \
+  "$root/resize.c"
+
 # Production source only: Kconfig presentation and KUnit source are not part of
 # the filesystem implementation.
 rm -f \
@@ -174,3 +184,5 @@ grep -Fq 'resize.o' "$root/Makefile"
 ! grep -R -n 'EXT[23]_FEATURE_.*_SUPP' "$root"
 ! grep -R -n 'mounting ext[23] file system' "$root"
 ! grep -Eq 'bitmap\.o|fsync\.o|hash\.o|symlink\.o|acl\.o|mbcache\.o|xattr_(hurd|security|trusted|user)\.o' "$root/Makefile"
+grep -Fq 'check_add_overflow(o_blocks_count, (ext4_fsblk_t)add,' "$root/resize.c"
+! grep -Fq 'o_blocks_count + add < o_blocks_count' "$root/resize.c"

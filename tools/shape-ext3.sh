@@ -104,6 +104,19 @@ perl -0pi -e 's/static void __exit exit_ext3_fs\(void\)/static void __exit ext3_
 perl -0pi -e 's/module_init\(init_ext3_fs\)\nmodule_exit\(exit_ext3_fs\)/int infiltratr_ext3_mbcache_init(void);\nvoid infiltratr_ext3_mbcache_exit(void);\nint infiltratr_ext3_jbd_init(void);\nvoid infiltratr_ext3_jbd_exit(void);\n\nstatic int __init init_ext3_fs(void)\n{\n\tint err = infiltratr_ext3_mbcache_init();\n\tif (err)\n\t\treturn err;\n\terr = infiltratr_ext3_jbd_init();\n\tif (err) {\n\t\tinfiltratr_ext3_mbcache_exit();\n\t\treturn err;\n\t}\n\terr = ext3_core_init_fs();\n\tif (err) {\n\t\tinfiltratr_ext3_jbd_exit();\n\t\tinfiltratr_ext3_mbcache_exit();\n\t}\n\treturn err;\n}\n\nstatic void __exit exit_ext3_fs(void)\n{\n\text3_core_exit_fs();\n\tinfiltratr_ext3_jbd_exit();\n\tinfiltratr_ext3_mbcache_exit();\n}\n\nmodule_init(init_ext3_fs)\nmodule_exit(exit_ext3_fs)/s' "$root/super.c"
 sed -i 's/MODULE_DESCRIPTION("Second Extended Filesystem with journaling extensions")/MODULE_DESCRIPTION("Third Extended Filesystem")/' "$root/super.c"
 
+# Match Common's pre-addition overflow discipline using the kernel-native
+# helper.  Compute the proposed filesystem size once and consume only the
+# validated result throughout ext3_group_extend().
+sed -i '/^#include "ext3.h"$/a #include <linux/overflow.h>' "$root/resize.c"
+perl -0pi -e 's/	ext3_grpblk_t add;\n/	ext3_grpblk_t add;\n	ext3_fsblk_t new_blocks_count;\n/' "$root/resize.c"
+perl -0pi -e 's/	add = EXT3_BLOCKS_PER_GROUP\(sb\) - last;\n\n	if \(o_blocks_count \+ add < o_blocks_count\) \{\n		ext3_warning\(sb, __func__, "blocks_count overflow"\);\n		return -EINVAL;\n	\}\n\n	if \(o_blocks_count \+ add > n_blocks_count\)\n		add = n_blocks_count - o_blocks_count;\n\n	if \(o_blocks_count \+ add < n_blocks_count\)\n		ext3_warning\(sb, __func__,\n			     "will only finish group \("E3FSBLK\n			     " blocks, %u new\)",\n			     o_blocks_count \+ add, add\);/	add = EXT3_BLOCKS_PER_GROUP(sb) - last;\n\n	if (check_add_overflow(o_blocks_count, (ext3_fsblk_t)add,\n			       &new_blocks_count)) {\n		ext3_warning(sb, __func__, "blocks_count overflow");\n		return -EINVAL;\n	}\n\n	if (new_blocks_count > n_blocks_count) {\n		add = n_blocks_count - o_blocks_count;\n		new_blocks_count = n_blocks_count;\n	}\n\n	if (new_blocks_count < n_blocks_count)\n		ext3_warning(sb, __func__,\n			     "will only finish group ("E3FSBLK\n			     " blocks, %u new)",\n			     new_blocks_count, add);/s' "$root/resize.c"
+sed -i \
+  -e 's/o_blocks_count + add -1/new_blocks_count - 1/' \
+  -e 's/o_blocks_count + add - 1/new_blocks_count - 1/' \
+  -e 's/cpu_to_le32(o_blocks_count + add)/cpu_to_le32(new_blocks_count)/' \
+  -e 's/o_blocks_count + add);/new_blocks_count);/g' \
+  "$root/resize.c"
+
 # EXT3 must contain its full historical feature set.  These EXT3-specific
 # Kconfig symbols no longer exist in current kernels, so the external module
 # owns them locally.  Generic kernel facilities such as quota remain governed
@@ -172,3 +185,5 @@ grep -Fq 'EXT3_FEATURE_COMPAT_HAS_JOURNAL' "$root/ext3.h"
 ! grep -R -n 'trace_jbd_' "$root"
 ! grep -R -n '#include <linux/jbd.h>\|#include <linux/mbcache.h>' "$root"
 ! grep -R -n '\bext4_' "$root"
+grep -Fq 'check_add_overflow(o_blocks_count, (ext3_fsblk_t)add,' "$root/resize.c"
+! grep -Fq 'o_blocks_count + add < o_blocks_count' "$root/resize.c"
