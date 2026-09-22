@@ -178,16 +178,7 @@ jobs:
             native/filesystems/ext2/kernel/super.c
 
           add_ext2_embedded_support native/filesystems/ext2/kernel
-
-          # Forensic invariants: EXT2 must remain only EXT2.
-          test ! -e native/filesystems/ext2/kernel/Kconfig
-          test ! -e native/filesystems/ext2/kernel/trace.c
-          test ! -e native/filesystems/ext2/kernel/trace.h
-          ! grep -R -n 'trace_ext2_dio_' native/filesystems/ext2/kernel
-          ! grep -R -n 'EXT3_DEFM_JMODE' native/filesystems/ext2/kernel
-          grep -Fq 'error: journalled filesystem is not EXT2' native/filesystems/ext2/kernel/super.c
-          grep -Fq 'ext2-$(CONFIG_EXT2_FS_XATTR) += mbcache.o' native/filesystems/ext2/kernel/Makefile
-          ! grep -Fq 'ext2-y += mbcache.o' native/filesystems/ext2/kernel/Makefile
+          bash tools/shape-ext2.sh native/filesystems/ext2/kernel
 
           copy_tree fs/ext4 native/filesystems/ext3/kernel
           # Remove EXT2 registration from the EXT3 copy and remove the EXT4
