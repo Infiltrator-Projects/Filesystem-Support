@@ -130,12 +130,14 @@ jobs:
 
           Debian-first filesystem support manager with 104 filesystem and storage-namespace implementations catalogued.
 
-          This release adds:
-          - safe Install / Remove actions for Debian package, FUSE and DKMS support
-          - Load / Unload controls for loadable filesystem kernel modules
-          - explicit Built into kernel and Requires different kernel states
-          - simulated package removal with Essential/Protected/unrelated-package guards
-          - provider classification and CI coverage for all 104 support targets
+          This release includes the 104-target Debian support manager and establishes the greenfield native filesystem implementation framework:
+          - kernel/userspace-neutral native filesystem engine contracts
+          - Common-backed exact userspace I/O and endian decoding
+          - bounds-checked byte-reader and filesystem descriptor ABI
+          - generic fsinspect development harness
+          - Linux kernel/Kbuild module layout without a fake placeholder driver
+          - ROMFS reserved as the first native VFS implementation target
+          - documented reuse boundaries for Common, Defragmenter and InfiltratorFS
 
           Release assets:
           - Generic AMD64 Debian package
