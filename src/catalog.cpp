@@ -6,6 +6,44 @@
 #include <unordered_set>
 
 namespace filesystem_support {
+namespace {
+
+bool safe_catalog_token(const std::string_view value)
+{
+    if (value.empty()) {
+        return false;
+    }
+
+    for (const unsigned char character : value) {
+        if (infiltratr_ascii_is_alnum(character) ||
+            character == '-' || character == '_' ||
+            character == '.' || character == '+') {
+            continue;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool provider_shape_is_valid(const FilesystemDescriptor& entry)
+{
+    switch (entry.provider) {
+    case SupportProvider::Kernel:
+        return !entry.modules.empty() && entry.packages.empty();
+    case SupportProvider::KernelWithUserspace:
+    case SupportProvider::Dkms:
+        return !entry.modules.empty() && !entry.packages.empty();
+    case SupportProvider::Userspace:
+        return entry.modules.empty() && !entry.packages.empty();
+    case SupportProvider::ToolsOnly:
+        return entry.modules.empty() && !entry.packages.empty() &&
+               entry.access == AccessMode::ToolsOnly;
+    }
+    return false;
+}
+
+} // namespace
 
 const std::vector<FilesystemDescriptor>& catalog()
 {
@@ -449,19 +487,19 @@ bool catalog_is_valid()
             return false;
         }
 
-        if (!infiltratr_ascii_is_alnum(
-                static_cast<unsigned char>(entry.id.front()))) {
+        if (!safe_catalog_token(entry.id) ||
+            !provider_shape_is_valid(entry)) {
             return false;
         }
 
         for (const auto package : entry.packages) {
-            if (package.empty()) {
+            if (!safe_catalog_token(package)) {
                 return false;
             }
         }
 
         for (const auto module : entry.modules) {
-            if (module.empty()) {
+            if (!safe_catalog_token(module)) {
                 return false;
             }
         }
