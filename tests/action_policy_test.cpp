@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "catalog.hpp"
+#include "installer.hpp"
+
+#include <iostream>
+#include <string>
+
+namespace {
+
+int fail(const char* message)
+{
+    std::cerr << "action_policy_test: " << message << '\n';
+    return 1;
+}
+
+} // namespace
+
+int main()
+{
+    using namespace filesystem_support;
+
+    if (!package_is_catalogued("util-linux") ||
+        package_is_catalogued("definitely-not-catalogued")) {
+        return fail("package allowlist is not deny-by-default");
+    }
+
+    if (!module_is_catalogued("affs") ||
+        module_is_catalogued("definitely-not-catalogued")) {
+        return fail("module allowlist is not deny-by-default");
+    }
+
+    const RemovalPlan empty_plan = plan_package_removal({});
+    if (empty_plan.allowed) {
+        return fail("empty package removal was allowed");
+    }
+
+    const RemovalPlan unknown_plan =
+        plan_package_removal({"definitely-not-catalogued"});
+    if (unknown_plan.allowed) {
+        return fail("unknown package removal was allowed");
+    }
+
+    bool install_callback = false;
+    install_packages_async(
+        {"definitely-not-catalogued"},
+        [&install_callback](const bool success, const std::string&) {
+            install_callback = true;
+            if (success) {
+                std::abort();
+            }
+        });
+    if (!install_callback) {
+        return fail("invalid install did not fail synchronously");
+    }
+
+    bool module_callback = false;
+    load_module_async(
+        "definitely-not-catalogued",
+        [&module_callback](const bool success, const std::string&) {
+            module_callback = true;
+            if (success) {
+                std::abort();
+            }
+        });
+    if (!module_callback) {
+        return fail("invalid module action did not fail synchronously");
+    }
+
+    const auto hfs_users = catalogue_entries_using_package("hfsprogs");
+    if (hfs_users.size() != 2U) {
+        return fail("shared package impact mapping is incorrect");
+    }
+
+    return 0;
+}
