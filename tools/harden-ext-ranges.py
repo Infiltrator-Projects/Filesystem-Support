@@ -117,6 +117,117 @@ replace_once(
 """,
 )
 
+# EXT2 and EXT3 reservation windows may intentionally cross a group boundary,
+# but their integer endpoints must still be representable.  Compute each
+# prospective inclusive end with the kernel overflow helper before comparing
+# or publishing it.
+ensure_after_once(
+    ROOT / "ext2/kernel/balloc.c",
+    """#include "ext2.h"
+""",
+    """#include <linux/overflow.h>
+""",
+)
+ensure_after_once(
+    ROOT / "ext3/kernel/balloc.c",
+    """#include "ext3.h"
+""",
+    """#include <linux/overflow.h>
+""",
+)
+
+replace_once(
+    ROOT / "ext2/kernel/balloc.c",
+    """\text2_fsblk_t cur;
+\tint size = my_rsv->rsv_goal_size;
+""",
+    """\text2_fsblk_t cur, end;
+\tunsigned int size = my_rsv->rsv_goal_size;
+""",
+)
+replace_once(
+    ROOT / "ext2/kernel/balloc.c",
+    """\twhile (1) {
+\t\tif (cur <= rsv->rsv_end)
+\t\t\tcur = rsv->rsv_end + 1;
+
+
+\t\tif (cur > last_block)
+\t\t\treturn -1;
+""",
+    """\twhile (1) {
+\t\tif (cur <= rsv->rsv_end) {
+\t\t\tif (check_add_overflow(rsv->rsv_end, (ext2_fsblk_t)1,
+\t\t\t\t       &cur))
+\t\t\t\treturn -1;
+\t\t}
+
+\t\tif (cur > last_block || size == 0 ||
+\t\t    check_add_overflow(cur, (ext2_fsblk_t)(size - 1), &end))
+\t\t\treturn -1;
+""",
+)
+replace_once(
+    ROOT / "ext2/kernel/balloc.c",
+    """\t\tif (cur + size <= rsv->rsv_start) {
+""",
+    """\t\tif (end < rsv->rsv_start) {
+""",
+)
+replace_once(
+    ROOT / "ext2/kernel/balloc.c",
+    """\tmy_rsv->rsv_end = cur + size - 1;
+""",
+    """\tmy_rsv->rsv_end = end;
+""",
+)
+
+replace_once(
+    ROOT / "ext3/kernel/balloc.c",
+    """\text3_fsblk_t cur;
+\tint size = my_rsv->rsv_goal_size;
+""",
+    """\text3_fsblk_t cur, end;
+\tunsigned int size = my_rsv->rsv_goal_size;
+""",
+)
+replace_once(
+    ROOT / "ext3/kernel/balloc.c",
+    """\twhile (1) {
+\t\tif (cur <= rsv->rsv_end)
+\t\t\tcur = rsv->rsv_end + 1;
+
+
+\t\tif (cur > last_block)
+\t\t\treturn -1;
+""",
+    """\twhile (1) {
+\t\tif (cur <= rsv->rsv_end) {
+\t\t\tif (check_add_overflow(rsv->rsv_end, (ext3_fsblk_t)1,
+\t\t\t\t       &cur))
+\t\t\t\treturn -1;
+\t\t}
+
+\t\tif (cur > last_block || size == 0 ||
+\t\t    check_add_overflow(cur, (ext3_fsblk_t)(size - 1), &end))
+\t\t\treturn -1;
+""",
+)
+replace_once(
+    ROOT / "ext3/kernel/balloc.c",
+    """\t\tif (cur + size <= rsv->rsv_start) {
+""",
+    """\t\tif (end < rsv->rsv_start) {
+""",
+)
+replace_once(
+    ROOT / "ext3/kernel/balloc.c",
+    """\tmy_rsv->rsv_end = cur + size - 1;
+""",
+    """\tmy_rsv->rsv_end = end;
+""",
+)
+
 # EXT3: the historical in_range macro and several validators formed the end
 # point before proving it representable.  Keep the same interval semantics
 # while making the proof precede the addition.
@@ -536,6 +647,9 @@ for fs, gfp in (("ext2", "GFP_KERNEL"), ("ext3", "GFP_NOFS"),
 checks = {
     ROOT / "ext2/kernel/balloc.c": (
         "start_blk + count - 1 < start_blk",
+        "rsv->rsv_end + 1",
+        "cur + size <= rsv->rsv_start",
+        "my_rsv->rsv_end = cur + size - 1",
     ),
     ROOT / "ext2/kernel/xattr.c": (
         "le16_to_cpu(entry->e_value_offs) + size > end_offs",
@@ -543,6 +657,9 @@ checks = {
     ROOT / "ext3/kernel/balloc.c": (
         "(b) <= (first) + (len) - 1",
         "block + count < block",
+        "rsv->rsv_end + 1",
+        "cur + size <= rsv->rsv_start",
+        "my_rsv->rsv_end = cur + size - 1",
     ),
     ROOT / "ext3/kernel/xattr.c": (
         "le16_to_cpu(entry->e_value_offs) + value_size > size",
