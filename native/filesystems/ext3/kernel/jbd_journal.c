@@ -752,7 +752,8 @@ journal_t * journal_init_dev(struct block_device *bdev,
 	journal->j_blocksize = blocksize;
 	n = journal->j_blocksize / sizeof(journal_block_tag_t);
 	journal->j_wbufsize = n;
-	journal->j_wbuf = kmalloc(n * sizeof(struct buffer_head*), GFP_KERNEL);
+	journal->j_wbuf = kmalloc_array(n, sizeof(struct buffer_head *),
+					 GFP_KERNEL);
 	if (!journal->j_wbuf) {
 		printk(KERN_ERR "%s: Can't allocate bhs for commit thread\n",
 			__func__);
@@ -814,7 +815,8 @@ journal_t * journal_init_inode (struct inode *inode)
 
 	n = journal->j_blocksize / sizeof(journal_block_tag_t);
 	journal->j_wbufsize = n;
-	journal->j_wbuf = kmalloc(n * sizeof(struct buffer_head*), GFP_KERNEL);
+	journal->j_wbuf = kmalloc_array(n, sizeof(struct buffer_head *),
+					 GFP_KERNEL);
 	if (!journal->j_wbuf) {
 		printk(KERN_ERR "%s: Can't allocate bhs for commit thread\n",
 			__func__);

@@ -26,6 +26,7 @@
 #include "ext4_jbd2.h"
 #include "ext4_extents.h"
 #include "mballoc.h"
+#include <linux/overflow.h>
 
 
 #include <trace/events/ext4.h>
@@ -1638,17 +1639,21 @@ static int ext4_fc_record_modified_inode(struct super_block *sb, int ino)
 		if (state->fc_modified_inodes[i] == ino)
 			return 0;
 	if (state->fc_modified_inodes_used == state->fc_modified_inodes_size) {
+		typeof(state->fc_modified_inodes_size) new_size;
 		int *fc_modified_inodes;
 
-		fc_modified_inodes = krealloc(state->fc_modified_inodes,
-				sizeof(int) * (state->fc_modified_inodes_size +
-				EXT4_FC_REPLAY_REALLOC_INCREMENT),
-				GFP_KERNEL);
+		if (check_add_overflow(state->fc_modified_inodes_size,
+				       EXT4_FC_REPLAY_REALLOC_INCREMENT,
+				       &new_size))
+			return -EOVERFLOW;
+		fc_modified_inodes = krealloc_array(state->fc_modified_inodes,
+						    new_size,
+						    sizeof(*fc_modified_inodes),
+						    GFP_KERNEL);
 		if (!fc_modified_inodes)
 			return -ENOMEM;
 		state->fc_modified_inodes = fc_modified_inodes;
-		state->fc_modified_inodes_size +=
-			EXT4_FC_REPLAY_REALLOC_INCREMENT;
+		state->fc_modified_inodes_size = new_size;
 	}
 	state->fc_modified_inodes[state->fc_modified_inodes_used++] = ino;
 	return 0;
@@ -1839,17 +1844,18 @@ int ext4_fc_record_regions(struct super_block *sb, int ino,
 	if (replay && state->fc_regions_used != state->fc_regions_valid)
 		state->fc_regions_used = state->fc_regions_valid;
 	if (state->fc_regions_used == state->fc_regions_size) {
+		typeof(state->fc_regions_size) new_size;
 		struct ext4_fc_alloc_region *fc_regions;
 
-		fc_regions = krealloc(state->fc_regions,
-				      sizeof(struct ext4_fc_alloc_region) *
-				      (state->fc_regions_size +
-				       EXT4_FC_REPLAY_REALLOC_INCREMENT),
-				      GFP_KERNEL);
+		if (check_add_overflow(state->fc_regions_size,
+				       EXT4_FC_REPLAY_REALLOC_INCREMENT,
+				       &new_size))
+			return -EOVERFLOW;
+		fc_regions = krealloc_array(state->fc_regions, new_size,
+					    sizeof(*fc_regions), GFP_KERNEL);
 		if (!fc_regions)
 			return -ENOMEM;
-		state->fc_regions_size +=
-			EXT4_FC_REPLAY_REALLOC_INCREMENT;
+		state->fc_regions_size = new_size;
 		state->fc_regions = fc_regions;
 	}
 	region = &state->fc_regions[state->fc_regions_used++];
