@@ -1750,8 +1750,10 @@ static int ext3_check_descriptors(struct super_block *sb)
 			return 0;
 		}
 		if (le32_to_cpu(gdp->bg_inode_table) < first_block ||
-		    le32_to_cpu(gdp->bg_inode_table) + sbi->s_itb_per_group - 1 >
-		    last_block)
+		    le32_to_cpu(gdp->bg_inode_table) > last_block ||
+		    sbi->s_itb_per_group == 0 ||
+		    sbi->s_itb_per_group - 1 >
+		    last_block - le32_to_cpu(gdp->bg_inode_table))
 		{
 			ext3_error (sb, "ext3_check_descriptors",
 				    "Inode table for group %d"

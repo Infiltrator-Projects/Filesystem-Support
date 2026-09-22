@@ -4075,8 +4075,9 @@ static int ext4_check_descriptors(struct super_block *sb,
 			if (!sb_rdonly(sb))
 				return 0;
 		}
-		if (inode_table < first_block ||
-		    inode_table + sbi->s_itb_per_group - 1 > last_block) {
+		if (inode_table < first_block || inode_table > last_block ||
+		    sbi->s_itb_per_group == 0 ||
+		    sbi->s_itb_per_group - 1 > last_block - inode_table) {
 			ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
 			       "Inode table for group %u not in group "
 			       "(block %llu)!", i, inode_table);
