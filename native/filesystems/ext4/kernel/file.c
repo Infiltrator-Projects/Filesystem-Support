@@ -19,6 +19,28 @@
  *	(jj@sunsite.ms.mff.cuni.cz)
  */
 
+/*
+ * EXT4 — Regular-file VFS operations
+ *
+ * Purpose:
+ *   Implements the regular-file interface, including open/read/write/mmap/direct-I/O related paths and any small file-facing operations consolidated into this unit.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   I/O ordering, size visibility, writeback and error propagation must agree with the filesystem's allocation and journaling rules.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/time.h>
 #include <linux/fs.h>
 #include <linux/iomap.h>
@@ -35,21 +57,14 @@
 #include "xattr.h"
 #include "truncate.h"
 
-/*
- * Returns %true if the given DIO request should be attempted with DIO, or
- * %false if it should fall back to buffered I/O.
+
+/**
+ * ext4_should_use_dio - Implements the should use dio operation within the regular-file vfs operations subsystem.
  *
- * DIO isn't well specified; when it's unsupported (either due to the request
- * being misaligned, or due to the file not supporting DIO at all), filesystems
- * either fall back to buffered I/O or return EINVAL.  For files that don't use
- * any special features like encryption or verity, ext4 has traditionally
- * returned EINVAL for misaligned DIO.  iomap_dio_rw() uses this convention too.
- * In this case, we should attempt the DIO, *not* fall back to buffered I/O.
- *
- * In contrast, in cases where DIO is unsupported due to ext4 features, ext4
- * traditionally falls back to buffered I/O.
- *
- * This function implements the traditional ext4 behavior in all these cases.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static bool ext4_should_use_dio(struct kiocb *iocb, struct iov_iter *iter)
 {
@@ -65,6 +80,14 @@ static bool ext4_should_use_dio(struct kiocb *iocb, struct iov_iter *iter)
 	return IS_ALIGNED(iocb->ki_pos | iov_iter_alignment(iter), dio_align);
 }
 
+/**
+ * ext4_dio_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	ssize_t ret;
@@ -79,13 +102,8 @@ static ssize_t ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 	if (!ext4_should_use_dio(iocb, to)) {
 		inode_unlock_shared(inode);
-		/*
-		 * Fallback to buffered I/O if the operation being performed on
-		 * the inode is not supported by direct I/O. The IOCB_DIRECT
-		 * flag needs to be cleared here in order to ensure that the
-		 * direct I/O path within generic_file_read_iter() is not
-		 * taken.
-		 */
+
+
 		iocb->ki_flags &= ~IOCB_DIRECT;
 		return generic_file_read_iter(iocb, to);
 	}
@@ -98,6 +116,14 @@ static ssize_t ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 }
 
 #ifdef CONFIG_FS_DAX
+/**
+ * ext4_dax_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct inode *inode = file_inode(iocb->ki_filp);
@@ -109,13 +135,11 @@ static ssize_t ext4_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	} else {
 		inode_lock_shared(inode);
 	}
-	/*
-	 * Recheck under inode lock - at this point we are sure it cannot
-	 * change anymore
-	 */
+
+
 	if (!IS_DAX(inode)) {
 		inode_unlock_shared(inode);
-		/* Fallback to buffered IO in case we cannot support DAX */
+
 		return generic_file_read_iter(iocb, to);
 	}
 	ret = dax_iomap_rw(iocb, to, &ext4_iomap_ops);
@@ -126,6 +150,14 @@ static ssize_t ext4_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 }
 #endif
 
+/**
+ * ext4_file_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct inode *inode = file_inode(iocb->ki_filp);
@@ -134,7 +166,7 @@ static ssize_t ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		return -EIO;
 
 	if (!iov_iter_count(to))
-		return 0; /* skip atime */
+		return 0;
 
 #ifdef CONFIG_FS_DAX
 	if (IS_DAX(inode))
@@ -146,6 +178,14 @@ static ssize_t ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	return generic_file_read_iter(iocb, to);
 }
 
+/**
+ * ext4_file_splice_read - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_file_splice_read(struct file *in, loff_t *ppos,
 				     struct pipe_inode_info *pipe,
 				     size_t len, unsigned int flags)
@@ -157,10 +197,14 @@ static ssize_t ext4_file_splice_read(struct file *in, loff_t *ppos,
 	return filemap_splice_read(in, ppos, pipe, len, flags);
 }
 
-/*
- * Called when an inode is released. Note that this is different
- * from ext4_file_open: open gets called at every open, but release
- * gets called only when /all/ the files are closed.
+
+/**
+ * ext4_release_file - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_release_file(struct inode *inode, struct file *filp)
 {
@@ -168,7 +212,7 @@ static int ext4_release_file(struct inode *inode, struct file *filp)
 		ext4_alloc_da_blocks(inode);
 		ext4_clear_inode_state(inode, EXT4_STATE_DA_ALLOC_CLOSE);
 	}
-	/* if we are the last writer on the inode, drop the block reservation */
+
 	if ((filp->f_mode & FMODE_WRITE) &&
 			(atomic_read(&inode->i_writecount) == 1) &&
 			!EXT4_I(inode)->i_reserved_data_blocks) {
@@ -182,14 +226,14 @@ static int ext4_release_file(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-/*
- * This tests whether the IO in question is block-aligned or not.
- * Ext4 utilizes unwritten extents when hole-filling during direct IO, and they
- * are converted to written only after the IO is complete.  Until they are
- * mapped, these blocks appear as holes, so dio_zero_block() will assume that
- * it needs to zero out portions of the start and/or end block.  If 2 AIO
- * threads are at work on the same unwritten block, they must be synchronized
- * or one thread will zero the other's data, causing corruption.
+
+/**
+ * ext4_unaligned_io - Implements the unaligned io operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static bool
 ext4_unaligned_io(struct inode *inode, struct iov_iter *from, loff_t pos)
@@ -203,6 +247,14 @@ ext4_unaligned_io(struct inode *inode, struct iov_iter *from, loff_t pos)
 	return false;
 }
 
+/**
+ * ext4_extending_io - Implements the extending io operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool
 ext4_extending_io(struct inode *inode, loff_t offset, size_t len)
 {
@@ -212,7 +264,15 @@ ext4_extending_io(struct inode *inode, loff_t offset, size_t len)
 	return false;
 }
 
-/* Is IO overwriting allocated or initialized blocks? */
+
+/**
+ * ext4_overwrite_io - Implements the overwrite io operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_overwrite_io(struct inode *inode,
 			      loff_t pos, loff_t len, bool *unwritten)
 {
@@ -230,15 +290,20 @@ static bool ext4_overwrite_io(struct inode *inode,
 	err = ext4_map_blocks(NULL, inode, &map, 0);
 	if (err != blklen)
 		return false;
-	/*
-	 * 'err==len' means that all of the blocks have been preallocated,
-	 * regardless of whether they have been initialized or not. We need to
-	 * check m_flags to distinguish the unwritten extents.
-	 */
+
+
 	*unwritten = !(map.m_flags & EXT4_MAP_MAPPED);
 	return true;
 }
 
+/**
+ * ext4_generic_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_generic_write_checks(struct kiocb *iocb,
 					 struct iov_iter *from)
 {
@@ -252,10 +317,7 @@ static ssize_t ext4_generic_write_checks(struct kiocb *iocb,
 	if (ret <= 0)
 		return ret;
 
-	/*
-	 * If we have encountered a bitmap-format file, the size limit
-	 * is smaller than s_maxbytes, which is for extent-mapped files.
-	 */
+
 	if (!(ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))) {
 		struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 
@@ -267,6 +329,14 @@ static ssize_t ext4_generic_write_checks(struct kiocb *iocb,
 	return iov_iter_count(from);
 }
 
+/**
+ * ext4_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_write_checks(struct kiocb *iocb, struct iov_iter *from)
 {
 	ssize_t ret, count;
@@ -281,6 +351,14 @@ static ssize_t ext4_write_checks(struct kiocb *iocb, struct iov_iter *from)
 	return count;
 }
 
+/**
+ * ext4_buffered_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_buffered_write_iter(struct kiocb *iocb,
 					struct iov_iter *from)
 {
@@ -304,6 +382,14 @@ out:
 	return generic_write_sync(iocb, ret);
 }
 
+/**
+ * ext4_handle_inode_extension - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_handle_inode_extension(struct inode *inode, loff_t offset,
 					   ssize_t written, ssize_t count)
 {
@@ -329,39 +415,34 @@ static ssize_t ext4_handle_inode_extension(struct inode *inode, loff_t offset,
 	return written;
 }
 
-/*
- * Clean up the inode after DIO or DAX extending write has completed and the
- * inode size has been updated using ext4_handle_inode_extension().
+
+/**
+ * ext4_inode_extension_cleanup - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext4_inode_extension_cleanup(struct inode *inode, bool need_trunc)
 {
 	lockdep_assert_held_write(&inode->i_rwsem);
 	if (need_trunc) {
 		ext4_truncate_failed_write(inode);
-		/*
-		 * If the truncate operation failed early, then the inode may
-		 * still be on the orphan list. In that case, we need to try
-		 * remove the inode from the in-memory linked list.
-		 */
+
+
 		if (inode->i_nlink)
 			ext4_orphan_del(NULL, inode);
 		return;
 	}
-	/*
-	 * If i_disksize got extended either due to writeback of delalloc
-	 * blocks or extending truncate while the DIO was running we could fail
-	 * to cleanup the orphan list in ext4_handle_inode_extension(). Do it
-	 * now.
-	 */
+
+
 	if (ext4_inode_orphan_tracked(inode) && inode->i_nlink) {
 		handle_t *handle = ext4_journal_start(inode, EXT4_HT_INODE, 2);
 
 		if (IS_ERR(handle)) {
-			/*
-			 * The write has successfully completed. Not much to
-			 * do with the error here so just cleanup the orphan
-			 * list and hope for the best.
-			 */
+
+
 			ext4_orphan_del(NULL, inode);
 			return;
 		}
@@ -370,6 +451,14 @@ static void ext4_inode_extension_cleanup(struct inode *inode, bool need_trunc)
 	}
 }
 
+/**
+ * ext4_dio_write_end_io - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_dio_write_end_io(struct kiocb *iocb, ssize_t size,
 				 int error, unsigned int flags)
 {
@@ -380,15 +469,8 @@ static int ext4_dio_write_end_io(struct kiocb *iocb, ssize_t size,
 		error = ext4_convert_unwritten_extents(NULL, inode, pos, size);
 	if (error)
 		return error;
-	/*
-	 * Note that EXT4_I(inode)->i_disksize can get extended up to
-	 * inode->i_size while the I/O was running due to writeback of delalloc
-	 * blocks. But the code in ext4_iomap_alloc() is careful to use
-	 * zeroed/unwritten extents if this is possible; thus we won't leave
-	 * uninitialized blocks in a file even if we didn't succeed in writing
-	 * as much as we intended. Also we can race with truncate or write
-	 * expanding the file so we have to be a bit careful here.
-	 */
+
+
 	if (pos + size <= READ_ONCE(EXT4_I(inode)->i_disksize) &&
 	    pos + size <= i_size_read(inode))
 		return size;
@@ -399,23 +481,14 @@ static const struct iomap_dio_ops ext4_dio_write_ops = {
 	.end_io = ext4_dio_write_end_io,
 };
 
-/*
- * The intention here is to start with shared lock acquired then see if any
- * condition requires an exclusive inode lock. If yes, then we restart the
- * whole operation by releasing the shared lock and acquiring exclusive lock.
+
+/**
+ * ext4_dio_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
- * - For unaligned_io we never take shared lock as it may cause data corruption
- *   when two unaligned IO tries to modify the same block e.g. while zeroing.
- *
- * - For extending writes case we don't take the shared lock, since it requires
- *   updating inode i_disksize and/or orphan handling with exclusive lock.
- *
- * - shared locking will only be true mostly with overwrites, including
- *   initialized blocks and unwritten blocks. For overwrite unwritten blocks
- *   we protect splitting extents by i_data_sem in ext4_inode_info, so we can
- *   also release exclusive i_rwsem lock.
- *
- * - Otherwise we will switch to exclusive i_rwsem lock.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static ssize_t ext4_dio_write_checks(struct kiocb *iocb, struct iov_iter *from,
 				     bool *ilock_shared, bool *extend,
@@ -440,17 +513,7 @@ restart:
 	*extend = ext4_extending_io(inode, offset, count);
 	overwrite = ext4_overwrite_io(inode, offset, count, unwritten);
 
-	/*
-	 * Determine whether we need to upgrade to an exclusive lock. This is
-	 * required to change security info in file_modified(), for extending
-	 * I/O, any form of non-overwrite I/O, and unaligned I/O to unwritten
-	 * extents (as partial block zeroing may be required).
-	 *
-	 * Note that unaligned writes are allowed under shared lock so long as
-	 * they are pure overwrites. Otherwise, concurrent unaligned writes risk
-	 * data corruption due to partial block zeroing in the dio layer, and so
-	 * the I/O must occur exclusively.
-	 */
+
 	if (*ilock_shared &&
 	    ((!IS_NOSEC(inode) || *extend || !overwrite ||
 	     (unaligned_io && *unwritten)))) {
@@ -464,13 +527,7 @@ restart:
 		goto restart;
 	}
 
-	/*
-	 * Now that locking is settled, determine dio flags and exclusivity
-	 * requirements. We don't use DIO_OVERWRITE_ONLY because we enforce
-	 * behavior already. The inode lock is already held exclusive if the
-	 * write is non-overwrite or extending, so drain all outstanding dio and
-	 * set the force wait dio flag.
-	 */
+
 	if (!*ilock_shared && (unaligned_io || *extend)) {
 		if (iocb->ki_flags & IOCB_NOWAIT) {
 			ret = -EAGAIN;
@@ -494,6 +551,14 @@ out:
 	return ret;
 }
 
+/**
+ * ext4_dio_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 	ssize_t ret;
@@ -506,11 +571,7 @@ static ssize_t ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	bool ilock_shared = true;
 	int dio_flags = 0;
 
-	/*
-	 * Quick check here without any i_rwsem lock to see if it is extending
-	 * IO. A more reliable check is done in ext4_dio_write_checks() with
-	 * proper locking in place.
-	 */
+
 	if (offset + count > i_size_read(inode))
 		ilock_shared = false;
 
@@ -529,7 +590,7 @@ static ssize_t ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			inode_lock(inode);
 	}
 
-	/* Fallback to buffered I/O if the inode does not support direct I/O. */
+
 	if (!ext4_should_use_dio(iocb, from)) {
 		if (ilock_shared)
 			inode_unlock_shared(inode);
@@ -538,13 +599,7 @@ static ssize_t ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		return ext4_buffered_write_iter(iocb, from);
 	}
 
-	/*
-	 * Prevent inline data from being created since we are going to allocate
-	 * blocks for DIO. We know the inode does not currently have inline data
-	 * because ext4_should_use_dio() checked for it, but we have to clear
-	 * the state flag before the write checks because a lock cycle could
-	 * introduce races with other writers.
-	 */
+
 	ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
 
 	ret = ext4_dio_write_checks(iocb, from, &ilock_shared, &extend,
@@ -578,12 +633,8 @@ static ssize_t ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (ret == -ENOTBLK)
 		ret = 0;
 	if (extend) {
-		/*
-		 * We always perform extending DIO write synchronously so by
-		 * now the IO is completed and ext4_handle_inode_extension()
-		 * was called. Cleanup the inode in case of error or race with
-		 * writeback of delalloc blocks.
-		 */
+
+
 		WARN_ON_ONCE(ret == -EIOCBQUEUED);
 		ext4_inode_extension_cleanup(inode, ret < 0);
 	}
@@ -603,13 +654,7 @@ out:
 		if (err < 0)
 			return err;
 
-		/*
-		 * We need to ensure that the pages within the page cache for
-		 * the range covered by this I/O are written to disk and
-		 * invalidated. This is in attempt to preserve the expected
-		 * direct I/O semantics in the case we fallback to buffered I/O
-		 * to complete off the I/O request.
-		 */
+
 		ret += err;
 		endbyte = offset + err - 1;
 		err = filemap_write_and_wait_range(iocb->ki_filp->f_mapping,
@@ -624,6 +669,14 @@ out:
 }
 
 #ifdef CONFIG_FS_DAX
+/**
+ * ext4_dax_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t
 ext4_dax_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
@@ -679,6 +732,14 @@ out:
 }
 #endif
 
+/**
+ * ext4_file_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t
 ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
@@ -698,6 +759,14 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 }
 
 #ifdef CONFIG_FS_DAX
+/**
+ * ext4_dax_huge_fault - Implements the dax huge fault operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static vm_fault_t ext4_dax_huge_fault(struct vm_fault *vmf, unsigned int order)
 {
 	int error = 0;
@@ -707,17 +776,7 @@ static vm_fault_t ext4_dax_huge_fault(struct vm_fault *vmf, unsigned int order)
 	struct inode *inode = file_inode(vmf->vma->vm_file);
 	struct super_block *sb = inode->i_sb;
 
-	/*
-	 * We have to distinguish real writes from writes which will result in a
-	 * COW page; COW writes should *not* poke the journal (the file will not
-	 * be changed). Doing so would cause unintended failures when mounted
-	 * read-only.
-	 *
-	 * We check for VM_SHARED rather than vmf->cow_page since the latter is
-	 * unset for order != 0 (i.e. only in do_cow_fault); for
-	 * other sizes, dax_iomap_fault will handle splitting / fallback so that
-	 * we eventually come back with a COW page.
-	 */
+
 	bool write = (vmf->flags & FAULT_FLAG_WRITE) &&
 		(vmf->vma->vm_flags & VM_SHARED);
 	struct address_space *mapping = vmf->vma->vm_file->f_mapping;
@@ -745,7 +804,7 @@ retry:
 		if ((result & VM_FAULT_ERROR) && error == -ENOSPC &&
 		    ext4_should_retry_alloc(sb, &retries))
 			goto retry;
-		/* Handling synchronous page fault? */
+
 		if (result & VM_FAULT_NEEDDSYNC)
 			result = dax_finish_sync_fault(vmf, order, pfn);
 		filemap_invalidate_unlock_shared(mapping);
@@ -757,6 +816,14 @@ retry:
 	return result;
 }
 
+/**
+ * ext4_dax_fault - Implements the dax fault operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static vm_fault_t ext4_dax_fault(struct vm_fault *vmf)
 {
 	return ext4_dax_huge_fault(vmf, 0);
@@ -778,6 +845,14 @@ static const struct vm_operations_struct ext4_file_vm_ops = {
 	.page_mkwrite   = ext4_page_mkwrite,
 };
 
+/**
+ * ext4_file_mmap - Implements the file mmap operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct inode *inode = file->f_mapping->host;
@@ -786,10 +861,7 @@ static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 	if (unlikely(ext4_forced_shutdown(inode->i_sb)))
 		return -EIO;
 
-	/*
-	 * We don't support synchronous mappings for non-DAX files and
-	 * for DAX files if underneath dax_device is not synchronous.
-	 */
+
 	if (!daxdev_mapping_supported(vma, dax_dev))
 		return -EOPNOTSUPP;
 
@@ -803,6 +875,14 @@ static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 	return 0;
 }
 
+/**
+ * ext4_sample_last_mounted - Implements the sample last mounted operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_sample_last_mounted(struct super_block *sb,
 				    struct vfsmount *mnt)
 {
@@ -819,12 +899,8 @@ static int ext4_sample_last_mounted(struct super_block *sb,
 		return 0;
 
 	ext4_set_mount_flag(sb, EXT4_MF_MNTDIR_SAMPLED);
-	/*
-	 * Sample where the filesystem has been mounted and
-	 * store it in the superblock for sysadmin convenience
-	 * when trying to sort through large numbers of block
-	 * devices or filesystem images.
-	 */
+
+
 	memset(buf, 0, sizeof(buf));
 	path.mnt = mnt;
 	path.dentry = mnt->mnt_root;
@@ -854,6 +930,14 @@ out:
 	return err;
 }
 
+/**
+ * ext4_file_open - Implements the file open operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_file_open(struct inode *inode, struct file *filp)
 {
 	int ret;
@@ -873,10 +957,7 @@ static int ext4_file_open(struct inode *inode, struct file *filp)
 	if (ret)
 		return ret;
 
-	/*
-	 * Set up the jbd2_inode if we are opening the inode for
-	 * writing and the journal is present
-	 */
+
 	if (filp->f_mode & FMODE_WRITE) {
 		ret = ext4_inode_attach_jinode(inode);
 		if (ret < 0)
@@ -887,10 +968,14 @@ static int ext4_file_open(struct inode *inode, struct file *filp)
 	return dquot_file_open(inode, filp);
 }
 
-/*
- * ext4_llseek() handles both block-mapped and extent-mapped maxbytes values
- * by calling generic_file_llseek_size() with the appropriate maxbytes
- * value for each.
+
+/**
+ * ext4_llseek - Implements the llseek operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 loff_t ext4_llseek(struct file *file, loff_t offset, int whence)
 {
@@ -953,42 +1038,13 @@ const struct inode_operations ext4_file_inode_operations = {
 };
 
 
-/* ---- EXT4 fsync (merged into this translation unit) ---- */
-// SPDX-License-Identifier: GPL-2.0
-/*
- *  linux/fs/ext4/fsync.c
+/**
+ * ext4_sync_parent - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
- *  Copyright (C) 1993  Stephen Tweedie (sct@redhat.com)
- *  from
- *  Copyright (C) 1992  Remy Card (card@masi.ibp.fr)
- *                      Laboratoire MASI - Institut Blaise Pascal
- *                      Universite Pierre et Marie Curie (Paris VI)
- *  from
- *  linux/fs/minix/truncate.c   Copyright (C) 1991, 1992  Linus Torvalds
- *
- *  ext4fs fsync primitive
- *
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
- *
- *  Removed unnecessary code duplication for little endian machines
- *  and excessive __inline__s.
- *        Andi Kleen, 1997
- *
- * Major simplications and cleanup - we only need to do the metadata, because
- * we can depend on generic_block_fdatasync() to sync the data blocks.
- */
-
-
-
-
-/*
- * If we're not journaling and this is a just-created file, we have to
- * sync our parent directory (if it was freshly created) since
- * otherwise it will only be written by writeback, leaving a huge
- * window during which a crash may lose the file.  This may apply for
- * the parent directory's parent as well, and so on recursively, if
- * they are also freshly created.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_sync_parent(struct inode *inode)
 {
@@ -1008,13 +1064,7 @@ static int ext4_sync_parent(struct inode *inode)
 		dentry = next;
 		inode = dentry->d_inode;
 
-		/*
-		 * The directory inode may have gone through rmdir by now. But
-		 * the inode itself and its blocks are still allocated (we hold
-		 * a reference to the inode via its dentry), so it didn't go
-		 * through ext4_evict_inode()) and so we are safe to flush
-		 * metadata blocks and the inode.
-		 */
+
 		ret = sync_mapping_buffers(inode->i_mapping);
 		if (ret)
 			break;
@@ -1026,6 +1076,14 @@ static int ext4_sync_parent(struct inode *inode)
 	return ret;
 }
 
+/**
+ * ext4_fsync_nojournal - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
 				int datasync, bool *needs_barrier)
 {
@@ -1040,7 +1098,7 @@ static int ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
 	if (ret)
 		return ret;
 
-	/* Force writeout of inode table buffer to disk */
+
 	ret = ext4_write_inode(inode, &wbc);
 	if (ret)
 		return ret;
@@ -1053,6 +1111,14 @@ static int ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
 	return ret;
 }
 
+/**
+ * ext4_fsync_journal - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fsync_journal(struct inode *inode, bool datasync,
 			     bool *needs_barrier)
 {
@@ -1060,10 +1126,7 @@ static int ext4_fsync_journal(struct inode *inode, bool datasync,
 	journal_t *journal = EXT4_SB(inode->i_sb)->s_journal;
 	tid_t commit_tid = datasync ? ei->i_datasync_tid : ei->i_sync_tid;
 
-	/*
-	 * Fastcommit does not really support fsync on directories or other
-	 * special files. Force a full commit.
-	 */
+
 	if (!S_ISREG(inode->i_mode))
 		return ext4_force_commit(inode->i_sb);
 
@@ -1074,16 +1137,14 @@ static int ext4_fsync_journal(struct inode *inode, bool datasync,
 	return ext4_fc_commit(journal, commit_tid);
 }
 
-/*
- * akpm: A new design for ext4_sync_file().
+
+/**
+ * ext4_sync_file - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
- * This is only called from sys_fsync(), sys_fdatasync() and sys_msync().
- * There cannot be a transaction open by this task.
- * Another task could have dirtied this inode.  Its data can be in any
- * state in the journalling system.
- *
- * What we do is just kick off a commit and wait on it.  This will snapshot the
- * inode to disk.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
@@ -1099,7 +1160,7 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	trace_ext4_sync_file_enter(file, datasync);
 
 	if (sb_rdonly(inode->i_sb)) {
-		/* Make sure that we read updated s_ext4_flags value */
+
 		smp_rmb();
 		if (ext4_forced_shutdown(inode->i_sb))
 			ret = -EROFS;
@@ -1118,11 +1179,7 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	if (ret)
 		goto out;
 
-	/*
-	 *  The caller's filemap_fdatawrite()/wait will sync the data.
-	 *  Metadata is in the journal, we wait for proper transaction to
-	 *  commit here.
-	 */
+
 	ret = ext4_fsync_journal(inode, datasync, &needs_barrier);
 
 issue_flush:

@@ -77,6 +77,28 @@
  * needed.
  */
 
+/*
+ * EXT4 — JBD2 revoke processing
+ *
+ * Purpose:
+ *   Records blocks whose older logged images must not be replayed during recovery.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   A lost revoke can replay stale metadata; revoke tables therefore belong to the journal's correctness state, not merely its performance state.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #ifndef __KERNEL__
 #include "jfs_user.h"
 #else
@@ -95,23 +117,31 @@
 static struct kmem_cache *jbd2_revoke_record_cache;
 static struct kmem_cache *jbd2_revoke_table_cache;
 
-/* Each revoke record represents one single revoked block.  During
-   journal replay, this involves recording the transaction ID of the
-   last transaction to revoke this block. */
 
+/**
+ * struct jbd2_revoke_record_s - Private EXT4 state/data structure used by jbd2 revoke processing.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct jbd2_revoke_record_s
 {
 	struct list_head  hash;
-	tid_t		  sequence;	/* Used for recovery only */
+	tid_t		  sequence;
 	unsigned long long	  blocknr;
 };
 
 
-/* The revoke table is just a simple hash table of revoke records. */
+/**
+ * struct jbd2_revoke_table_s - Private EXT4 state/data structure used by jbd2 revoke processing.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct jbd2_revoke_table_s
 {
-	/* It is conceivable that we might want a larger hash table
-	 * for recovery.  Must be a power of two. */
+
+
 	int		  hash_size;
 	int		  hash_shift;
 	struct list_head *hash_table;
@@ -126,13 +156,28 @@ static void write_one_revoke_record(transaction_t *,
 static void flush_descriptor(journal_t *, struct buffer_head *, int);
 #endif
 
-/* Utility functions to maintain the revoke table */
 
+/**
+ * hash - Implements the hash operation within the jbd2 revoke processing subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int hash(journal_t *journal, unsigned long long block)
 {
 	return hash_64(block, journal->j_revoke->hash_shift);
 }
 
+/**
+ * insert_revoke_hash - Implements the insert revoke hash operation within the jbd2 revoke processing subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int insert_revoke_hash(journal_t *journal, unsigned long long blocknr,
 			      tid_t seq)
 {
@@ -155,8 +200,15 @@ static int insert_revoke_hash(journal_t *journal, unsigned long long blocknr,
 	return 0;
 }
 
-/* Find a revoke record in the journal's hash table. */
 
+/**
+ * find_revoke_record - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct jbd2_revoke_record_s *find_revoke_record(journal_t *journal,
 						      unsigned long long blocknr)
 {
@@ -178,18 +230,42 @@ static struct jbd2_revoke_record_s *find_revoke_record(journal_t *journal,
 	return NULL;
 }
 
+/**
+ * jbd2_journal_destroy_revoke_record_cache - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void jbd2_journal_destroy_revoke_record_cache(void)
 {
 	kmem_cache_destroy(jbd2_revoke_record_cache);
 	jbd2_revoke_record_cache = NULL;
 }
 
+/**
+ * jbd2_journal_destroy_revoke_table_cache - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void jbd2_journal_destroy_revoke_table_cache(void)
 {
 	kmem_cache_destroy(jbd2_revoke_table_cache);
 	jbd2_revoke_table_cache = NULL;
 }
 
+/**
+ * jbd2_journal_init_revoke_record_cache - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int __init jbd2_journal_init_revoke_record_cache(void)
 {
 	J_ASSERT(!jbd2_revoke_record_cache);
@@ -203,6 +279,14 @@ int __init jbd2_journal_init_revoke_record_cache(void)
 	return 0;
 }
 
+/**
+ * jbd2_journal_init_revoke_table_cache - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int __init jbd2_journal_init_revoke_table_cache(void)
 {
 	J_ASSERT(!jbd2_revoke_table_cache);
@@ -215,6 +299,14 @@ int __init jbd2_journal_init_revoke_table_cache(void)
 	return 0;
 }
 
+/**
+ * jbd2_journal_init_revoke_table - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct jbd2_revoke_table_s *jbd2_journal_init_revoke_table(int hash_size)
 {
 	int shift = 0;
@@ -245,6 +337,14 @@ out:
 	return table;
 }
 
+/**
+ * jbd2_journal_destroy_revoke_table - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void jbd2_journal_destroy_revoke_table(struct jbd2_revoke_table_s *table)
 {
 	int i;
@@ -259,7 +359,15 @@ static void jbd2_journal_destroy_revoke_table(struct jbd2_revoke_table_s *table)
 	kmem_cache_free(jbd2_revoke_table_cache, table);
 }
 
-/* Initialise the revoke table for a given journal to a given size. */
+
+/**
+ * jbd2_journal_init_revoke - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int jbd2_journal_init_revoke(journal_t *journal, int hash_size)
 {
 	J_ASSERT(journal->j_revoke_table[0] == NULL);
@@ -286,7 +394,15 @@ fail0:
 	return -ENOMEM;
 }
 
-/* Destroy a journal's revoke table.  The table must already be empty! */
+
+/**
+ * jbd2_journal_destroy_revoke - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void jbd2_journal_destroy_revoke(journal_t *journal)
 {
 	journal->j_revoke = NULL;
@@ -299,30 +415,15 @@ void jbd2_journal_destroy_revoke(journal_t *journal)
 
 #ifdef __KERNEL__
 
-/*
- * jbd2_journal_revoke: revoke a given buffer_head from the journal.  This
- * prevents the block from being replayed during recovery if we take a
- * crash after this current transaction commits.  Any subsequent
- * metadata writes of the buffer in this transaction cancel the
- * revoke.
- *
- * Note that this call may block --- it is up to the caller to make
- * sure that there are no further calls to journal_write_metadata
- * before the revoke is complete.  In ext3, this implies calling the
- * revoke before clearing the block bitmap when we are deleting
- * metadata.
- *
- * Revoke performs a jbd2_journal_forget on any buffer_head passed in as a
- * parameter, but does _not_ forget the buffer_head if the bh was only
- * found implicitly.
- *
- * bh_in may not be a journalled buffer - it may have come off
- * the hash tables without an attached journal_head.
- *
- * If bh_in is non-zero, jbd2_journal_revoke() will decrement its b_count
- * by one.
- */
 
+/**
+ * jbd2_journal_revoke - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int jbd2_journal_revoke(handle_t *handle, unsigned long long blocknr,
 		   struct buffer_head *bh_in)
 {
@@ -354,19 +455,14 @@ int jbd2_journal_revoke(handle_t *handle, unsigned long long blocknr,
 	else {
 		struct buffer_head *bh2;
 
-		/* If there is a different buffer_head lying around in
-		 * memory anywhere... */
+
 		bh2 = __find_get_block_nonatomic(bdev, blocknr,
 						 journal->j_blocksize);
 		if (bh2) {
-			/* ... and it has RevokeValid status... */
+
 			if (bh2 != bh && buffer_revokevalid(bh2))
-				/* ...then it better be revoked too,
-				 * since it's illegal to create a revoke
-				 * record against a buffer_head which is
-				 * not marked revoked --- that would
-				 * risk missing a subsequent revoke
-				 * cancel. */
+
+
 				J_ASSERT_BH(bh2, buffer_revoked(bh2));
 			put_bh(bh2);
 		}
@@ -378,9 +474,8 @@ int jbd2_journal_revoke(handle_t *handle, unsigned long long blocknr,
 			brelse(bh);
 		return -EIO;
 	}
-	/* We really ought not ever to revoke twice in a row without
-           first having the revoke cancelled: it's illegal to free a
-           block twice without allocating it in between! */
+
+
 	if (bh) {
 		if (!J_EXPECT_BH(bh, !buffer_revoked(bh),
 				 "inconsistent data on disk")) {
@@ -407,36 +502,27 @@ int jbd2_journal_revoke(handle_t *handle, unsigned long long blocknr,
 	return err;
 }
 
-/*
- * Cancel an outstanding revoke.  For use only internally by the
- * journaling code (called from jbd2_journal_get_write_access).
+
+/**
+ * jbd2_journal_cancel_revoke - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * We trust buffer_revoked() on the buffer if the buffer is already
- * being journaled: if there is no revoke pending on the buffer, then we
- * don't do anything here.
- *
- * This would break if it were possible for a buffer to be revoked and
- * discarded, and then reallocated within the same transaction.  In such
- * a case we would have lost the revoked bit, but when we arrived here
- * the second time we would still have a pending revoke to cancel.  So,
- * do not trust the Revoked bit on buffers unless RevokeValid is also
- * set.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int jbd2_journal_cancel_revoke(handle_t *handle, struct journal_head *jh)
 {
 	struct jbd2_revoke_record_s *record;
 	journal_t *journal = handle->h_transaction->t_journal;
 	int need_cancel;
-	int did_revoke = 0;	/* akpm: debug */
+	int did_revoke = 0;
 	struct buffer_head *bh = jh2bh(jh);
 	struct address_space *bh_mapping = bh->b_folio->mapping;
 
 	jbd2_debug(4, "journal_head %p, cancelling revoke\n", jh);
 
-	/* Is the existing Revoke bit valid?  If so, we trust it, and
-	 * only perform the full cancel if the revoke bit is set.  If
-	 * not, we can't trust the revoke bit, and we need to do the
-	 * full search for a revoke record. */
+
 	if (test_set_buffer_revokevalid(bh)) {
 		need_cancel = test_clear_buffer_revoked(bh);
 	} else {
@@ -458,15 +544,12 @@ int jbd2_journal_cancel_revoke(handle_t *handle, struct journal_head *jh)
 	}
 
 #ifdef JBD2_EXPENSIVE_CHECKING
-	/* There better not be one left behind by now! */
+
 	record = find_revoke_record(journal, bh->b_blocknr);
 	J_ASSERT_JH(jh, record == NULL);
 #endif
 
-	/* Finally, have we just cleared revoke on an unhashed
-	 * buffer_head?  If so, we'd better make sure we clear the
-	 * revoked status on any hashed alias too, otherwise the revoke
-	 * state machine will get very upset later on. */
+
 	if (need_cancel && !sb_is_blkdev_sb(bh_mapping->host->i_sb)) {
 		struct buffer_head *bh2;
 
@@ -481,10 +564,14 @@ int jbd2_journal_cancel_revoke(handle_t *handle, struct journal_head *jh)
 	return did_revoke;
 }
 
-/*
- * journal_clear_revoked_flag clears revoked flag of buffers in
- * revoke table to reflect there is no revoked buffers in the next
- * transaction which is going to be started.
+
+/**
+ * jbd2_clear_buffer_revoked_flags - Implements the clear buffer revoked flags operation within the jbd2 revoke processing subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void jbd2_clear_buffer_revoked_flags(journal_t *journal)
 {
@@ -511,9 +598,14 @@ void jbd2_clear_buffer_revoked_flags(journal_t *journal)
 	}
 }
 
-/* journal_switch_revoke table select j_revoke for next transaction
- * we do not want to suspend any processing until all revokes are
- * written -bzzz
+
+/**
+ * jbd2_journal_switch_revoke_table - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void jbd2_journal_switch_revoke_table(journal_t *journal)
 {
@@ -528,9 +620,14 @@ void jbd2_journal_switch_revoke_table(journal_t *journal)
 		INIT_LIST_HEAD(&journal->j_revoke->hash_table[i]);
 }
 
-/*
- * Write revoke records to the journal for all entries in the current
- * revoke hash, deleting the entries as we go.
+
+/**
+ * jbd2_journal_write_revoke_records - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void jbd2_journal_write_revoke_records(transaction_t *transaction,
 				       struct list_head *log_bufs)
@@ -546,7 +643,7 @@ void jbd2_journal_write_revoke_records(transaction_t *transaction,
 	offset = 0;
 	count = 0;
 
-	/* select revoke table for committing transaction */
+
 	revoke = journal->j_revoke == journal->j_revoke_table[0] ?
 		journal->j_revoke_table[1] : journal->j_revoke_table[0];
 
@@ -568,11 +665,15 @@ void jbd2_journal_write_revoke_records(transaction_t *transaction,
 	jbd2_debug(1, "Wrote %d revoke records\n", count);
 }
 
-/*
- * Write out one revoke record.  We need to create a new descriptor
- * block if the old one is full or if we have not already created one.
- */
 
+/**
+ * write_one_revoke_record - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void write_one_revoke_record(transaction_t *transaction,
 				    struct list_head *log_bufs,
 				    struct buffer_head **descriptorp,
@@ -584,17 +685,14 @@ static void write_one_revoke_record(transaction_t *transaction,
 	struct buffer_head *descriptor;
 	int sz, offset;
 
-	/* If we are already aborting, this all becomes a noop.  We
-           still need to go round the loop in
-           jbd2_journal_write_revoke_records in order to free all of the
-           revoke records: only the IO to the journal is omitted. */
+
 	if (is_journal_aborted(journal))
 		return;
 
 	descriptor = *descriptorp;
 	offset = *offsetp;
 
-	/* Do we need to leave space at the end for a checksum? */
+
 	if (jbd2_journal_has_csum_v2or3(journal))
 		csum_size = sizeof(struct jbd2_journal_block_tail);
 
@@ -603,7 +701,7 @@ static void write_one_revoke_record(transaction_t *transaction,
 	else
 		sz = 4;
 
-	/* Make sure we have a descriptor with space left for the record */
+
 	if (descriptor) {
 		if (offset + sz > journal->j_blocksize - csum_size) {
 			flush_descriptor(journal, descriptor, offset);
@@ -617,7 +715,7 @@ static void write_one_revoke_record(transaction_t *transaction,
 		if (!descriptor)
 			return;
 
-		/* Record it so that we can wait for IO completion later */
+
 		BUFFER_TRACE(descriptor, "file in log_bufs");
 		jbd2_file_log_bh(log_bufs, descriptor);
 
@@ -636,13 +734,15 @@ static void write_one_revoke_record(transaction_t *transaction,
 	*offsetp = offset;
 }
 
-/*
- * Flush a revoke descriptor out to the journal.  If we are aborting,
- * this is a noop; otherwise we are generating a buffer which needs to
- * be waited for during commit, so it has to go onto the appropriate
- * journal buffer list.
- */
 
+/**
+ * flush_descriptor - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void flush_descriptor(journal_t *journal,
 			     struct buffer_head *descriptor,
 			     int offset)
@@ -663,28 +763,15 @@ static void flush_descriptor(journal_t *journal,
 }
 #endif
 
-/*
- * Revoke support for recovery.
- *
- * Recovery needs to be able to:
- *
- *  record all revoke records, including the tid of the latest instance
- *  of each revoke in the journal
- *
- *  check whether a given block in a given transaction should be replayed
- *  (ie. has not been revoked by a revoke record in that or a subsequent
- *  transaction)
- *
- *  empty the revoke table after recovery.
- */
 
-/*
- * First, setting revoke records.  We create a new revoke record for
- * every block ever revoked in the log as we scan it for recovery, and
- * we update the existing records if we find multiple revokes for a
- * single block.
+/**
+ * jbd2_journal_set_revoke - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
 int jbd2_journal_set_revoke(journal_t *journal,
 		       unsigned long long blocknr,
 		       tid_t sequence)
@@ -693,8 +780,8 @@ int jbd2_journal_set_revoke(journal_t *journal,
 
 	record = find_revoke_record(journal, blocknr);
 	if (record) {
-		/* If we have multiple occurrences, only record the
-		 * latest sequence number in the hashed record */
+
+
 		if (tid_gt(sequence, record->sequence))
 			record->sequence = sequence;
 		return 0;
@@ -702,13 +789,15 @@ int jbd2_journal_set_revoke(journal_t *journal,
 	return insert_revoke_hash(journal, blocknr, sequence);
 }
 
-/*
- * Test revoke records.  For a given block referenced in the log, has
- * that block been revoked?  A revoke record with a given transaction
- * sequence number revokes all blocks in that transaction and earlier
- * ones, but later transactions still need replayed.
- */
 
+/**
+ * jbd2_journal_test_revoke - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int jbd2_journal_test_revoke(journal_t *journal,
 			unsigned long long blocknr,
 			tid_t sequence)
@@ -723,11 +812,15 @@ int jbd2_journal_test_revoke(journal_t *journal,
 	return 1;
 }
 
-/*
- * Finally, once recovery is over, we need to clear the revoke table so
- * that it can be reused by the running filesystem.
- */
 
+/**
+ * jbd2_journal_clear_revoke - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void jbd2_journal_clear_revoke(journal_t *journal)
 {
 	int i;

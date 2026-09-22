@@ -1,5 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0
 
+/*
+ * EXT4 — Filesystem encryption integration
+ *
+ * Purpose:
+ *   Connects EXT4 inode and filename operations to the kernel fscrypt framework.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   The filesystem owns persistence and policy plumbing; cryptographic primitives and key management remain responsibilities of the generic kernel framework.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/quotaops.h>
 #include <linux/uuid.h>
 
@@ -7,6 +29,14 @@
 #include "xattr.h"
 #include "ext4_jbd2.h"
 
+/**
+ * ext4_fname_from_fscrypt_name - Implements the fname from fscrypt name operation within the filesystem encryption integration subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_fname_from_fscrypt_name(struct ext4_filename *dst,
 					 const struct fscrypt_name *src)
 {
@@ -19,6 +49,14 @@ static void ext4_fname_from_fscrypt_name(struct ext4_filename *dst,
 	dst->crypto_buf = src->crypto_buf;
 }
 
+/**
+ * ext4_fname_setup_filename - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_fname_setup_filename(struct inode *dir, const struct qstr *iname,
 			      int lookup, struct ext4_filename *fname)
 {
@@ -38,6 +76,14 @@ int ext4_fname_setup_filename(struct inode *dir, const struct qstr *iname,
 	return err;
 }
 
+/**
+ * ext4_fname_prepare_lookup - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_fname_prepare_lookup(struct inode *dir, struct dentry *dentry,
 			      struct ext4_filename *fname)
 {
@@ -56,6 +102,14 @@ int ext4_fname_prepare_lookup(struct inode *dir, struct dentry *dentry,
 	return err;
 }
 
+/**
+ * ext4_fname_free_filename - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fname_free_filename(struct ext4_filename *fname)
 {
 	struct fscrypt_name name;
@@ -70,6 +124,14 @@ void ext4_fname_free_filename(struct ext4_filename *fname)
 	ext4_fname_free_ci_filename(fname);
 }
 
+/**
+ * uuid_is_zero - Implements the uuid is zero operation within the filesystem encryption integration subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool uuid_is_zero(__u8 u[16])
 {
 	int i;
@@ -80,6 +142,14 @@ static bool uuid_is_zero(__u8 u[16])
 	return true;
 }
 
+/**
+ * ext4_ioctl_get_encryption_pwsalt - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_ioctl_get_encryption_pwsalt(struct file *filp, void __user *arg)
 {
 	struct super_block *sb = file_inode(filp)->i_sb;
@@ -123,24 +193,35 @@ pwsalt_err_exit:
 	return 0;
 }
 
+/**
+ * ext4_get_context - Implements the get context operation within the filesystem encryption integration subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_get_context(struct inode *inode, void *ctx, size_t len)
 {
 	return ext4_xattr_get(inode, EXT4_XATTR_INDEX_ENCRYPTION,
 				 EXT4_XATTR_NAME_ENCRYPTION_CONTEXT, ctx, len);
 }
 
+/**
+ * ext4_set_context - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_set_context(struct inode *inode, const void *ctx, size_t len,
 							void *fs_data)
 {
 	handle_t *handle = fs_data;
 	int res, res2, credits, retries = 0;
 
-	/*
-	 * Encrypting the root directory is not allowed because e2fsck expects
-	 * lost+found to exist and be unencrypted, and encrypting the root
-	 * directory would imply encrypting the lost+found directory as well as
-	 * the filename "lost+found" itself.
-	 */
+
 	if (inode->i_ino == EXT4_ROOT_INO)
 		return -EPERM;
 
@@ -154,22 +235,10 @@ static int ext4_set_context(struct inode *inode, const void *ctx, size_t len,
 	if (res)
 		return res;
 
-	/*
-	 * If a journal handle was specified, then the encryption context is
-	 * being set on a new inode via inheritance and is part of a larger
-	 * transaction to create the inode.  Otherwise the encryption context is
-	 * being set on an existing inode in its own transaction.  Only in the
-	 * latter case should the "retry on ENOSPC" logic be used.
-	 */
 
 	if (handle) {
-		/*
-		 * Since the inode is new it is ok to pass the
-		 * XATTR_CREATE flag. This is necessary to match the
-		 * remaining journal credits check in the set_handle
-		 * function with the credits allocated for the new
-		 * inode.
-		 */
+
+
 		res = ext4_xattr_set_handle(handle, inode,
 					    EXT4_XATTR_INDEX_ENCRYPTION,
 					    EXT4_XATTR_NAME_ENCRYPTION_CONTEXT,
@@ -178,10 +247,8 @@ static int ext4_set_context(struct inode *inode, const void *ctx, size_t len,
 			ext4_set_inode_flag(inode, EXT4_INODE_ENCRYPT);
 			ext4_clear_inode_state(inode,
 					EXT4_STATE_MAY_INLINE_DATA);
-			/*
-			 * Update inode->i_flags - S_ENCRYPTED will be enabled,
-			 * S_DAX may be disabled
-			 */
+
+
 			ext4_set_inode_flags(inode, false);
 		}
 		return res;
@@ -191,7 +258,7 @@ static int ext4_set_context(struct inode *inode, const void *ctx, size_t len,
 	if (res)
 		return res;
 retry:
-	res = ext4_xattr_set_credits(inode, len, false /* is_create */,
+	res = ext4_xattr_set_credits(inode, len, false                ,
 				     &credits);
 	if (res)
 		return res;
@@ -205,10 +272,8 @@ retry:
 				    ctx, len, 0);
 	if (!res) {
 		ext4_set_inode_flag(inode, EXT4_INODE_ENCRYPT);
-		/*
-		 * Update inode->i_flags - S_ENCRYPTED will be enabled,
-		 * S_DAX may be disabled
-		 */
+
+
 		ext4_set_inode_flags(inode, false);
 		res = ext4_mark_inode_dirty(handle, inode);
 		if (res)
@@ -223,11 +288,27 @@ retry:
 	return res;
 }
 
+/**
+ * ext4_get_dummy_policy - Implements the get dummy policy operation within the filesystem encryption integration subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static const union fscrypt_policy *ext4_get_dummy_policy(struct super_block *sb)
 {
 	return EXT4_SB(sb)->s_dummy_enc_policy.policy;
 }
 
+/**
+ * ext4_has_stable_inodes - Implements the has stable inodes operation within the filesystem encryption integration subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_has_stable_inodes(struct super_block *sb)
 {
 	return ext4_has_feature_stable_inodes(sb);

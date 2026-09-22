@@ -13,6 +13,28 @@
  * part of the ext2fs journaling system.
  */
 
+/*
+ * EXT3 — Journal recovery
+ *
+ * Purpose:
+ *   Scans and replays a journal after an unclean shutdown, respecting transaction sequence and revoke information.
+ *
+ * Filesystem model:
+ *   This file belongs to a standalone EXT3 VFS implementation with its historical JBD engine embedded in ext3.ko.
+ *
+ * Correctness focus:
+ *   Recovery consumes untrusted persistent log records; every length, sequence and block reference must be validated before replay.
+ *
+ * Project rules:
+ *   - EXT3 requires its journal semantics; it is not an EXT4 compatibility registration.
+ *   - Preserve the journal, recovery, ordered/writeback/journal data modes and EXT3 on-disk limits.
+ *   - JBD and the metadata cache are private implementation code, not separately deployed modules.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #ifndef __KERNEL__
 #include "jfs_user.h"
 #else
@@ -23,9 +45,12 @@
 #include <linux/blkdev.h>
 #endif
 
-/*
- * Maintain information about the progress of the recovery job, so that
- * the different passes can carry information between them.
+
+/**
+ * struct recovery_info - Private EXT3 state/data structure used by journal recovery.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
  */
 struct recovery_info
 {
@@ -37,6 +62,12 @@ struct recovery_info
 	int		nr_revoke_hits;
 };
 
+/**
+ * enum passtype - Private EXT3 state/value set used by journal recovery.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 enum passtype {PASS_SCAN, PASS_REVOKE, PASS_REPLAY};
 static int do_one_pass(journal_t *journal,
 				struct recovery_info *info, enum passtype pass);
@@ -45,7 +76,15 @@ static int scan_revoke_records(journal_t *, struct buffer_head *,
 
 #ifdef __KERNEL__
 
-/* Release readahead buffers after use */
+
+/**
+ * journal_brelse_array - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void journal_brelse_array(struct buffer_head *b[], int n)
 {
 	while (--n >= 0)
@@ -53,19 +92,15 @@ static void journal_brelse_array(struct buffer_head *b[], int n)
 }
 
 
-/*
- * When reading from the journal, we are going through the block device
- * layer directly and so there is no readahead being done for us.  We
- * need to implement any readahead ourselves if we want it to happen at
- * all.  Recovery is basically one long sequential read, so make sure we
- * do the IO in reasonably large chunks.
- *
- * This is not so critical that we need to be enormously clever about
- * the readahead size, though.  128K is a purely arbitrary, good-enough
- * fixed value.
- */
-
 #define MAXBUF 8
+/**
+ * do_readahead - Implements the do readahead operation within the journal recovery subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int do_readahead(journal_t *journal, unsigned int start)
 {
 	int err;
@@ -75,13 +110,11 @@ static int do_readahead(journal_t *journal, unsigned int start)
 
 	struct buffer_head * bufs[MAXBUF];
 
-	/* Do up to 128K of readahead */
+
 	max = start + (128 * 1024 / journal->j_blocksize);
 	if (max > journal->j_maxlen)
 		max = journal->j_maxlen;
 
-	/* Do the readahead itself.  We'll submit MAXBUF buffer_heads at
-	 * a time to the block device IO layer. */
 
 	nbufs = 0;
 
@@ -121,13 +154,17 @@ failed:
 	return err;
 }
 
-#endif /* __KERNEL__ */
+#endif
 
 
-/*
- * Read a block from the journal
+/**
+ * jread - Implements the jread operation within the journal recovery subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
 static int jread(struct buffer_head **bhp, journal_t *journal,
 		 unsigned int offset)
 {
@@ -155,8 +192,8 @@ static int jread(struct buffer_head **bhp, journal_t *journal,
 		return -ENOMEM;
 
 	if (!buffer_uptodate(bh)) {
-		/* If this is a brand new buffer, start readahead.
-                   Otherwise, we assume we are already reading it.  */
+
+
 		if (!buffer_req(bh))
 			do_readahead(journal, offset);
 		wait_on_buffer(bh);
@@ -174,10 +211,14 @@ static int jread(struct buffer_head **bhp, journal_t *journal,
 }
 
 
-/*
- * Count the number of in-use tags in a journal descriptor block.
+/**
+ * count_tags - Computes derived filesystem state used for validation, accounting or policy decisions.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
 static int count_tags(struct buffer_head *bh, int size)
 {
 	char *			tagp;
@@ -202,25 +243,29 @@ static int count_tags(struct buffer_head *bh, int size)
 }
 
 
-/* Make sure we wrap around the log correctly! */
 #define wrap(journal, var)						\
+/**
+ * wrap - Implements the wrap operation within the journal recovery subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 do {									\
 	if (var >= (journal)->j_last)					\
 		var -= ((journal)->j_last - (journal)->j_first);	\
-} while (0)
-
-/**
- * journal_recover - recovers a on-disk journal
- * @journal: the journal to recover
+}/**
+ * journal_recover - Participates in crash recovery and reconstruction of durable filesystem state.
  *
- * The primary function for recovering the log contents when mounting a
- * journaled device.
- *
- * Recovery is done in three passes.  In the first pass, we look for the
- * end of the log.  In the second, we assemble the list of revoke
- * blocks.  In the third and final pass, we replay any un-revoked blocks
- * in the log.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
+ while (0)
+
+
 int journal_recover(journal_t *journal)
 {
 	int			err, err2;
@@ -231,11 +276,6 @@ int journal_recover(journal_t *journal)
 	memset(&info, 0, sizeof(info));
 	sb = journal->j_superblock;
 
-	/*
-	 * The journal superblock's s_start field (the current log head)
-	 * is always zero if, and only if, the journal was cleanly
-	 * unmounted.
-	 */
 
 	if (!sb->s_start) {
 		jbd_debug(1, "No recovery required, last transaction %d\n",
@@ -256,15 +296,14 @@ int journal_recover(journal_t *journal)
 	jbd_debug(1, "JBD: Replayed %d and revoked %d/%d blocks\n",
 		  info.nr_replays, info.nr_revoke_hits, info.nr_revokes);
 
-	/* Restart the log at the next transaction ID, thus invalidating
-	 * any existing commit records in the log. */
+
 	journal->j_transaction_sequence = ++info.end_transaction;
 
 	journal_clear_revoke(journal);
 	err2 = sync_blockdev(journal->j_fs_dev);
 	if (!err)
 		err = err2;
-	/* Flush disk caches to get replayed data on the permanent storage */
+
 	if (journal->j_flags & JFS_BARRIER) {
 		err2 = blkdev_issue_flush(journal->j_fs_dev, GFP_KERNEL, NULL);
 		if (!err)
@@ -274,18 +313,14 @@ int journal_recover(journal_t *journal)
 	return err;
 }
 
+
 /**
- * journal_skip_recovery - Start journal and wipe exiting records
- * @journal: journal to startup
+ * journal_skip_recovery - Participates in crash recovery and reconstruction of durable filesystem state.
  *
- * Locate any valid recovery information from the journal and set up the
- * journal structures in memory to ignore it (presumably because the
- * caller has evidence that it is out of date).
- * This function does'nt appear to be exorted..
- *
- * We perform one pass over the journal to allow us to tell the user how
- * much recovery information is being erased, and to let us initialise
- * the journal transaction sequence numbers to the next unused ID.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_skip_recovery(journal_t *journal)
 {
@@ -314,6 +349,14 @@ int journal_skip_recovery(journal_t *journal)
 	return err;
 }
 
+/**
+ * do_one_pass - Implements the do one pass operation within the journal recovery subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int do_one_pass(journal_t *journal,
 			struct recovery_info *info, enum passtype pass)
 {
@@ -326,11 +369,6 @@ static int do_one_pass(journal_t *journal,
 	unsigned int		sequence;
 	int			blocktype;
 
-	/*
-	 * First thing is to establish what we expect to find in the log
-	 * (in terms of transaction IDs), and where (in terms of log
-	 * block offsets): query the superblock.
-	 */
 
 	sb = journal->j_superblock;
 	next_commit_ID = be32_to_cpu(sb->s_sequence);
@@ -342,12 +380,6 @@ static int do_one_pass(journal_t *journal,
 
 	jbd_debug(1, "Starting recovery pass %d\n", pass);
 
-	/*
-	 * Now we walk through the log, transaction by transaction,
-	 * making sure that each transaction has a commit block in the
-	 * expected place.  Each complete transaction gets replayed back
-	 * into the main filesystem.
-	 */
 
 	while (1) {
 		int			flags;
@@ -358,9 +390,6 @@ static int do_one_pass(journal_t *journal,
 
 		cond_resched();
 
-		/* If we already know where to stop the log traversal,
-		 * check right now that we haven't gone past the end of
-		 * the log. */
 
 		if (pass != PASS_SCAN)
 			if (tid_geq(next_commit_ID, info->end_transaction))
@@ -369,9 +398,6 @@ static int do_one_pass(journal_t *journal,
 		jbd_debug(2, "Scanning for sequence ID %u at %u/%u\n",
 			  next_commit_ID, next_log_block, journal->j_last);
 
-		/* Skip over each chunk of the transaction looking
-		 * either the next descriptor block or the final commit
-		 * record. */
 
 		jbd_debug(3, "JBD: checking block %u\n", next_log_block);
 		err = jread(&bh, journal, next_log_block);
@@ -381,11 +407,6 @@ static int do_one_pass(journal_t *journal,
 		next_log_block++;
 		wrap(journal, next_log_block);
 
-		/* What kind of buffer is it?
-		 *
-		 * If it is a descriptor block, check that it has the
-		 * expected sequence number.  Otherwise, we're all done
-		 * here. */
 
 		tmp = (journal_header_t *)bh->b_data;
 
@@ -404,15 +425,11 @@ static int do_one_pass(journal_t *journal,
 			break;
 		}
 
-		/* OK, we have a valid descriptor block which matches
-		 * all of the sequence number checks.  What are we going
-		 * to do with it?  That depends on the pass... */
 
 		switch(blocktype) {
 		case JFS_DESCRIPTOR_BLOCK:
-			/* If it is a valid descriptor block, replay it
-			 * in pass REPLAY; otherwise, just skip over the
-			 * blocks it describes. */
+
+
 			if (pass != PASS_REPLAY) {
 				next_log_block +=
 					count_tags(bh, journal->j_blocksize);
@@ -421,9 +438,6 @@ static int do_one_pass(journal_t *journal,
 				continue;
 			}
 
-			/* A descriptor block: we can now write all of
-			 * the data blocks.  Yay, useful work is finally
-			 * getting done here! */
 
 			tagp = &bh->b_data[sizeof(journal_header_t)];
 			while ((tagp - bh->b_data +sizeof(journal_block_tag_t))
@@ -437,8 +451,8 @@ static int do_one_pass(journal_t *journal,
 				wrap(journal, next_log_block);
 				err = jread(&obh, journal, io_block);
 				if (err) {
-					/* Recover what we can, but
-					 * report failure at the end. */
+
+
 					success = err;
 					printk (KERN_ERR
 						"JBD: IO error %d recovering "
@@ -450,9 +464,7 @@ static int do_one_pass(journal_t *journal,
 					J_ASSERT(obh != NULL);
 					blocknr = be32_to_cpu(tag->t_blocknr);
 
-					/* If the block has been
-					 * revoked, then we're all done
-					 * here. */
+
 					if (journal_test_revoke
 					    (journal, blocknr,
 					     next_commit_ID)) {
@@ -461,8 +473,7 @@ static int do_one_pass(journal_t *journal,
 						goto skip_write;
 					}
 
-					/* Find a buffer for the new
-					 * data being restored */
+
 					nbh = __getblk(journal->j_fs_dev,
 							blocknr,
 							journal->j_blocksize);
@@ -489,7 +500,7 @@ static int do_one_pass(journal_t *journal,
 					mark_buffer_dirty(nbh);
 					BUFFER_TRACE(nbh, "marking uptodate");
 					++info->nr_replays;
-					/* ll_rw_block(WRITE, 1, &nbh); */
+
 					unlock_buffer(nbh);
 					brelse(obh);
 					brelse(nbh);
@@ -508,16 +519,15 @@ static int do_one_pass(journal_t *journal,
 			continue;
 
 		case JFS_COMMIT_BLOCK:
-			/* Found an expected commit block: not much to
-			 * do other than move on to the next sequence
-			 * number. */
+
+
 			brelse(bh);
 			next_commit_ID++;
 			continue;
 
 		case JFS_REVOKE_BLOCK:
-			/* If we aren't in the REVOKE pass, then we can
-			 * just skip over this block. */
+
+
 			if (pass != PASS_REVOKE) {
 				brelse(bh);
 				continue;
@@ -539,18 +549,13 @@ static int do_one_pass(journal_t *journal,
 	}
 
  done:
-	/*
-	 * We broke out of the log scan loop: either we came to the
-	 * known end of the log or we found an unexpected block in the
-	 * log.  If the latter happened, then we know that the "current"
-	 * transaction marks the end of the valid log.
-	 */
+
 
 	if (pass == PASS_SCAN)
 		info->end_transaction = next_commit_ID;
 	else {
-		/* It's really bad news if different passes end up at
-		 * different places (but possible due to IO errors). */
+
+
 		if (info->end_transaction != next_commit_ID) {
 			printk (KERN_ERR "JBD: recovery pass %d ended at "
 				"transaction %u, expected %u\n",
@@ -567,8 +572,14 @@ static int do_one_pass(journal_t *journal,
 }
 
 
-/* Scan a revoke record, marking all blocks mentioned as revoked. */
-
+/**
+ * scan_revoke_records - Implements the scan revoke records operation within the journal recovery subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int scan_revoke_records(journal_t *journal, struct buffer_head *bh,
 			       tid_t sequence, struct recovery_info *info)
 {

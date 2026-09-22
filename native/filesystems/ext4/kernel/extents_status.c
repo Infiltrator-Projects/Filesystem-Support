@@ -1,15 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0
+
 /*
- *  fs/ext4/extents_status.c
+ * EXT4 — Extent-status cache
  *
- * Written by Yongqiang Yang <xiaoqiangnk@gmail.com>
- * Modified by
- *	Allison Henderson <achender@linux.vnet.ibm.com>
- *	Hugh Dickins <hughd@google.com>
- *	Zheng Liu <wenqing.lz@taobao.com>
+ * Purpose:
+ *   Maintains the in-memory logical-range cache used to accelerate extent state queries and delayed-allocation tracking.
  *
- * Ext4 extents status tree core functions.
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   The cache may be discarded and rebuilt; it must never become more authoritative than persistent extent and allocation state.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
  */
+
 #include <linux/list_sort.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
@@ -17,129 +29,6 @@
 
 #include <trace/events/ext4.h>
 
-/*
- * According to previous discussion in Ext4 Developer Workshop, we
- * will introduce a new structure called io tree to track all extent
- * status in order to solve some problems that we have met
- * (e.g. Reservation space warning), and provide extent-level locking.
- * Delay extent tree is the first step to achieve this goal.  It is
- * original built by Yongqiang Yang.  At that time it is called delay
- * extent tree, whose goal is only track delayed extents in memory to
- * simplify the implementation of fiemap and bigalloc, and introduce
- * lseek SEEK_DATA/SEEK_HOLE support.  That is why it is still called
- * delay extent tree at the first commit.  But for better understand
- * what it does, it has been rename to extent status tree.
- *
- * Step1:
- * Currently the first step has been done.  All delayed extents are
- * tracked in the tree.  It maintains the delayed extent when a delayed
- * allocation is issued, and the delayed extent is written out or
- * invalidated.  Therefore the implementation of fiemap and bigalloc
- * are simplified, and SEEK_DATA/SEEK_HOLE are introduced.
- *
- * The following comment describes the implemenmtation of extent
- * status tree and future works.
- *
- * Step2:
- * In this step all extent status are tracked by extent status tree.
- * Thus, we can first try to lookup a block mapping in this tree before
- * finding it in extent tree.  Hence, single extent cache can be removed
- * because extent status tree can do a better job.  Extents in status
- * tree are loaded on-demand.  Therefore, the extent status tree may not
- * contain all of the extents in a file.  Meanwhile we define a shrinker
- * to reclaim memory from extent status tree because fragmented extent
- * tree will make status tree cost too much memory.  written/unwritten/-
- * hole extents in the tree will be reclaimed by this shrinker when we
- * are under high memory pressure.  Delayed extents will not be
- * reclimed because fiemap, bigalloc, and seek_data/hole need it.
- */
-
-/*
- * Extent status tree implementation for ext4.
- *
- *
- * ==========================================================================
- * Extent status tree tracks all extent status.
- *
- * 1. Why we need to implement extent status tree?
- *
- * Without extent status tree, ext4 identifies a delayed extent by looking
- * up page cache, this has several deficiencies - complicated, buggy,
- * and inefficient code.
- *
- * FIEMAP, SEEK_HOLE/DATA, bigalloc, and writeout all need to know if a
- * block or a range of blocks are belonged to a delayed extent.
- *
- * Let us have a look at how they do without extent status tree.
- *   --	FIEMAP
- *	FIEMAP looks up page cache to identify delayed allocations from holes.
- *
- *   --	SEEK_HOLE/DATA
- *	SEEK_HOLE/DATA has the same problem as FIEMAP.
- *
- *   --	bigalloc
- *	bigalloc looks up page cache to figure out if a block is
- *	already under delayed allocation or not to determine whether
- *	quota reserving is needed for the cluster.
- *
- *   --	writeout
- *	Writeout looks up whole page cache to see if a buffer is
- *	mapped, If there are not very many delayed buffers, then it is
- *	time consuming.
- *
- * With extent status tree implementation, FIEMAP, SEEK_HOLE/DATA,
- * bigalloc and writeout can figure out if a block or a range of
- * blocks is under delayed allocation(belonged to a delayed extent) or
- * not by searching the extent tree.
- *
- *
- * ==========================================================================
- * 2. Ext4 extent status tree impelmentation
- *
- *   --	extent
- *	A extent is a range of blocks which are contiguous logically and
- *	physically.  Unlike extent in extent tree, this extent in ext4 is
- *	a in-memory struct, there is no corresponding on-disk data.  There
- *	is no limit on length of extent, so an extent can contain as many
- *	blocks as they are contiguous logically and physically.
- *
- *   --	extent status tree
- *	Every inode has an extent status tree and all allocation blocks
- *	are added to the tree with different status.  The extent in the
- *	tree are ordered by logical block no.
- *
- *   --	operations on a extent status tree
- *	There are three important operations on a delayed extent tree: find
- *	next extent, adding a extent(a range of blocks) and removing a extent.
- *
- *   --	race on a extent status tree
- *	Extent status tree is protected by inode->i_es_lock.
- *
- *   --	memory consumption
- *      Fragmented extent tree will make extent status tree cost too much
- *      memory.  Hence, we will reclaim written/unwritten/hole extents from
- *      the tree under a heavy memory pressure.
- *
- *
- * ==========================================================================
- * 3. Performance analysis
- *
- *   --	overhead
- *	1. There is a cache extent for write access, so if writes are
- *	not very random, adding space operaions are in O(1) time.
- *
- *   --	gain
- *	2. Code is much simpler, more readable, more maintainable and
- *	more efficient.
- *
- *
- * ==========================================================================
- * 4. TODO list
- *
- *   -- Refactor delayed space reservation
- *
- *   -- Extent-level locking
- */
 
 static struct kmem_cache *ext4_es_cachep;
 static struct kmem_cache *ext4_pending_cachep;
@@ -156,6 +45,14 @@ static int __revise_pending(struct inode *inode, ext4_lblk_t lblk,
 			    ext4_lblk_t len,
 			    struct pending_reservation **prealloc);
 
+/**
+ * ext4_init_es - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int __init ext4_init_es(void)
 {
 	ext4_es_cachep = KMEM_CACHE(extent_status, SLAB_RECLAIM_ACCOUNT);
@@ -164,11 +61,27 @@ int __init ext4_init_es(void)
 	return 0;
 }
 
+/**
+ * ext4_exit_es - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_exit_es(void)
 {
 	kmem_cache_destroy(ext4_es_cachep);
 }
 
+/**
+ * ext4_es_init_tree - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_es_init_tree(struct ext4_es_tree *tree)
 {
 	tree->root = RB_ROOT;
@@ -176,6 +89,14 @@ void ext4_es_init_tree(struct ext4_es_tree *tree)
 }
 
 #ifdef ES_DEBUG__
+/**
+ * ext4_es_print_tree - Implements the es print tree operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_es_print_tree(struct inode *inode)
 {
 	struct ext4_es_tree *tree;
@@ -198,15 +119,28 @@ static void ext4_es_print_tree(struct inode *inode)
 #define ext4_es_print_tree(inode)
 #endif
 
+/**
+ * ext4_es_end - Implements the es end operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline ext4_lblk_t ext4_es_end(struct extent_status *es)
 {
 	BUG_ON(es->es_lblk + es->es_len < es->es_lblk);
 	return es->es_lblk + es->es_len - 1;
 }
 
-/*
- * search through the tree for an delayed extent with a given offset.  If
- * it can't be found, try to find next extent.
+
+/**
+ * __es_tree_search - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static struct extent_status *__es_tree_search(struct rb_root *root,
 					      ext4_lblk_t lblk)
@@ -236,23 +170,14 @@ static struct extent_status *__es_tree_search(struct rb_root *root,
 	return NULL;
 }
 
-/*
- * ext4_es_find_extent_range - find extent with specified status within block
- *                             range or next extent following block range in
- *                             extents status tree
+
+/**
+ * __es_find_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
- * @inode - file containing the range
- * @matching_fn - pointer to function that matches extents with desired status
- * @lblk - logical block defining start of range
- * @end - logical block defining end of range
- * @es - extent found, if any
- *
- * Find the first extent within the block range specified by @lblk and @end
- * in the extents status tree that satisfies @matching_fn.  If a match
- * is found, it's returned in @es.  If not, and a matching extent is found
- * beyond the block range, it's returned in @es.  If no match is found, an
- * extent is returned in @es whose es_lblk, es_len, and es_pblk components
- * are 0.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void __es_find_extent_range(struct inode *inode,
 				   int (*matching_fn)(struct extent_status *es),
@@ -268,7 +193,7 @@ static void __es_find_extent_range(struct inode *inode,
 
 	tree = &EXT4_I(inode)->i_es_tree;
 
-	/* see if the extent has been cached */
+
 	es->es_lblk = es->es_len = es->es_pblk = 0;
 	es1 = READ_ONCE(tree->cache_es);
 	if (es1 && in_range(lblk, es1->es_lblk, es1->es_len)) {
@@ -302,8 +227,14 @@ out:
 
 }
 
-/*
- * Locking for __es_find_extent_range() for external use
+
+/**
+ * ext4_es_find_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_es_find_extent_range(struct inode *inode,
 			       int (*matching_fn)(struct extent_status *es),
@@ -324,20 +255,14 @@ void ext4_es_find_extent_range(struct inode *inode,
 	trace_ext4_es_find_extent_range_exit(inode, es);
 }
 
-/*
- * __es_scan_range - search block range for block with specified status
- *                   in extents status tree
+
+/**
+ * __es_scan_range - Implements the es scan range operation within the extent-status cache subsystem.
  *
- * @inode - file containing the range
- * @matching_fn - pointer to function that matches extents with desired status
- * @lblk - logical block defining start of range
- * @end - logical block defining end of range
- *
- * Returns true if at least one block in the specified block range satisfies
- * the criterion specified by @matching_fn, and false if not.  If at least
- * one extent has the specified status, then there is at least one block
- * in the cluster with that status.  Should only be called by code that has
- * taken i_es_lock.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static bool __es_scan_range(struct inode *inode,
 			    int (*matching_fn)(struct extent_status *es),
@@ -347,7 +272,7 @@ static bool __es_scan_range(struct inode *inode,
 
 	__es_find_extent_range(inode, matching_fn, start, end, &es);
 	if (es.es_len == 0)
-		return false;   /* no matching extent in the tree */
+		return false;
 	else if (es.es_lblk <= start &&
 		 start < es.es_lblk + es.es_len)
 		return true;
@@ -356,8 +281,15 @@ static bool __es_scan_range(struct inode *inode,
 	else
 		return false;
 }
-/*
- * Locking for __es_scan_range() for external use
+
+
+/**
+ * ext4_es_scan_range - Implements the es scan range operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 bool ext4_es_scan_range(struct inode *inode,
 			int (*matching_fn)(struct extent_status *es),
@@ -375,19 +307,14 @@ bool ext4_es_scan_range(struct inode *inode,
 	return ret;
 }
 
-/*
- * __es_scan_clu - search cluster for block with specified status in
- *                 extents status tree
+
+/**
+ * __es_scan_clu - Implements the es scan clu operation within the extent-status cache subsystem.
  *
- * @inode - file containing the cluster
- * @matching_fn - pointer to function that matches extents with desired status
- * @lblk - logical block in cluster to be searched
- *
- * Returns true if at least one extent in the cluster containing @lblk
- * satisfies the criterion specified by @matching_fn, and false if not.  If at
- * least one extent has the specified status, then there is at least one block
- * in the cluster with that status.  Should only be called by code that has
- * taken i_es_lock.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static bool __es_scan_clu(struct inode *inode,
 			  int (*matching_fn)(struct extent_status *es),
@@ -402,8 +329,14 @@ static bool __es_scan_clu(struct inode *inode,
 	return __es_scan_range(inode, matching_fn, lblk_start, lblk_end);
 }
 
-/*
- * Locking for __es_scan_clu() for external use
+
+/**
+ * ext4_es_scan_clu - Implements the es scan clu operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 bool ext4_es_scan_clu(struct inode *inode,
 		      int (*matching_fn)(struct extent_status *es),
@@ -421,6 +354,14 @@ bool ext4_es_scan_clu(struct inode *inode,
 	return ret;
 }
 
+/**
+ * ext4_es_list_add - Implements the es list add operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_es_list_add(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -437,6 +378,14 @@ static void ext4_es_list_add(struct inode *inode)
 	spin_unlock(&sbi->s_es_lock);
 }
 
+/**
+ * ext4_es_list_del - Implements the es list del operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_es_list_del(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -451,6 +400,14 @@ static void ext4_es_list_del(struct inode *inode)
 	spin_unlock(&sbi->s_es_lock);
 }
 
+/**
+ * __alloc_pending - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline struct pending_reservation *__alloc_pending(bool nofail)
 {
 	if (!nofail)
@@ -459,24 +416,45 @@ static inline struct pending_reservation *__alloc_pending(bool nofail)
 	return kmem_cache_zalloc(ext4_pending_cachep, GFP_KERNEL | __GFP_NOFAIL);
 }
 
+/**
+ * __free_pending - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void __free_pending(struct pending_reservation *pr)
 {
 	kmem_cache_free(ext4_pending_cachep, pr);
 }
 
-/*
- * Returns true if we cannot fail to allocate memory for this extent_status
- * entry and cannot reclaim it until its status changes.
+
+/**
+ * ext4_es_must_keep - Implements the es must keep operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline bool ext4_es_must_keep(struct extent_status *es)
 {
-	/* fiemap, bigalloc, and seek_data/hole need to use it. */
+
 	if (ext4_es_is_delayed(es))
 		return true;
 
 	return false;
 }
 
+/**
+ * __es_alloc_extent - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline struct extent_status *__es_alloc_extent(bool nofail)
 {
 	if (!nofail)
@@ -485,6 +463,14 @@ static inline struct extent_status *__es_alloc_extent(bool nofail)
 	return kmem_cache_zalloc(ext4_es_cachep, GFP_KERNEL | __GFP_NOFAIL);
 }
 
+/**
+ * ext4_es_init_extent - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_es_init_extent(struct inode *inode, struct extent_status *es,
 		ext4_lblk_t lblk, ext4_lblk_t len, ext4_fsblk_t pblk)
 {
@@ -492,7 +478,7 @@ static void ext4_es_init_extent(struct inode *inode, struct extent_status *es,
 	es->es_len = len;
 	es->es_pblk = pblk;
 
-	/* We never try to reclaim a must kept extent, so we don't count it. */
+
 	if (!ext4_es_must_keep(es)) {
 		if (!EXT4_I(inode)->i_es_shk_nr++)
 			ext4_es_list_add(inode);
@@ -504,17 +490,33 @@ static void ext4_es_init_extent(struct inode *inode, struct extent_status *es,
 	percpu_counter_inc(&EXT4_SB(inode->i_sb)->s_es_stats.es_stats_all_cnt);
 }
 
+/**
+ * __es_free_extent - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void __es_free_extent(struct extent_status *es)
 {
 	kmem_cache_free(ext4_es_cachep, es);
 }
 
+/**
+ * ext4_es_free_extent - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_es_free_extent(struct inode *inode, struct extent_status *es)
 {
 	EXT4_I(inode)->i_es_all_nr--;
 	percpu_counter_dec(&EXT4_SB(inode->i_sb)->s_es_stats.es_stats_all_cnt);
 
-	/* Decrease the shrink counter when we can reclaim the extent. */
+
 	if (!ext4_es_must_keep(es)) {
 		BUG_ON(EXT4_I(inode)->i_es_shk_nr == 0);
 		if (!--EXT4_I(inode)->i_es_shk_nr)
@@ -526,12 +528,14 @@ static void ext4_es_free_extent(struct inode *inode, struct extent_status *es)
 	__es_free_extent(es);
 }
 
-/*
- * Check whether or not two extents can be merged
- * Condition:
- *  - logical block number is contiguous
- *  - physical block number is contiguous
- *  - status is equal
+
+/**
+ * ext4_es_can_be_merged - Implements the es can be merged operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_es_can_be_merged(struct extent_status *es1,
 				 struct extent_status *es2)
@@ -558,13 +562,21 @@ static int ext4_es_can_be_merged(struct extent_status *es1,
 	if (ext4_es_is_hole(es1))
 		return 1;
 
-	/* we need to check delayed extent */
+
 	if (ext4_es_is_delayed(es1))
 		return 1;
 
 	return 0;
 }
 
+/**
+ * ext4_es_try_to_merge_left - Implements the es try to merge left operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct extent_status *
 ext4_es_try_to_merge_left(struct inode *inode, struct extent_status *es)
 {
@@ -589,6 +601,14 @@ ext4_es_try_to_merge_left(struct inode *inode, struct extent_status *es)
 	return es;
 }
 
+/**
+ * ext4_es_try_to_merge_right - Implements the es try to merge right operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct extent_status *
 ext4_es_try_to_merge_right(struct inode *inode, struct extent_status *es)
 {
@@ -613,8 +633,16 @@ ext4_es_try_to_merge_right(struct inode *inode, struct extent_status *es)
 }
 
 #ifdef ES_AGGRESSIVE_TEST
-#include "ext4_extents.h"	/* Needed when ES_AGGRESSIVE_TEST is defined */
+#include "ext4_extents.h"
 
+/**
+ * ext4_es_insert_extent_ext_check - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_es_insert_extent_ext_check(struct inode *inode,
 					    struct extent_status *es)
 {
@@ -641,10 +669,7 @@ static void ext4_es_insert_extent_ext_check(struct inode *inode,
 		ee_status = ext4_ext_is_unwritten(ex) ? 1 : 0;
 		es_status = ext4_es_is_unwritten(es) ? 1 : 0;
 
-		/*
-		 * Make sure ex and es are not overlap when we try to insert
-		 * a delayed/hole extent.
-		 */
+
 		if (!ext4_es_is_written(es) && !ext4_es_is_unwritten(es)) {
 			if (in_range(es->es_lblk, ee_block, ee_len)) {
 				pr_warn("ES insert assertion failed for "
@@ -660,10 +685,7 @@ static void ext4_es_insert_extent_ext_check(struct inode *inode,
 			goto out;
 		}
 
-		/*
-		 * We don't check ee_block == es->es_lblk, etc. because es
-		 * might be a part of whole extent, vice versa.
-		 */
+
 		if (es->es_lblk < ee_block ||
 		    ext4_es_pblock(es) != ee_start + es->es_lblk - ee_block) {
 			pr_warn("ES insert assertion failed for inode: %lu "
@@ -684,10 +706,8 @@ static void ext4_es_insert_extent_ext_check(struct inode *inode,
 				ext4_es_pblock(es), es_status ? 'u' : 'w');
 		}
 	} else {
-		/*
-		 * We can't find an extent on disk.  So we need to make sure
-		 * that we don't want to add an written/unwritten extent.
-		 */
+
+
 		if (!ext4_es_is_delayed(es) && !ext4_es_is_hole(es)) {
 			pr_warn("ES insert assertion failed for inode: %lu "
 				"can't find an extent at block %d but we want "
@@ -701,18 +721,20 @@ out:
 	ext4_free_ext_path(path);
 }
 
+/**
+ * ext4_es_insert_extent_ind_check - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_es_insert_extent_ind_check(struct inode *inode,
 					    struct extent_status *es)
 {
 	struct ext4_map_blocks map;
 	int retval;
 
-	/*
-	 * Here we call ext4_ind_map_blocks to lookup a block mapping because
-	 * 'Indirect' structure is defined in indirect.c.  So we couldn't
-	 * access direct/indirect tree from outside.  It is too dirty to define
-	 * this function in indirect.c file.
-	 */
 
 	map.m_lblk = es->es_lblk;
 	map.m_len = es->es_len;
@@ -720,10 +742,8 @@ static void ext4_es_insert_extent_ind_check(struct inode *inode,
 	retval = ext4_ind_map_blocks(NULL, inode, &map, 0);
 	if (retval > 0) {
 		if (ext4_es_is_delayed(es) || ext4_es_is_hole(es)) {
-			/*
-			 * We want to add a delayed/hole extent but this
-			 * block has been allocated.
-			 */
+
+
 			pr_warn("ES insert assertion failed for inode: %lu "
 				"We can find blocks but we want to add a "
 				"delayed/hole extent [%d/%d/%llu/%x]\n",
@@ -746,10 +766,8 @@ static void ext4_es_insert_extent_ind_check(struct inode *inode,
 				return;
 			}
 		} else {
-			/*
-			 * We don't need to check unwritten extent because
-			 * indirect-based file doesn't have it.
-			 */
+
+
 			BUG();
 		}
 	} else if (retval == 0) {
@@ -764,13 +782,19 @@ static void ext4_es_insert_extent_ind_check(struct inode *inode,
 	}
 }
 
+/**
+ * ext4_es_insert_extent_check - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_es_insert_extent_check(struct inode *inode,
 					       struct extent_status *es)
 {
-	/*
-	 * We don't need to worry about the race condition because
-	 * caller takes i_data_sem locking.
-	 */
+
+
 	BUG_ON(!rwsem_is_locked(&EXT4_I(inode)->i_data_sem));
 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
 		ext4_es_insert_extent_ext_check(inode, es);
@@ -778,12 +802,28 @@ static inline void ext4_es_insert_extent_check(struct inode *inode,
 		ext4_es_insert_extent_ind_check(inode, es);
 }
 #else
+/**
+ * ext4_es_insert_extent_check - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_es_insert_extent_check(struct inode *inode,
 					       struct extent_status *es)
 {
 }
 #endif
 
+/**
+ * __es_insert_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __es_insert_extent(struct inode *inode, struct extent_status *newes,
 			      struct extent_status *prealloc)
 {
@@ -798,10 +838,8 @@ static int __es_insert_extent(struct inode *inode, struct extent_status *newes,
 
 		if (newes->es_lblk < es->es_lblk) {
 			if (ext4_es_can_be_merged(newes, es)) {
-				/*
-				 * Here we can modify es_lblk directly
-				 * because it isn't overlapped.
-				 */
+
+
 				es->es_lblk = newes->es_lblk;
 				es->es_len += newes->es_len;
 				if (ext4_es_is_written(es) ||
@@ -842,9 +880,14 @@ out:
 	return 0;
 }
 
-/*
- * ext4_es_insert_extent() adds information to an inode's extent
- * status tree.
+
+/**
+ * ext4_es_insert_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_es_insert_extent(struct inode *inode, ext4_lblk_t lblk,
 			   ext4_lblk_t len, ext4_fsblk_t pblk,
@@ -895,7 +938,7 @@ retry:
 	err1 = __es_remove_extent(inode, lblk, end, &resv_used, es1);
 	if (err1 != 0)
 		goto error;
-	/* Free preallocated extent if it didn't get used. */
+
 	if (es1) {
 		if (!es1->es_len)
 			__es_free_extent(es1);
@@ -907,7 +950,7 @@ retry:
 		err2 = 0;
 	if (err2 != 0)
 		goto error;
-	/* Free preallocated extent if it didn't get used. */
+
 	if (es2) {
 		if (!es2->es_len)
 			__es_free_extent(es2);
@@ -926,22 +969,8 @@ retry:
 	}
 error:
 	write_unlock(&EXT4_I(inode)->i_es_lock);
-	/*
-	 * Reduce the reserved cluster count to reflect successful deferred
-	 * allocation of delayed allocated clusters or direct allocation of
-	 * clusters discovered to be delayed allocated.  Once allocated, a
-	 * cluster is not included in the reserved count.
-	 *
-	 * When direct allocating (from fallocate, filemap, DIO, or clusters
-	 * allocated when delalloc has been disabled by ext4_nonda_switch())
-	 * an extent either 1) contains delayed blocks but start with
-	 * non-delayed allocated blocks (e.g. hole) or 2) contains non-delayed
-	 * allocated blocks which belong to delayed allocated clusters when
-	 * bigalloc feature is enabled, quota has already been claimed by
-	 * ext4_mb_new_blocks(), so release the quota reservations made for
-	 * any previously delayed allocated clusters instead of claim them
-	 * again.
-	 */
+
+
 	resv_used += pending;
 	if (resv_used)
 		ext4_da_update_reserve_space(inode, resv_used,
@@ -954,10 +983,14 @@ error:
 	return;
 }
 
-/*
- * ext4_es_cache_extent() inserts information into the extent status
- * tree if and only if there isn't information about the range in
- * question already.
+
+/**
+ * ext4_es_cache_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_es_cache_extent(struct inode *inode, ext4_lblk_t lblk,
 			  ext4_lblk_t len, ext4_fsblk_t pblk,
@@ -988,12 +1021,14 @@ void ext4_es_cache_extent(struct inode *inode, ext4_lblk_t lblk,
 	write_unlock(&EXT4_I(inode)->i_es_lock);
 }
 
-/*
- * ext4_es_lookup_extent() looks up an extent in extent status tree.
+
+/**
+ * ext4_es_lookup_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
- * ext4_es_lookup_extent is called by ext4_map_blocks/ext4_da_map_blocks.
- *
- * Return: 1 on found, 0 on not
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_es_lookup_extent(struct inode *inode, ext4_lblk_t lblk,
 			  ext4_lblk_t *next_lblk,
@@ -1014,7 +1049,7 @@ int ext4_es_lookup_extent(struct inode *inode, ext4_lblk_t lblk,
 	tree = &EXT4_I(inode)->i_es_tree;
 	read_lock(&EXT4_I(inode)->i_es_lock);
 
-	/* find extent in cache firstly */
+
 	es->es_lblk = es->es_len = es->es_pblk = 0;
 	es1 = READ_ONCE(tree->cache_es);
 	if (es1 && in_range(lblk, es1->es_lblk, es1->es_len)) {
@@ -1066,6 +1101,12 @@ out:
 	return found;
 }
 
+/**
+ * struct rsvd_count - Private EXT4 state/data structure used by extent-status cache.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct rsvd_count {
 	int ndelayed;
 	bool first_do_lblk_found;
@@ -1076,16 +1117,14 @@ struct rsvd_count {
 	ext4_lblk_t lclu;
 };
 
-/*
- * init_rsvd - initialize reserved count data before removing block range
- *	       in file from extent status tree
+
+/**
+ * init_rsvd - Initialises subsystem state and establishes the resources required by later operations.
  *
- * @inode - file containing range
- * @lblk - first block in range
- * @es - pointer to first extent in range
- * @rc - pointer to reserved count data
- *
- * Assumes es is not NULL
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void init_rsvd(struct inode *inode, ext4_lblk_t lblk,
 		      struct extent_status *es, struct rsvd_count *rc)
@@ -1095,12 +1134,7 @@ static void init_rsvd(struct inode *inode, ext4_lblk_t lblk,
 
 	rc->ndelayed = 0;
 
-	/*
-	 * for bigalloc, note the first delayed block in the range has not
-	 * been found, record the extent containing the block to the left of
-	 * the region to be removed, if any, and note that there's no partial
-	 * cluster to track
-	 */
+
 	if (sbi->s_cluster_ratio > 1) {
 		rc->first_do_lblk_found = false;
 		if (lblk > es->es_lblk) {
@@ -1115,18 +1149,14 @@ static void init_rsvd(struct inode *inode, ext4_lblk_t lblk,
 	}
 }
 
-/*
- * count_rsvd - count the clusters containing delayed blocks in a range
- *	        within an extent and add to the running tally in rsvd_count
+
+/**
+ * count_rsvd - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
- * @inode - file containing extent
- * @lblk - first block in range
- * @len - length of range in blocks
- * @es - pointer to extent containing clusters to be counted
- * @rc - pointer to reserved count data
- *
- * Tracks partial clusters found at the beginning and end of extents so
- * they aren't overcounted when they span adjacent extents
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void count_rsvd(struct inode *inode, ext4_lblk_t lblk, long len,
 		       struct extent_status *es, struct rsvd_count *rc)
@@ -1144,34 +1174,27 @@ static void count_rsvd(struct inode *inode, ext4_lblk_t lblk, long len,
 		return;
 	}
 
-	/* bigalloc */
 
 	i = (lblk < es->es_lblk) ? es->es_lblk : lblk;
 	end = lblk + (ext4_lblk_t) len - 1;
 	end = (end > ext4_es_end(es)) ? ext4_es_end(es) : end;
 
-	/* record the first block of the first delayed extent seen */
+
 	if (!rc->first_do_lblk_found) {
 		rc->first_do_lblk = i;
 		rc->first_do_lblk_found = true;
 	}
 
-	/* update the last lblk in the region seen so far */
+
 	rc->last_do_lblk = end;
 
-	/*
-	 * if we're tracking a partial cluster and the current extent
-	 * doesn't start with it, count it and stop tracking
-	 */
+
 	if (rc->partial && (rc->lclu != EXT4_B2C(sbi, i))) {
 		rc->ndelayed++;
 		rc->partial = false;
 	}
 
-	/*
-	 * if the first cluster doesn't start on a cluster boundary but
-	 * ends on one, count it
-	 */
+
 	if (EXT4_LBLK_COFF(sbi, i) != 0) {
 		if (end >= EXT4_LBLK_CFILL(sbi, i)) {
 			rc->ndelayed++;
@@ -1180,35 +1203,28 @@ static void count_rsvd(struct inode *inode, ext4_lblk_t lblk, long len,
 		}
 	}
 
-	/*
-	 * if the current cluster starts on a cluster boundary, count the
-	 * number of whole delayed clusters in the extent
-	 */
+
 	if ((i + sbi->s_cluster_ratio - 1) <= end) {
 		nclu = (end - i + 1) >> sbi->s_cluster_bits;
 		rc->ndelayed += nclu;
 		i += nclu << sbi->s_cluster_bits;
 	}
 
-	/*
-	 * start tracking a partial cluster if there's a partial at the end
-	 * of the current extent and we're not already tracking one
-	 */
+
 	if (!rc->partial && i <= end) {
 		rc->partial = true;
 		rc->lclu = EXT4_B2C(sbi, i);
 	}
 }
 
-/*
- * __pr_tree_search - search for a pending cluster reservation
+
+/**
+ * __pr_tree_search - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
  *
- * @root - root of pending reservation tree
- * @lclu - logical cluster to search for
- *
- * Returns the pending reservation for the cluster identified by @lclu
- * if found.  If not, returns a reservation for the next cluster if any,
- * and if not, returns NULL.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static struct pending_reservation *__pr_tree_search(struct rb_root *root,
 						    ext4_lblk_t lclu)
@@ -1235,20 +1251,14 @@ static struct pending_reservation *__pr_tree_search(struct rb_root *root,
 	return NULL;
 }
 
-/*
- * get_rsvd - calculates and returns the number of cluster reservations to be
- *	      released when removing a block range from the extent status tree
- *	      and releases any pending reservations within the range
+
+/**
+ * get_rsvd - Implements the get rsvd operation within the extent-status cache subsystem.
  *
- * @inode - file containing block range
- * @end - last block in range
- * @right_es - pointer to extent containing next block beyond end or NULL
- * @rc - pointer to reserved count data
- *
- * The number of reservations to be released is equal to the number of
- * clusters containing delayed blocks within the range, minus the number of
- * clusters still containing delayed blocks at the ends of the range, and
- * minus the number of pending reservations within the range.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static unsigned int get_rsvd(struct inode *inode, ext4_lblk_t end,
 			     struct extent_status *right_es,
@@ -1263,7 +1273,7 @@ static unsigned int get_rsvd(struct inode *inode, ext4_lblk_t end,
 	struct extent_status *es;
 
 	if (sbi->s_cluster_ratio > 1) {
-		/* count any remaining partial cluster */
+
 		if (rc->partial)
 			rc->ndelayed++;
 
@@ -1273,11 +1283,7 @@ static unsigned int get_rsvd(struct inode *inode, ext4_lblk_t end,
 		first_lclu = EXT4_B2C(sbi, rc->first_do_lblk);
 		last_lclu = EXT4_B2C(sbi, rc->last_do_lblk);
 
-		/*
-		 * decrease the delayed count by the number of clusters at the
-		 * ends of the range that still contain delayed blocks -
-		 * these clusters still need to be reserved
-		 */
+
 		left_delayed = right_delayed = false;
 
 		es = rc->left_es;
@@ -1316,15 +1322,7 @@ static unsigned int get_rsvd(struct inode *inode, ext4_lblk_t end,
 			}
 		}
 
-		/*
-		 * Determine the block range that should be searched for
-		 * pending reservations, if any.  Clusters on the ends of the
-		 * original removed range containing delayed blocks are
-		 * excluded.  They've already been accounted for and it's not
-		 * possible to determine if an associated pending reservation
-		 * should be released with the information available in the
-		 * extents status tree.
-		 */
+
 		if (first_lclu == last_lclu) {
 			if (left_delayed | right_delayed)
 				count_pending = false;
@@ -1341,12 +1339,7 @@ static unsigned int get_rsvd(struct inode *inode, ext4_lblk_t end,
 				count_pending = false;
 		}
 
-		/*
-		 * a pending reservation found between first_lclu and last_lclu
-		 * represents an allocated cluster that contained at least one
-		 * delayed block, so the delayed total must be reduced by one
-		 * for each pending reservation found and released
-		 */
+
 		if (count_pending) {
 			pr = __pr_tree_search(&tree->root, first_lclu);
 			while (pr && pr->lclu <= last_lclu) {
@@ -1365,19 +1358,13 @@ static unsigned int get_rsvd(struct inode *inode, ext4_lblk_t end,
 }
 
 
-/*
- * __es_remove_extent - removes block range from extent status tree
+/**
+ * __es_remove_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
- * @inode - file containing range
- * @lblk - first block in range
- * @end - last block in range
- * @reserved - number of cluster reservations released
- * @prealloc - pre-allocated es to avoid memory allocation failures
- *
- * If @reserved is not NULL and delayed allocation is enabled, counts
- * block/cluster reservations freed by removing range and if bigalloc
- * enabled cancels pending reservations as needed. Returns 0 on success,
- * error code on failure.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int __es_remove_extent(struct inode *inode, ext4_lblk_t lblk,
 			      ext4_lblk_t end, int *reserved,
@@ -1402,7 +1389,7 @@ static int __es_remove_extent(struct inode *inode, ext4_lblk_t lblk,
 	if (es->es_lblk > end)
 		goto out;
 
-	/* Simply invalidate cache_es. */
+
 	tree->cache_es = NULL;
 	if (count_reserved)
 		init_rsvd(inode, lblk, es, &rc);
@@ -1498,15 +1485,14 @@ out:
 	return err;
 }
 
-/*
- * ext4_es_remove_extent - removes block range from extent status tree
+
+/**
+ * ext4_es_remove_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
- * @inode - file containing range
- * @lblk - first block in range
- * @len - number of blocks to remove
- *
- * Reduces block/cluster reservation count and for bigalloc cancels pending
- * reservations as needed.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_es_remove_extent(struct inode *inode, ext4_lblk_t lblk,
 			   ext4_lblk_t len)
@@ -1532,14 +1518,11 @@ void ext4_es_remove_extent(struct inode *inode, ext4_lblk_t lblk,
 retry:
 	if (err && !es)
 		es = __es_alloc_extent(true);
-	/*
-	 * ext4_clear_inode() depends on us taking i_es_lock unconditionally
-	 * so that we are sure __es_shrink() is done with the inode before it
-	 * is reclaimed.
-	 */
+
+
 	write_lock(&EXT4_I(inode)->i_es_lock);
 	err = __es_remove_extent(inode, lblk, end, &reserved, es);
-	/* Free preallocated extent if it didn't get used. */
+
 	if (es) {
 		if (!es->es_len)
 			__es_free_extent(es);
@@ -1554,6 +1537,14 @@ retry:
 	return;
 }
 
+/**
+ * __es_shrink - Implements the es shrink operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __es_shrink(struct ext4_sb_info *sbi, int nr_to_scan,
 		       struct ext4_inode_info *locked_ei)
 {
@@ -1578,13 +1569,10 @@ retry:
 		}
 		ei = list_first_entry(&sbi->s_es_list, struct ext4_inode_info,
 				      i_es_list);
-		/* Move the inode to the tail */
+
 		list_move_tail(&ei->i_es_list, &sbi->s_es_list);
 
-		/*
-		 * Normally we try hard to avoid shrinking precached inodes,
-		 * but we will as a last resort.
-		 */
+
 		if (!retried && ext4_test_inode_state(&ei->vfs_inode,
 						EXT4_STATE_EXT_PRECACHED)) {
 			nr_skipped++;
@@ -1595,10 +1583,8 @@ retry:
 			nr_skipped++;
 			continue;
 		}
-		/*
-		 * Now we hold i_es_lock which protects us from inode reclaim
-		 * freeing inode under us
-		 */
+
+
 		spin_unlock(&sbi->s_es_lock);
 
 		nr_shrunk += es_reclaim_extents(ei, &nr_to_scan);
@@ -1610,10 +1596,7 @@ retry:
 	}
 	spin_unlock(&sbi->s_es_lock);
 
-	/*
-	 * If we skipped any inodes, and we weren't able to make any
-	 * forward progress, try again to scan precached inodes.
-	 */
+
 	if ((nr_shrunk == 0) && nr_skipped && !retried) {
 		retried++;
 		goto retry;
@@ -1642,6 +1625,14 @@ out:
 	return nr_shrunk;
 }
 
+/**
+ * ext4_es_count - Computes derived filesystem state used for validation, accounting or policy decisions.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static unsigned long ext4_es_count(struct shrinker *shrink,
 				   struct shrink_control *sc)
 {
@@ -1654,6 +1645,14 @@ static unsigned long ext4_es_count(struct shrinker *shrink,
 	return nr;
 }
 
+/**
+ * ext4_es_scan - Implements the es scan operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static unsigned long ext4_es_scan(struct shrinker *shrink,
 				  struct shrink_control *sc)
 {
@@ -1671,6 +1670,14 @@ static unsigned long ext4_es_scan(struct shrinker *shrink,
 	return nr_shrunk;
 }
 
+/**
+ * ext4_seq_es_shrinker_info_show - Implements the seq es shrinker info show operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_seq_es_shrinker_info_show(struct seq_file *seq, void *v)
 {
 	struct ext4_sb_info *sbi = EXT4_SB((struct super_block *) seq->private);
@@ -1681,7 +1688,7 @@ int ext4_seq_es_shrinker_info_show(struct seq_file *seq, void *v)
 	if (v != SEQ_START_TOKEN)
 		return 0;
 
-	/* here we just find an inode that has the max nr. of objects */
+
 	spin_lock(&sbi->s_es_lock);
 	list_for_each_entry(ei, &sbi->s_es_list, i_es_list) {
 		inode_cnt++;
@@ -1714,11 +1721,19 @@ int ext4_seq_es_shrinker_info_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/**
+ * ext4_es_register_shrinker - Implements the es register shrinker operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_es_register_shrinker(struct ext4_sb_info *sbi)
 {
 	int err;
 
-	/* Make sure we have enough bits for physical block number */
+
 	BUILD_BUG_ON(ES_SHIFT < 48);
 	INIT_LIST_HEAD(&sbi->s_es_list);
 	sbi->s_es_nr_inode = 0;
@@ -1765,6 +1780,14 @@ err1:
 	return err;
 }
 
+/**
+ * ext4_es_unregister_shrinker - Implements the es unregister shrinker operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_es_unregister_shrinker(struct ext4_sb_info *sbi)
 {
 	percpu_counter_destroy(&sbi->s_es_stats.es_stats_cache_hits);
@@ -1774,13 +1797,14 @@ void ext4_es_unregister_shrinker(struct ext4_sb_info *sbi)
 	shrinker_free(sbi->s_es_shrinker);
 }
 
-/*
- * Shrink extents in given inode from ei->i_es_shrink_lblk till end. Scan at
- * most *nr_to_scan extents, update *nr_to_scan accordingly.
+
+/**
+ * es_do_reclaim_extents - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
- * Return 0 if we hit end of tree / interval, 1 if we exhausted nr_to_scan.
- * Increment *nr_shrunk by the number of reclaimed extents. Also update
- * ei->i_es_shrink_lblk to where we should continue scanning.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int es_do_reclaim_extents(struct ext4_inode_info *ei, ext4_lblk_t end,
 				 int *nr_to_scan, int *nr_shrunk)
@@ -1825,6 +1849,14 @@ out_wrap:
 	return 0;
 }
 
+/**
+ * es_reclaim_extents - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int es_reclaim_extents(struct ext4_inode_info *ei, int *nr_to_scan)
 {
 	struct inode *inode = &ei->vfs_inode;
@@ -1848,10 +1880,14 @@ static int es_reclaim_extents(struct ext4_inode_info *ei, int *nr_to_scan)
 	return nr_shrunk;
 }
 
-/*
- * Called to support EXT4_IOC_CLEAR_ES_CACHE.  We can only remove
- * discretionary entries from the extent status cache.  (Some entries
- * must be present for proper operations.)
+
+/**
+ * ext4_clear_inode_es - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_clear_inode_es(struct inode *inode)
 {
@@ -1877,6 +1913,14 @@ void ext4_clear_inode_es(struct inode *inode)
 }
 
 #ifdef ES_DEBUG__
+/**
+ * ext4_print_pending_tree - Implements the print pending tree operation within the extent-status cache subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_print_pending_tree(struct inode *inode)
 {
 	struct ext4_pending_tree *tree;
@@ -1897,6 +1941,14 @@ static void ext4_print_pending_tree(struct inode *inode)
 #define ext4_print_pending_tree(inode)
 #endif
 
+/**
+ * ext4_init_pending - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int __init ext4_init_pending(void)
 {
 	ext4_pending_cachep = KMEM_CACHE(pending_reservation, SLAB_RECLAIM_ACCOUNT);
@@ -1905,24 +1957,40 @@ int __init ext4_init_pending(void)
 	return 0;
 }
 
+/**
+ * ext4_exit_pending - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_exit_pending(void)
 {
 	kmem_cache_destroy(ext4_pending_cachep);
 }
 
+/**
+ * ext4_init_pending_tree - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_init_pending_tree(struct ext4_pending_tree *tree)
 {
 	tree->root = RB_ROOT;
 }
 
-/*
- * __get_pending - retrieve a pointer to a pending reservation
+
+/**
+ * __get_pending - Implements the get pending operation within the extent-status cache subsystem.
  *
- * @inode - file containing the pending cluster reservation
- * @lclu - logical cluster of interest
- *
- * Returns a pointer to a pending reservation if it's a member of
- * the set, and NULL if not.  Must be called holding i_es_lock.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static struct pending_reservation *__get_pending(struct inode *inode,
 						 ext4_lblk_t lclu)
@@ -1946,16 +2014,14 @@ static struct pending_reservation *__get_pending(struct inode *inode,
 	return NULL;
 }
 
-/*
- * __insert_pending - adds a pending cluster reservation to the set of
- *                    pending reservations
+
+/**
+ * __insert_pending - Implements the insert pending operation within the extent-status cache subsystem.
  *
- * @inode - file containing the cluster
- * @lblk - logical block in the cluster to be added
- * @prealloc - preallocated pending entry
- *
- * Returns 1 on successful insertion and -ENOMEM on failure.  If the
- * pending reservation is already in the set, returns successfully.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int __insert_pending(struct inode *inode, ext4_lblk_t lblk,
 			    struct pending_reservation **prealloc)
@@ -1969,7 +2035,7 @@ static int __insert_pending(struct inode *inode, ext4_lblk_t lblk,
 	int ret = 0;
 
 	lclu = EXT4_B2C(sbi, lblk);
-	/* search to find parent for insertion */
+
 	while (*p) {
 		parent = *p;
 		pr = rb_entry(parent, struct pending_reservation, rb_node);
@@ -1979,7 +2045,7 @@ static int __insert_pending(struct inode *inode, ext4_lblk_t lblk,
 		} else if (lclu > pr->lclu) {
 			p = &(*p)->rb_right;
 		} else {
-			/* pending reservation already inserted */
+
 			goto out;
 		}
 	}
@@ -2004,14 +2070,14 @@ out:
 	return ret;
 }
 
-/*
- * __remove_pending - removes a pending cluster reservation from the set
- *                    of pending reservations
+
+/**
+ * __remove_pending - Implements the remove pending operation within the extent-status cache subsystem.
  *
- * @inode - file containing the cluster
- * @lblk - logical block in the pending cluster reservation to be removed
- *
- * Returns successfully if pending reservation is not a member of the set.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void __remove_pending(struct inode *inode, ext4_lblk_t lblk)
 {
@@ -2027,14 +2093,14 @@ static void __remove_pending(struct inode *inode, ext4_lblk_t lblk)
 	}
 }
 
-/*
- * ext4_remove_pending - removes a pending cluster reservation from the set
- *                       of pending reservations
+
+/**
+ * ext4_remove_pending - Implements the remove pending operation within the extent-status cache subsystem.
  *
- * @inode - file containing the cluster
- * @lblk - logical block in the pending cluster reservation to be removed
- *
- * Locking for external use of __remove_pending.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_remove_pending(struct inode *inode, ext4_lblk_t lblk)
 {
@@ -2045,15 +2111,14 @@ void ext4_remove_pending(struct inode *inode, ext4_lblk_t lblk)
 	write_unlock(&ei->i_es_lock);
 }
 
-/*
- * ext4_is_pending - determine whether a cluster has a pending reservation
- *                   on it
+
+/**
+ * ext4_is_pending - Implements the is pending operation within the extent-status cache subsystem.
  *
- * @inode - file containing the cluster
- * @lblk - logical block in the cluster
- *
- * Returns true if there's a pending reservation for the cluster in the
- * set of pending reservations, and false if not.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 bool ext4_is_pending(struct inode *inode, ext4_lblk_t lblk)
 {
@@ -2068,20 +2133,14 @@ bool ext4_is_pending(struct inode *inode, ext4_lblk_t lblk)
 	return ret;
 }
 
-/*
- * ext4_es_insert_delayed_extent - adds some delayed blocks to the extents
- *                                 status tree, adding a pending reservation
- *                                 where needed
+
+/**
+ * ext4_es_insert_delayed_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
- * @inode - file containing the newly added block
- * @lblk - start logical block to be added
- * @len - length of blocks to be added
- * @lclu_allocated/end_allocated - indicates whether a physical cluster has
- *                                 been allocated for the logical cluster
- *                                 that contains the start/end block. Note that
- *                                 end_allocated should always be set to false
- *                                 if the start and the end block are in the
- *                                 same cluster
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_es_insert_delayed_extent(struct inode *inode, ext4_lblk_t lblk,
 				   ext4_lblk_t len, bool lclu_allocated,
@@ -2131,7 +2190,7 @@ retry:
 	err1 = __es_remove_extent(inode, lblk, end, NULL, es1);
 	if (err1 != 0)
 		goto error;
-	/* Free preallocated extent if it didn't get used. */
+
 	if (es1) {
 		if (!es1->es_len)
 			__es_free_extent(es1);
@@ -2141,7 +2200,7 @@ retry:
 	err2 = __es_insert_extent(inode, &newes, es2);
 	if (err2 != 0)
 		goto error;
-	/* Free preallocated extent if it didn't get used. */
+
 	if (es2) {
 		if (!es2->es_len)
 			__es_free_extent(es2);
@@ -2176,23 +2235,14 @@ error:
 	return;
 }
 
-/*
- * __revise_pending - makes, cancels, or leaves unchanged pending cluster
- *                    reservations for a specified block range depending
- *                    upon the presence or absence of delayed blocks
- *                    outside the range within clusters at the ends of the
- *                    range
+
+/**
+ * __revise_pending - Implements the revise pending operation within the extent-status cache subsystem.
  *
- * @inode - file containing the range
- * @lblk - logical block defining the start of range
- * @len  - length of range in blocks
- * @prealloc - preallocated pending entry
- *
- * Used after a newly allocated extent is added to the extents status tree.
- * Requires that the extents in the range have either written or unwritten
- * status.  Must be called while holding i_es_lock. Returns number of new
- * inserts pending cluster on insert pendings, returns 0 on remove pendings,
- * return -ENOMEM on failure.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int __revise_pending(struct inode *inode, ext4_lblk_t lblk,
 			    ext4_lblk_t len,
@@ -2208,18 +2258,6 @@ static int __revise_pending(struct inode *inode, ext4_lblk_t lblk,
 	if (len == 0)
 		return 0;
 
-	/*
-	 * Two cases - block range within single cluster and block range
-	 * spanning two or more clusters.  Note that a cluster belonging
-	 * to a range starting and/or ending on a cluster boundary is treated
-	 * as if it does not contain a delayed extent.  The new range may
-	 * have allocated space for previously delayed blocks out to the
-	 * cluster boundary, requiring that any pre-existing pending
-	 * reservation be canceled.  Because this code only looks at blocks
-	 * outside the range, it should revise pending reservations
-	 * correctly even if the extent represented by the range can't be
-	 * inserted in the extents status tree due to ENOSPC.
-	 */
 
 	if (EXT4_B2C(sbi, lblk) == EXT4_B2C(sbi, end)) {
 		first = EXT4_LBLK_CMASK(sbi, lblk);

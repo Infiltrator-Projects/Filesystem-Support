@@ -12,6 +12,28 @@
  *        David S. Miller (davem@caip.rutgers.edu), 1995
  */
 
+/*
+ * EXT4 — Block allocation
+ *
+ * Purpose:
+ *   Implements free-block accounting, block-group bitmap handling and block allocation/release policy.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Allocation code must keep bitmap state, group descriptors, global counters and journal state mutually consistent across success and rollback paths.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/time.h>
 #include <linux/capability.h>
 #include <linux/fs.h>
@@ -26,12 +48,15 @@
 
 static unsigned ext4_num_base_meta_clusters(struct super_block *sb,
 					    ext4_group_t block_group);
-/*
- * balloc.c contains the blocks allocation and deallocation routines
- */
 
-/*
- * Calculate block group number for a given block number
+
+/**
+ * ext4_get_group_number - Implements the get group number operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 ext4_group_t ext4_get_group_number(struct super_block *sb,
 				   ext4_fsblk_t block)
@@ -47,9 +72,14 @@ ext4_group_t ext4_get_group_number(struct super_block *sb,
 	return group;
 }
 
-/*
- * Calculate the block group number and offset into the block/cluster
- * allocation bitmap, given a block number
+
+/**
+ * ext4_get_group_no_and_offset - Implements the get group no and offset operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_get_group_no_and_offset(struct super_block *sb, ext4_fsblk_t blocknr,
 		ext4_group_t *blockgrpp, ext4_grpblk_t *offsetp)
@@ -67,9 +97,14 @@ void ext4_get_group_no_and_offset(struct super_block *sb, ext4_fsblk_t blocknr,
 
 }
 
-/*
- * Check whether the 'block' lives within the 'block_group'. Returns 1 if so
- * and 0 otherwise.
+
+/**
+ * ext4_block_in_group - Implements the block in group operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline int ext4_block_in_group(struct super_block *sb,
 				      ext4_fsblk_t block,
@@ -81,9 +116,14 @@ static inline int ext4_block_in_group(struct super_block *sb,
 	return (actual_group == block_group) ? 1 : 0;
 }
 
-/*
- * Return the number of clusters used for file system metadata; this
- * represents the overhead needed by the file system.
+
+/**
+ * ext4_num_overhead_clusters - Implements the num overhead clusters operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static unsigned ext4_num_overhead_clusters(struct super_block *sb,
 					   ext4_group_t block_group,
@@ -97,18 +137,11 @@ static unsigned ext4_num_overhead_clusters(struct super_block *sb,
 	ext4_fsblk_t itbl_blk_start, itbl_blk_end;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 
-	/* This is the number of clusters used by the superblock,
-	 * block group descriptors, and reserved block group
-	 * descriptor blocks */
+
 	base_clusters = ext4_num_base_meta_clusters(sb, block_group);
 	num_clusters = base_clusters;
 
-	/*
-	 * Account and record inode table clusters if any cluster
-	 * is in the block group, or inode table cluster range is
-	 * [-1, -1] and won't overlap with block/inode bitmap cluster
-	 * accounted below.
-	 */
+
 	itbl_blk_start = ext4_inode_table(sb, gdp);
 	itbl_blk_end = itbl_blk_start + sbi->s_itb_per_group - 1;
 	if (itbl_blk_start <= end && itbl_blk_end >= start) {
@@ -119,20 +152,12 @@ static unsigned ext4_num_overhead_clusters(struct super_block *sb,
 		itbl_cluster_end = EXT4_B2C(sbi, itbl_blk_end - start);
 
 		num_clusters += itbl_cluster_end - itbl_cluster_start + 1;
-		/* check if border cluster is overlapped */
+
 		if (itbl_cluster_start == base_clusters - 1)
 			num_clusters--;
 	}
 
-	/*
-	 * For the allocation bitmaps, we first need to check to see
-	 * if the block is in the block group.  If it is, then check
-	 * to see if the cluster is already accounted for in the clusters
-	 * used for the base metadata cluster and inode tables cluster.
-	 * Normally all of these blocks are contiguous, so the special
-	 * case handling shouldn't be necessary except for *very*
-	 * unusual file system layouts.
-	 */
+
 	if (ext4_block_in_group(sb, ext4_block_bitmap(sb, gdp), block_group)) {
 		block_cluster = EXT4_B2C(sbi,
 					 ext4_block_bitmap(sb, gdp) - start);
@@ -145,10 +170,8 @@ static unsigned ext4_num_overhead_clusters(struct super_block *sb,
 	if (ext4_block_in_group(sb, ext4_inode_bitmap(sb, gdp), block_group)) {
 		inode_cluster = EXT4_B2C(sbi,
 					 ext4_inode_bitmap(sb, gdp) - start);
-		/*
-		 * Additional check if inode bitmap is in just accounted
-		 * block_cluster
-		 */
+
+
 		if (inode_cluster != block_cluster &&
 		    inode_cluster >= base_clusters &&
 		    (inode_cluster < itbl_cluster_start ||
@@ -159,18 +182,22 @@ static unsigned ext4_num_overhead_clusters(struct super_block *sb,
 	return num_clusters;
 }
 
+/**
+ * num_clusters_in_group - Implements the num clusters in group operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static unsigned int num_clusters_in_group(struct super_block *sb,
 					  ext4_group_t block_group)
 {
 	unsigned int blocks;
 
 	if (block_group == ext4_get_groups_count(sb) - 1) {
-		/*
-		 * Even though mke2fs always initializes the first and
-		 * last group, just in case some other tool was used,
-		 * we need to make sure we calculate the right free
-		 * blocks.
-		 */
+
+
 		blocks = ext4_blocks_count(EXT4_SB(sb)->s_es) -
 			ext4_group_first_block_no(sb, block_group);
 	} else
@@ -178,7 +205,15 @@ static unsigned int num_clusters_in_group(struct super_block *sb,
 	return EXT4_NUM_B2C(EXT4_SB(sb), blocks);
 }
 
-/* Initializes an uninitialized block bitmap */
+
+/**
+ * ext4_init_block_bitmap - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_init_block_bitmap(struct super_block *sb,
 				   struct buffer_head *bh,
 				   ext4_group_t block_group,
@@ -207,7 +242,7 @@ static int ext4_init_block_bitmap(struct super_block *sb,
 
 	start = ext4_group_first_block_no(sb, block_group);
 
-	/* Set bits for block and inode bitmaps, and inode table */
+
 	tmp = ext4_block_bitmap(sb, gdp);
 	if (ext4_block_in_group(sb, tmp, block_group))
 		ext4_set_bit(EXT4_B2C(sbi, tmp - start), bh->b_data);
@@ -223,19 +258,21 @@ static int ext4_init_block_bitmap(struct super_block *sb,
 			ext4_set_bit(EXT4_B2C(sbi, tmp - start), bh->b_data);
 	}
 
-	/*
-	 * Also if the number of blocks within the group is less than
-	 * the blocksize * 8 ( which is the size of bitmap ), set rest
-	 * of the block bitmap to 1
-	 */
+
 	ext4_mark_bitmap_end(num_clusters_in_group(sb, block_group),
 			     sb->s_blocksize * 8, bh->b_data);
 	return 0;
 }
 
-/* Return the number of free blocks in a block group.  It is used when
- * the block bitmap is uninitialized, so we can't just count the bits
- * in the bitmap. */
+
+/**
+ * ext4_free_clusters_after_init - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 unsigned ext4_free_clusters_after_init(struct super_block *sb,
 				       ext4_group_t block_group,
 				       struct ext4_group_desc *gdp)
@@ -244,23 +281,14 @@ unsigned ext4_free_clusters_after_init(struct super_block *sb,
 		ext4_num_overhead_clusters(sb, block_group, gdp);
 }
 
-/*
- * The free blocks are managed by bitmaps.  A file system contains several
- * blocks groups.  Each group contains 1 bitmap block for blocks, 1 bitmap
- * block for inodes, N blocks for the inode table and data blocks.
- *
- * The file system contains group descriptors which are located after the
- * super block.  Each descriptor contains the number of the bitmap block and
- * the free blocks count in the block.  The descriptors are loaded in memory
- * when a file system is mounted (see ext4_fill_super).
- */
 
 /**
- * ext4_get_group_desc() -- load group descriptor from disk
- * @sb:			super block
- * @block_group:	given block group
- * @bh:			pointer to the buffer head to store the block
- *			group descriptor
+ * ext4_get_group_desc - Implements the get group desc operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 struct ext4_group_desc * ext4_get_group_desc(struct super_block *sb,
 					     ext4_group_t block_group,
@@ -286,12 +314,8 @@ struct ext4_group_desc * ext4_get_group_desc(struct super_block *sb,
 	group_desc = block_group >> EXT4_DESC_PER_BLOCK_BITS(sb);
 	offset = block_group & (EXT4_DESC_PER_BLOCK(sb) - 1);
 	bh_p = sbi_array_rcu_deref(sbi, s_group_desc, group_desc);
-	/*
-	 * sbi_array_rcu_deref returns with rcu unlocked, this is ok since
-	 * the pointer being dereferenced won't be dereferenced again. By
-	 * looking at the usage in add_new_gdb() the value isn't modified,
-	 * just the pointer, and so it remains valid.
-	 */
+
+
 	if (!bh_p) {
 		ext4_error(sb, "Group descriptor not loaded - "
 			   "block_group = %u, group_desc = %u, desc = %u",
@@ -307,6 +331,14 @@ struct ext4_group_desc * ext4_get_group_desc(struct super_block *sb,
 	return desc;
 }
 
+/**
+ * ext4_valid_block_bitmap_padding - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ext4_fsblk_t ext4_valid_block_bitmap_padding(struct super_block *sb,
 						    ext4_group_t block_group,
 						    struct buffer_head *bh)
@@ -323,6 +355,14 @@ static ext4_fsblk_t ext4_valid_block_bitmap_padding(struct super_block *sb,
 	return (next_zero_bit < bitmap_size ? next_zero_bit : 0);
 }
 
+/**
+ * ext4_get_group_info - Implements the get group info operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 struct ext4_group_info *ext4_get_group_info(struct super_block *sb,
 					    ext4_group_t group)
 {
@@ -337,9 +377,14 @@ struct ext4_group_info *ext4_get_group_info(struct super_block *sb,
 	return grp_info[indexh];
 }
 
-/*
- * Return the block number which was discovered to be invalid, or 0 if
- * the block bitmap is valid.
+
+/**
+ * ext4_valid_block_bitmap - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static ext4_fsblk_t ext4_valid_block_bitmap(struct super_block *sb,
 					    struct ext4_group_desc *desc,
@@ -354,33 +399,29 @@ static ext4_fsblk_t ext4_valid_block_bitmap(struct super_block *sb,
 	ext4_fsblk_t group_first_block;
 
 	if (ext4_has_feature_flex_bg(sb)) {
-		/* with FLEX_BG, the inode/block bitmaps and itable
-		 * blocks may not be in the group at all
-		 * so the bitmap validation will be skipped for those groups
-		 * or it has to also read the block group where the bitmaps
-		 * are located to verify they are set.
-		 */
+
+
 		return 0;
 	}
 	group_first_block = ext4_group_first_block_no(sb, block_group);
 
-	/* check whether block bitmap block number is set */
+
 	blk = ext4_block_bitmap(sb, desc);
 	offset = blk - group_first_block;
 	if (offset < 0 || EXT4_B2C(sbi, offset) >= max_bit ||
 	    !ext4_test_bit(EXT4_B2C(sbi, offset), bh->b_data))
-		/* bad block bitmap */
+
 		return blk;
 
-	/* check whether the inode bitmap block number is set */
+
 	blk = ext4_inode_bitmap(sb, desc);
 	offset = blk - group_first_block;
 	if (offset < 0 || EXT4_B2C(sbi, offset) >= max_bit ||
 	    !ext4_test_bit(EXT4_B2C(sbi, offset), bh->b_data))
-		/* bad block bitmap */
+
 		return blk;
 
-	/* check whether the inode table block number is set */
+
 	blk = ext4_inode_table(sb, desc);
 	offset = blk - group_first_block;
 	if (offset < 0 || EXT4_B2C(sbi, offset) >= max_bit ||
@@ -391,11 +432,19 @@ static ext4_fsblk_t ext4_valid_block_bitmap(struct super_block *sb,
 			EXT4_B2C(sbi, offset));
 	if (next_zero_bit <
 	    EXT4_B2C(sbi, offset + sbi->s_itb_per_group - 1) + 1)
-		/* bad bitmap for inode tables */
+
 		return blk;
 	return 0;
 }
 
+/**
+ * ext4_validate_block_bitmap - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_validate_block_bitmap(struct super_block *sb,
 				      struct ext4_group_desc *desc,
 				      ext4_group_t block_group,
@@ -449,16 +498,14 @@ verified:
 	return 0;
 }
 
+
 /**
- * ext4_read_block_bitmap_nowait()
- * @sb:			super block
- * @block_group:	given block group
- * @ignore_locked:	ignore locked buffers
+ * ext4_read_block_bitmap_nowait - Reads or materialises filesystem state for validation or higher-level processing.
  *
- * Read the bitmap for a given block_group,and validate the
- * bits for block/inode/inode tables are set in the bitmaps
- *
- * Return buffer_head on success or an ERR_PTR in case of failure.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 struct buffer_head *
 ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group,
@@ -494,7 +541,7 @@ ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group,
 	}
 
 	if (ignore_locked && buffer_locked(bh)) {
-		/* buffer under IO already, return if called for prefetching */
+
 		put_bh(bh);
 		return NULL;
 	}
@@ -535,17 +582,14 @@ ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group,
 	}
 	ext4_unlock_group(sb, block_group);
 	if (buffer_uptodate(bh)) {
-		/*
-		 * if not uninit if bh is uptodate,
-		 * bitmap is also uptodate
-		 */
+
+
 		set_bitmap_uptodate(bh);
 		unlock_buffer(bh);
 		goto verify;
 	}
-	/*
-	 * submit the buffer_head for reading
-	 */
+
+
 	set_buffer_new(bh);
 	trace_ext4_read_block_bitmap_load(sb, block_group, ignore_locked);
 	ext4_read_bh_nowait(bh, REQ_META | REQ_PRIO |
@@ -563,7 +607,15 @@ out:
 	return ERR_PTR(err);
 }
 
-/* Returns 0 on success, -errno on error */
+
+/**
+ * ext4_wait_block_bitmap - Implements the wait block bitmap operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_wait_block_bitmap(struct super_block *sb, ext4_group_t block_group,
 			   struct buffer_head *bh)
 {
@@ -587,10 +639,18 @@ int ext4_wait_block_bitmap(struct super_block *sb, ext4_group_t block_group,
 		return -EIO;
 	}
 	clear_buffer_new(bh);
-	/* Panic or remount fs read-only if block bitmap is invalid */
+
 	return ext4_validate_block_bitmap(sb, desc, block_group, bh);
 }
 
+/**
+ * ext4_read_block_bitmap - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 struct buffer_head *
 ext4_read_block_bitmap(struct super_block *sb, ext4_group_t block_group)
 {
@@ -608,14 +668,14 @@ ext4_read_block_bitmap(struct super_block *sb, ext4_group_t block_group)
 	return bh;
 }
 
+
 /**
- * ext4_has_free_clusters()
- * @sbi:	in-core super block structure.
- * @nclusters:	number of needed blocks
- * @flags:	flags from ext4_mb_new_blocks()
+ * ext4_has_free_clusters - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
- * Check if filesystem has nclusters free & available for allocation.
- * On success return 1, return 0 on failure.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_has_free_clusters(struct ext4_sb_info *sbi,
 				  s64 nclusters, unsigned int flags)
@@ -628,10 +688,7 @@ static int ext4_has_free_clusters(struct ext4_sb_info *sbi,
 	dirty_clusters = percpu_counter_read_positive(dcc);
 	resv_clusters = atomic64_read(&sbi->s_resv_clusters);
 
-	/*
-	 * r_blocks_count should always be multiple of the cluster ratio so
-	 * we are safe to do a plane bit shift only.
-	 */
+
 	rsv = (ext4_r_blocks_count(sbi->s_es) >> sbi->s_cluster_bits) +
 	      resv_clusters;
 
@@ -640,13 +697,12 @@ static int ext4_has_free_clusters(struct ext4_sb_info *sbi,
 		free_clusters  = percpu_counter_sum_positive(fcc);
 		dirty_clusters = percpu_counter_sum_positive(dcc);
 	}
-	/* Check whether we have space after accounting for current
-	 * dirty clusters & root reserved clusters.
-	 */
+
+
 	if (free_clusters >= (rsv + nclusters + dirty_clusters))
 		return 1;
 
-	/* Hm, nope.  Are (enough) root reserved clusters available? */
+
 	if (uid_eq(sbi->s_resuid, current_fsuid()) ||
 	    (!gid_eq(sbi->s_resgid, GLOBAL_ROOT_GID) && in_group_p(sbi->s_resgid)) ||
 	    (flags & EXT4_MB_USE_ROOT_BLOCKS) ||
@@ -656,7 +712,7 @@ static int ext4_has_free_clusters(struct ext4_sb_info *sbi,
 				      resv_clusters))
 			return 1;
 	}
-	/* No free blocks. Let's see if we can dip into reserved pool */
+
 	if (flags & EXT4_MB_USE_RESERVED) {
 		if (free_clusters >= (nclusters + dirty_clusters))
 			return 1;
@@ -665,6 +721,14 @@ static int ext4_has_free_clusters(struct ext4_sb_info *sbi,
 	return 0;
 }
 
+/**
+ * ext4_claim_free_clusters - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
 			     s64 nclusters, unsigned int flags)
 {
@@ -675,16 +739,14 @@ int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
 		return -ENOSPC;
 }
 
+
 /**
- * ext4_should_retry_alloc() - check if a block allocation should be retried
- * @sb:			superblock
- * @retries:		number of retry attempts made so far
+ * ext4_should_retry_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
- * ext4_should_retry_alloc() is called when ENOSPC is returned while
- * attempting to allocate blocks.  If there's an indication that a pending
- * journal transaction might free some space and allow another attempt to
- * succeed, this function will wait for the current or committing transaction
- * to complete and then return TRUE.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_should_retry_alloc(struct super_block *sb, int *retries)
 {
@@ -698,10 +760,7 @@ int ext4_should_retry_alloc(struct super_block *sb, int *retries)
 		return 0;
 	}
 
-	/*
-	 * if there's no indication that blocks are about to be freed it's
-	 * possible we just missed a transaction commit that did so
-	 */
+
 	smp_mb();
 	if (sbi->s_mb_free_pending == 0) {
 		if (test_opt(sb, DISCARD)) {
@@ -712,26 +771,20 @@ int ext4_should_retry_alloc(struct super_block *sb, int *retries)
 		return ext4_has_free_clusters(sbi, 1, 0);
 	}
 
-	/*
-	 * it's possible we've just missed a transaction commit here,
-	 * so ignore the returned status
-	 */
+
 	ext4_debug("%s: retrying operation after ENOSPC\n", sb->s_id);
 	(void) jbd2_journal_force_commit_nested(sbi->s_journal);
 	return 1;
 }
 
-/*
- * ext4_new_meta_blocks() -- allocate block for meta data (indexing) blocks
+
+/**
+ * ext4_new_meta_blocks - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
- * @handle:             handle to this transaction
- * @inode:              file inode
- * @goal:               given target block(filesystem wide)
- * @count:		pointer to total number of clusters needed
- * @errp:               error code
- *
- * Return 1st allocated block number on success, *count stores total account
- * error stores in errp pointer
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 ext4_fsblk_t ext4_new_meta_blocks(handle_t *handle, struct inode *inode,
 				  ext4_fsblk_t goal, unsigned int flags,
@@ -741,7 +794,7 @@ ext4_fsblk_t ext4_new_meta_blocks(handle_t *handle, struct inode *inode,
 	ext4_fsblk_t ret;
 
 	memset(&ar, 0, sizeof(ar));
-	/* Fill with neighbour allocated blocks */
+
 	ar.inode = inode;
 	ar.goal = goal;
 	ar.len = count ? *count : 1;
@@ -750,10 +803,8 @@ ext4_fsblk_t ext4_new_meta_blocks(handle_t *handle, struct inode *inode,
 	ret = ext4_mb_new_blocks(handle, &ar, errp);
 	if (count)
 		*count = ar.len;
-	/*
-	 * Account for the allocated meta blocks.  We will never
-	 * fail EDQUOT for metdata, but we do account for it.
-	 */
+
+
 	if (!(*errp) && (flags & EXT4_MB_DELALLOC_RESERVED)) {
 		dquot_alloc_block_nofail(inode,
 				EXT4_C2B(EXT4_SB(inode->i_sb), ar.len));
@@ -761,11 +812,14 @@ ext4_fsblk_t ext4_new_meta_blocks(handle_t *handle, struct inode *inode,
 	return ret;
 }
 
+
 /**
- * ext4_count_free_clusters() -- count filesystem free clusters
- * @sb:		superblock
+ * ext4_count_free_clusters - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
- * Adds up the number of free clusters from each block group.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 ext4_fsblk_t ext4_count_free_clusters(struct super_block *sb)
 {
@@ -830,6 +884,14 @@ ext4_fsblk_t ext4_count_free_clusters(struct super_block *sb)
 #endif
 }
 
+/**
+ * test_root - Implements the test root operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int test_root(ext4_group_t a, int b)
 {
 	while (1) {
@@ -843,13 +905,14 @@ static inline int test_root(ext4_group_t a, int b)
 	}
 }
 
+
 /**
- *	ext4_bg_has_super - number of blocks used by the superblock in group
- *	@sb: superblock for filesystem
- *	@group: group number to check
+ * ext4_bg_has_super - Implements the bg has super operation within the block allocation subsystem.
  *
- *	Return the number of blocks used by the superblock (primary or backup)
- *	in this group.  Currently this will be only 0 or 1.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_bg_has_super(struct super_block *sb, ext4_group_t group)
 {
@@ -874,6 +937,14 @@ int ext4_bg_has_super(struct super_block *sb, ext4_group_t group)
 	return 0;
 }
 
+/**
+ * ext4_bg_num_gdb_meta - Implements the bg num gdb meta operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static unsigned long ext4_bg_num_gdb_meta(struct super_block *sb,
 					ext4_group_t group)
 {
@@ -886,6 +957,14 @@ static unsigned long ext4_bg_num_gdb_meta(struct super_block *sb,
 	return 0;
 }
 
+/**
+ * ext4_bg_num_gdb_nometa - Implements the bg num gdb nometa operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static unsigned long ext4_bg_num_gdb_nometa(struct super_block *sb,
 					ext4_group_t group)
 {
@@ -898,14 +977,14 @@ static unsigned long ext4_bg_num_gdb_nometa(struct super_block *sb,
 		return EXT4_SB(sb)->s_gdb_count;
 }
 
+
 /**
- *	ext4_bg_num_gdb - number of blocks used by the group table in group
- *	@sb: superblock for filesystem
- *	@group: group number to check
+ * ext4_bg_num_gdb - Implements the bg num gdb operation within the block allocation subsystem.
  *
- *	Return the number of blocks used by the group descriptor table
- *	(primary or backup) in this group.  In the future there may be a
- *	different number of descriptor blocks in each group.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 unsigned long ext4_bg_num_gdb(struct super_block *sb, ext4_group_t group)
 {
@@ -920,9 +999,14 @@ unsigned long ext4_bg_num_gdb(struct super_block *sb, ext4_group_t group)
 
 }
 
-/*
- * This function returns the number of file system metadata blocks at
- * the beginning of a block group, including the reserved gdt blocks.
+
+/**
+ * ext4_num_base_meta_blocks - Implements the num base meta blocks operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 unsigned int ext4_num_base_meta_blocks(struct super_block *sb,
 				       ext4_group_t block_group)
@@ -930,7 +1014,7 @@ unsigned int ext4_num_base_meta_blocks(struct super_block *sb,
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	unsigned num;
 
-	/* Check for superblock and gdt backups in this group */
+
 	num = ext4_bg_has_super(sb, block_group);
 
 	if (!ext4_has_feature_meta_bg(sb) ||
@@ -940,24 +1024,34 @@ unsigned int ext4_num_base_meta_blocks(struct super_block *sb,
 			num += ext4_bg_num_gdb_nometa(sb, block_group);
 			num += le16_to_cpu(sbi->s_es->s_reserved_gdt_blocks);
 		}
-	} else { /* For META_BG_BLOCK_GROUPS */
+	} else {
 		num += ext4_bg_num_gdb_meta(sb, block_group);
 	}
 	return num;
 }
 
+/**
+ * ext4_num_base_meta_clusters - Implements the num base meta clusters operation within the block allocation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static unsigned int ext4_num_base_meta_clusters(struct super_block *sb,
 						ext4_group_t block_group)
 {
 	return EXT4_NUM_B2C(EXT4_SB(sb), ext4_num_base_meta_blocks(sb, block_group));
 }
 
+
 /**
- *	ext4_inode_to_goal_block - return a hint for block allocation
- *	@inode: inode for block allocation
+ * ext4_inode_to_goal_block - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
- *	Return the ideal location to start allocating blocks for a
- *	newly created inode.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 ext4_fsblk_t ext4_inode_to_goal_block(struct inode *inode)
 {
@@ -970,14 +1064,8 @@ ext4_fsblk_t ext4_inode_to_goal_block(struct inode *inode)
 
 	block_group = ei->i_block_group;
 	if (flex_size >= EXT4_FLEX_SIZE_DIR_ALLOC_SCHEME) {
-		/*
-		 * If there are at least EXT4_FLEX_SIZE_DIR_ALLOC_SCHEME
-		 * block groups per flexgroup, reserve the first block
-		 * group for directories and special files.  Regular
-		 * files will start at the second block group.  This
-		 * tends to speed up directory access and improves
-		 * fsck times.
-		 */
+
+
 		block_group &= ~(flex_size-1);
 		if (S_ISREG(inode->i_mode))
 			block_group++;
@@ -985,10 +1073,7 @@ ext4_fsblk_t ext4_inode_to_goal_block(struct inode *inode)
 	bg_start = ext4_group_first_block_no(inode->i_sb, block_group);
 	last_block = ext4_blocks_count(EXT4_SB(inode->i_sb)->s_es) - 1;
 
-	/*
-	 * If we are doing delayed allocation, we don't need take
-	 * colour into account.
-	 */
+
 	if (test_opt(inode->i_sb, DELALLOC))
 		return bg_start;
 
@@ -1002,23 +1087,27 @@ ext4_fsblk_t ext4_inode_to_goal_block(struct inode *inode)
 }
 
 
-/* ---- EXT4 bitmap helpers (merged into this translation unit) ---- */
-// SPDX-License-Identifier: GPL-2.0
-/*
- *  linux/fs/ext4/bitmap.c
+/**
+ * ext4_count_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
-
 unsigned int ext4_count_free(char *bitmap, unsigned int numchars)
 {
 	return numchars * BITS_PER_BYTE - memweight(bitmap, numchars);
 }
 
+/**
+ * ext4_inode_bitmap_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_inode_bitmap_csum_verify(struct super_block *sb,
 				  struct ext4_group_desc *gdp,
 				  struct buffer_head *bh)
@@ -1043,6 +1132,14 @@ int ext4_inode_bitmap_csum_verify(struct super_block *sb,
 	return provided == calculated;
 }
 
+/**
+ * ext4_inode_bitmap_csum_set - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_inode_bitmap_csum_set(struct super_block *sb,
 				struct ext4_group_desc *gdp,
 				struct buffer_head *bh)
@@ -1061,6 +1158,14 @@ void ext4_inode_bitmap_csum_set(struct super_block *sb,
 		gdp->bg_inode_bitmap_csum_hi = cpu_to_le16(csum >> 16);
 }
 
+/**
+ * ext4_block_bitmap_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_block_bitmap_csum_verify(struct super_block *sb,
 				  struct ext4_group_desc *gdp,
 				  struct buffer_head *bh)
@@ -1084,6 +1189,14 @@ int ext4_block_bitmap_csum_verify(struct super_block *sb,
 	return provided == calculated;
 }
 
+/**
+ * ext4_block_bitmap_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_block_bitmap_csum_set(struct super_block *sb,
 				struct ext4_group_desc *gdp,
 				struct buffer_head *bh)

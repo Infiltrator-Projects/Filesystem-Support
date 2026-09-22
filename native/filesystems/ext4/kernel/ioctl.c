@@ -8,6 +8,28 @@
  * Universite Pierre et Marie Curie (Paris VI)
  */
 
+/*
+ * EXT4 — EXT4 control operations
+ *
+ * Purpose:
+ *   Implements filesystem-specific ioctl and file-attribute operations exposed through the VFS file interface.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Ioctls are an ABI boundary: validate privileges, flags, ranges and structure versions before mutating persistent state.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/fs.h>
 #include <linux/capability.h>
 #include <linux/time.h>
@@ -30,27 +52,45 @@
 typedef void ext4_update_sb_callback(struct ext4_super_block *es,
 				       const void *arg);
 
-/*
- * Superblock modification callback function for changing file system
- * label
+
+/**
+ * ext4_sb_setlabel - Implements the sb setlabel operation within the ext4 control operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext4_sb_setlabel(struct ext4_super_block *es, const void *arg)
 {
-	/* Sanity check, this should never happen */
+
 	BUILD_BUG_ON(sizeof(es->s_volume_name) < EXT4_LABEL_MAX);
 
 	memcpy(es->s_volume_name, (char *)arg, EXT4_LABEL_MAX);
 }
 
-/*
- * Superblock modification callback function for changing file system
- * UUID.
+
+/**
+ * ext4_sb_setuuid - Implements the sb setuuid operation within the ext4 control operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext4_sb_setuuid(struct ext4_super_block *es, const void *arg)
 {
 	memcpy(es->s_uuid, (__u8 *)arg, UUID_SIZE);
 }
 
+/**
+ * ext4_update_primary_sb - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static
 int ext4_update_primary_sb(struct super_block *sb, handle_t *handle,
 			   ext4_update_sb_callback func,
@@ -91,14 +131,14 @@ out_err:
 	return err;
 }
 
-/*
- * Update one backup superblock in the group 'grp' using the callback
- * function 'func' and argument 'arg'. If the handle is NULL the
- * modification is not journalled.
+
+/**
+ * ext4_update_backup_sb - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
- * Returns: 0 when no modification was done (no superblock in the group)
- *	    1 when the modification was successful
- *	   <0 on error
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_update_backup_sb(struct super_block *sb,
 				 handle_t *handle, ext4_group_t grp,
@@ -113,10 +153,7 @@ static int ext4_update_backup_sb(struct super_block *sb,
 	if (!ext4_bg_has_super(sb, grp))
 		return 0;
 
-	/*
-	 * For the group 0 there is always 1k padding, so we have
-	 * either adjust offset, or sb_block depending on blocksize
-	 */
+
 	if (grp == 0) {
 		sb_block = 1 * EXT4_MIN_BLOCK_SIZE;
 		offset = do_div(sb_block, sb->s_blocksize);
@@ -171,14 +208,14 @@ out_bh:
 	return (err) ? err : 1;
 }
 
-/*
- * Update primary and backup superblocks using the provided function
- * func and argument arg.
+
+/**
+ * ext4_update_superblocks_fn - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
- * Only the primary superblock and at most two backup superblock
- * modifications are journalled; the rest is modified without journal.
- * This is safe because e2fsck will re-write them if there is a problem,
- * and we're very unlikely to ever need more than two backups.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static
 int ext4_update_superblocks_fn(struct super_block *sb,
@@ -194,9 +231,7 @@ int ext4_update_superblocks_fn(struct super_block *sb,
 	ext4_group_t grp, primary_grp;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 
-	/*
-	 * We can't update superblocks while the online resize is running
-	 */
+
 	if (test_and_set_bit_lock(EXT4_FLAGS_RESIZING,
 				  &sbi->s_ext4_flags)) {
 		ext4_msg(sb, KERN_ERR, "Can't modify superblock while"
@@ -204,17 +239,14 @@ int ext4_update_superblocks_fn(struct super_block *sb,
 		return -EBUSY;
 	}
 
-	/*
-	 * We're only going to update primary superblock and two
-	 * backup superblocks in this transaction.
-	 */
+
 	handle = ext4_journal_start_sb(sb, EXT4_HT_MISC, 3);
 	if (IS_ERR(handle)) {
 		err = PTR_ERR(handle);
 		goto out;
 	}
 
-	/* Update primary superblock */
+
 	err = ext4_update_primary_sb(sb, handle, func, arg);
 	if (err) {
 		ext4_msg(sb, KERN_ERR, "Failed to update primary "
@@ -225,21 +257,17 @@ int ext4_update_superblocks_fn(struct super_block *sb,
 	primary_grp = ext4_get_group_number(sb, sbi->s_sbh->b_blocknr);
 	ngroups = ext4_get_groups_count(sb);
 
-	/*
-	 * Update backup superblocks. We have to start from group 0
-	 * because it might not be where the primary superblock is
-	 * if the fs is mounted with -o sb=<backup_sb_block>
-	 */
+
 	i = 0;
 	grp = 0;
 	while (grp < ngroups) {
-		/* Skip primary superblock */
+
 		if (grp == primary_grp)
 			goto next_grp;
 
 		ret = ext4_update_backup_sb(sb, handle, grp, func, arg);
 		if (ret < 0) {
-			/* Ignore bad checksum; try to update next sb */
+
 			if (ret == -EFSBADCRC)
 				goto next_grp;
 			err = ret;
@@ -248,11 +276,8 @@ int ext4_update_superblocks_fn(struct super_block *sb,
 
 		i += ret;
 		if (handle && i > 1) {
-			/*
-			 * We're only journalling primary superblock and
-			 * two backup superblocks; the rest is not
-			 * journalled.
-			 */
+
+
 			err = ext4_journal_stop(handle);
 			if (err)
 				goto out;
@@ -274,13 +299,14 @@ out:
 	return err ? err : 0;
 }
 
-/*
- * Swap memory between @a and @b for @len bytes.
+
+/**
+ * memswap - Implements the memswap operation within the ext4 control operations subsystem.
  *
- * @a:          pointer to first memory area
- * @b:          pointer to second memory area
- * @len:        number of bytes to swap
- *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void memswap(void *a, void *b, size_t len)
 {
@@ -295,16 +321,14 @@ static void memswap(void *a, void *b, size_t len)
 	}
 }
 
-/*
- * Swap i_data and associated attributes between @inode1 and @inode2.
- * This function is used for the primary swap between inode1 and inode2
- * and also to revert this primary swap in case of errors.
+
+/**
+ * swap_inode_data - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
- * Therefore you have to make sure, that calling this method twice
- * will revert all changes.
- *
- * @inode1:     pointer to first inode
- * @inode2:     pointer to second inode
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void swap_inode_data(struct inode *inode1, struct inode *inode2)
 {
@@ -343,6 +367,14 @@ static void swap_inode_data(struct inode *inode1, struct inode *inode2)
 	i_size_write(inode2, isize);
 }
 
+/**
+ * ext4_reset_inode_seed - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_reset_inode_seed(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -358,15 +390,14 @@ void ext4_reset_inode_seed(struct inode *inode)
 	ei->i_csum_seed = ext4_chksum(sbi, csum, (__u8 *)&gen, sizeof(gen));
 }
 
-/*
- * Swap the information from the given @inode and the inode
- * EXT4_BOOT_LOADER_INO. It will basically swap i_data and all other
- * important fields of the inodes.
+
+/**
+ * swap_inode_boot_loader - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
- * @sb:         the super block of the filesystem
- * @idmap:	idmap of the mount the inode was found from
- * @inode:      the inode to swap with EXT4_BOOT_LOADER_INO
- *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static long swap_inode_boot_loader(struct super_block *sb,
 				struct mnt_idmap *idmap,
@@ -386,8 +417,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 		return PTR_ERR(inode_bl);
 	ei_bl = EXT4_I(inode_bl);
 
-	/* Protect orig inodes against a truncate and make sure,
-	 * that only 1 swap_inode_boot_loader is running. */
+
 	lock_two_nondirectories(inode, inode_bl);
 
 	if (inode->i_nlink != 1 || !S_ISREG(inode->i_mode) ||
@@ -414,7 +444,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 	if (err)
 		goto err_out;
 
-	/* Wait for all existing dio workers */
+
 	inode_dio_wait(inode);
 	inode_dio_wait(inode_bl);
 
@@ -428,11 +458,11 @@ static long swap_inode_boot_loader(struct super_block *sb,
 	}
 	ext4_fc_mark_ineligible(sb, EXT4_FC_REASON_SWAP_BOOT, handle);
 
-	/* Protect extent tree against block allocations via delalloc */
+
 	ext4_double_down_write_data_sem(inode, inode_bl);
 
 	if (is_bad_inode(inode_bl) || !S_ISREG(inode_bl->i_mode)) {
-		/* this inode has never been used as a BOOT_LOADER */
+
 		set_nlink(inode_bl, 1);
 		i_uid_write(inode_bl, 0);
 		i_gid_write(inode_bl, 0);
@@ -471,11 +501,11 @@ static long swap_inode_boot_loader(struct super_block *sb,
 
 	err = ext4_mark_inode_dirty(handle, inode);
 	if (err < 0) {
-		/* No need to update quota information. */
+
 		ext4_warning(inode->i_sb,
 			"couldn't mark inode #%lu dirty (err %d)",
 			inode->i_ino, err);
-		/* Revert all changes: */
+
 		swap_inode_data(inode, inode_bl);
 		ext4_mark_inode_dirty(handle, inode);
 		goto err_out1;
@@ -487,14 +517,14 @@ static long swap_inode_boot_loader(struct super_block *sb,
 	inode_bl->i_bytes = inode->i_bytes;
 	err = ext4_mark_inode_dirty(handle, inode_bl);
 	if (err < 0) {
-		/* No need to update quota information. */
+
 		ext4_warning(inode_bl->i_sb,
 			"couldn't mark inode #%lu dirty (err %d)",
 			inode_bl->i_ino, err);
 		goto revert;
 	}
 
-	/* Bootloader inode should not be counted into quota information. */
+
 	if (diff > 0)
 		dquot_free_space(inode, diff);
 	else
@@ -502,7 +532,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 
 	if (err < 0) {
 revert:
-		/* Revert all changes: */
+
 		inode_bl->i_blocks = blocks;
 		inode_bl->i_bytes = bytes;
 		swap_inode_data(inode, inode_bl);
@@ -522,10 +552,14 @@ journal_err_out:
 	return err;
 }
 
-/*
- * If immutable is set and we are not clearing it, we're not allowed to change
- * anything else in the inode.  Don't error out if we're only trying to set
- * immutable on an immutable file.
+
+/**
+ * ext4_ioctl_check_immutable - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_ioctl_check_immutable(struct inode *inode, __u32 new_projid,
 				      unsigned int flags)
@@ -545,6 +579,14 @@ static int ext4_ioctl_check_immutable(struct inode *inode, __u32 new_projid,
 	return 0;
 }
 
+/**
+ * ext4_dax_dontcache - Implements the dax dontcache operation within the ext4 control operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_dax_dontcache(struct inode *inode, unsigned int flags)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -560,10 +602,18 @@ static void ext4_dax_dontcache(struct inode *inode, unsigned int flags)
 		d_mark_dontcache(inode);
 }
 
+/**
+ * dax_compatible - Implements the dax compatible operation within the ext4 control operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool dax_compatible(struct inode *inode, unsigned int oldflags,
 			   unsigned int flags)
 {
-	/* Allow the DAX flag to be changed on inline directories */
+
 	if (S_ISDIR(inode->i_mode)) {
 		flags &= ~EXT4_INLINE_DATA_FL;
 		oldflags &= ~EXT4_INLINE_DATA_FL;
@@ -583,6 +633,14 @@ static bool dax_compatible(struct inode *inode, unsigned int oldflags,
 	return true;
 }
 
+/**
+ * ext4_ioctl_setflags - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_setflags(struct inode *inode,
 			       unsigned int flags)
 {
@@ -593,15 +651,13 @@ static int ext4_ioctl_setflags(struct inode *inode,
 	unsigned int oldflags, mask, i;
 	struct super_block *sb = inode->i_sb;
 
-	/* Is it quota file? Do not allow user to mess with it */
+
 	if (ext4_is_quota_file(inode))
 		goto flags_out;
 
 	oldflags = ei->i_flags;
-	/*
-	 * The JOURNAL_DATA flag can only be changed by
-	 * the relevant capability.
-	 */
+
+
 	if ((flags ^ oldflags) & (EXT4_JOURNAL_DATA_FL)) {
 		if (!capable(CAP_SYS_RESOURCE))
 			goto flags_out;
@@ -632,12 +688,7 @@ static int ext4_ioctl_setflags(struct inode *inode,
 		}
 	}
 
-	/*
-	 * Wait for all pending directio and then flush all the dirty pages
-	 * for this file.  The flush marks all the pages readonly, so any
-	 * subsequent attempt to write to the file (particularly mmap pages)
-	 * will come through the filesystem and fail.
-	 */
+
 	if (S_ISREG(inode->i_mode) && !IS_IMMUTABLE(inode) &&
 	    (flags & EXT4_IMMUTABLE_FL)) {
 		inode_dio_wait(inode);
@@ -662,7 +713,7 @@ static int ext4_ioctl_setflags(struct inode *inode,
 	for (i = 0, mask = 1; i < 32; i++, mask <<= 1) {
 		if (!(mask & EXT4_FL_USER_MODIFIABLE))
 			continue;
-		/* These flags get special treatment later */
+
 		if (mask == EXT4_JOURNAL_DATA_FL || mask == EXT4_EXTENTS_FL)
 			continue;
 		if (mask & flags)
@@ -683,10 +734,8 @@ flags_err:
 		goto flags_out;
 
 	if ((flags ^ oldflags) & (EXT4_JOURNAL_DATA_FL)) {
-		/*
-		 * Changes to the journaling mode can cause unsafe changes to
-		 * S_DAX if the inode is DAX
-		 */
+
+
 		if (IS_DAX(inode)) {
 			err = -EBUSY;
 			goto flags_out;
@@ -709,6 +758,14 @@ flags_out:
 }
 
 #ifdef CONFIG_QUOTA
+/**
+ * ext4_ioctl_setproject - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_setproject(struct inode *inode, __u32 projid)
 {
 	struct super_block *sb = inode->i_sb;
@@ -736,7 +793,7 @@ static int ext4_ioctl_setproject(struct inode *inode, __u32 projid)
 		return 0;
 
 	err = -EPERM;
-	/* Is it quota file? Do not allow user to mess with it */
+
 	if (ext4_is_quota_file(inode))
 		return err;
 
@@ -772,9 +829,7 @@ static int ext4_ioctl_setproject(struct inode *inode, __u32 projid)
 	transfer_to[PRJQUOTA] = dqget(sb, make_kqid_projid(kprojid));
 	if (!IS_ERR(transfer_to[PRJQUOTA])) {
 
-		/* __dquot_transfer() calls back ext4_get_inode_usage() which
-		 * counts xattr inode references.
-		 */
+
 		down_read(&EXT4_I(inode)->xattr_sem);
 		err = __dquot_transfer(inode, transfer_to);
 		up_read(&EXT4_I(inode)->xattr_sem);
@@ -795,6 +850,14 @@ out_stop:
 	return err;
 }
 #else
+/**
+ * ext4_ioctl_setproject - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_setproject(struct inode *inode, __u32 projid)
 {
 	if (projid != EXT4_DEF_PROJID)
@@ -803,6 +866,14 @@ static int ext4_ioctl_setproject(struct inode *inode, __u32 projid)
 }
 #endif
 
+/**
+ * ext4_force_shutdown - Implements the force shutdown operation within the ext4 control operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_force_shutdown(struct super_block *sb, u32 flags)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -826,13 +897,8 @@ int ext4_force_shutdown(struct super_block *sb, u32 flags)
 		bdev_thaw(sb->s_bdev);
 		break;
 	case EXT4_GOING_FLAGS_LOGFLUSH:
-		/*
-		 * Call ext4_force_commit() before setting EXT4_FLAGS_SHUTDOWN.
-		 * This is because in data=ordered mode, journal commit
-		 * triggers data writeback which fails if shutdown is already
-		 * set, causing the journal to be aborted prematurely before
-		 * the commit succeeds.
-		 */
+
+
 		(void) ext4_force_commit(sb);
 		set_bit(EXT4_FLAGS_SHUTDOWN, &sbi->s_ext4_flags);
 		if (sbi->s_journal && !is_journal_aborted(sbi->s_journal))
@@ -850,6 +916,14 @@ int ext4_force_shutdown(struct super_block *sb, u32 flags)
 	return 0;
 }
 
+/**
+ * ext4_ioctl_shutdown - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_shutdown(struct super_block *sb, unsigned long arg)
 {
 	u32 flags;
@@ -863,6 +937,12 @@ static int ext4_ioctl_shutdown(struct super_block *sb, unsigned long arg)
 	return ext4_force_shutdown(sb, flags);
 }
 
+/**
+ * struct getfsmap_info - Private EXT4 state/data structure used by ext4 control operations.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct getfsmap_info {
 	struct super_block	*gi_sb;
 	struct fsmap_head __user *gi_data;
@@ -870,6 +950,14 @@ struct getfsmap_info {
 	__u32			gi_last_flags;
 };
 
+/**
+ * ext4_getfsmap_format - Implements the getfsmap format operation within the ext4 control operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_getfsmap_format(struct ext4_fsmap *xfm, void *priv)
 {
 	struct getfsmap_info *info = priv;
@@ -886,6 +974,14 @@ static int ext4_getfsmap_format(struct ext4_fsmap *xfm, void *priv)
 	return 0;
 }
 
+/**
+ * ext4_ioc_getfsmap - Implements the ioc getfsmap operation within the ext4 control operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioc_getfsmap(struct super_block *sb,
 			     struct fsmap_head __user *arg)
 {
@@ -903,10 +999,8 @@ static int ext4_ioc_getfsmap(struct super_block *sb,
 	    memchr_inv(head.fmh_keys[1].fmr_reserved, 0,
 		       sizeof(head.fmh_keys[1].fmr_reserved)))
 		return -EINVAL;
-	/*
-	 * ext4 doesn't report file extents at all, so the only valid
-	 * file offsets are the magic ones (all zeroes or all ones).
-	 */
+
+
 	if (head.fmh_keys[0].fmr_offset ||
 	    (head.fmh_keys[1].fmr_offset != 0 &&
 	     head.fmh_keys[1].fmr_offset != -1ULL))
@@ -928,7 +1022,7 @@ static int ext4_ioc_getfsmap(struct super_block *sb,
 	else if (error)
 		return error;
 
-	/* If we didn't abort, set the "last" flag in the last fmx */
+
 	if (!aborted && info.gi_idx) {
 		info.gi_last_flags |= FMR_OF_LAST;
 		if (copy_to_user(&info.gi_data->fmh_recs[info.gi_idx - 1].fmr_flags,
@@ -937,7 +1031,7 @@ static int ext4_ioc_getfsmap(struct super_block *sb,
 			return -EFAULT;
 	}
 
-	/* copy back header */
+
 	head.fmh_entries = xhead.fmh_entries;
 	head.fmh_oflags = xhead.fmh_oflags;
 	if (copy_to_user(arg, &head, sizeof(struct fsmap_head)))
@@ -946,6 +1040,14 @@ static int ext4_ioc_getfsmap(struct super_block *sb,
 	return 0;
 }
 
+/**
+ * ext4_ioctl_group_add - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static long ext4_ioctl_group_add(struct file *file,
 				 struct ext4_new_group_data *input)
 {
@@ -987,6 +1089,14 @@ group_add_out:
 	return err;
 }
 
+/**
+ * ext4_fileattr_get - Implements the fileattr get operation within the ext4 control operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_fileattr_get(struct dentry *dentry, struct fileattr *fa)
 {
 	struct inode *inode = d_inode(dentry);
@@ -1003,6 +1113,14 @@ int ext4_fileattr_get(struct dentry *dentry, struct fileattr *fa)
 	return 0;
 }
 
+/**
+ * ext4_fileattr_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_fileattr_set(struct mnt_idmap *idmap,
 		      struct dentry *dentry, struct fileattr *fa)
 {
@@ -1013,12 +1131,7 @@ int ext4_fileattr_set(struct mnt_idmap *idmap,
 	if (flags & ~EXT4_FL_USER_VISIBLE)
 		goto out;
 
-	/*
-	 * chattr(1) grabs flags via GETFLAGS, modifies the result and
-	 * passes that to SETFLAGS. So we cannot easily make SETFLAGS
-	 * more restrictive than just silently masking off visible but
-	 * not settable flags as we always did.
-	 */
+
 	flags &= EXT4_FL_USER_MODIFIABLE;
 	if (ext4_mask_flags(inode->i_mode, flags) != flags)
 		goto out;
@@ -1033,9 +1146,17 @@ out:
 	return err;
 }
 
-/* So that the fiemap access checks can't overflow on 32 bit machines. */
+
 #define FIEMAP_MAX_EXTENTS	(UINT_MAX / sizeof(struct fiemap_extent))
 
+/**
+ * ext4_ioctl_get_es_cache - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_get_es_cache(struct file *filp, unsigned long arg)
 {
 	struct fiemap fiemap;
@@ -1064,6 +1185,14 @@ static int ext4_ioctl_get_es_cache(struct file *filp, unsigned long arg)
 	return error;
 }
 
+/**
+ * ext4_ioctl_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_checkpoint(struct file *filp, unsigned long arg)
 {
 	int err = 0;
@@ -1078,7 +1207,7 @@ static int ext4_ioctl_checkpoint(struct file *filp, unsigned long arg)
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
-	/* check for invalid bits set */
+
 	if ((flags & ~EXT4_IOC_CHECKPOINT_FLAG_VALID) ||
 				((flags & JBD2_JOURNAL_FLUSH_DISCARD) &&
 				(flags & JBD2_JOURNAL_FLUSH_ZEROOUT)))
@@ -1109,6 +1238,14 @@ static int ext4_ioctl_checkpoint(struct file *filp, unsigned long arg)
 	return err;
 }
 
+/**
+ * ext4_ioctl_setlabel - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_setlabel(struct file *filp, const char __user *user_label)
 {
 	size_t len;
@@ -1119,11 +1256,7 @@ static int ext4_ioctl_setlabel(struct file *filp, const char __user *user_label)
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
-	/*
-	 * Copy the maximum length allowed for ext4 label with one more to
-	 * find the required terminating null byte in order to test the
-	 * label length. The on disk label doesn't need to be null terminated.
-	 */
+
 	if (copy_from_user(new_label, user_label, EXT4_LABEL_MAX + 1))
 		return -EFAULT;
 
@@ -1131,9 +1264,7 @@ static int ext4_ioctl_setlabel(struct file *filp, const char __user *user_label)
 	if (len > EXT4_LABEL_MAX)
 		return -EINVAL;
 
-	/*
-	 * Clear the buffer after the new label
-	 */
+
 	memset(new_label + len, 0, EXT4_LABEL_MAX - len);
 
 	ret = mnt_want_write_file(filp);
@@ -1146,15 +1277,19 @@ static int ext4_ioctl_setlabel(struct file *filp, const char __user *user_label)
 	return ret;
 }
 
+/**
+ * ext4_ioctl_getlabel - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_getlabel(struct ext4_sb_info *sbi, char __user *user_label)
 {
 	char label[EXT4_LABEL_MAX + 1];
 
-	/*
-	 * EXT4_LABEL_MAX must always be smaller than FSLABEL_MAX because
-	 * FSLABEL_MAX must include terminating null byte, while s_volume_name
-	 * does not have to.
-	 */
+
 	BUILD_BUG_ON(EXT4_LABEL_MAX >= FSLABEL_MAX);
 
 	lock_buffer(sbi->s_sbh);
@@ -1166,6 +1301,14 @@ static int ext4_ioctl_getlabel(struct ext4_sb_info *sbi, char __user *user_label
 	return 0;
 }
 
+/**
+ * ext4_ioctl_getuuid - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_getuuid(struct ext4_sb_info *sbi,
 			struct fsuuid __user *ufsuuid)
 {
@@ -1197,6 +1340,14 @@ static int ext4_ioctl_getuuid(struct ext4_sb_info *sbi,
 	return 0;
 }
 
+/**
+ * ext4_ioctl_setuuid - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_ioctl_setuuid(struct file *filp,
 			const struct fsuuid __user *ufsuuid)
 {
@@ -1208,10 +1359,7 @@ static int ext4_ioctl_setuuid(struct file *filp,
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
-	/*
-	 * If any checksums (group descriptors or metadata) are being used
-	 * then the checksum seed feature is required to change the UUID.
-	 */
+
 	if (((ext4_has_feature_gdt_csum(sb) || ext4_has_metadata_csum(sb))
 			&& !ext4_has_feature_csum_seed(sb))
 		|| ext4_has_feature_stable_inodes(sb))
@@ -1236,6 +1384,14 @@ static int ext4_ioctl_setuuid(struct file *filp,
 	return ret;
 }
 
+/**
+ * __ext4_ioctl - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static long __ext4_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct inode *inode = file_inode(filp);
@@ -1412,12 +1568,8 @@ mext_out:
 		err = mnt_want_write_file(filp);
 		if (err)
 			return err;
-		/*
-		 * inode_mutex prevent write and truncate on the file.
-		 * Read still goes through. We take i_data_sem in
-		 * ext4_ext_swap_inode_data before we switch the
-		 * inode format to prevent read.
-		 */
+
+
 		inode_lock((inode));
 		err = ext4_ext_migrate(inode);
 		inode_unlock((inode));
@@ -1503,10 +1655,7 @@ resizefs_out:
 		if (!bdev_max_discard_sectors(sb->s_bdev))
 			return -EOPNOTSUPP;
 
-		/*
-		 * We haven't replayed the journal, so we cannot use our
-		 * block-bitmap-guided storage zapping commands.
-		 */
+
 		if (test_opt(sb, NOLOAD) && ext4_has_feature_journal(sb))
 			return -EROFS;
 
@@ -1635,15 +1784,31 @@ resizefs_out:
 	}
 }
 
+/**
+ * ext4_ioctl - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 long ext4_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	return __ext4_ioctl(filp, cmd, arg);
 }
 
 #ifdef CONFIG_COMPAT
+/**
+ * ext4_compat_ioctl - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 long ext4_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	/* These are just misnamed, they actually get/put from/to user an int */
+
 	switch (cmd) {
 	case EXT4_IOC32_GETVERSION:
 		cmd = EXT4_IOC_GETVERSION;
@@ -1717,11 +1882,27 @@ long ext4_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 }
 #endif
 
+/**
+ * set_overhead - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void set_overhead(struct ext4_super_block *es, const void *arg)
 {
 	es->s_overhead_clusters = cpu_to_le32(*((unsigned long *) arg));
 }
 
+/**
+ * ext4_update_overhead - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_update_overhead(struct super_block *sb, bool force)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);

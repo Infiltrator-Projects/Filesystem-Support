@@ -4,6 +4,29 @@
  *
  * Author: Darrick J. Wong <darrick.wong@oracle.com>
  */
+
+/*
+ * EXT4 — Physical-space mapping
+ *
+ * Purpose:
+ *   Implements filesystem mapping queries that report ownership and free-space extents to userspace.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Reported ranges must reflect allocation metadata consistently and must not expose impossible or overlapping ownership.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include "ext4.h"
 #include <linux/fsmap.h>
 #include "fsmap.h"
@@ -12,7 +35,15 @@
 #include <linux/list_sort.h>
 #include <trace/events/ext4.h>
 
-/* Convert an ext4_fsmap to an fsmap. */
+
+/**
+ * ext4_fsmap_from_internal - Implements the fsmap from internal operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fsmap_from_internal(struct super_block *sb, struct fsmap *dest,
 			      struct ext4_fsmap *src)
 {
@@ -27,7 +58,15 @@ void ext4_fsmap_from_internal(struct super_block *sb, struct fsmap *dest,
 	dest->fmr_reserved[2] = 0;
 }
 
-/* Convert an fsmap to an ext4_fsmap. */
+
+/**
+ * ext4_fsmap_to_internal - Implements the fsmap to internal operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fsmap_to_internal(struct super_block *sb, struct ext4_fsmap *dest,
 			    struct fsmap *src)
 {
@@ -38,22 +77,34 @@ void ext4_fsmap_to_internal(struct super_block *sb, struct ext4_fsmap *dest,
 	dest->fmr_length = src->fmr_length >> sb->s_blocksize_bits;
 }
 
-/* getfsmap query state */
+
+/**
+ * struct ext4_getfsmap_info - Private EXT4 state/data structure used by physical-space mapping.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_getfsmap_info {
 	struct ext4_fsmap_head	*gfi_head;
-	ext4_fsmap_format_t	gfi_formatter;	/* formatting fn */
-	void			*gfi_format_arg;/* format buffer */
-	ext4_fsblk_t		gfi_next_fsblk;	/* next fsblock we expect */
-	u32			gfi_dev;	/* device id */
-	ext4_group_t		gfi_agno;	/* bg number, if applicable */
-	struct ext4_fsmap	gfi_low;	/* low rmap key */
-	struct ext4_fsmap	gfi_high;	/* high rmap key */
-	struct ext4_fsmap	gfi_lastfree;	/* free ext at end of last bg */
-	struct list_head	gfi_meta_list;	/* fixed metadata list */
-	bool			gfi_last;	/* last extent? */
+	ext4_fsmap_format_t	gfi_formatter;
+	void			*gfi_format_arg;
+	ext4_fsblk_t		gfi_next_fsblk;
+	u32			gfi_dev;
+	ext4_group_t		gfi_agno;
+	struct ext4_fsmap	gfi_low;
+	struct ext4_fsmap	gfi_high;
+	struct ext4_fsmap	gfi_lastfree;
+	struct list_head	gfi_meta_list;
+	bool			gfi_last;
 };
 
-/* Associate a device with a getfsmap handler. */
+
+/**
+ * struct ext4_getfsmap_dev - Private EXT4 state/data structure used by physical-space mapping.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_getfsmap_dev {
 	int			(*gfd_fn)(struct super_block *sb,
 				      struct ext4_fsmap *keys,
@@ -61,7 +112,15 @@ struct ext4_getfsmap_dev {
 	u32			gfd_dev;
 };
 
-/* Compare two getfsmap device handlers. */
+
+/**
+ * ext4_getfsmap_dev_compare - Implements the getfsmap dev compare operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_getfsmap_dev_compare(const void *p1, const void *p2)
 {
 	const struct ext4_getfsmap_dev *d1 = p1;
@@ -70,7 +129,15 @@ static int ext4_getfsmap_dev_compare(const void *p1, const void *p2)
 	return d1->gfd_dev - d2->gfd_dev;
 }
 
-/* Compare a record against our starting point */
+
+/**
+ * ext4_getfsmap_rec_before_low_key - Implements the getfsmap rec before low key operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_getfsmap_rec_before_low_key(struct ext4_getfsmap_info *info,
 					     struct ext4_fsmap *rec)
 {
@@ -78,9 +145,14 @@ static bool ext4_getfsmap_rec_before_low_key(struct ext4_getfsmap_info *info,
 	       info->gfi_low.fmr_physical;
 }
 
-/*
- * Format a reverse mapping for getfsmap, having translated rm_startblock
- * into the appropriate daddr units.
+
+/**
+ * ext4_getfsmap_helper - Implements the getfsmap helper operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_getfsmap_helper(struct super_block *sb,
 				struct ext4_getfsmap_info *info,
@@ -96,10 +168,7 @@ static int ext4_getfsmap_helper(struct super_block *sb,
 	if (fatal_signal_pending(current))
 		return -EINTR;
 
-	/*
-	 * Filter out records that start before our startpoint, if the
-	 * caller requested that.
-	 */
+
 	if (ext4_getfsmap_rec_before_low_key(info, rec)) {
 		rec_fsblk += rec->fmr_length;
 		if (info->gfi_next_fsblk < rec_fsblk)
@@ -107,7 +176,7 @@ static int ext4_getfsmap_helper(struct super_block *sb,
 		return EXT4_QUERY_RANGE_CONTINUE;
 	}
 
-	/* Are we just counting mappings? */
+
 	if (info->gfi_head->fmh_count == 0) {
 		if (info->gfi_head->fmh_entries == UINT_MAX)
 			return EXT4_QUERY_RANGE_ABORT;
@@ -126,11 +195,7 @@ static int ext4_getfsmap_helper(struct super_block *sb,
 		return EXT4_QUERY_RANGE_CONTINUE;
 	}
 
-	/*
-	 * If the record starts past the last physical block we saw,
-	 * then we've found a gap.  Report the gap as being owned by
-	 * whatever the caller specified is the missing owner.
-	 */
+
 	if (rec_fsblk > info->gfi_next_fsblk) {
 		if (info->gfi_head->fmh_entries >= info->gfi_head->fmh_count)
 			return EXT4_QUERY_RANGE_ABORT;
@@ -156,7 +221,7 @@ static int ext4_getfsmap_helper(struct super_block *sb,
 	if (info->gfi_last)
 		goto out;
 
-	/* Fill out the extent we found */
+
 	if (info->gfi_head->fmh_entries >= info->gfi_head->fmh_count)
 		return EXT4_QUERY_RANGE_ABORT;
 
@@ -181,11 +246,27 @@ out:
 	return EXT4_QUERY_RANGE_CONTINUE;
 }
 
+/**
+ * ext4_fsmap_next_pblk - Implements the fsmap next pblk operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline ext4_fsblk_t ext4_fsmap_next_pblk(struct ext4_fsmap *fmr)
 {
 	return fmr->fmr_physical + fmr->fmr_length;
 }
 
+/**
+ * ext4_getfsmap_meta_helper - Implements the getfsmap meta helper operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_getfsmap_meta_helper(struct super_block *sb,
 				     ext4_group_t agno, ext4_grpblk_t start,
 				     ext4_grpblk_t len, void *priv)
@@ -201,10 +282,7 @@ static int ext4_getfsmap_meta_helper(struct super_block *sb,
 			  ext4_group_first_block_no(sb, agno));
 	fs_end = fs_start + EXT4_C2B(sbi, len);
 
-	/*
-	 * Return relevant extents from the meta_list. We emit all extents that
-	 * partially/fully overlap with the query range
-	 */
+
 	list_for_each_entry_safe(p, tmp, &info->gfi_meta_list, fmr_list) {
 		if (p->fmr_physical + p->fmr_length <= info->gfi_next_fsblk) {
 			list_del(&p->fmr_list);
@@ -213,7 +291,7 @@ static int ext4_getfsmap_meta_helper(struct super_block *sb,
 		}
 		if (p->fmr_physical <= fs_end &&
 		    p->fmr_physical + p->fmr_length > fs_start) {
-			/* Emit the retained free extent record if present */
+
 			if (info->gfi_lastfree.fmr_owner) {
 				error = ext4_getfsmap_helper(sb, info,
 							&info->gfi_lastfree);
@@ -239,7 +317,14 @@ static int ext4_getfsmap_meta_helper(struct super_block *sb,
 }
 
 
-/* Transform a blockgroup's free record into a fsmap */
+/**
+ * ext4_getfsmap_datadev_helper - Implements the getfsmap datadev helper operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_getfsmap_datadev_helper(struct super_block *sb,
 					ext4_group_t agno, ext4_grpblk_t start,
 					ext4_grpblk_t len, void *priv)
@@ -256,25 +341,22 @@ static int ext4_getfsmap_datadev_helper(struct super_block *sb,
 	fsb = (EXT4_C2B(sbi, start) + ext4_group_first_block_no(sb, agno));
 	fslen = EXT4_C2B(sbi, len);
 
-	/* If the retained free extent record is set... */
+
 	if (info->gfi_lastfree.fmr_owner) {
-		/* ...and abuts this one, lengthen it and return. */
+
 		if (ext4_fsmap_next_pblk(&info->gfi_lastfree) == fsb) {
 			info->gfi_lastfree.fmr_length += fslen;
 			return 0;
 		}
 
-		/*
-		 * There's a gap between the two free extents; emit the
-		 * retained extent prior to merging the meta_list.
-		 */
+
 		error = ext4_getfsmap_helper(sb, info, &info->gfi_lastfree);
 		if (error)
 			return error;
 		info->gfi_lastfree.fmr_owner = 0;
 	}
 
-	/* Merge in any relevant extents from the meta_list */
+
 	list_for_each_entry_safe(p, tmp, &info->gfi_meta_list, fmr_list) {
 		if (p->fmr_physical + p->fmr_length <= info->gfi_next_fsblk) {
 			list_del(&p->fmr_list);
@@ -295,25 +377,33 @@ static int ext4_getfsmap_datadev_helper(struct super_block *sb,
 	irec.fmr_owner = EXT4_FMR_OWN_FREE;
 	irec.fmr_flags = 0;
 
-	/* If this is a free extent at the end of a bg, buffer it. */
+
 	if (ext4_fsmap_next_pblk(&irec) ==
 			ext4_group_first_block_no(sb, agno + 1)) {
 		info->gfi_lastfree = irec;
 		return 0;
 	}
 
-	/* Otherwise, emit it */
+
 	return ext4_getfsmap_helper(sb, info, &irec);
 }
 
-/* Execute a getfsmap query against the log device. */
+
+/**
+ * ext4_getfsmap_logdev - Implements the getfsmap logdev operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_getfsmap_logdev(struct super_block *sb, struct ext4_fsmap *keys,
 				struct ext4_getfsmap_info *info)
 {
 	journal_t *journal = EXT4_SB(sb)->s_journal;
 	struct ext4_fsmap irec;
 
-	/* Set up search keys */
+
 	info->gfi_low = keys[0];
 	info->gfi_low.fmr_length = 0;
 
@@ -332,7 +422,7 @@ static int ext4_getfsmap_logdev(struct super_block *sb, struct ext4_fsmap *keys,
 	if (keys[0].fmr_physical > 0)
 		return 0;
 
-	/* Fabricate an rmap entry for the external log device. */
+
 	irec.fmr_physical = journal->j_blk_offset;
 	irec.fmr_length = journal->j_total_len;
 	irec.fmr_owner = EXT4_FMR_OWN_LOG;
@@ -341,7 +431,15 @@ static int ext4_getfsmap_logdev(struct super_block *sb, struct ext4_fsmap *keys,
 	return ext4_getfsmap_helper(sb, info, &irec);
 }
 
-/* Helper to fill out an ext4_fsmap. */
+
+/**
+ * ext4_getfsmap_fill - Implements the getfsmap fill operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_getfsmap_fill(struct list_head *meta_list,
 				     ext4_fsblk_t fsb, ext4_fsblk_t len,
 				     uint64_t owner)
@@ -361,9 +459,14 @@ static inline int ext4_getfsmap_fill(struct list_head *meta_list,
 	return 0;
 }
 
-/*
- * This function returns the number of file system metadata blocks at
- * the beginning of a block group, including the reserved gdt blocks.
+
+/**
+ * ext4_getfsmap_find_sb - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static unsigned int ext4_getfsmap_find_sb(struct super_block *sb,
 					  ext4_group_t agno,
@@ -376,7 +479,7 @@ static unsigned int ext4_getfsmap_find_sb(struct super_block *sb,
 	unsigned long metagroup = agno / EXT4_DESC_PER_BLOCK(sb);
 	int error;
 
-	/* Record the superblock. */
+
 	if (ext4_bg_has_super(sb, agno)) {
 		error = ext4_getfsmap_fill(meta_list, fsb, 1, EXT4_FMR_OWN_FS);
 		if (error)
@@ -384,7 +487,7 @@ static unsigned int ext4_getfsmap_find_sb(struct super_block *sb,
 		fsb++;
 	}
 
-	/* Record the group descriptors. */
+
 	len = ext4_bg_num_gdb(sb, agno);
 	if (!len)
 		return 0;
@@ -394,14 +497,11 @@ static unsigned int ext4_getfsmap_find_sb(struct super_block *sb,
 		return error;
 	fsb += len;
 
-	/* Reserved GDT blocks */
+
 	if (!ext4_has_feature_meta_bg(sb) || metagroup < first_meta_bg) {
 		len = le16_to_cpu(sbi->s_es->s_reserved_gdt_blocks);
 
-		/*
-		 * mkfs.ext4 can set s_reserved_gdt_blocks as 0 in some cases,
-		 * check for that.
-		 */
+
 		if (!len)
 			return 0;
 
@@ -414,7 +514,15 @@ static unsigned int ext4_getfsmap_find_sb(struct super_block *sb,
 	return 0;
 }
 
-/* Compare two fsmap items. */
+
+/**
+ * ext4_getfsmap_compare - Implements the getfsmap compare operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_getfsmap_compare(void *priv,
 				 const struct list_head *a,
 				 const struct list_head *b)
@@ -431,7 +539,15 @@ static int ext4_getfsmap_compare(void *priv,
 	return 0;
 }
 
-/* Merge adjacent extents of fixed metadata. */
+
+/**
+ * ext4_getfsmap_merge_fixed_metadata - Implements the getfsmap merge fixed metadata operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_getfsmap_merge_fixed_metadata(struct list_head *meta_list)
 {
 	struct ext4_fsmap *p;
@@ -454,7 +570,15 @@ static void ext4_getfsmap_merge_fixed_metadata(struct list_head *meta_list)
 	}
 }
 
-/* Free a list of fixed metadata. */
+
+/**
+ * ext4_getfsmap_free_fixed_metadata - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_getfsmap_free_fixed_metadata(struct list_head *meta_list)
 {
 	struct ext4_fsmap *p;
@@ -466,7 +590,15 @@ static void ext4_getfsmap_free_fixed_metadata(struct list_head *meta_list)
 	}
 }
 
-/* Find all the fixed metadata in the filesystem. */
+
+/**
+ * ext4_getfsmap_find_fixed_metadata - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_getfsmap_find_fixed_metadata(struct super_block *sb,
 					     struct list_head *meta_list)
 {
@@ -476,7 +608,7 @@ static int ext4_getfsmap_find_fixed_metadata(struct super_block *sb,
 
 	INIT_LIST_HEAD(meta_list);
 
-	/* Collect everything. */
+
 	for (agno = 0; agno < EXT4_SB(sb)->s_groups_count; agno++) {
 		gdp = ext4_get_group_desc(sb, agno, NULL);
 		if (!gdp) {
@@ -484,26 +616,26 @@ static int ext4_getfsmap_find_fixed_metadata(struct super_block *sb,
 			goto err;
 		}
 
-		/* Superblock & GDT */
+
 		error = ext4_getfsmap_find_sb(sb, agno, meta_list);
 		if (error)
 			goto err;
 
-		/* Block bitmap */
+
 		error = ext4_getfsmap_fill(meta_list,
 					   ext4_block_bitmap(sb, gdp), 1,
 					   EXT4_FMR_OWN_BLKBM);
 		if (error)
 			goto err;
 
-		/* Inode bitmap */
+
 		error = ext4_getfsmap_fill(meta_list,
 					   ext4_inode_bitmap(sb, gdp), 1,
 					   EXT4_FMR_OWN_INOBM);
 		if (error)
 			goto err;
 
-		/* Inodes */
+
 		error = ext4_getfsmap_fill(meta_list,
 					   ext4_inode_table(sb, gdp),
 					   EXT4_SB(sb)->s_itb_per_group,
@@ -512,10 +644,10 @@ static int ext4_getfsmap_find_fixed_metadata(struct super_block *sb,
 			goto err;
 	}
 
-	/* Sort the list */
+
 	list_sort(NULL, meta_list, ext4_getfsmap_compare);
 
-	/* Merge adjacent extents */
+
 	ext4_getfsmap_merge_fixed_metadata(meta_list);
 
 	return 0;
@@ -524,7 +656,15 @@ err:
 	return error;
 }
 
-/* Execute a getfsmap query against the buddy bitmaps */
+
+/**
+ * ext4_getfsmap_datadev - Implements the getfsmap datadev operation within the physical-space mapping subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_getfsmap_datadev(struct super_block *sb,
 				 struct ext4_fsmap *keys,
 				 struct ext4_getfsmap_info *info)
@@ -554,34 +694,28 @@ static int ext4_getfsmap_datadev(struct super_block *sb,
 	start_fsb = keys[0].fmr_physical;
 	end_fsb = keys[1].fmr_physical;
 
-	/* Determine first and last group to examine based on start and end */
+
 	ext4_get_group_no_and_offset(sb, start_fsb, &start_ag, &first_cluster);
 	ext4_get_group_no_and_offset(sb, end_fsb, &end_ag, &last_cluster);
 
-	/*
-	 * Convert the fsmap low/high keys to bg based keys.  Initialize
-	 * low to the fsmap low key and max out the high key to the end
-	 * of the bg.
-	 */
+
 	info->gfi_low = keys[0];
 	info->gfi_low.fmr_physical = EXT4_C2B(sbi, first_cluster);
 	info->gfi_low.fmr_length = 0;
 
 	memset(&info->gfi_high, 0xFF, sizeof(info->gfi_high));
 
-	/* Assemble a list of all the fixed-location metadata. */
+
 	error = ext4_getfsmap_find_fixed_metadata(sb, &info->gfi_meta_list);
 	if (error)
 		goto err;
 
-	/* Query each bg */
+
 	for (info->gfi_agno = start_ag;
 	     info->gfi_agno <= end_ag;
 	     info->gfi_agno++) {
-		/*
-		 * Set the bg high key from the fsmap high key if this
-		 * is the last bg that we're querying.
-		 */
+
+
 		if (info->gfi_agno == end_ag) {
 			info->gfi_high = keys[1];
 			info->gfi_high.fmr_physical = EXT4_C2B(sbi,
@@ -607,25 +741,19 @@ static int ext4_getfsmap_datadev(struct super_block *sb,
 		if (error)
 			goto err;
 
-		/*
-		 * Set the bg low key to the start of the bg prior to
-		 * moving on to the next bg.
-		 */
+
 		if (info->gfi_agno == start_ag)
 			memset(&info->gfi_low, 0, sizeof(info->gfi_low));
 	}
 
-	/* Do we have a retained free extent? */
+
 	if (info->gfi_lastfree.fmr_owner) {
 		error = ext4_getfsmap_helper(sb, info, &info->gfi_lastfree);
 		if (error)
 			goto err;
 	}
 
-	/*
-	 * The dummy record below will cause ext4_getfsmap_helper() to report
-	 * any allocated blocks at the end of the range.
-	 */
+
 	irec.fmr_device = 0;
 	irec.fmr_physical = end_fsb + 1;
 	irec.fmr_length = 0;
@@ -642,7 +770,15 @@ err:
 	return error;
 }
 
-/* Do we recognize the device? */
+
+/**
+ * ext4_getfsmap_is_valid_device - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_getfsmap_is_valid_device(struct super_block *sb,
 					  struct ext4_fsmap *fm)
 {
@@ -656,7 +792,15 @@ static bool ext4_getfsmap_is_valid_device(struct super_block *sb,
 	return false;
 }
 
-/* Ensure that the low key is less than the high key. */
+
+/**
+ * ext4_getfsmap_check_keys - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_getfsmap_check_keys(struct ext4_fsmap *low_key,
 				     struct ext4_fsmap *high_key)
 {
@@ -679,31 +823,20 @@ static bool ext4_getfsmap_check_keys(struct ext4_fsmap *low_key,
 }
 
 #define EXT4_GETFSMAP_DEVS	2
-/*
- * Get filesystem's extents as described in head, and format for
- * output.  Calls formatter to fill the user's buffer until all
- * extents are mapped, until the passed-in head->fmh_count slots have
- * been filled, or until the formatter short-circuits the loop, if it
- * is tracking filled-in extents on its own.
+
+
+/**
+ * ext4_getfsmap - Implements the getfsmap operation within the physical-space mapping subsystem.
  *
- * Key to Confusion
- * ----------------
- * There are multiple levels of keys and counters at work here:
- * _fsmap_head.fmh_keys		-- low and high fsmap keys passed in;
- * 				   these reflect fs-wide block addrs.
- * dkeys			-- fmh_keys used to query each device;
- * 				   these are fmh_keys but w/ the low key
- * 				   bumped up by fmr_length.
- * _getfsmap_info.gfi_next_fsblk-- next fs block we expect to see; this
- *				   is how we detect gaps in the fsmap
- *				   records and report them.
- * _getfsmap_info.gfi_low/high	-- per-bg low/high keys computed from
- * 				   dkeys; used to query the free space.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_getfsmap(struct super_block *sb, struct ext4_fsmap_head *head,
 		  ext4_fsmap_format_t formatter, void *arg)
 {
-	struct ext4_fsmap dkeys[2];	/* per-dev keys */
+	struct ext4_fsmap dkeys[2];
 	struct ext4_getfsmap_dev handlers[EXT4_GETFSMAP_DEVS];
 	struct ext4_getfsmap_info info = { NULL };
 	int i;
@@ -717,7 +850,7 @@ int ext4_getfsmap(struct super_block *sb, struct ext4_fsmap_head *head,
 
 	head->fmh_entries = 0;
 
-	/* Set up our device handlers. */
+
 	memset(handlers, 0, sizeof(handlers));
 	handlers[0].gfd_dev = new_encode_dev(sb->s_bdev->bd_dev);
 	handlers[0].gfd_fn = ext4_getfsmap_datadev;
@@ -730,17 +863,7 @@ int ext4_getfsmap(struct super_block *sb, struct ext4_fsmap_head *head,
 	sort(handlers, EXT4_GETFSMAP_DEVS, sizeof(struct ext4_getfsmap_dev),
 			ext4_getfsmap_dev_compare, NULL);
 
-	/*
-	 * To continue where we left off, we allow userspace to use the
-	 * last mapping from a previous call as the low key of the next.
-	 * This is identified by a non-zero length in the low key. We
-	 * have to increment the low key in this scenario to ensure we
-	 * don't return the same mapping again, and instead return the
-	 * very next mapping.
-	 *
-	 * Bump the physical offset as there can be no other mapping for
-	 * the same physical block range.
-	 */
+
 	dkeys[0] = head->fmh_keys[0];
 	dkeys[0].fmr_physical += dkeys[0].fmr_length;
 	dkeys[0].fmr_owner = 0;
@@ -756,9 +879,9 @@ int ext4_getfsmap(struct super_block *sb, struct ext4_fsmap_head *head,
 	info.gfi_format_arg = arg;
 	info.gfi_head = head;
 
-	/* For each device we support... */
+
 	for (i = 0; i < EXT4_GETFSMAP_DEVS; i++) {
-		/* Is this device within the range the user asked for? */
+
 		if (!handlers[i].gfd_fn)
 			continue;
 		if (head->fmh_keys[0].fmr_device > handlers[i].gfd_dev)
@@ -766,13 +889,7 @@ int ext4_getfsmap(struct super_block *sb, struct ext4_fsmap_head *head,
 		if (head->fmh_keys[1].fmr_device < handlers[i].gfd_dev)
 			break;
 
-		/*
-		 * If this device number matches the high key, we have
-		 * to pass the high key to the handler to limit the
-		 * query results.  If the device number exceeds the
-		 * low key, zero out the low key so that we get
-		 * everything from the beginning.
-		 */
+
 		if (handlers[i].gfd_dev == head->fmh_keys[1].fmr_device)
 			dkeys[1] = head->fmh_keys[1];
 		if (handlers[i].gfd_dev > head->fmh_keys[0].fmr_device)

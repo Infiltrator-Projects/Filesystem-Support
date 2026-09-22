@@ -14,6 +14,28 @@
  * reused.
  */
 
+/*
+ * EXT4 — JBD2 checkpointing
+ *
+ * Purpose:
+ *   Moves committed metadata toward home locations and advances the recoverable journal tail.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Journal space can be reclaimed only after recovery no longer needs the corresponding logged metadata.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/time.h>
 #include <linux/fs.h>
 #include <linux/jbd2.h>
@@ -22,10 +44,14 @@
 #include <linux/blkdev.h>
 #include <trace/events/jbd2.h>
 
-/*
- * Unlink a buffer from a transaction checkpoint list.
+
+/**
+ * __buffer_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
- * Called with j_list_lock held.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline void __buffer_unlink(struct journal_head *jh)
 {
@@ -40,35 +66,28 @@ static inline void __buffer_unlink(struct journal_head *jh)
 	}
 }
 
-/*
- * __jbd2_log_wait_for_space: wait until there is space in the journal.
+
+/**
+ * __releases - Implements the releases operation within the jbd2 checkpointing subsystem.
  *
- * Called under j-state_lock *only*.  It will be unlocked if we have to wait
- * for a checkpoint to free up some space in the log.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void __jbd2_log_wait_for_space(journal_t *journal)
 __acquires(&journal->j_state_lock)
 __releases(&journal->j_state_lock)
 {
 	int nblocks, space_left;
-	/* assert_spin_locked(&journal->j_state_lock); */
+
 
 	nblocks = journal->j_max_transaction_buffers;
 	while (jbd2_log_space_left(journal) < nblocks) {
 		write_unlock(&journal->j_state_lock);
 		mutex_lock_io(&journal->j_checkpoint_mutex);
 
-		/*
-		 * Test again, another process may have checkpointed while we
-		 * were waiting for the checkpoint lock. If there are no
-		 * transactions ready to be checkpointed, try to recover
-		 * journal space by calling cleanup_journal_tail(), and if
-		 * that doesn't work, by waiting for the currently committing
-		 * transaction to complete.  If there is absolutely no way
-		 * to make progress, this is either a BUG or corrupted
-		 * filesystem, so abort the journal and leave a stack
-		 * trace for forensic evidence.
-		 */
+
 		write_lock(&journal->j_state_lock);
 		if (journal->j_flags & JBD2_ABORT) {
 			mutex_unlock(&journal->j_checkpoint_mutex);
@@ -90,17 +109,12 @@ __releases(&journal->j_state_lock)
 			if (chkpt) {
 				jbd2_log_do_checkpoint(journal);
 			} else if (jbd2_cleanup_journal_tail(journal) <= 0) {
-				/*
-				 * We were able to recover space or the
-				 * journal was aborted due to an error.
-				 */
+
+
 				;
 			} else if (has_transaction) {
-				/*
-				 * jbd2_journal_commit_transaction() may want
-				 * to take the checkpoint_mutex if JBD2_FLUSHED
-				 * is set.  So we need to temporarily drop it.
-				 */
+
+
 				mutex_unlock(&journal->j_checkpoint_mutex);
 				jbd2_log_wait_commit(journal, tid);
 				write_lock(&journal->j_state_lock);
@@ -123,6 +137,14 @@ __releases(&journal->j_state_lock)
 	}
 }
 
+/**
+ * __flush_batch - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void
 __flush_batch(journal_t *journal, int *batch_count)
 {
@@ -143,13 +165,14 @@ __flush_batch(journal_t *journal, int *batch_count)
 	*batch_count = 0;
 }
 
-/*
- * Perform an actual checkpoint. We take the first transaction on the
- * list of transactions to be checkpointed and send all its buffers
- * to disk. We submit larger chunks of data at once.
+
+/**
+ * jbd2_log_do_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
- * The journal should be locked before calling this function.
- * Called with j_checkpoint_mutex held.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int jbd2_log_do_checkpoint(journal_t *journal)
 {
@@ -161,21 +184,14 @@ int jbd2_log_do_checkpoint(journal_t *journal)
 
 	jbd2_debug(1, "Start checkpoint\n");
 
-	/*
-	 * First thing: if there are any transactions in the log which
-	 * don't need checkpointing, just eliminate them from the
-	 * journal straight away.
-	 */
+
 	result = jbd2_cleanup_journal_tail(journal);
 	trace_jbd2_checkpoint(journal, result);
 	jbd2_debug(1, "cleanup_journal_tail returned %d\n", result);
 	if (result <= 0)
 		return result;
 
-	/*
-	 * OK, we need to start writing disk blocks.  Take one transaction
-	 * and write it.
-	 */
+
 	spin_lock(&journal->j_list_lock);
 	if (!journal->j_checkpoint_transactions)
 		goto out;
@@ -184,16 +200,13 @@ int jbd2_log_do_checkpoint(journal_t *journal)
 		transaction->t_chp_stats.cs_chp_time = jiffies;
 	this_tid = transaction->t_tid;
 restart:
-	/*
-	 * If someone cleaned up this transaction while we slept, we're
-	 * done (maybe it's a new transaction, but it fell at the same
-	 * address).
-	 */
+
+
 	if (journal->j_checkpoint_transactions != transaction ||
 	    transaction->t_tid != this_tid)
 		goto out;
 
-	/* checkpoint all of the transaction's buffers */
+
 	while (transaction->t_checkpoint_list) {
 		jh = transaction->t_checkpoint_list;
 		bh = jh2bh(jh);
@@ -205,12 +218,8 @@ restart:
 			transaction->t_chp_stats.cs_forced_to_close++;
 			spin_unlock(&journal->j_list_lock);
 			if (unlikely(journal->j_flags & JBD2_UNMOUNT))
-				/*
-				 * The journal thread is dead; so
-				 * starting and waiting for a commit
-				 * to finish will cause us to wait for
-				 * a _very_ long time.
-				 */
+
+
 				printk(KERN_ERR
 		"JBD2: %s: Waiting for Godot: block %llu\n",
 		journal->j_devname, (unsigned long long) bh->b_blocknr);
@@ -218,14 +227,8 @@ restart:
 			if (batch_count)
 				__flush_batch(journal, &batch_count);
 			jbd2_log_start_commit(journal, tid);
-			/*
-			 * jbd2_journal_commit_transaction() may want
-			 * to take the checkpoint_mutex if JBD2_FLUSHED
-			 * is set, jbd2_update_log_tail() called by
-			 * jbd2_journal_commit_transaction() may also take
-			 * checkpoint_mutex.  So we need to temporarily
-			 * drop it.
-			 */
+
+
 			mutex_unlock(&journal->j_checkpoint_mutex);
 			jbd2_log_wait_commit(journal, tid);
 			mutex_lock_io(&journal->j_checkpoint_mutex);
@@ -233,44 +236,33 @@ restart:
 			goto restart;
 		}
 		if (!trylock_buffer(bh)) {
-			/*
-			 * The buffer is locked, it may be writing back, or
-			 * flushing out in the last couple of cycles, or
-			 * re-adding into a new transaction, need to check
-			 * it again until it's unlocked.
-			 */
+
+
 			get_bh(bh);
 			spin_unlock(&journal->j_list_lock);
 			wait_on_buffer(bh);
-			/* the journal_head may have gone by now */
+
 			BUFFER_TRACE(bh, "brelse");
 			__brelse(bh);
 			goto retry;
 		} else if (!buffer_dirty(bh)) {
 			unlock_buffer(bh);
 			BUFFER_TRACE(bh, "remove from checkpoint");
-			/*
-			 * If the transaction was released or the checkpoint
-			 * list was empty, we're done.
-			 */
+
+
 			if (__jbd2_journal_remove_checkpoint(jh) ||
 			    !transaction->t_checkpoint_list)
 				goto out;
 		} else {
 			unlock_buffer(bh);
-			/*
-			 * We are about to write the buffer, it could be
-			 * raced by some other transaction shrink or buffer
-			 * re-log logic once we release the j_list_lock,
-			 * leave it on the checkpoint list and check status
-			 * again to make sure it's clean.
-			 */
+
+
 			BUFFER_TRACE(bh, "queue");
 			get_bh(bh);
 			if (WARN_ON_ONCE(buffer_jwrite(bh))) {
-				put_bh(bh); /* drop the ref we just took */
+				put_bh(bh);
 				spin_unlock(&journal->j_list_lock);
-				/* Clean up any previously batched buffers */
+
 				if (batch_count)
 					__flush_batch(journal, &batch_count);
 				jbd2_journal_abort(journal, -EFSCORRUPTED);
@@ -305,24 +297,15 @@ out:
 	return (result < 0) ? result : 0;
 }
 
-/*
- * Check the list of checkpoint transactions for the journal to see if
- * we have already got rid of any since the last update of the log tail
- * in the journal superblock.  If so, we can instantly roll the
- * superblock forward to remove those transactions from the log.
- *
- * Return <0 on error, 0 on success, 1 if there was nothing to clean up.
- *
- * Called with the journal lock held.
- *
- * This is the only part of the journaling code which really needs to be
- * aware of transaction aborts.  Checkpointing involves writing to the
- * main filesystem area rather than to the journal, so it can proceed
- * even in abort state, but we must not update the super block if
- * checkpointing may have failed.  Otherwise, we would lose some metadata
- * buffers which should be written-back to the filesystem.
- */
 
+/**
+ * jbd2_cleanup_journal_tail - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int jbd2_cleanup_journal_tail(journal_t *journal)
 {
 	tid_t		first_tid;
@@ -338,14 +321,7 @@ int jbd2_cleanup_journal_tail(journal_t *journal)
 		return -EFSCORRUPTED;
 	}
 
-	/*
-	 * We need to make sure that any blocks that were recently written out
-	 * --- perhaps by jbd2_log_do_checkpoint() --- are flushed out before
-	 * we drop the transactions from the journal. It's unlikely this will
-	 * be necessary, especially with an appropriately sized journal, but we
-	 * need this to guarantee correctness.  Fortunately
-	 * jbd2_cleanup_journal_tail() doesn't get called all that often.
-	 */
+
 	if (journal->j_flags & JBD2_BARRIER)
 		blkdev_issue_flush(journal->j_fs_dev);
 
@@ -353,17 +329,13 @@ int jbd2_cleanup_journal_tail(journal_t *journal)
 }
 
 
-/* Checkpoint list management */
-
-/*
- * journal_shrink_one_cp_list
+/**
+ * journal_shrink_one_cp_list - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * Find all the written-back checkpoint buffers in the given list
- * and try to release them. If the whole transaction is released, set
- * the 'released' parameter. Return the number of released checkpointed
- * buffers.
- *
- * Called with j_list_lock held.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static unsigned long journal_shrink_one_cp_list(struct journal_head *jh,
 						enum jbd2_shrink_type type,
@@ -407,14 +379,14 @@ static unsigned long journal_shrink_one_cp_list(struct journal_head *jh,
 	return nr_freed;
 }
 
-/*
- * jbd2_journal_shrink_checkpoint_list
+
+/**
+ * jbd2_journal_shrink_checkpoint_list - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
- * Find 'nr_to_scan' written-back checkpoint buffers in the journal
- * and try to release them. Return the number of released checkpointed
- * buffers.
- *
- * Called with j_list_lock held.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 unsigned long jbd2_journal_shrink_checkpoint_list(journal_t *journal,
 						  unsigned long *nr_to_scan)
@@ -434,12 +406,7 @@ again:
 		goto out;
 	}
 
-	/*
-	 * Get next shrink transaction, resume previous scan or start
-	 * over again. If some others do checkpoint and drop transaction
-	 * from the checkpoint list, we ignore saved j_shrink_transaction
-	 * and start over unconditionally.
-	 */
+
 	if (journal->j_shrink_transaction)
 		transaction = journal->j_shrink_transaction;
 	else
@@ -487,16 +454,14 @@ out:
 	return nr_freed;
 }
 
-/*
- * journal_clean_checkpoint_list
+
+/**
+ * __jbd2_journal_clean_checkpoint_list - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
- * Find all the written-back checkpoint buffers in the journal and release them.
- * If 'type' is JBD2_SHRINK_DESTROY, release all buffers unconditionally. If
- * 'type' is JBD2_SHRINK_BUSY_STOP, will stop release buffers if encounters a
- * busy buffer. To avoid wasting CPU cycles scanning the buffer list in some
- * cases, don't pass JBD2_SHRINK_BUSY_SKIP 'type' for this function.
- *
- * Called with j_list_lock held.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void __jbd2_journal_clean_checkpoint_list(journal_t *journal,
 					  enum jbd2_shrink_type type)
@@ -517,33 +482,30 @@ void __jbd2_journal_clean_checkpoint_list(journal_t *journal,
 		next_transaction = transaction->t_cpnext;
 		journal_shrink_one_cp_list(transaction->t_checkpoint_list,
 					   type, &released);
-		/*
-		 * This function only frees up some memory if possible so we
-		 * dont have an obligation to finish processing. Bail out if
-		 * preemption requested:
-		 */
+
+
 		if (need_resched())
 			return;
-		/*
-		 * Stop scanning if we couldn't free the transaction. This
-		 * avoids pointless scanning of transactions which still
-		 * weren't checkpointed.
-		 */
+
+
 		if (!released)
 			return;
 	} while (transaction != last_transaction);
 }
 
-/*
- * Remove buffers from all checkpoint lists as journal is aborted and we just
- * need to free memory
+
+/**
+ * jbd2_journal_destroy_checkpoint - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void jbd2_journal_destroy_checkpoint(journal_t *journal)
 {
-	/*
-	 * We loop because __jbd2_journal_clean_checkpoint_list() may abort
-	 * early due to a need of rescheduling.
-	 */
+
+
 	while (1) {
 		spin_lock(&journal->j_list_lock);
 		if (!journal->j_checkpoint_transactions) {
@@ -556,23 +518,14 @@ void jbd2_journal_destroy_checkpoint(journal_t *journal)
 	}
 }
 
-/*
- * journal_remove_checkpoint: called after a buffer has been committed
- * to disk (either by being write-back flushed to disk, or being
- * committed to the log).
+
+/**
+ * __jbd2_journal_remove_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
- * We cannot safely clean a transaction out of the log until all of the
- * buffer updates committed in that transaction have safely been stored
- * elsewhere on disk.  To achieve this, all of the buffers in a
- * transaction need to be maintained on the transaction's checkpoint
- * lists until they have been rewritten, at which point this function is
- * called to remove the buffer from the existing transaction's
- * checkpoint lists.
- *
- * The function returns 1 if it frees the transaction, 0 otherwise.
- * The function can free jh and bh.
- *
- * This function is called with j_list_lock held.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int __jbd2_journal_remove_checkpoint(struct journal_head *jh)
 {
@@ -596,26 +549,15 @@ int __jbd2_journal_remove_checkpoint(struct journal_head *jh)
 	percpu_counter_dec(&journal->j_checkpoint_jh_count);
 	jbd2_journal_put_journal_head(jh);
 
-	/* Is this transaction empty? */
+
 	if (transaction->t_checkpoint_list)
 		return 0;
 
-	/*
-	 * There is one special case to worry about: if we have just pulled the
-	 * buffer off a running or committing transaction's checkpoing list,
-	 * then even if the checkpoint list is empty, the transaction obviously
-	 * cannot be dropped!
-	 *
-	 * The locking here around t_state is a bit sleazy.
-	 * See the comment at the end of jbd2_journal_commit_transaction().
-	 */
+
 	if (transaction->t_state != T_FINISHED)
 		return 0;
 
-	/*
-	 * OK, that was the last buffer for the transaction, we can now
-	 * safely remove this transaction from the log.
-	 */
+
 	stats = &transaction->t_chp_stats;
 	if (stats->cs_chp_time)
 		stats->cs_chp_time = jbd2_time_diff(stats->cs_chp_time,
@@ -628,12 +570,14 @@ int __jbd2_journal_remove_checkpoint(struct journal_head *jh)
 	return 1;
 }
 
-/*
- * Check the checkpoint buffer and try to remove it from the checkpoint
- * list if it's clean. Returns -EBUSY if it is not clean, returns 1 if
- * it frees the transaction, 0 otherwise.
+
+/**
+ * jbd2_journal_try_remove_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
- * This function is called with j_list_lock held.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int jbd2_journal_try_remove_checkpoint(struct journal_head *jh)
 {
@@ -649,22 +593,19 @@ int jbd2_journal_try_remove_checkpoint(struct journal_head *jh)
 	}
 	unlock_buffer(bh);
 
-	/*
-	 * Buffer is clean and the IO has finished (we held the buffer
-	 * lock) so the checkpoint is done. We can safely remove the
-	 * buffer from this transaction.
-	 */
+
 	JBUFFER_TRACE(jh, "remove from checkpoint list");
 	return __jbd2_journal_remove_checkpoint(jh);
 }
 
-/*
- * journal_insert_checkpoint: put a committed buffer onto a checkpoint
- * list so that we know when it is safe to clean the transaction out of
- * the log.
+
+/**
+ * __jbd2_journal_insert_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
- * Called with the journal locked.
- * Called with j_list_lock held.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void __jbd2_journal_insert_checkpoint(struct journal_head *jh,
 			       transaction_t *transaction)
@@ -673,7 +614,7 @@ void __jbd2_journal_insert_checkpoint(struct journal_head *jh,
 	J_ASSERT_JH(jh, buffer_dirty(jh2bh(jh)) || buffer_jbddirty(jh2bh(jh)));
 	J_ASSERT_JH(jh, jh->b_cp_transaction == NULL);
 
-	/* Get reference for checkpointing transaction */
+
 	jbd2_journal_grab_journal_head(jh2bh(jh));
 	jh->b_cp_transaction = transaction;
 
@@ -689,16 +630,15 @@ void __jbd2_journal_insert_checkpoint(struct journal_head *jh,
 	percpu_counter_inc(&transaction->t_journal->j_checkpoint_jh_count);
 }
 
-/*
- * We've finished with this transaction structure: adios...
- *
- * The transaction must have no links except for the checkpoint by this
- * point.
- *
- * Called with the journal locked.
- * Called with j_list_lock held.
- */
 
+/**
+ * __jbd2_journal_drop_transaction - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void __jbd2_journal_drop_transaction(journal_t *journal, transaction_t *transaction)
 {
 	assert_spin_locked(&journal->j_list_lock);

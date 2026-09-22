@@ -1,34 +1,48 @@
 // SPDX-License-Identifier: GPL-2.0
+
 /*
- *  fs/ext4/extents_status.h
+ * EXT4 — Extent-status interfaces
  *
- * Written by Yongqiang Yang <xiaoqiangnk@gmail.com>
- * Modified by
- *	Allison Henderson <achender@linux.vnet.ibm.com>
- *	Zheng Liu <wenqing.lz@taobao.com>
+ * Purpose:
+ *   Defines extent-status states, range representation and cache operations shared by EXT4 mapping/allocation paths.
  *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Status transitions describe logical range state and must agree with delayed allocation, unwritten extents and durable mapping state.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
  */
 
 #ifndef _EXT4_EXTENTS_STATUS_H
 #define _EXT4_EXTENTS_STATUS_H
 
-/*
- * Turn on ES_DEBUG__ to get lots of info about extent status operations.
- */
+
 #ifdef ES_DEBUG__
 #define es_debug(fmt, ...)	printk(fmt, ##__VA_ARGS__)
 #else
 #define es_debug(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
-/*
- * With ES_AGGRESSIVE_TEST defined, the result of es caching will be
- * checked with old map_block's result.
- */
+
 #define ES_AGGRESSIVE_TEST__
 
-/*
- * These flags live in the high bits of extent_status.es_pblk
+
+/**
+ * no_printk - Implements the no printk operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 enum {
 	ES_WRITTEN_B,
@@ -42,10 +56,7 @@ enum {
 #define ES_SHIFT (sizeof(ext4_fsblk_t)*8 - ES_FLAGS)
 #define ES_MASK (~((ext4_fsblk_t)0) << ES_SHIFT)
 
-/*
- * Besides EXTENT_STATUS_REFERENCED, all these extent type masks
- * are exclusive, only one type can be set at a time.
- */
+
 #define EXTENT_STATUS_WRITTEN	(1 << ES_WRITTEN_B)
 #define EXTENT_STATUS_UNWRITTEN (1 << ES_UNWRITTEN_B)
 #define EXTENT_STATUS_DELAYED	(1 << ES_DELAYED_B)
@@ -62,18 +73,36 @@ enum {
 struct ext4_sb_info;
 struct ext4_extent;
 
+/**
+ * struct extent_status - Private EXT4 state/data structure used by extent-status interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct extent_status {
 	struct rb_node rb_node;
-	ext4_lblk_t es_lblk;	/* first logical block extent covers */
-	ext4_lblk_t es_len;	/* length of extent in block */
-	ext4_fsblk_t es_pblk;	/* first physical block */
+	ext4_lblk_t es_lblk;
+	ext4_lblk_t es_len;
+	ext4_fsblk_t es_pblk;
 };
 
+/**
+ * struct ext4_es_tree - Private EXT4 state/data structure used by extent-status interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_es_tree {
 	struct rb_root root;
-	struct extent_status *cache_es;	/* recently accessed extent */
+	struct extent_status *cache_es;
 };
 
+/**
+ * struct ext4_es_stats - Private EXT4 state/data structure used by extent-status interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_es_stats {
 	unsigned long es_stats_shrunk;
 	struct percpu_counter es_stats_cache_hits;
@@ -84,47 +113,24 @@ struct ext4_es_stats {
 	struct percpu_counter es_stats_shk_cnt;
 };
 
-/*
- * Pending cluster reservations for bigalloc file systems
- *
- * A cluster with a pending reservation is a logical cluster shared by at
- * least one extent in the extents status tree with delayed and unwritten
- * status and at least one other written or unwritten extent.  The
- * reservation is said to be pending because a cluster reservation would
- * have to be taken in the event all blocks in the cluster shared with
- * written or unwritten extents were deleted while the delayed and
- * unwritten blocks remained.
- *
- * The set of pending cluster reservations is an auxiliary data structure
- * used with the extents status tree to implement reserved cluster/block
- * accounting for bigalloc file systems.  The set is kept in memory and
- * records all pending cluster reservations.
- *
- * Its primary function is to avoid the need to read extents from the
- * disk when invalidating pages as a result of a truncate, punch hole, or
- * collapse range operation.  Page invalidation requires a decrease in the
- * reserved cluster count if it results in the removal of all delayed
- * and unwritten extents (blocks) from a cluster that is not shared with a
- * written or unwritten extent, and no decrease otherwise.  Determining
- * whether the cluster is shared can be done by searching for a pending
- * reservation on it.
- *
- * Secondarily, it provides a potentially faster method for determining
- * whether the reserved cluster count should be increased when a physical
- * cluster is deallocated as a result of a truncate, punch hole, or
- * collapse range operation.  The necessary information is also present
- * in the extents status tree, but might be more rapidly accessed in
- * the pending reservation set in many cases due to smaller size.
- *
- * The pending cluster reservation set is implemented as a red-black tree
- * with the goal of minimizing per page search time overhead.
- */
 
+/**
+ * struct pending_reservation - Private EXT4 state/data structure used by extent-status interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct pending_reservation {
 	struct rb_node rb_node;
 	ext4_lblk_t lclu;
 };
 
+/**
+ * struct ext4_pending_tree - Private EXT4 state/data structure used by extent-status interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_pending_tree {
 	struct rb_root root;
 };
@@ -155,67 +161,171 @@ extern bool ext4_es_scan_clu(struct inode *inode,
 			     int (*matching_fn)(struct extent_status *es),
 			     ext4_lblk_t lblk);
 
+/**
+ * ext4_es_status - Implements the es status operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline unsigned int ext4_es_status(struct extent_status *es)
 {
 	return es->es_pblk >> ES_SHIFT;
 }
 
+/**
+ * ext4_es_type - Implements the es type operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline unsigned int ext4_es_type(struct extent_status *es)
 {
 	return (es->es_pblk >> ES_SHIFT) & ES_TYPE_MASK;
 }
 
+/**
+ * ext4_es_is_written - Implements the es is written operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_es_is_written(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_WRITTEN) != 0;
 }
 
+/**
+ * ext4_es_is_unwritten - Implements the es is unwritten operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_es_is_unwritten(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_UNWRITTEN) != 0;
 }
 
+/**
+ * ext4_es_is_delayed - Implements the es is delayed operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_es_is_delayed(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_DELAYED) != 0;
 }
 
+/**
+ * ext4_es_is_hole - Implements the es is hole operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_es_is_hole(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_HOLE) != 0;
 }
 
+/**
+ * ext4_es_is_mapped - Implements the es is mapped operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_es_is_mapped(struct extent_status *es)
 {
 	return (ext4_es_is_written(es) || ext4_es_is_unwritten(es));
 }
 
+/**
+ * ext4_es_set_referenced - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_es_set_referenced(struct extent_status *es)
 {
 	es->es_pblk |= ((ext4_fsblk_t)EXTENT_STATUS_REFERENCED) << ES_SHIFT;
 }
 
+/**
+ * ext4_es_clear_referenced - Implements the es clear referenced operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_es_clear_referenced(struct extent_status *es)
 {
 	es->es_pblk &= ~(((ext4_fsblk_t)EXTENT_STATUS_REFERENCED) << ES_SHIFT);
 }
 
+/**
+ * ext4_es_is_referenced - Implements the es is referenced operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_es_is_referenced(struct extent_status *es)
 {
 	return (ext4_es_status(es) & EXTENT_STATUS_REFERENCED) != 0;
 }
 
+/**
+ * ext4_es_pblock - Implements the es pblock operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline ext4_fsblk_t ext4_es_pblock(struct extent_status *es)
 {
 	return es->es_pblk & ~ES_MASK;
 }
 
+/**
+ * ext4_es_show_pblock - Implements the es show pblock operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline ext4_fsblk_t ext4_es_show_pblock(struct extent_status *es)
 {
 	ext4_fsblk_t pblock = ext4_es_pblock(es);
 	return pblock == ~ES_MASK ? 0 : pblock;
 }
 
+/**
+ * ext4_es_store_pblock - Implements the es store pblock operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_es_store_pblock(struct extent_status *es,
 					ext4_fsblk_t pb)
 {
@@ -225,6 +335,14 @@ static inline void ext4_es_store_pblock(struct extent_status *es,
 	es->es_pblk = block;
 }
 
+/**
+ * ext4_es_store_pblock_status - Implements the es store pblock status operation within the extent-status interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_es_store_pblock_status(struct extent_status *es,
 					       ext4_fsblk_t pb,
 					       unsigned int status)
@@ -250,4 +368,4 @@ extern void ext4_es_insert_delayed_extent(struct inode *inode, ext4_lblk_t lblk,
 					  bool end_allocated);
 extern void ext4_clear_inode_es(struct inode *inode);
 
-#endif /* _EXT4_EXTENTS_STATUS_H */
+#endif

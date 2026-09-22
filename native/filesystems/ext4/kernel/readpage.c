@@ -28,6 +28,28 @@
  *
  */
 
+/*
+ * EXT4 — Read-side mapped I/O
+ *
+ * Purpose:
+ *   Implements mapped read submission for EXT4 file data.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Logical-to-physical mappings must be validated before I/O submission and holes/unwritten extents must retain zero-fill semantics.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/kernel.h>
 #include <linux/export.h>
 #include <linux/mm.h>
@@ -51,7 +73,13 @@
 static struct kmem_cache *bio_post_read_ctx_cache;
 static mempool_t *bio_post_read_ctx_pool;
 
-/* postprocessing steps for read bios */
+
+/**
+ * enum bio_post_read_step - Private EXT4 state/value set used by read-side mapped i/o.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 enum bio_post_read_step {
 	STEP_INITIAL = 0,
 	STEP_DECRYPT,
@@ -59,6 +87,12 @@ enum bio_post_read_step {
 	STEP_MAX,
 };
 
+/**
+ * struct bio_post_read_ctx - Private EXT4 state/data structure used by read-side mapped i/o.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct bio_post_read_ctx {
 	struct bio *bio;
 	struct work_struct work;
@@ -66,6 +100,14 @@ struct bio_post_read_ctx {
 	unsigned int enabled_steps;
 };
 
+/**
+ * __read_end_io - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void __read_end_io(struct bio *bio)
 {
 	struct folio_iter fi;
@@ -79,6 +121,14 @@ static void __read_end_io(struct bio *bio)
 
 static void bio_post_read_processing(struct bio_post_read_ctx *ctx);
 
+/**
+ * decrypt_work - Implements the decrypt work operation within the read-side mapped i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void decrypt_work(struct work_struct *work)
 {
 	struct bio_post_read_ctx *ctx =
@@ -91,19 +141,21 @@ static void decrypt_work(struct work_struct *work)
 		__read_end_io(bio);
 }
 
+/**
+ * verity_work - Implements the verity work operation within the read-side mapped i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void verity_work(struct work_struct *work)
 {
 	struct bio_post_read_ctx *ctx =
 		container_of(work, struct bio_post_read_ctx, work);
 	struct bio *bio = ctx->bio;
 
-	/*
-	 * fsverity_verify_bio() may call readahead() again, and although verity
-	 * will be disabled for that, decryption may still be needed, causing
-	 * another bio_post_read_ctx to be allocated.  So to guarantee that
-	 * mempool_alloc() never deadlocks we must free the current ctx first.
-	 * This is safe because verity is the last post-read step.
-	 */
+
 	BUILD_BUG_ON(STEP_VERITY + 1 != STEP_MAX);
 	mempool_free(ctx, bio_post_read_ctx_pool);
 	bio->bi_private = NULL;
@@ -113,13 +165,18 @@ static void verity_work(struct work_struct *work)
 	__read_end_io(bio);
 }
 
+/**
+ * bio_post_read_processing - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void bio_post_read_processing(struct bio_post_read_ctx *ctx)
 {
-	/*
-	 * We use different work queues for decryption and for verity because
-	 * verity may require reading metadata pages that need decryption, and
-	 * we shouldn't recurse to the same workqueue.
-	 */
+
+
 	switch (++ctx->cur_step) {
 	case STEP_DECRYPT:
 		if (ctx->enabled_steps & (1 << STEP_DECRYPT)) {
@@ -142,22 +199,27 @@ static void bio_post_read_processing(struct bio_post_read_ctx *ctx)
 	}
 }
 
+/**
+ * bio_post_read_required - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool bio_post_read_required(struct bio *bio)
 {
 	return bio->bi_private && !bio->bi_status;
 }
 
-/*
- * I/O completion handler for multipage BIOs.
+
+/**
+ * mpage_end_io - Implements the mpage end io operation within the read-side mapped i/o subsystem.
  *
- * The mpage code never puts partial pages into a BIO (except for end-of-file).
- * If a page does not map to a contiguous run of blocks then it simply falls
- * back to block_read_full_folio().
- *
- * Why is this?  If a page's completion depends on a number of different BIOs
- * which can complete in any order (or at the same time) then determining the
- * status of that page is hard.  See end_buffer_async_read() for the details.
- * There is no point in duplicating all that complexity.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void mpage_end_io(struct bio *bio)
 {
@@ -171,12 +233,28 @@ static void mpage_end_io(struct bio *bio)
 	__read_end_io(bio);
 }
 
+/**
+ * ext4_need_verity - Implements the need verity operation within the read-side mapped i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline bool ext4_need_verity(const struct inode *inode, pgoff_t idx)
 {
 	return fsverity_active(inode) &&
 	       idx < DIV_ROUND_UP(inode->i_size, PAGE_SIZE);
 }
 
+/**
+ * ext4_set_bio_post_read_ctx - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_set_bio_post_read_ctx(struct bio *bio,
 				       const struct inode *inode,
 				       pgoff_t first_idx)
@@ -190,7 +268,7 @@ static void ext4_set_bio_post_read_ctx(struct bio *bio,
 		post_read_steps |= 1 << STEP_VERITY;
 
 	if (post_read_steps) {
-		/* Due to the mempool, this never fails. */
+
 		struct bio_post_read_ctx *ctx =
 			mempool_alloc(bio_post_read_ctx_pool, GFP_NOFS);
 
@@ -200,6 +278,14 @@ static void ext4_set_bio_post_read_ctx(struct bio *bio,
 	}
 }
 
+/**
+ * ext4_readpage_limit - Implements the readpage limit operation within the read-side mapped i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline loff_t ext4_readpage_limit(struct inode *inode)
 {
 	if (IS_ENABLED(CONFIG_FS_VERITY) && IS_VERITY(inode))
@@ -208,6 +294,14 @@ static inline loff_t ext4_readpage_limit(struct inode *inode)
 	return i_size_read(inode);
 }
 
+/**
+ * ext4_mpage_readpages - Implements the mpage readpages operation within the read-side mapped i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_mpage_readpages(struct inode *inode,
 		struct readahead_control *rac, struct folio *folio)
 {
@@ -254,9 +348,7 @@ int ext4_mpage_readpages(struct inode *inode,
 			last_block = last_block_in_file;
 		page_block = 0;
 
-		/*
-		 * Map blocks using the previous result first.
-		 */
+
 		if ((map.m_flags & EXT4_MAP_MAPPED) &&
 		    block_in_file > map.m_lblk &&
 		    block_in_file < (map.m_lblk + map.m_len)) {
@@ -266,7 +358,7 @@ int ext4_mpage_readpages(struct inode *inode,
 			first_block = map.m_pblk + map_offset;
 			for (relative_block = 0; ; relative_block++) {
 				if (relative_block == last) {
-					/* needed? */
+
 					map.m_flags &= ~EXT4_MAP_MAPPED;
 					break;
 				}
@@ -277,10 +369,7 @@ int ext4_mpage_readpages(struct inode *inode,
 			}
 		}
 
-		/*
-		 * Then do more ext4_map_blocks() calls until we are
-		 * done with this folio.
-		 */
+
 		while (page_block < blocks_per_page) {
 			if (block_in_file < last_block) {
 				map.m_lblk = block_in_file;
@@ -303,16 +392,16 @@ int ext4_mpage_readpages(struct inode *inode,
 				continue;
 			}
 			if (first_hole != blocks_per_page)
-				goto confused;		/* hole -> non-hole */
+				goto confused;
 
-			/* Contiguous blocks? */
+
 			if (!page_block)
 				first_block = map.m_pblk;
 			else if (first_block + page_block != map.m_pblk)
 				goto confused;
 			for (relative_block = 0; ; relative_block++) {
 				if (relative_block == map.m_len) {
-					/* needed? */
+
 					map.m_flags &= ~EXT4_MAP_MAPPED;
 					break;
 				} else if (page_block == blocks_per_page)
@@ -335,10 +424,7 @@ int ext4_mpage_readpages(struct inode *inode,
 			folio_set_mappedtodisk(folio);
 		}
 
-		/*
-		 * This folio will go to BIO.  Do we need to send this
-		 * BIO off first?
-		 */
+
 		if (bio && (last_block_in_bio != first_block - 1 ||
 			    !fscrypt_mergeable_bio(bio, inode, next_block))) {
 		submit_and_realloc:
@@ -346,10 +432,8 @@ int ext4_mpage_readpages(struct inode *inode,
 			bio = NULL;
 		}
 		if (bio == NULL) {
-			/*
-			 * bio_alloc will _always_ be able to allocate a bio if
-			 * __GFP_DIRECT_RECLAIM is set, see bio_alloc_bioset().
-			 */
+
+
 			bio = bio_alloc(bdev, bio_max_segs(nr_pages),
 					REQ_OP_READ, GFP_KERNEL);
 			fscrypt_set_bio_crypt_ctx(bio, inode, next_block,
@@ -383,13 +467,21 @@ int ext4_mpage_readpages(struct inode *inode,
 		else
 			folio_unlock(folio);
 next_page:
-		; /* A label shall be followed by a statement until C23 */
+		;
 	}
 	if (bio)
 		submit_bio(bio);
 	return 0;
 }
 
+/**
+ * ext4_init_post_read_processing - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int __init ext4_init_post_read_processing(void)
 {
 	bio_post_read_ctx_cache = KMEM_CACHE(bio_post_read_ctx, SLAB_RECLAIM_ACCOUNT);
@@ -409,6 +501,14 @@ fail:
 	return -ENOMEM;
 }
 
+/**
+ * ext4_exit_post_read_processing - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_exit_post_read_processing(void)
 {
 	mempool_destroy(bio_post_read_ctx_pool);

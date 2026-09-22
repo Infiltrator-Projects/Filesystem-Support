@@ -1,10 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0
+
 /*
- *  fs/ext4/mballoc.h
+ * EXT4 — Multiblock-allocation interfaces
  *
- *  Written by: Alex Tomas <alex@clusterfs.com>
+ * Purpose:
+ *   Defines allocator state, preallocation records and helper contracts shared by EXT4 allocation paths.
  *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Allocator structures encode ownership/lifetime rules that interact with per-CPU, per-group and inode-local state.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
  */
+
 #ifndef _EXT4_MBALLOC_H
 #define _EXT4_MBALLOC_H
 
@@ -23,9 +40,7 @@
 #include "ext4_jbd2.h"
 #include "ext4.h"
 
-/*
- * mb_debug() dynamic printk msgs could be used to debug mballoc code.
- */
+
 #ifdef CONFIG_EXT4_DEBUG
 #define mb_debug(sb, fmt, ...)						\
 	pr_debug("[%s/%d] EXT4-fs (%s): (%s, %d): %s: " fmt,		\
@@ -35,90 +50,67 @@
 #define mb_debug(sb, fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
-#define EXT4_MB_HISTORY_ALLOC		1	/* allocation */
-#define EXT4_MB_HISTORY_PREALLOC	2	/* preallocated blocks used */
+#define EXT4_MB_HISTORY_ALLOC		1
+#define EXT4_MB_HISTORY_PREALLOC	2
 
-/*
- * How long mballoc can look for a best extent (in found extents)
- */
+
 #define MB_DEFAULT_MAX_TO_SCAN		200
 
-/*
- * How long mballoc must look for a best extent
- */
+
 #define MB_DEFAULT_MIN_TO_SCAN		10
 
-/*
- * with 's_mb_stats' allocator will collect stats that will be
- * shown at umount. The collecting costs though!
- */
+
 #define MB_DEFAULT_STATS		0
 
-/*
- * files smaller than MB_DEFAULT_STREAM_THRESHOLD are served
- * by the stream allocator, which purpose is to pack requests
- * as close each to other as possible to produce smooth I/O traffic
- * We use locality group prealloc space for stream request.
- * We can tune the same via /proc/fs/ext4/<partition>/stream_req
- */
-#define MB_DEFAULT_STREAM_THRESHOLD	16	/* 64K */
 
-/*
- * for which requests use 2^N search using buddies
- */
+#define MB_DEFAULT_STREAM_THRESHOLD	16
+
+
 #define MB_DEFAULT_ORDER2_REQS		2
 
-/*
- * default group prealloc size 512 blocks
- */
+
 #define MB_DEFAULT_GROUP_PREALLOC	512
 
-/*
- * Number of groups to search linearly before performing group scanning
- * optimization.
- */
+
 #define MB_DEFAULT_LINEAR_LIMIT		4
 
-/*
- * Minimum number of groups that should be present in the file system to perform
- * group scanning optimizations.
- */
+
 #define MB_DEFAULT_LINEAR_SCAN_THRESHOLD	16
 
-/*
- * The maximum order upto which CR_BEST_AVAIL_LEN can trim a particular
- * allocation request. Example, if we have an order 7 request and max trim order
- * of 3, we can trim this request upto order 4.
- */
+
 #define MB_DEFAULT_BEST_AVAIL_TRIM_ORDER	3
 
-/*
- * Number of valid buddy orders
- */
+
 #define MB_NUM_ORDERS(sb)		((sb)->s_blocksize_bits + 2)
 
 struct ext4_free_data {
-	/* this links the free block information from sb_info */
+
 	struct list_head		efd_list;
 
-	/* this links the free block information from group_info */
+
 	struct rb_node			efd_node;
 
-	/* group which free block extent belongs */
+
 	ext4_group_t			efd_group;
 
-	/* free block extent */
+
 	ext4_grpblk_t			efd_start_cluster;
 	ext4_grpblk_t			efd_count;
 
-	/* transaction which freed this extent */
+
 	tid_t				efd_tid;
 };
 
+/**
+ * struct ext4_prealloc_space - Private EXT4 state/data structure used by multiblock-allocation interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_prealloc_space {
 	union {
-		struct rb_node	inode_node;		/* for inode PA rbtree */
-		struct list_head	lg_list;	/* for lg PAs */
+		struct rb_node	inode_node;
+		struct list_head	lg_list;
 	} pa_node;
 	struct list_head	pa_group_list;
 	union {
@@ -128,16 +120,16 @@ struct ext4_prealloc_space {
 	spinlock_t		pa_lock;
 	atomic_t		pa_count;
 	unsigned		pa_deleted;
-	ext4_fsblk_t		pa_pstart;	/* phys. block */
-	ext4_lblk_t		pa_lstart;	/* log. block */
-	ext4_grpblk_t		pa_len;		/* len of preallocated chunk */
-	ext4_grpblk_t		pa_free;	/* how many blocks are free */
-	unsigned short		pa_type;	/* pa type. inode or group */
+	ext4_fsblk_t		pa_pstart;
+	ext4_lblk_t		pa_lstart;
+	ext4_grpblk_t		pa_len;
+	ext4_grpblk_t		pa_free;
+	unsigned short		pa_type;
 	union {
-		rwlock_t		*inode_lock;	/* locks the rbtree holding this PA */
-		spinlock_t		*lg_lock;	/* locks the lg list holding this PA */
+		rwlock_t		*inode_lock;
+		spinlock_t		*lg_lock;
 	} pa_node_lock;
-	struct inode		*pa_inode;	/* used to get the inode during group discard */
+	struct inode		*pa_inode;
 };
 
 enum {
@@ -145,51 +137,59 @@ enum {
 	MB_GROUP_PA = 1
 };
 
+/**
+ * struct ext4_free_extent - Private EXT4 state/data structure used by multiblock-allocation interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_free_extent {
 	ext4_lblk_t fe_logical;
-	ext4_grpblk_t fe_start;	/* In cluster units */
+	ext4_grpblk_t fe_start;
 	ext4_group_t fe_group;
-	ext4_grpblk_t fe_len;	/* In cluster units */
+	ext4_grpblk_t fe_len;
 };
 
-/*
- * Locality group:
- *   we try to group all related changes together
- *   so that writeback can flush/allocate them together as well
- *   Size of lg_prealloc_list hash is determined by MB_DEFAULT_GROUP_PREALLOC
- *   (512). We store prealloc space into the hash based on the pa_free blocks
- *   order value.ie, fls(pa_free)-1;
- */
+
 #define PREALLOC_TB_SIZE 10
+/**
+ * struct ext4_locality_group - Private EXT4 state/data structure used by multiblock-allocation interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_locality_group {
-	/* for allocator */
-	/* to serialize allocates */
+
+
 	struct mutex		lg_mutex;
-	/* list of preallocations */
+
 	struct list_head	lg_prealloc_list[PREALLOC_TB_SIZE];
 	spinlock_t		lg_prealloc_lock;
 };
 
+/**
+ * struct ext4_allocation_context - Private EXT4 state/data structure used by multiblock-allocation interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_allocation_context {
 	struct inode *ac_inode;
 	struct super_block *ac_sb;
 
-	/* original request */
+
 	struct ext4_free_extent ac_o_ex;
 
-	/* goal request (normalized ac_o_ex) */
+
 	struct ext4_free_extent ac_g_ex;
 
-	/* the best found extent */
+
 	struct ext4_free_extent ac_b_ex;
 
-	/* copy of the best found extent taken before preallocation efforts */
+
 	struct ext4_free_extent ac_f_ex;
 
-	/*
-	 * goal len can change in CR_BEST_AVAIL_LEN, so save the original len.
-	 * This is used while adjusting the PA window and for accounting.
-	 */
+
 	ext4_grpblk_t	ac_orig_goal_len;
 
 	ext4_group_t ac_prefetch_grp;
@@ -198,7 +198,7 @@ struct ext4_allocation_context {
 
 	int ac_first_err;
 
-	__u32 ac_flags;		/* allocation hints */
+	__u32 ac_flags;
 	__u16 ac_groups_scanned;
 	__u16 ac_found;
 	__u16 ac_cX_found[EXT4_MB_NUM_CRS];
@@ -206,9 +206,9 @@ struct ext4_allocation_context {
 	__u16 ac_buddy;
 	__u8 ac_status;
 	__u8 ac_criteria;
-	__u8 ac_2order;		/* if request is to allocate 2^N blocks and
-				 * N > 0, the field stores N, otherwise 0 */
-	__u8 ac_op;		/* operation, for history only */
+	__u8 ac_2order;
+
+	__u8 ac_op;
 
 	struct ext4_buddy *ac_e4b;
 	struct folio *ac_bitmap_folio;
@@ -221,6 +221,12 @@ struct ext4_allocation_context {
 #define AC_STATUS_FOUND		2
 #define AC_STATUS_BREAK		3
 
+/**
+ * struct ext4_buddy - Private EXT4 state/data structure used by multiblock-allocation interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_buddy {
 	struct folio *bd_buddy_folio;
 	void *bd_buddy;
@@ -232,6 +238,14 @@ struct ext4_buddy {
 	ext4_group_t bd_group;
 };
 
+/**
+ * ext4_grp_offs_to_block - Implements the grp offs to block operation within the multiblock-allocation interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline ext4_fsblk_t ext4_grp_offs_to_block(struct super_block *sb,
 					struct ext4_free_extent *fex)
 {
@@ -239,17 +253,33 @@ static inline ext4_fsblk_t ext4_grp_offs_to_block(struct super_block *sb,
 		(fex->fe_start << EXT4_SB(sb)->s_cluster_bits);
 }
 
+/**
+ * extent_logical_end - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline loff_t extent_logical_end(struct ext4_sb_info *sbi,
 					struct ext4_free_extent *fex)
 {
-	/* Use loff_t to avoid end exceeding ext4_lblk_t max. */
+
 	return (loff_t)fex->fe_logical + EXT4_C2B(sbi, fex->fe_len);
 }
 
+/**
+ * pa_logical_end - Implements the pa logical end operation within the multiblock-allocation interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline loff_t pa_logical_end(struct ext4_sb_info *sbi,
 				    struct ext4_prealloc_space *pa)
 {
-	/* Use loff_t to avoid end exceeding ext4_lblk_t max. */
+
 	return (loff_t)pa->pa_lstart + EXT4_C2B(sbi, pa->pa_len);
 }
 

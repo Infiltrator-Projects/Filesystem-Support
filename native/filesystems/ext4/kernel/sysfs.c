@@ -8,6 +8,28 @@
  *
  */
 
+/*
+ * EXT4 — Runtime control and observability
+ *
+ * Purpose:
+ *   Publishes EXT4 per-filesystem attributes and tunables through sysfs.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Sysfs stores are privileged control paths and must validate values before changing live allocator or error-handling behaviour.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/time.h>
 #include <linux/fs.h>
 #include <linux/seq_file.h>
@@ -51,6 +73,12 @@ typedef enum {
 static const char proc_dirname[] = "fs/ext4";
 static struct proc_dir_entry *ext4_proc_root;
 
+/**
+ * struct ext4_attr - Private EXT4 state/data structure used by runtime control and observability.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_attr {
 	struct attribute attr;
 	short attr_id;
@@ -62,6 +90,14 @@ struct ext4_attr {
 	} u;
 };
 
+/**
+ * session_write_kbytes_show - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t session_write_kbytes_show(struct ext4_sb_info *sbi, char *buf)
 {
 	struct super_block *sb = sbi->s_buddy_cache->i_sb;
@@ -71,6 +107,14 @@ static ssize_t session_write_kbytes_show(struct ext4_sb_info *sbi, char *buf)
 			 sbi->s_sectors_written_start) >> 1);
 }
 
+/**
+ * lifetime_write_kbytes_show - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t lifetime_write_kbytes_show(struct ext4_sb_info *sbi, char *buf)
 {
 	struct super_block *sb = sbi->s_buddy_cache->i_sb;
@@ -81,6 +125,14 @@ static ssize_t lifetime_write_kbytes_show(struct ext4_sb_info *sbi, char *buf)
 			  EXT4_SB(sb)->s_sectors_written_start) >> 1)));
 }
 
+/**
+ * inode_readahead_blks_store - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t inode_readahead_blks_store(struct ext4_sb_info *sbi,
 					  const char *buf, size_t count)
 {
@@ -98,6 +150,14 @@ static ssize_t inode_readahead_blks_store(struct ext4_sb_info *sbi,
 	return count;
 }
 
+/**
+ * reserved_clusters_store - Implements the reserved clusters store operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t reserved_clusters_store(struct ext4_sb_info *sbi,
 				   const char *buf, size_t count)
 {
@@ -114,6 +174,14 @@ static ssize_t reserved_clusters_store(struct ext4_sb_info *sbi,
 	return count;
 }
 
+/**
+ * trigger_test_error - Implements the trigger test error operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t trigger_test_error(struct ext4_sb_info *sbi,
 				  const char *buf, size_t count)
 {
@@ -130,6 +198,14 @@ static ssize_t trigger_test_error(struct ext4_sb_info *sbi,
 	return count;
 }
 
+/**
+ * journal_task_show - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t journal_task_show(struct ext4_sb_info *sbi, char *buf)
 {
 	if (!sbi->s_journal)
@@ -139,6 +215,14 @@ static ssize_t journal_task_show(struct ext4_sb_info *sbi, char *buf)
 }
 
 #define EXT4_ATTR(_name,_mode,_id)					\
+/**
+ * EXT4_ATTR - Implements the EXT4 ATTR operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct ext4_attr ext4_attr_##_name = {				\
 	.attr = {.name = __stringify(_name), .mode = _mode },		\
 	.attr_id = attr_##_id,						\
@@ -149,6 +233,14 @@ static struct ext4_attr ext4_attr_##_name = {				\
 #define EXT4_ATTR_FEATURE(_name)   EXT4_ATTR(_name, 0444, feature)
 
 #define EXT4_ATTR_OFFSET(_name,_mode,_id,_struct,_elname)	\
+/**
+ * EXT4_ATTR_OFFSET - Implements the EXT4 ATTR OFFSET operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct ext4_attr ext4_attr_##_name = {			\
 	.attr = {.name = __stringify(_name), .mode = _mode },	\
 	.attr_id = attr_##_id,					\
@@ -159,6 +251,14 @@ static struct ext4_attr ext4_attr_##_name = {			\
 }
 
 #define EXT4_ATTR_STRING(_name,_mode,_size,_struct,_elname)	\
+/**
+ * EXT4_ATTR_STRING - Implements the EXT4 ATTR STRING operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct ext4_attr ext4_attr_##_name = {			\
 	.attr = {.name = __stringify(_name), .mode = _mode },	\
 	.attr_id = attr_pointer_string,				\
@@ -170,6 +270,14 @@ static struct ext4_attr ext4_attr_##_name = {			\
 }
 
 #define EXT4_RO_ATTR_ES_UI(_name,_elname)				\
+/**
+ * EXT4_ATTR_PTR - Implements the EXT4 ATTR PTR operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 	EXT4_ATTR_OFFSET(_name, 0444, pointer_ui, ext4_super_block, _elname)
 
 #define EXT4_RO_ATTR_ES_U8(_name,_elname)				\
@@ -309,7 +417,7 @@ static struct attribute *ext4_attrs[] = {
 };
 ATTRIBUTE_GROUPS(ext4);
 
-/* Features this copy of ext4 supports */
+
 EXT4_ATTR_FEATURE(lazy_itable_init);
 EXT4_ATTR_FEATURE(batched_discard);
 EXT4_ATTR_FEATURE(meta_bg_resize);
@@ -352,6 +460,14 @@ static struct attribute *ext4_feat_attrs[] = {
 };
 ATTRIBUTE_GROUPS(ext4_feat);
 
+/**
+ * calc_ptr - Computes derived filesystem state used for validation, accounting or policy decisions.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void *calc_ptr(struct ext4_attr *a, struct ext4_sb_info *sbi)
 {
 	switch (a->attr_ptr) {
@@ -365,6 +481,14 @@ static void *calc_ptr(struct ext4_attr *a, struct ext4_sb_info *sbi)
 	return NULL;
 }
 
+/**
+ * __print_tstamp - Implements the print tstamp operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t __print_tstamp(char *buf, __le32 lo, __u8 hi)
 {
 	return sysfs_emit(buf, "%lld\n",
@@ -372,6 +496,14 @@ static ssize_t __print_tstamp(char *buf, __le32 lo, __u8 hi)
 }
 
 #define print_tstamp(buf, es, tstamp) \
+/**
+ * ext4_generic_attr_show - Implements the generic attr show operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 	__print_tstamp(buf, (es)->tstamp, (es)->tstamp ## _hi)
 
 static ssize_t ext4_generic_attr_show(struct ext4_attr *a,
@@ -407,6 +539,14 @@ static ssize_t ext4_generic_attr_show(struct ext4_attr *a,
 	return 0;
 }
 
+/**
+ * ext4_attr_show - Implements the attr show operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_attr_show(struct kobject *kobj,
 			      struct attribute *attr, char *buf)
 {
@@ -444,6 +584,14 @@ static ssize_t ext4_attr_show(struct kobject *kobj,
 	}
 }
 
+/**
+ * ext4_generic_attr_store - Implements the generic attr store operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_generic_attr_store(struct ext4_attr *a,
 				       struct ext4_sb_info *sbi,
 				       const char *buf, size_t len)
@@ -500,6 +648,14 @@ static ssize_t ext4_generic_attr_store(struct ext4_attr *a,
 	return 0;
 }
 
+/**
+ * ext4_attr_store - Implements the attr store operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext4_attr_store(struct kobject *kobj,
 			       struct attribute *attr,
 			       const char *buf, size_t len)
@@ -520,6 +676,14 @@ static ssize_t ext4_attr_store(struct kobject *kobj,
 	}
 }
 
+/**
+ * ext4_sb_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_sb_release(struct kobject *kobj)
 {
 	struct ext4_sb_info *sbi = container_of(kobj, struct ext4_sb_info,
@@ -527,6 +691,14 @@ static void ext4_sb_release(struct kobject *kobj)
 	complete(&sbi->s_kobj_unregister);
 }
 
+/**
+ * ext4_feat_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_feat_release(struct kobject *kobj)
 {
 	kfree(kobj);
@@ -549,6 +721,14 @@ static const struct kobj_type ext4_feat_ktype = {
 	.release	= ext4_feat_release,
 };
 
+/**
+ * ext4_notify_error_sysfs - Implements the notify error sysfs operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_notify_error_sysfs(struct ext4_sb_info *sbi)
 {
 	mutex_lock(&sbi->s_error_notify_mutex);
@@ -561,6 +741,14 @@ static struct kobject *ext4_root;
 
 static struct kobject *ext4_feat;
 
+/**
+ * ext4_register_sysfs - Implements the register sysfs operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_register_sysfs(struct super_block *sb)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -597,6 +785,14 @@ int ext4_register_sysfs(struct super_block *sb)
 	return 0;
 }
 
+/**
+ * ext4_unregister_sysfs - Implements the unregister sysfs operation within the runtime control and observability subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_unregister_sysfs(struct super_block *sb)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -609,6 +805,14 @@ void ext4_unregister_sysfs(struct super_block *sb)
 	mutex_unlock(&sbi->s_error_notify_mutex);
 }
 
+/**
+ * ext4_init_sysfs - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int __init ext4_init_sysfs(void)
 {
 	int ret;
@@ -640,6 +844,14 @@ root_err:
 	return ret;
 }
 
+/**
+ * ext4_exit_sysfs - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_exit_sysfs(void)
 {
 	kobject_put(ext4_feat);
@@ -649,4 +861,3 @@ void ext4_exit_sysfs(void)
 	remove_proc_entry(proc_dirname, NULL);
 	ext4_proc_root = NULL;
 }
-

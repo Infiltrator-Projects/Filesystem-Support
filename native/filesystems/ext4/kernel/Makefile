@@ -1,5 +1,15 @@
 # SPDX-License-Identifier: GPL-2.0
-# Self-contained Infiltrator EXT4 kernel module.
+# EXT4 — Kernel build contract
+#
+# Defines the single composite filesystem module and the object-level feature composition used by Kbuild.
+# This build describes a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+# Correctness: The object list is part of the module boundary: it must not accidentally recreate a helper .ko or omit a filesystem feature engine.
+#
+# Project rules:
+#   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+#   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+#   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+#
 
 obj-m += ext4.o
 

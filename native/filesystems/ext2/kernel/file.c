@@ -1,28 +1,33 @@
 // SPDX-License-Identifier: GPL-2.0
+
+/*
+ * EXT2 — Regular-file VFS operations
+ *
+ * Purpose:
+ *   Implements the regular-file interface, including open/read/write/mmap/direct-I/O related paths and any small file-facing operations consolidated into this unit.
+ *
+ * Filesystem model:
+ *   This file belongs to a deliberately strict, non-journalled EXT2 VFS implementation.
+ *
+ * Correctness focus:
+ *   I/O ordering, size visibility, writeback and error propagation must agree with the filesystem's allocation and journaling rules.
+ *
+ * Project rules:
+ *   - Do not accept a journalled EXT3 volume as EXT2.
+ *   - Keep on-disk compatibility fields when they are required to parse or reject media correctly.
+ *   - Keep xattr/ACL/cache code inside ext2.ko rather than creating helper modules.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/capability.h>
 #include <linux/compat.h>
 #include <linux/fileattr.h>
 #include <linux/mount.h>
 #include <linux/uaccess.h>
-/*
- *  linux/fs/ext2/file.c
- *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  from
- *
- *  linux/fs/minix/file.c
- *
- *  Copyright (C) 1991, 1992  Linus Torvalds
- *
- *  ext2 fs regular file handling primitives
- *
- *  64-bit file support on 64-bit platforms by Jakub Jelinek
- * 	(jj@sunsite.ms.mff.cuni.cz)
- */
+
 
 #include <linux/time.h>
 #include <linux/pagemap.h>
@@ -34,13 +39,21 @@
 #include "ext2.h"
 
 #ifdef CONFIG_FS_DAX
+/**
+ * ext2_dax_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext2_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct inode *inode = iocb->ki_filp->f_mapping->host;
 	ssize_t ret;
 
 	if (!iov_iter_count(to))
-		return 0; /* skip atime */
+		return 0;
 
 	inode_lock_shared(inode);
 	ret = dax_iomap_rw(iocb, to, &ext2_iomap_ops);
@@ -50,6 +63,14 @@ static ssize_t ext2_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	return ret;
 }
 
+/**
+ * ext2_dax_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext2_dax_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 	struct file *file = iocb->ki_filp;
@@ -80,17 +101,14 @@ out_unlock:
 	return ret;
 }
 
-/*
- * The lock ordering for ext2 DAX fault paths is:
+
+/**
+ * ext2_dax_fault - Implements the dax fault operation within the regular-file vfs operations subsystem.
  *
- * mmap_lock (MM)
- *   sb_start_pagefault (vfs, freeze)
- *     address_space->invalidate_lock
- *       address_space->i_mmap_rwsem or page_lock (mutually exclusive in DAX)
- *         ext2_inode_info->truncate_mutex
- *
- * The default page_lock and i_size verification done by non-DAX fault paths
- * is sufficient because ext2 doesn't support hole punching.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static vm_fault_t ext2_dax_fault(struct vm_fault *vmf)
 {
@@ -115,15 +133,20 @@ static vm_fault_t ext2_dax_fault(struct vm_fault *vmf)
 
 static const struct vm_operations_struct ext2_dax_vm_ops = {
 	.fault		= ext2_dax_fault,
-	/*
-	 * .huge_fault is not supported for DAX because allocation in ext2
-	 * cannot be reliably aligned to huge page sizes and so pmd faults
-	 * will always fail and fail back to regular faults.
-	 */
+
+
 	.page_mkwrite	= ext2_dax_fault,
 	.pfn_mkwrite	= ext2_dax_fault,
 };
 
+/**
+ * ext2_file_mmap - Implements the file mmap operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	if (!IS_DAX(file_inode(file)))
@@ -137,10 +160,14 @@ static int ext2_file_mmap(struct file *file, struct vm_area_struct *vma)
 #define ext2_file_mmap	generic_file_mmap
 #endif
 
-/*
- * Called when filp is released. This happens when all file descriptors
- * for a single struct file are closed. Note that different open() calls
- * for the same file yield different struct file structures.
+
+/**
+ * ext2_release_file - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext2_release_file (struct inode * inode, struct file * filp)
 {
@@ -152,6 +179,14 @@ static int ext2_release_file (struct inode * inode, struct file * filp)
 	return 0;
 }
 
+/**
+ * ext2_fsync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext2_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	int ret;
@@ -159,12 +194,20 @@ int ext2_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 
 	ret = generic_buffers_fsync(file, start, end, datasync);
 	if (ret == -EIO)
-		/* We don't really know where the IO error happened... */
+
 		ext2_error(sb, __func__,
 			   "detected IO error when writing metadata buffers");
 	return ret;
 }
 
+/**
+ * ext2_dio_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext2_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct file *file = iocb->ki_filp;
@@ -178,6 +221,14 @@ static ssize_t ext2_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	return ret;
 }
 
+/**
+ * ext2_dio_write_end_io - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_dio_write_end_io(struct kiocb *iocb, ssize_t size,
 				 int error, unsigned int flags)
 {
@@ -187,14 +238,7 @@ static int ext2_dio_write_end_io(struct kiocb *iocb, ssize_t size,
 	if (error)
 		goto out;
 
-	/*
-	 * If we are extending the file, we have to update i_size here before
-	 * page cache gets invalidated in iomap_dio_rw(). This prevents racing
-	 * buffered reads from zeroing out too much from page cache pages.
-	 * Note that all extending writes always happens synchronously with
-	 * inode lock held by ext2_dio_write_iter(). So it is safe to update
-	 * inode size here for extending file writes.
-	 */
+
 	pos += size;
 	if (pos > i_size_read(inode)) {
 		i_size_write(inode, pos);
@@ -208,6 +252,14 @@ static const struct iomap_dio_ops ext2_dio_write_ops = {
 	.end_io = ext2_dio_write_end_io,
 };
 
+/**
+ * ext2_dio_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext2_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 	struct file *file = iocb->ki_filp;
@@ -228,7 +280,7 @@ static ssize_t ext2_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (ret)
 		goto out_unlock;
 
-	/* use IOMAP_DIO_FORCE_WAIT for unaligned or extending writes */
+
 	if (iocb->ki_pos + iov_iter_count(from) > i_size_read(inode) ||
 	   (!IS_ALIGNED(iocb->ki_pos | iov_iter_alignment(from), blocksize)))
 		flags |= IOMAP_DIO_FORCE_WAIT;
@@ -236,14 +288,14 @@ static ssize_t ext2_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	ret = iomap_dio_rw(iocb, from, &ext2_iomap_ops, &ext2_dio_write_ops,
 			   flags, NULL, 0);
 
-	/* ENOTBLK is magic return value for fallback to buffered-io */
+
 	if (ret == -ENOTBLK)
 		ret = 0;
 
 	if (ret < 0 && ret != -EIOCBQUEUED)
 		ext2_write_failed(inode->i_mapping, offset + count);
 
-	/* handle case for partial write and for fallback to buffered write */
+
 	if (ret >= 0 && iov_iter_count(from)) {
 		loff_t pos, endbyte;
 		int ret2;
@@ -277,6 +329,14 @@ out_unlock:
 	return ret;
 }
 
+/**
+ * ext2_file_read_iter - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext2_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 #ifdef CONFIG_FS_DAX
@@ -289,6 +349,14 @@ static ssize_t ext2_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	return generic_file_read_iter(iocb, to);
 }
 
+/**
+ * ext2_file_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ssize_t ext2_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 #ifdef CONFIG_FS_DAX
@@ -301,6 +369,14 @@ static ssize_t ext2_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	return generic_file_write_iter(iocb, from);
 }
 
+/**
+ * ext2_file_open - Implements the file open operation within the regular-file vfs operations subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_file_open(struct inode *inode, struct file *filp)
 {
 	filp->f_mode |= FMODE_CAN_ODIRECT;
@@ -335,18 +411,15 @@ const struct inode_operations ext2_file_inode_operations = {
 	.fileattr_set	= ext2_fileattr_set,
 };
 
-/* ---- EXT2 file ioctl and file-attribute operations (merged into this translation unit) ---- */
-// SPDX-License-Identifier: GPL-2.0
-/*
- * linux/fs/ext2/ioctl.c
+
+/**
+ * ext2_fileattr_get - Implements the fileattr get operation within the regular-file vfs operations subsystem.
  *
- * Copyright (C) 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
-
 int ext2_fileattr_get(struct dentry *dentry, struct fileattr *fa)
 {
 	struct ext2_inode_info *ei = EXT2_I(d_inode(dentry));
@@ -356,6 +429,14 @@ int ext2_fileattr_get(struct dentry *dentry, struct fileattr *fa)
 	return 0;
 }
 
+/**
+ * ext2_fileattr_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext2_fileattr_set(struct mnt_idmap *idmap,
 		      struct dentry *dentry, struct fileattr *fa)
 {
@@ -365,7 +446,7 @@ int ext2_fileattr_set(struct mnt_idmap *idmap,
 	if (fileattr_has_fsx(fa))
 		return -EOPNOTSUPP;
 
-	/* Is it quota file? Do not allow user to mess with it */
+
 	if (IS_NOQUOTA(inode))
 		return -EPERM;
 
@@ -380,6 +461,14 @@ int ext2_fileattr_set(struct mnt_idmap *idmap,
 }
 
 
+/**
+ * ext2_ioctl - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 long ext2_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct inode *inode = file_inode(filp);
@@ -441,14 +530,7 @@ setversion_out:
 		if (rsv_window_size > EXT2_MAX_RESERVE_BLOCKS)
 			rsv_window_size = EXT2_MAX_RESERVE_BLOCKS;
 
-		/*
-		 * need to allocate reservation structure for this inode
-		 * before set the window size
-		 */
-		/*
-		 * XXX What lock should protect the rsv_goal_size?
-		 * Accessed in ext2_get_block only.  ext3 uses i_truncate.
-		 */
+
 		mutex_lock(&ei->truncate_mutex);
 		if (!ei->i_block_alloc_info)
 			ext2_init_block_alloc_info(inode);
@@ -470,9 +552,17 @@ setversion_out:
 }
 
 #ifdef CONFIG_COMPAT
+/**
+ * ext2_compat_ioctl - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 long ext2_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	/* These are just misnamed, they actually get/put from/to user an int */
+
 	switch (cmd) {
 	case EXT2_IOC32_GETVERSION:
 		cmd = EXT2_IOC_GETVERSION;

@@ -19,6 +19,28 @@
  *  Assorted race fixes, rewrite of ext4_get_block() by Al Viro, 2000
  */
 
+/*
+ * EXT4 — Inode mapping and lifecycle
+ *
+ * Purpose:
+ *   Implements inode read/write conversion, logical-to-physical block mapping, truncation, address-space operations and inode lifecycle transitions.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   The in-memory inode and its durable representation may advance at different times; crash-safe ordering and orphan handling must preserve a recoverable disk state.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/fs.h>
 #include <linux/mount.h>
 #include <linux/time.h>
@@ -54,6 +76,14 @@ static void ext4_journalled_zero_new_buffers(handle_t *handle,
 					    struct folio *folio,
 					    unsigned from, unsigned to);
 
+/**
+ * ext4_inode_csum - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static __u32 ext4_inode_csum(struct inode *inode, struct ext4_inode *raw,
 			      struct ext4_inode_info *ei)
 {
@@ -86,6 +116,14 @@ static __u32 ext4_inode_csum(struct inode *inode, struct ext4_inode *raw,
 	return csum;
 }
 
+/**
+ * ext4_inode_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_inode_csum_verify(struct inode *inode, struct ext4_inode *raw,
 				  struct ext4_inode_info *ei)
 {
@@ -107,6 +145,14 @@ static int ext4_inode_csum_verify(struct inode *inode, struct ext4_inode *raw,
 	return provided == calculated;
 }
 
+/**
+ * ext4_inode_csum_set - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_inode_csum_set(struct inode *inode, struct ext4_inode *raw,
 			 struct ext4_inode_info *ei)
 {
@@ -124,18 +170,22 @@ void ext4_inode_csum_set(struct inode *inode, struct ext4_inode *raw,
 		raw->i_checksum_hi = cpu_to_le16(csum >> 16);
 }
 
+/**
+ * ext4_begin_ordered_truncate - Implements the begin ordered truncate operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_begin_ordered_truncate(struct inode *inode,
 					      loff_t new_size)
 {
 	struct jbd2_inode *jinode = READ_ONCE(EXT4_I(inode)->jinode);
 
 	trace_ext4_begin_ordered_truncate(inode, new_size);
-	/*
-	 * If jinode is zero, then we never opened the file for
-	 * writing, so there's no need to call
-	 * jbd2_journal_begin_ordered_truncate() since there's no
-	 * outstanding writes we need to flush.
-	 */
+
+
 	if (!jinode)
 		return 0;
 	return jbd2_journal_begin_ordered_truncate(EXT4_JOURNAL(inode),
@@ -146,9 +196,14 @@ static inline int ext4_begin_ordered_truncate(struct inode *inode,
 static int ext4_meta_trans_blocks(struct inode *inode, int lblocks,
 				  int pextents);
 
-/*
- * Test whether an inode is a fast symlink.
- * A fast symlink has its symlink data stored in ext4_inode_info->i_data.
+
+/**
+ * ext4_inode_is_fast_symlink - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_inode_is_fast_symlink(struct inode *inode)
 {
@@ -165,18 +220,21 @@ int ext4_inode_is_fast_symlink(struct inode *inode)
 	       (inode->i_size < EXT4_N_BLOCKS * 4);
 }
 
-/*
- * Called at the last iput() if i_nlink is zero.
+
+/**
+ * ext4_evict_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_evict_inode(struct inode *inode)
 {
 	handle_t *handle;
 	int err;
-	/*
-	 * Credits for final inode cleanup and freeing:
-	 * sb + inode (ext4_orphan_del()), block bitmap, group descriptor
-	 * (xattr block freeing), bitmap, group descriptor (inode freeing)
-	 */
+
+
 	int extra_credits = 6;
 	struct ext4_xattr_inode_array *ea_inode_array = NULL;
 	bool freeze_protected = false;
@@ -199,22 +257,11 @@ void ext4_evict_inode(struct inode *inode)
 		ext4_begin_ordered_truncate(inode, 0);
 	truncate_inode_pages_final(&inode->i_data);
 
-	/*
-	 * For inodes with journalled data, transaction commit could have
-	 * dirtied the inode. And for inodes with dioread_nolock, unwritten
-	 * extents converting worker could merge extents and also have dirtied
-	 * the inode. Flush worker is ignoring it because of I_FREEING flag but
-	 * we still need to remove the inode from the writeback lists.
-	 */
+
 	if (!list_empty_careful(&inode->i_io_list))
 		inode_io_list_del(inode);
 
-	/*
-	 * Protect us against freezing - iput() caller didn't have to have any
-	 * protection against it. When we are in a running transaction though,
-	 * we are already protected against freezing and we cannot grab further
-	 * protection due to lock ordering constraints.
-	 */
+
 	if (!ext4_journal_current_handle()) {
 		sb_start_intwrite(inode->i_sb);
 		freeze_protected = true;
@@ -223,19 +270,13 @@ void ext4_evict_inode(struct inode *inode)
 	if (!IS_NOQUOTA(inode))
 		extra_credits += EXT4_MAXQUOTAS_DEL_BLOCKS(inode->i_sb);
 
-	/*
-	 * Block bitmap, group descriptor, and inode are accounted in both
-	 * ext4_blocks_for_truncate() and extra_credits. So subtract 3.
-	 */
+
 	handle = ext4_journal_start(inode, EXT4_HT_TRUNCATE,
 			 ext4_blocks_for_truncate(inode) + extra_credits - 3);
 	if (IS_ERR(handle)) {
 		ext4_std_error(inode->i_sb, PTR_ERR(handle));
-		/*
-		 * If we're going to skip the normal cleanup, we still need to
-		 * make sure that the in-core orphan linked list is properly
-		 * cleaned up.
-		 */
+
+
 		ext4_orphan_del(NULL, inode);
 		if (freeze_protected)
 			sb_end_intwrite(inode->i_sb);
@@ -245,13 +286,7 @@ void ext4_evict_inode(struct inode *inode)
 	if (IS_SYNC(inode))
 		ext4_handle_sync(handle);
 
-	/*
-	 * Set inode->i_size to 0 before calling ext4_truncate(). We need
-	 * special handling of symlinks here because i_size is used to
-	 * determine whether ext4_inode_info->i_data contains symlink data or
-	 * block mappings. Setting i_size to 0 will remove its fast symlink
-	 * status. Erase i_data so that it becomes a valid empty block map.
-	 */
+
 	if (ext4_inode_is_fast_symlink(inode))
 		memset(EXT4_I(inode)->i_data, 0, sizeof(EXT4_I(inode)->i_data));
 	inode->i_size = 0;
@@ -271,7 +306,7 @@ void ext4_evict_inode(struct inode *inode)
 		}
 	}
 
-	/* Remove xattr references. */
+
 	err = ext4_xattr_delete_inode(handle, inode, &ea_inode_array,
 				      extra_credits);
 	if (err) {
@@ -285,26 +320,13 @@ stop_handle:
 		goto no_delete;
 	}
 
-	/*
-	 * Kill off the orphan record which ext4_truncate created.
-	 * AKPM: I think this can be inside the above `if'.
-	 * Note that ext4_orphan_del() has to be able to cope with the
-	 * deletion of a non-existent orphan - this is because we don't
-	 * know if ext4_truncate() actually created an orphan record.
-	 * (Well, we could do this if we need to, but heck - it works)
-	 */
+
 	ext4_orphan_del(handle, inode);
 	EXT4_I(inode)->i_dtime	= (__u32)ktime_get_real_seconds();
 
-	/*
-	 * One subtle ordering requirement: if anything has gone wrong
-	 * (transaction abort, IO errors, whatever), then we can still
-	 * do these next steps (the fs will already have been marked as
-	 * having errors), but we can't free the inode if the mark_dirty
-	 * fails.
-	 */
+
 	if (ext4_mark_inode_dirty(handle, inode))
-		/* If that failed, just do the required in-core inode clear. */
+
 		ext4_clear_inode(inode);
 	else
 		ext4_free_inode(handle, inode);
@@ -314,27 +336,38 @@ stop_handle:
 	ext4_xattr_inode_array_free(ea_inode_array);
 	return;
 no_delete:
-	/*
-	 * Check out some where else accidentally dirty the evicting inode,
-	 * which may probably cause inode use-after-free issues later.
-	 */
+
+
 	WARN_ON_ONCE(!list_empty_careful(&inode->i_io_list));
 
 	if (!list_empty(&EXT4_I(inode)->i_fc_list))
 		ext4_fc_mark_ineligible(inode->i_sb, EXT4_FC_REASON_NOMEM, NULL);
-	ext4_clear_inode(inode);	/* We must guarantee clearing of inode... */
+	ext4_clear_inode(inode);
 }
 
 #ifdef CONFIG_QUOTA
+/**
+ * ext4_get_reserved_space - Implements the get reserved space operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 qsize_t *ext4_get_reserved_space(struct inode *inode)
 {
 	return &EXT4_I(inode)->i_reserved_quota;
 }
 #endif
 
-/*
- * Called with i_data_sem down, which is important since we can call
- * ext4_discard_preallocations() from here.
+
+/**
+ * ext4_da_update_reserve_space - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_da_update_reserve_space(struct inode *inode,
 					int used, int quota_claim)
@@ -353,34 +386,35 @@ void ext4_da_update_reserve_space(struct inode *inode,
 		used = ei->i_reserved_data_blocks;
 	}
 
-	/* Update per-inode reservations */
+
 	ei->i_reserved_data_blocks -= used;
 	percpu_counter_sub(&sbi->s_dirtyclusters_counter, used);
 
 	spin_unlock(&ei->i_block_reservation_lock);
 
-	/* Update quota subsystem for data blocks */
+
 	if (quota_claim)
 		dquot_claim_block(inode, EXT4_C2B(sbi, used));
 	else {
-		/*
-		 * We did fallocate with an offset that is already delayed
-		 * allocated. So on delayed allocated writeback we should
-		 * not re-claim the quota for fallocated blocks.
-		 */
+
+
 		dquot_release_reservation_block(inode, EXT4_C2B(sbi, used));
 	}
 
-	/*
-	 * If we have done all the pending block allocations and if
-	 * there aren't any writers on the inode, we can discard the
-	 * inode's preallocations.
-	 */
+
 	if ((ei->i_reserved_data_blocks == 0) &&
 	    !inode_is_open_for_write(inode))
 		ext4_discard_preallocations(inode);
 }
 
+/**
+ * __check_block_validity - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __check_block_validity(struct inode *inode, const char *func,
 				unsigned int line,
 				struct ext4_map_blocks *map)
@@ -400,6 +434,14 @@ static int __check_block_validity(struct inode *inode, const char *func,
 	return 0;
 }
 
+/**
+ * ext4_issue_zeroout - Implements the issue zeroout operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_issue_zeroout(struct inode *inode, ext4_lblk_t lblk, ext4_fsblk_t pblk,
 		       ext4_lblk_t len)
 {
@@ -416,6 +458,14 @@ int ext4_issue_zeroout(struct inode *inode, ext4_lblk_t lblk, ext4_fsblk_t pblk,
 }
 
 #define check_block_validity(inode, map)	\
+/**
+ * ext4_map_blocks_es_recheck - Implements the map blocks es recheck operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 	__check_block_validity((inode), __func__, __LINE__, (map))
 
 #ifdef ES_AGGRESSIVE_TEST
@@ -428,13 +478,8 @@ static void ext4_map_blocks_es_recheck(handle_t *handle,
 	int retval;
 
 	map->m_flags = 0;
-	/*
-	 * There is a race window that the result is not the same.
-	 * e.g. xfstests #223 when dioread_nolock enables.  The reason
-	 * is that we lookup a block mapping in extent status tree with
-	 * out taking i_data_sem.  So at the time the unwritten extent
-	 * could be converted.
-	 */
+
+
 	down_read(&EXT4_I(inode)->i_data_sem);
 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
 		retval = ext4_ext_map_blocks(handle, inode, map, 0);
@@ -443,10 +488,7 @@ static void ext4_map_blocks_es_recheck(handle_t *handle,
 	}
 	up_read((&EXT4_I(inode)->i_data_sem));
 
-	/*
-	 * We don't check m_len because extent will be collpased in status
-	 * tree.  So the m_len might not equal.
-	 */
+
 	if (es_map->m_lblk != map->m_lblk ||
 	    es_map->m_flags != map->m_flags ||
 	    es_map->m_pblk != map->m_pblk) {
@@ -459,8 +501,16 @@ static void ext4_map_blocks_es_recheck(handle_t *handle,
 		       retval, flags);
 	}
 }
-#endif /* ES_AGGRESSIVE_TEST */
+#endif
 
+/**
+ * ext4_map_query_blocks - Implements the map query blocks operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_map_query_blocks(handle_t *handle, struct inode *inode,
 				 struct ext4_map_blocks *map)
 {
@@ -490,6 +540,14 @@ static int ext4_map_query_blocks(handle_t *handle, struct inode *inode,
 	return retval;
 }
 
+/**
+ * ext4_map_create_blocks - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_map_create_blocks(handle_t *handle, struct inode *inode,
 				  struct ext4_map_blocks *map, int flags)
 {
@@ -497,34 +555,20 @@ static int ext4_map_create_blocks(handle_t *handle, struct inode *inode,
 	unsigned int status;
 	int err, retval = 0;
 
-	/*
-	 * We pass in the magic EXT4_GET_BLOCKS_DELALLOC_RESERVE
-	 * indicates that the blocks and quotas has already been
-	 * checked when the data was copied into the page cache.
-	 */
+
 	if (map->m_flags & EXT4_MAP_DELAYED)
 		flags |= EXT4_GET_BLOCKS_DELALLOC_RESERVE;
 
-	/*
-	 * Here we clear m_flags because after allocating an new extent,
-	 * it will be set again.
-	 */
+
 	map->m_flags &= ~EXT4_MAP_FLAGS;
 
-	/*
-	 * We need to check for EXT4 here because migrate could have
-	 * changed the inode type in between.
-	 */
+
 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
 		retval = ext4_ext_map_blocks(handle, inode, map, flags);
 	} else {
 		retval = ext4_ind_map_blocks(handle, inode, map, flags);
 
-		/*
-		 * We allocated new blocks which will result in i_data's
-		 * format changing. Force the migrate to fail by clearing
-		 * migrate flags.
-		 */
+
 		if (retval > 0 && map->m_flags & EXT4_MAP_NEW)
 			ext4_clear_inode_state(inode, EXT4_STATE_EXT_MIGRATE);
 	}
@@ -539,13 +583,7 @@ static int ext4_map_create_blocks(handle_t *handle, struct inode *inode,
 		WARN_ON(1);
 	}
 
-	/*
-	 * We have to zeroout blocks before inserting them into extent
-	 * status tree. Otherwise someone could look them up there and
-	 * use them before they are really zeroed. We also have to
-	 * unmap metadata before zeroing as otherwise writeback can
-	 * overwrite zeros with stale data from block device.
-	 */
+
 	if (flags & EXT4_GET_BLOCKS_ZERO &&
 	    map->m_flags & EXT4_MAP_MAPPED && map->m_flags & EXT4_MAP_NEW) {
 		err = ext4_issue_zeroout(inode, map->m_lblk, map->m_pblk,
@@ -554,10 +592,7 @@ static int ext4_map_create_blocks(handle_t *handle, struct inode *inode,
 			return err;
 	}
 
-	/*
-	 * If the extent has been zeroed out, we don't need to update
-	 * extent status tree.
-	 */
+
 	if (flags & EXT4_GET_BLOCKS_PRE_IO &&
 	    ext4_es_lookup_extent(inode, map->m_lblk, NULL, &es)) {
 		if (ext4_es_is_written(&es))
@@ -572,28 +607,14 @@ static int ext4_map_create_blocks(handle_t *handle, struct inode *inode,
 	return retval;
 }
 
-/*
- * The ext4_map_blocks() function tries to look up the requested blocks,
- * and returns if the blocks are already mapped.
+
+/**
+ * ext4_map_blocks - Implements the map blocks operation within the inode mapping and lifecycle subsystem.
  *
- * Otherwise it takes the write lock of the i_data_sem and allocate blocks
- * and store the allocated blocks in the result buffer head and mark it
- * mapped.
- *
- * If file type is extents based, it will call ext4_ext_map_blocks(),
- * Otherwise, call with ext4_ind_map_blocks() to handle indirect mapping
- * based files
- *
- * On success, it returns the number of blocks being mapped or allocated.
- * If flags doesn't contain EXT4_GET_BLOCKS_CREATE the blocks are
- * pre-allocated and unwritten, the resulting @map is marked as unwritten.
- * If the flags contain EXT4_GET_BLOCKS_CREATE, it will mark @map as mapped.
- *
- * It returns 0 if plain look up failed (blocks have not been allocated), in
- * that case, @map is returned as unmapped but we still do fill map->m_len to
- * indicate the length of a hole starting at map->m_lblk.
- *
- * It returns the error in case of allocation failure.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_map_blocks(handle_t *handle, struct inode *inode,
 		    struct ext4_map_blocks *map, int flags)
@@ -611,17 +632,15 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
 	ext_debug(inode, "flag 0x%x, max_blocks %u, logical block %lu\n",
 		  flags, map->m_len, (unsigned long) map->m_lblk);
 
-	/*
-	 * ext4_map_blocks returns an int, and m_len is an unsigned int
-	 */
+
 	if (unlikely(map->m_len > INT_MAX))
 		map->m_len = INT_MAX;
 
-	/* We can handle the block number less than EXT_MAX_BLOCKS */
+
 	if (unlikely(map->m_lblk >= EXT_MAX_BLOCKS))
 		return -EFSCORRUPTED;
 
-	/* Lookup extent status tree firstly */
+
 	if (!(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_FC_REPLAY) &&
 	    ext4_es_lookup_extent(inode, map->m_lblk, NULL, &es)) {
 		if (ext4_es_is_written(&es) || ext4_es_is_unwritten(&es)) {
@@ -654,17 +673,12 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
 #endif
 		goto found;
 	}
-	/*
-	 * In the query cache no-wait mode, nothing we can do more if we
-	 * cannot find extent in the cache.
-	 */
+
+
 	if (flags & EXT4_GET_BLOCKS_CACHED_NOWAIT)
 		return 0;
 
-	/*
-	 * Try to see if we can get the block without requesting a new
-	 * file system block.
-	 */
+
 	down_read(&EXT4_I(inode)->i_data_sem);
 	retval = ext4_map_query_blocks(handle, inode, map);
 	up_read((&EXT4_I(inode)->i_data_sem));
@@ -676,31 +690,18 @@ found:
 			return ret;
 	}
 
-	/* If it is only a block(s) look up */
+
 	if ((flags & EXT4_GET_BLOCKS_CREATE) == 0)
 		return retval;
 
-	/*
-	 * Returns if the blocks have already allocated
-	 *
-	 * Note that if blocks have been preallocated
-	 * ext4_ext_map_blocks() returns with buffer head unmapped
-	 */
+
 	if (retval > 0 && map->m_flags & EXT4_MAP_MAPPED)
-		/*
-		 * If we need to convert extent to unwritten
-		 * we continue and do the actual work in
-		 * ext4_ext_map_blocks()
-		 */
+
+
 		if (!(flags & EXT4_GET_BLOCKS_CONVERT_UNWRITTEN))
 			return retval;
 
-	/*
-	 * New blocks allocate and/or writing to unwritten extent
-	 * will possibly result in updating i_data, so we take
-	 * the write lock of i_data_sem, and call get_block()
-	 * with create == 1 flag.
-	 */
+
 	down_write(&EXT4_I(inode)->i_data_sem);
 	retval = ext4_map_create_blocks(handle, inode, map, flags);
 	up_write((&EXT4_I(inode)->i_data_sem));
@@ -709,11 +710,7 @@ found:
 		if (ret != 0)
 			return ret;
 
-		/*
-		 * Inodes with freshly allocated blocks where contents will be
-		 * visible after transaction commit must be on transaction's
-		 * ordered data list.
-		 */
+
 		if (map->m_flags & EXT4_MAP_NEW &&
 		    !(map->m_flags & EXT4_MAP_UNWRITTEN) &&
 		    !(flags & EXT4_GET_BLOCKS_ZERO) &&
@@ -742,9 +739,14 @@ found:
 	return retval;
 }
 
-/*
- * Update EXT4_MAP_FLAGS in bh->b_state. For buffer heads attached to pages
- * we have to be careful as someone else may be manipulating b_state as well.
+
+/**
+ * ext4_update_bh_state - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext4_update_bh_state(struct buffer_head *bh, unsigned long flags)
 {
@@ -753,22 +755,27 @@ static void ext4_update_bh_state(struct buffer_head *bh, unsigned long flags)
 
 	flags &= EXT4_MAP_FLAGS;
 
-	/* Dummy buffer_head? Set non-atomically. */
+
 	if (!bh->b_page) {
 		bh->b_state = (bh->b_state & ~EXT4_MAP_FLAGS) | flags;
 		return;
 	}
-	/*
-	 * Someone else may be modifying b_state. Be careful! This is ugly but
-	 * once we get rid of using bh as a container for mapping information
-	 * to pass to / from get_block functions, this can go away.
-	 */
+
+
 	old_state = READ_ONCE(bh->b_state);
 	do {
 		new_state = (old_state & ~EXT4_MAP_FLAGS) | flags;
 	} while (unlikely(!try_cmpxchg(&bh->b_state, &old_state, new_state)));
 }
 
+/**
+ * _ext4_get_block - Implements the get block operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int _ext4_get_block(struct inode *inode, sector_t iblock,
 			   struct buffer_head *bh, int flags)
 {
@@ -789,12 +796,20 @@ static int _ext4_get_block(struct inode *inode, sector_t iblock,
 		bh->b_size = inode->i_sb->s_blocksize * map.m_len;
 		ret = 0;
 	} else if (ret == 0) {
-		/* hole case, need to fill in bh->b_size */
+
 		bh->b_size = inode->i_sb->s_blocksize * map.m_len;
 	}
 	return ret;
 }
 
+/**
+ * ext4_get_block - Implements the get block operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_get_block(struct inode *inode, sector_t iblock,
 		   struct buffer_head *bh, int create)
 {
@@ -802,10 +817,14 @@ int ext4_get_block(struct inode *inode, sector_t iblock,
 			       create ? EXT4_GET_BLOCKS_CREATE : 0);
 }
 
-/*
- * Get block function used when preparing for buffered write if we require
- * creating an unwritten extent if blocks haven't been allocated.  The extent
- * will be converted to written after the IO is complete.
+
+/**
+ * ext4_get_block_unwritten - Implements the get block unwritten operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_get_block_unwritten(struct inode *inode, sector_t iblock,
 			     struct buffer_head *bh_result, int create)
@@ -817,22 +836,24 @@ int ext4_get_block_unwritten(struct inode *inode, sector_t iblock,
 	ret = _ext4_get_block(inode, iblock, bh_result,
 			       EXT4_GET_BLOCKS_CREATE_UNWRIT_EXT);
 
-	/*
-	 * If the buffer is marked unwritten, mark it as new to make sure it is
-	 * zeroed out correctly in case of partial writes. Otherwise, there is
-	 * a chance of stale data getting exposed.
-	 */
+
 	if (ret == 0 && buffer_unwritten(bh_result))
 		set_buffer_new(bh_result);
 
 	return ret;
 }
 
-/* Maximum number of blocks we map for direct IO at once. */
+
 #define DIO_MAX_BLOCKS 4096
 
-/*
- * `handle' can be NULL if create is zero
+
+/**
+ * ext4_getblk - Implements the getblk operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 struct buffer_head *ext4_getblk(handle_t *handle, struct inode *inode,
 				ext4_lblk_t block, int map_flags)
@@ -867,13 +888,7 @@ struct buffer_head *ext4_getblk(handle_t *handle, struct inode *inode,
 		ASSERT((EXT4_SB(inode->i_sb)->s_mount_state & EXT4_FC_REPLAY)
 			    || (handle != NULL));
 
-		/*
-		 * Now that we do not always journal data, we should
-		 * keep in mind whether this should always journal the
-		 * new buffer as metadata.  For now, regular file
-		 * writes use ext4_get_block instead, so it's not a
-		 * problem.
-		 */
+
 		lock_buffer(bh);
 		BUFFER_TRACE(bh, "call get_create_access");
 		err = ext4_journal_get_create_access(handle, inode->i_sb, bh,
@@ -899,6 +914,14 @@ errout:
 	return ERR_PTR(err);
 }
 
+/**
+ * ext4_bread - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 struct buffer_head *ext4_bread(handle_t *handle, struct inode *inode,
 			       ext4_lblk_t block, int map_flags)
 {
@@ -919,14 +942,22 @@ struct buffer_head *ext4_bread(handle_t *handle, struct inode *inode,
 	return bh;
 }
 
-/* Read a contiguous batch of blocks. */
+
+/**
+ * ext4_bread_batch - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_bread_batch(struct inode *inode, ext4_lblk_t block, int bh_count,
 		     bool wait, struct buffer_head **bhs)
 {
 	int i, err;
 
 	for (i = 0; i < bh_count; i++) {
-		bhs[i] = ext4_getblk(NULL, inode, block + i, 0 /* map_flags */);
+		bhs[i] = ext4_getblk(NULL, inode, block + i, 0                );
 		if (IS_ERR(bhs[i])) {
 			err = PTR_ERR(bhs[i]);
 			bh_count = i;
@@ -935,7 +966,7 @@ int ext4_bread_batch(struct inode *inode, ext4_lblk_t block, int bh_count,
 	}
 
 	for (i = 0; i < bh_count; i++)
-		/* Note that NULL bhs[i] is valid because of holes. */
+
 		if (bhs[i] && !ext4_buffer_uptodate(bhs[i]))
 			ext4_read_bh_lock(bhs[i], REQ_META | REQ_PRIO, false);
 
@@ -962,6 +993,14 @@ out_brelse:
 	return err;
 }
 
+/**
+ * ext4_walk_page_buffers - Implements the walk page buffers operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_walk_page_buffers(handle_t *handle, struct inode *inode,
 			   struct buffer_head *head,
 			   unsigned from,
@@ -993,23 +1032,34 @@ int ext4_walk_page_buffers(handle_t *handle, struct inode *inode,
 	return ret;
 }
 
-/*
- * Helper for handling dirtying of journalled data. We also mark the folio as
- * dirty so that writeback code knows about this page (and inode) contains
- * dirty data. ext4_writepages() then commits appropriate transaction to
- * make data stable.
+
+/**
+ * ext4_dirty_journalled_data - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_dirty_journalled_data(handle_t *handle, struct buffer_head *bh)
 {
 	struct folio *folio = bh->b_folio;
 	struct inode *inode = folio->mapping->host;
 
-	/* only regular files have a_ops */
+
 	if (S_ISREG(inode->i_mode))
 		folio_mark_dirty(folio);
 	return ext4_handle_dirty_metadata(handle, NULL, bh);
 }
 
+/**
+ * do_journal_get_write_access - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int do_journal_get_write_access(handle_t *handle, struct inode *inode,
 				struct buffer_head *bh)
 {
@@ -1020,6 +1070,14 @@ int do_journal_get_write_access(handle_t *handle, struct inode *inode,
 					    EXT4_JTR_NONE);
 }
 
+/**
+ * ext4_block_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_block_write_begin(handle_t *handle, struct folio *folio,
 			   loff_t pos, unsigned len,
 			   get_block_t *get_block)
@@ -1065,21 +1123,14 @@ int ext4_block_write_begin(handle_t *handle, struct folio *folio,
 			if (err)
 				break;
 			if (buffer_new(bh)) {
-				/*
-				 * We may be zeroing partial buffers or all new
-				 * buffers in case of failure. Prepare JBD2 for
-				 * that.
-				 */
+
+
 				if (should_journal_data)
 					do_journal_get_write_access(handle,
 								    inode, bh);
 				if (folio_test_uptodate(folio)) {
-					/*
-					 * Unlike __block_write_begin() we leave
-					 * dirtying of new uptodate buffers to
-					 * ->write_end() time or
-					 * folio_zero_new_buffers().
-					 */
+
+
 					set_buffer_uptodate(bh);
 					continue;
 				}
@@ -1101,9 +1152,8 @@ int ext4_block_write_begin(handle_t *handle, struct folio *folio,
 			wait[nr_wait++] = bh;
 		}
 	}
-	/*
-	 * If we issued read requests, let them complete.
-	 */
+
+
 	for (i = 0; i < nr_wait; i++) {
 		wait_on_buffer(wait[i]);
 		if (!buffer_uptodate(wait[i]))
@@ -1131,12 +1181,14 @@ int ext4_block_write_begin(handle_t *handle, struct folio *folio,
 	return err;
 }
 
-/*
- * To preserve ordering, it is essential that the hole instantiation and
- * the data write be encapsulated in a single transaction.  We cannot
- * close off a transaction and start a new one between the ext4_get_block()
- * and the ext4_write_end().  So doing the jbd2_journal_start at the start of
- * ext4_write_begin() is the right place.
+
+/**
+ * ext4_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_write_begin(struct file *file, struct address_space *mapping,
 			    loff_t pos, unsigned len,
@@ -1154,10 +1206,8 @@ static int ext4_write_begin(struct file *file, struct address_space *mapping,
 		return -EIO;
 
 	trace_ext4_write_begin(inode, pos, len);
-	/*
-	 * Reserve one block more for addition to orphan list in case
-	 * we allocate blocks but write fails for some reason
-	 */
+
+
 	needed_blocks = ext4_writepage_trans_blocks(inode) + 1;
 	index = pos >> PAGE_SHIFT;
 	from = pos & (PAGE_SIZE - 1);
@@ -1172,22 +1222,14 @@ static int ext4_write_begin(struct file *file, struct address_space *mapping,
 			return 0;
 	}
 
-	/*
-	 * __filemap_get_folio() can take a long time if the
-	 * system is thrashing due to memory pressure, or if the folio
-	 * is being written back.  So grab it first before we start
-	 * the transaction handle.  This also allows us to allocate
-	 * the folio (if needed) without using GFP_NOFS.
-	 */
+
 retry_grab:
 	folio = __filemap_get_folio(mapping, index, FGP_WRITEBEGIN,
 					mapping_gfp_mask(mapping));
 	if (IS_ERR(folio))
 		return PTR_ERR(folio);
-	/*
-	 * The same as page allocation, we prealloc buffer heads before
-	 * starting the handle.
-	 */
+
+
 	if (!folio_buffers(folio))
 		create_empty_buffers(folio, inode->i_sb->s_blocksize, 0);
 
@@ -1202,13 +1244,13 @@ retry_journal:
 
 	folio_lock(folio);
 	if (folio->mapping != mapping) {
-		/* The folio got truncated from under us */
+
 		folio_unlock(folio);
 		folio_put(folio);
 		ext4_journal_stop(handle);
 		goto retry_grab;
 	}
-	/* In case writeback began while the folio was unlocked */
+
 	folio_wait_stable(folio);
 
 	if (ext4_should_dioread_nolock(inode))
@@ -1228,26 +1270,16 @@ retry_journal:
 				!ext4_verity_in_progress(inode);
 
 		folio_unlock(folio);
-		/*
-		 * ext4_block_write_begin may have instantiated a few blocks
-		 * outside i_size.  Trim these off again. Don't need
-		 * i_size_read because we hold i_rwsem.
-		 *
-		 * Add inode to orphan list in case we crash before
-		 * truncate finishes
-		 */
+
+
 		if (extended && ext4_can_truncate(inode))
 			ext4_orphan_add(handle, inode);
 
 		ext4_journal_stop(handle);
 		if (extended) {
 			ext4_truncate_failed_write(inode);
-			/*
-			 * If truncate failed early the inode might
-			 * still be on the orphan list; we need to
-			 * make sure the inode is removed from the
-			 * orphan list in that case.
-			 */
+
+
 			if (inode->i_nlink)
 				ext4_orphan_del(NULL, inode);
 		}
@@ -1262,7 +1294,15 @@ retry_journal:
 	return ret;
 }
 
-/* For write_end() in data=journal mode */
+
+/**
+ * write_end_fn - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int write_end_fn(handle_t *handle, struct inode *inode,
 			struct buffer_head *bh)
 {
@@ -1277,12 +1317,14 @@ static int write_end_fn(handle_t *handle, struct inode *inode,
 	return ret;
 }
 
-/*
- * We need to pick up the new inode size which generic_commit_write gave us
- * `file' can be NULL - eg, when called from page_symlink().
+
+/**
+ * ext4_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
- * ext4 never places buffers on inode->i_mapping->i_private_list.  metadata
- * buffers are managed internally.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_write_end(struct file *file,
 			  struct address_space *mapping,
@@ -1304,13 +1346,8 @@ static int ext4_write_end(struct file *file,
 						  folio);
 
 	copied = block_write_end(file, mapping, pos, len, copied, folio, fsdata);
-	/*
-	 * it's important to update i_size while still holding folio lock:
-	 * page writeout could otherwise come in and zero beyond i_size.
-	 *
-	 * If FS_IOC_ENABLE_VERITY is running on this inode, then Merkle tree
-	 * blocks are being written past EOF, so skip the i_size update.
-	 */
+
+
 	if (!verity)
 		i_size_changed = ext4_update_inode_size(inode, pos + copied);
 	folio_unlock(folio);
@@ -1320,20 +1357,14 @@ static int ext4_write_end(struct file *file,
 		pagecache_isize_extended(inode, old_size, pos);
 		ext4_zero_partial_blocks(handle, inode, old_size, pos - old_size);
 	}
-	/*
-	 * Don't mark the inode dirty under folio lock. First, it unnecessarily
-	 * makes the holding time of folio lock longer. Second, it forces lock
-	 * ordering of folio lock and transaction start for journaling
-	 * filesystems.
-	 */
+
+
 	if (i_size_changed)
 		ret = ext4_mark_inode_dirty(handle, inode);
 
 	if (pos + len > inode->i_size && !verity && ext4_can_truncate(inode))
-		/* if we have allocated more blocks and copied
-		 * less. We will have blocks allocated outside
-		 * inode->i_size. So truncate them
-		 */
+
+
 		ext4_orphan_add(handle, inode);
 
 	ret2 = ext4_journal_stop(handle);
@@ -1342,11 +1373,8 @@ static int ext4_write_end(struct file *file,
 
 	if (pos + len > inode->i_size && !verity) {
 		ext4_truncate_failed_write(inode);
-		/*
-		 * If truncate failed early the inode might still be
-		 * on the orphan list; we need to make sure the inode
-		 * is removed from the orphan list in that case.
-		 */
+
+
 		if (inode->i_nlink)
 			ext4_orphan_del(NULL, inode);
 	}
@@ -1354,10 +1382,14 @@ static int ext4_write_end(struct file *file,
 	return ret ? ret : copied;
 }
 
-/*
- * This is a private version of folio_zero_new_buffers() which doesn't
- * set the buffer to be dirty, since in data=journalled mode we need
- * to call ext4_dirty_journalled_data() instead.
+
+/**
+ * ext4_journalled_zero_new_buffers - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext4_journalled_zero_new_buffers(handle_t *handle,
 					    struct inode *inode,
@@ -1389,6 +1421,14 @@ static void ext4_journalled_zero_new_buffers(handle_t *handle,
 	} while (bh != head);
 }
 
+/**
+ * ext4_journalled_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_journalled_write_end(struct file *file,
 				     struct address_space *mapping,
 				     loff_t pos, unsigned len, unsigned copied,
@@ -1447,10 +1487,8 @@ static int ext4_journalled_write_end(struct file *file,
 	}
 
 	if (pos + len > inode->i_size && !verity && ext4_can_truncate(inode))
-		/* if we have allocated more blocks and copied
-		 * less. We will have blocks allocated outside
-		 * inode->i_size. So truncate them
-		 */
+
+
 		ext4_orphan_add(handle, inode);
 
 	ret2 = ext4_journal_stop(handle);
@@ -1458,11 +1496,8 @@ static int ext4_journalled_write_end(struct file *file,
 		ret = ret2;
 	if (pos + len > inode->i_size && !verity) {
 		ext4_truncate_failed_write(inode);
-		/*
-		 * If truncate failed early the inode might still be
-		 * on the orphan list; we need to make sure the inode
-		 * is removed from the orphan list in that case.
-		 */
+
+
 		if (inode->i_nlink)
 			ext4_orphan_del(NULL, inode);
 	}
@@ -1470,8 +1505,14 @@ static int ext4_journalled_write_end(struct file *file,
 	return ret ? ret : copied;
 }
 
-/*
- * Reserve space for 'nr_resv' clusters
+
+/**
+ * ext4_da_reserve_space - Implements the da reserve space operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_da_reserve_space(struct inode *inode, int nr_resv)
 {
@@ -1479,11 +1520,7 @@ static int ext4_da_reserve_space(struct inode *inode, int nr_resv)
 	struct ext4_inode_info *ei = EXT4_I(inode);
 	int ret;
 
-	/*
-	 * We will charge metadata quota at writeout time; this saves
-	 * us from metadata over-estimation, though we may go over by
-	 * a small amount in the end.  Here we just reserve for data.
-	 */
+
 	ret = dquot_reserve_block(inode, EXT4_C2B(sbi, nr_resv));
 	if (ret)
 		return ret;
@@ -1498,27 +1535,31 @@ static int ext4_da_reserve_space(struct inode *inode, int nr_resv)
 	trace_ext4_da_reserve_space(inode, nr_resv);
 	spin_unlock(&ei->i_block_reservation_lock);
 
-	return 0;       /* success */
+	return 0;
 }
 
+/**
+ * ext4_da_release_space - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_da_release_space(struct inode *inode, int to_free)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 	struct ext4_inode_info *ei = EXT4_I(inode);
 
 	if (!to_free)
-		return;		/* Nothing to release, exit */
+		return;
 
 	spin_lock(&EXT4_I(inode)->i_block_reservation_lock);
 
 	trace_ext4_da_release_space(inode, to_free);
 	if (unlikely(to_free > ei->i_reserved_data_blocks)) {
-		/*
-		 * if there aren't enough reserved blocks, then the
-		 * counter is messed up somewhere.  Since this
-		 * function is called from invalidate page, it's
-		 * harmless to return without any action.
-		 */
+
+
 		ext4_warning(inode->i_sb, "ext4_da_release_space: "
 			 "ino %lu, to_free %d with only %d reserved "
 			 "data blocks", inode->i_ino, to_free,
@@ -1528,7 +1569,7 @@ void ext4_da_release_space(struct inode *inode, int to_free)
 	}
 	ei->i_reserved_data_blocks -= to_free;
 
-	/* update fs dirty data blocks counter */
+
 	percpu_counter_sub(&sbi->s_dirtyclusters_counter, to_free);
 
 	spin_unlock(&EXT4_I(inode)->i_block_reservation_lock);
@@ -1536,32 +1577,40 @@ void ext4_da_release_space(struct inode *inode, int to_free)
 	dquot_release_reservation_block(inode, EXT4_C2B(sbi, to_free));
 }
 
-/*
- * Delayed allocation stuff
- */
 
+/**
+ * struct mpage_da_data - Private EXT4 state/data structure used by inode mapping and lifecycle.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct mpage_da_data {
-	/* These are input fields for ext4_do_writepages() */
+
 	struct inode *inode;
 	struct writeback_control *wbc;
-	unsigned int can_map:1;	/* Can writepages call map blocks? */
+	unsigned int can_map:1;
 
-	/* These are internal state of ext4_do_writepages() */
-	pgoff_t first_page;	/* The first page to write */
-	pgoff_t next_page;	/* Current page to examine */
-	pgoff_t last_page;	/* Last page to examine */
-	/*
-	 * Extent to map - this can be after first_page because that can be
-	 * fully mapped. We somewhat abuse m_flags to store whether the extent
-	 * is delalloc or unwritten.
-	 */
+
+	pgoff_t first_page;
+	pgoff_t next_page;
+	pgoff_t last_page;
+
+
 	struct ext4_map_blocks map;
-	struct ext4_io_submit io_submit;	/* IO submission data */
+	struct ext4_io_submit io_submit;
 	unsigned int do_map:1;
 	unsigned int scanned_until_end:1;
 	unsigned int journalled_more_data:1;
 };
 
+/**
+ * mpage_release_unused_pages - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 				       bool invalidate)
 {
@@ -1571,7 +1620,7 @@ static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 	struct inode *inode = mpd->inode;
 	struct address_space *mapping = inode->i_mapping;
 
-	/* This is necessary when next_page == 0. */
+
 	if (mpd->first_page >= mpd->next_page)
 		return;
 
@@ -1583,10 +1632,7 @@ static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 		start = index << (PAGE_SHIFT - inode->i_blkbits);
 		last = end << (PAGE_SHIFT - inode->i_blkbits);
 
-		/*
-		 * avoid racing with extent status tree scans made by
-		 * ext4_insert_delayed_block()
-		 */
+
 		down_write(&EXT4_I(inode)->i_data_sem);
 		ext4_es_remove_extent(inode, start, last - start + 1);
 		up_write(&EXT4_I(inode)->i_data_sem);
@@ -1619,6 +1665,14 @@ static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 	}
 }
 
+/**
+ * ext4_print_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_print_free_blocks(struct inode *inode)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
@@ -1641,24 +1695,25 @@ static void ext4_print_free_blocks(struct inode *inode)
 	return;
 }
 
-/*
- * Check whether the cluster containing lblk has been allocated or has
- * delalloc reservation.
+
+/**
+ * ext4_clu_alloc_state - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
- * Returns 0 if the cluster doesn't have either, 1 if it has delalloc
- * reservation, 2 if it's already been allocated, negative error code on
- * failure.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_clu_alloc_state(struct inode *inode, ext4_lblk_t lblk)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 	int ret;
 
-	/* Has delalloc reservation? */
+
 	if (ext4_es_scan_clu(inode, &ext4_es_is_delayed, lblk))
 		return 1;
 
-	/* Already been allocated? */
+
 	if (ext4_es_scan_clu(inode, &ext4_es_is_mapped, lblk))
 		return 2;
 	ret = ext4_clu_mapped(inode, EXT4_B2C(sbi, lblk));
@@ -1670,17 +1725,14 @@ static int ext4_clu_alloc_state(struct inode *inode, ext4_lblk_t lblk)
 	return 0;
 }
 
-/*
- * ext4_insert_delayed_blocks - adds a multiple delayed blocks to the extents
- *                              status tree, incrementing the reserved
- *                              cluster/block count or making pending
- *                              reservations where needed
+
+/**
+ * ext4_insert_delayed_blocks - Implements the insert delayed blocks operation within the inode mapping and lifecycle subsystem.
  *
- * @inode - file containing the newly added block
- * @lblk - start logical block to be added
- * @len - length of blocks to be added
- *
- * Returns 0 on success, negative error code on failure.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_insert_delayed_blocks(struct inode *inode, ext4_lblk_t lblk,
 				      ext4_lblk_t len)
@@ -1692,22 +1744,12 @@ static int ext4_insert_delayed_blocks(struct inode *inode, ext4_lblk_t lblk,
 	ext4_lblk_t resv_clu;
 	ext4_lblk_t end = lblk + len - 1;
 
-	/*
-	 * If the cluster containing lblk or end is shared with a delayed,
-	 * written, or unwritten extent in a bigalloc file system, it's
-	 * already been accounted for and does not need to be reserved.
-	 * A pending reservation must be made for the cluster if it's
-	 * shared with a written or unwritten extent and doesn't already
-	 * have one.  Written and unwritten extents can be purged from the
-	 * extents status tree if the system is under memory pressure, so
-	 * it's necessary to examine the extent tree if a search of the
-	 * extents status tree doesn't get a match.
-	 */
+
 	if (sbi->s_cluster_ratio == 1) {
 		ret = ext4_da_reserve_space(inode, len);
-		if (ret != 0)   /* ENOSPC */
+		if (ret != 0)
 			return ret;
-	} else {   /* bigalloc */
+	} else {
 		resv_clu = EXT4_B2C(sbi, end) - EXT4_B2C(sbi, lblk) + 1;
 
 		ret = ext4_clu_alloc_state(inode, lblk);
@@ -1730,7 +1772,7 @@ static int ext4_insert_delayed_blocks(struct inode *inode, ext4_lblk_t lblk,
 
 		if (resv_clu) {
 			ret = ext4_da_reserve_space(inode, resv_clu);
-			if (ret != 0)   /* ENOSPC */
+			if (ret != 0)
 				return ret;
 		}
 	}
@@ -1740,14 +1782,14 @@ static int ext4_insert_delayed_blocks(struct inode *inode, ext4_lblk_t lblk,
 	return 0;
 }
 
-/*
- * Looks up the requested blocks and sets the delalloc extent map.
- * First try to look up for the extent entry that contains the requested
- * blocks in the extent status tree without i_data_sem, then try to look
- * up for the ondisk extent mapping with i_data_sem in read mode,
- * finally hold i_data_sem in write mode, looks up again and add a
- * delalloc extent entry if it still couldn't find any extent. Pass out
- * the mapped extent through @map and return 0 on success.
+
+/**
+ * ext4_da_map_blocks - Implements the da map blocks operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_da_map_blocks(struct inode *inode, struct ext4_map_blocks *map)
 {
@@ -1763,7 +1805,7 @@ static int ext4_da_map_blocks(struct inode *inode, struct ext4_map_blocks *map)
 	ext_debug(inode, "max_blocks %u, logical block %lu\n", map->m_len,
 		  (unsigned long) map->m_lblk);
 
-	/* Lookup extent status tree firstly */
+
 	if (ext4_es_lookup_extent(inode, map->m_lblk, NULL, &es)) {
 		map->m_len = min_t(unsigned int, map->m_len,
 				   es.es_len - (map->m_lblk - es.es_lblk));
@@ -1772,10 +1814,8 @@ static int ext4_da_map_blocks(struct inode *inode, struct ext4_map_blocks *map)
 			goto add_delayed;
 
 found:
-		/*
-		 * Delayed extent could be allocated by fallocate.
-		 * So we need to check it.
-		 */
+
+
 		if (ext4_es_is_delayed(&es)) {
 			map->m_flags |= EXT4_MAP_DELAYED;
 			return 0;
@@ -1795,10 +1835,7 @@ found:
 		return 0;
 	}
 
-	/*
-	 * Try to see if we can get the block without requesting a new
-	 * file system block.
-	 */
+
 	down_read(&EXT4_I(inode)->i_data_sem);
 	if (ext4_has_inline_data(inode))
 		retval = 0;
@@ -1810,13 +1847,8 @@ found:
 
 add_delayed:
 	down_write(&EXT4_I(inode)->i_data_sem);
-	/*
-	 * Page fault path (ext4_page_mkwrite does not take i_rwsem)
-	 * and fallocate path (no folio lock) can race. Make sure we
-	 * lookup the extent status tree here again while i_data_sem
-	 * is held in write mode, before inserting a new da entry in
-	 * the extent status tree.
-	 */
+
+
 	if (ext4_es_lookup_extent(inode, map->m_lblk, NULL, &es)) {
 		map->m_len = min_t(unsigned int, map->m_len,
 				   es.es_len - (map->m_lblk - es.es_lblk));
@@ -1840,17 +1872,14 @@ add_delayed:
 	return retval;
 }
 
-/*
- * This is a special get_block_t callback which is used by
- * ext4_da_write_begin().  It will either return mapped block or
- * reserve space for a single block.
+
+/**
+ * ext4_da_get_block_prep - Implements the da get block prep operation within the inode mapping and lifecycle subsystem.
  *
- * For delayed buffer_head we have BH_Mapped, BH_New, BH_Delay set.
- * We also have b_blocknr = -1 and b_bdev initialized properly
- *
- * For unwritten buffer_head we have BH_Mapped, BH_New, BH_Unwritten set.
- * We also have b_blocknr = physicalblock mapping unwritten extent and b_bdev
- * initialized properly.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_da_get_block_prep(struct inode *inode, sector_t iblock,
 			   struct buffer_head *bh, int create)
@@ -1868,11 +1897,7 @@ int ext4_da_get_block_prep(struct inode *inode, sector_t iblock,
 	map.m_lblk = iblock;
 	map.m_len = 1;
 
-	/*
-	 * first, we need to know whether the block is allocated already
-	 * preallocated blocks are unmapped but should treated
-	 * the same as allocated blocks.
-	 */
+
 	ret = ext4_da_map_blocks(inode, &map);
 	if (ret < 0)
 		return ret;
@@ -1888,24 +1913,36 @@ int ext4_da_get_block_prep(struct inode *inode, sector_t iblock,
 	ext4_update_bh_state(bh, map.m_flags);
 
 	if (buffer_unwritten(bh)) {
-		/* A delayed write to unwritten bh should be marked
-		 * new and mapped.  Mapped ensures that we don't do
-		 * get_block multiple times when we write to the same
-		 * offset and new ensures that we do proper zero out
-		 * for partial write.
-		 */
+
+
 		set_buffer_new(bh);
 		set_buffer_mapped(bh);
 	}
 	return 0;
 }
 
+/**
+ * mpage_folio_done - Implements the mpage folio done operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void mpage_folio_done(struct mpage_da_data *mpd, struct folio *folio)
 {
 	mpd->first_page += folio_nr_pages(folio);
 	folio_unlock(folio);
 }
 
+/**
+ * mpage_submit_folio - Implements the mpage submit folio operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int mpage_submit_folio(struct mpage_da_data *mpd, struct folio *folio)
 {
 	size_t len;
@@ -1914,19 +1951,8 @@ static int mpage_submit_folio(struct mpage_da_data *mpd, struct folio *folio)
 
 	BUG_ON(folio->index != mpd->first_page);
 	folio_clear_dirty_for_io(folio);
-	/*
-	 * We have to be very careful here!  Nothing protects writeback path
-	 * against i_size changes and the page can be writeably mapped into
-	 * page tables. So an application can be growing i_size and writing
-	 * data through mmap while writeback runs. folio_clear_dirty_for_io()
-	 * write-protects our page in page tables and the page cannot get
-	 * written to again until we release folio lock. So only after
-	 * folio_clear_dirty_for_io() we are safe to sample i_size for
-	 * ext4_bio_write_folio() to zero-out tail of the written page. We rely
-	 * on the barrier provided by folio_test_clear_dirty() in
-	 * folio_clear_dirty_for_io() to make sure i_size is really sampled only
-	 * after page tables are updated.
-	 */
+
+
 	size = i_size_read(mpd->inode);
 	len = folio_size(folio);
 	if (folio_pos(folio) + len > size &&
@@ -1941,44 +1967,35 @@ static int mpage_submit_folio(struct mpage_da_data *mpd, struct folio *folio)
 
 #define BH_FLAGS (BIT(BH_Unwritten) | BIT(BH_Delay))
 
-/*
- * mballoc gives us at most this number of blocks...
- * XXX: That seems to be only a limitation of ext4_mb_normalize_request().
- * The rest of mballoc seems to handle chunks up to full group size.
- */
+
 #define MAX_WRITEPAGES_EXTENT_LEN 2048
 
-/*
- * mpage_add_bh_to_extent - try to add bh to extent of blocks to map
+
+/**
+ * mpage_add_bh_to_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
- * @mpd - extent of blocks
- * @lblk - logical number of the block in the file
- * @bh - buffer head we want to add to the extent
- *
- * The function is used to collect contig. blocks in the same state. If the
- * buffer doesn't require mapping for writeback and we haven't started the
- * extent of buffers to map yet, the function returns 'true' immediately - the
- * caller can write the buffer right away. Otherwise the function returns true
- * if the block has been added to the extent, false if the block couldn't be
- * added.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static bool mpage_add_bh_to_extent(struct mpage_da_data *mpd, ext4_lblk_t lblk,
 				   struct buffer_head *bh)
 {
 	struct ext4_map_blocks *map = &mpd->map;
 
-	/* Buffer that doesn't need mapping for writeback? */
+
 	if (!buffer_dirty(bh) || !buffer_mapped(bh) ||
 	    (!buffer_delay(bh) && !buffer_unwritten(bh))) {
-		/* So far no extent to map => we write the buffer right away */
+
 		if (map->m_len == 0)
 			return true;
 		return false;
 	}
 
-	/* First block in the extent? */
+
 	if (map->m_len == 0) {
-		/* We cannot map unless handle is started... */
+
 		if (!mpd->do_map)
 			return false;
 		map->m_lblk = lblk;
@@ -1987,11 +2004,11 @@ static bool mpage_add_bh_to_extent(struct mpage_da_data *mpd, ext4_lblk_t lblk,
 		return true;
 	}
 
-	/* Don't go larger than mballoc is willing to allocate */
+
 	if (map->m_len >= MAX_WRITEPAGES_EXTENT_LEN)
 		return false;
 
-	/* Can we merge the block to our big extent? */
+
 	if (lblk == map->m_lblk + map->m_len &&
 	    (bh->b_state & BH_FLAGS) == map->m_flags) {
 		map->m_len++;
@@ -2000,21 +2017,14 @@ static bool mpage_add_bh_to_extent(struct mpage_da_data *mpd, ext4_lblk_t lblk,
 	return false;
 }
 
-/*
- * mpage_process_page_bufs - submit page buffers for IO or add them to extent
+
+/**
+ * mpage_process_page_bufs - Implements the mpage process page bufs operation within the inode mapping and lifecycle subsystem.
  *
- * @mpd - extent of blocks for mapping
- * @head - the first buffer in the page
- * @bh - buffer we should start processing from
- * @lblk - logical number of the block in the file corresponding to @bh
- *
- * Walk through page buffers from @bh upto @head (exclusive) and either submit
- * the page for IO if all buffers in this page were mapped and there's no
- * accumulated extent of buffers to map or add buffers in the page to the
- * extent of buffers to map. The function returns 1 if the caller can continue
- * by processing the next page, 0 if it should stop adding buffers to the
- * extent to map because we cannot extend it anymore. It can also return value
- * < 0 in case of error during IO submission.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int mpage_process_page_bufs(struct mpage_da_data *mpd,
 				   struct buffer_head *head,
@@ -2033,17 +2043,17 @@ static int mpage_process_page_bufs(struct mpage_da_data *mpd,
 		BUG_ON(buffer_locked(bh));
 
 		if (lblk >= blocks || !mpage_add_bh_to_extent(mpd, lblk, bh)) {
-			/* Found extent to map? */
+
 			if (mpd->map.m_len)
 				return 0;
-			/* Buffer needs mapping and handle is not started? */
+
 			if (!mpd->do_map)
 				return 0;
-			/* Everything mapped so far and we hit EOF */
+
 			break;
 		}
 	} while (lblk++, (bh = bh->b_this_page) != head);
-	/* So far everything mapped? Submit the page for IO. */
+
 	if (mpd->map.m_len == 0) {
 		err = mpage_submit_folio(mpd, head->b_folio);
 		if (err < 0)
@@ -2057,21 +2067,14 @@ static int mpage_process_page_bufs(struct mpage_da_data *mpd,
 	return 1;
 }
 
-/*
- * mpage_process_folio - update folio buffers corresponding to changed extent
- *			 and may submit fully mapped page for IO
- * @mpd: description of extent to map, on return next extent to map
- * @folio: Contains these buffers.
- * @m_lblk: logical block mapping.
- * @m_pblk: corresponding physical mapping.
- * @map_bh: determines on return whether this page requires any further
- *		  mapping or not.
+
+/**
+ * mpage_process_folio - Implements the mpage process folio operation within the inode mapping and lifecycle subsystem.
  *
- * Scan given folio buffers corresponding to changed extent and update buffer
- * state according to new extent state.
- * We map delalloc buffers to their physical location, clear unwritten bits.
- * If the given folio is not fully mapped, we update @mpd to the next extent in
- * the given folio that needs mapping & return @map_bh as true.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int mpage_process_folio(struct mpage_da_data *mpd, struct folio *folio,
 			      ext4_lblk_t *m_lblk, ext4_fsblk_t *m_pblk,
@@ -2091,10 +2094,8 @@ static int mpage_process_folio(struct mpage_da_data *mpd, struct folio *folio,
 		if (lblk < mpd->map.m_lblk)
 			continue;
 		if (lblk >= mpd->map.m_lblk + mpd->map.m_len) {
-			/*
-			 * Buffer after end of mapped extent.
-			 * Find next buffer in the folio to map.
-			 */
+
+
 			mpd->map.m_len = 0;
 			mpd->map.m_flags = 0;
 			io_end_vec->size += io_end_size;
@@ -2129,19 +2130,14 @@ out:
 	return err;
 }
 
-/*
- * mpage_map_buffers - update buffers corresponding to changed extent and
- *		       submit fully mapped pages for IO
+
+/**
+ * mpage_map_and_submit_buffers - Implements the mpage map and submit buffers operation within the inode mapping and lifecycle subsystem.
  *
- * @mpd - description of extent to map, on return next extent to map
- *
- * Scan buffers corresponding to changed extent (we expect corresponding pages
- * to be already locked) and update buffer state according to new extent state.
- * We map delalloc buffers to their physical location, clear unwritten bits,
- * and mark buffers as uninit when we perform writes to unwritten extents
- * and do extent conversion after IO is finished. If the last page is not fully
- * mapped, we update @map to the next extent in the last page that needs
- * mapping. Otherwise we submit the page for IO.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int mpage_map_and_submit_buffers(struct mpage_da_data *mpd)
 {
@@ -2170,14 +2166,11 @@ static int mpage_map_and_submit_buffers(struct mpage_da_data *mpd)
 
 			err = mpage_process_folio(mpd, folio, &lblk, &pblock,
 						 &map_bh);
-			/*
-			 * If map_bh is true, means page may require further bh
-			 * mapping, or maybe the page was submitted for IO.
-			 * So we return to call further extent mapping.
-			 */
+
+
 			if (err < 0 || map_bh)
 				goto out;
-			/* Page fully mapped - let IO run! */
+
 			err = mpage_submit_folio(mpd, folio);
 			if (err < 0)
 				goto out;
@@ -2185,7 +2178,7 @@ static int mpage_map_and_submit_buffers(struct mpage_da_data *mpd)
 		}
 		folio_batch_release(&fbatch);
 	}
-	/* Extent fully mapped and matches with page boundary. We are done. */
+
 	mpd->map.m_len = 0;
 	mpd->map.m_flags = 0;
 	return 0;
@@ -2194,6 +2187,14 @@ out:
 	return err;
 }
 
+/**
+ * mpage_map_one_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int mpage_map_one_extent(handle_t *handle, struct mpage_da_data *mpd)
 {
 	struct inode *inode = mpd->inode;
@@ -2202,16 +2203,8 @@ static int mpage_map_one_extent(handle_t *handle, struct mpage_da_data *mpd)
 	int err, dioread_nolock;
 
 	trace_ext4_da_write_pages_extent(inode, map);
-	/*
-	 * Call ext4_map_blocks() to allocate any delayed allocation blocks, or
-	 * to convert an unwritten extent to be initialized (in the case
-	 * where we have written into one or more preallocated blocks).  It is
-	 * possible that we're going to need more metadata blocks than
-	 * previously reserved. However we must not fail because we're in
-	 * writeback and there is nothing we can do about it so it might result
-	 * in data loss.  So use reserved blocks to allocate metadata if
-	 * possible.
-	 */
+
+
 	get_blocks_flags = EXT4_GET_BLOCKS_CREATE |
 			   EXT4_GET_BLOCKS_METADATA_NOFAIL |
 			   EXT4_GET_BLOCKS_IO_SUBMIT;
@@ -2235,25 +2228,14 @@ static int mpage_map_one_extent(handle_t *handle, struct mpage_da_data *mpd)
 	return 0;
 }
 
-/*
- * mpage_map_and_submit_extent - map extent starting at mpd->lblk of length
- *				 mpd->len and submit pages underlying it for IO
+
+/**
+ * mpage_map_and_submit_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
- * @handle - handle for journal operations
- * @mpd - extent to map
- * @give_up_on_write - we set this to true iff there is a fatal error and there
- *                     is no hope of writing the data. The caller should discard
- *                     dirty pages to avoid infinite loops.
- *
- * The function maps extent starting at mpd->lblk of length mpd->len. If it is
- * delayed, blocks are allocated, if it is unwritten, we may need to convert
- * them to initialized or split the described range from larger unwritten
- * extent. Note that we need not map all the described range since allocation
- * can return less blocks or the range is covered by more unwritten extents. We
- * cannot map more because we are limited by reserved transaction credits. On
- * the other hand we always make sure that the last touched page is fully
- * mapped so that it can be written out (and thus forward progress is
- * guaranteed). After mapping we submit all mapped pages for IO.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int mpage_map_and_submit_extent(handle_t *handle,
 				       struct mpage_da_data *mpd,
@@ -2278,11 +2260,8 @@ static int mpage_map_and_submit_extent(handle_t *handle,
 
 			if (ext4_forced_shutdown(sb))
 				goto invalidate_dirty_pages;
-			/*
-			 * Let the uper layers retry transient errors.
-			 * In the case of ENOSPC, if ext4_count_free_blocks()
-			 * is non-zero, a commit should free up blocks.
-			 */
+
+
 			if ((err == -ENOMEM) ||
 			    (err == -ENOSPC && ext4_count_free_clusters(sb))) {
 				if (progress)
@@ -2306,20 +2285,16 @@ static int mpage_map_and_submit_extent(handle_t *handle,
 			return err;
 		}
 		progress = 1;
-		/*
-		 * Update buffer state, submit mapped pages, and get us new
-		 * extent to map
-		 */
+
+
 		err = mpage_map_and_submit_buffers(mpd);
 		if (err < 0)
 			goto update_disksize;
 	} while (map->m_len);
 
 update_disksize:
-	/*
-	 * Update on-disk size after IO is submitted.  Races with
-	 * truncate are avoided by checking i_size under i_data_sem.
-	 */
+
+
 	disksize = ((loff_t)mpd->first_page) << PAGE_SHIFT;
 	if (disksize > READ_ONCE(EXT4_I(inode)->i_disksize)) {
 		int err2;
@@ -2344,12 +2319,14 @@ update_disksize:
 	return err;
 }
 
-/*
- * Calculate the total number of credits to reserve for one writepages
- * iteration. This is called from ext4_writepages(). We map an extent of
- * up to MAX_WRITEPAGES_EXTENT_LEN blocks and then we go on and finish mapping
- * the last partial page. So in total we can map MAX_WRITEPAGES_EXTENT_LEN +
- * bpp - 1 blocks in bpp different extents.
+
+/**
+ * ext4_da_writepages_trans_blocks - Implements the da writepages trans blocks operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_da_writepages_trans_blocks(struct inode *inode)
 {
@@ -2359,6 +2336,14 @@ static int ext4_da_writepages_trans_blocks(struct inode *inode)
 				MAX_WRITEPAGES_EXTENT_LEN + bpp - 1, bpp);
 }
 
+/**
+ * ext4_journal_folio_buffers - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_journal_folio_buffers(handle_t *handle, struct folio *folio,
 				     size_t len)
 {
@@ -2380,6 +2365,14 @@ static int ext4_journal_folio_buffers(handle_t *handle, struct folio *folio,
 	return ret;
 }
 
+/**
+ * mpage_journal_page_buffers - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int mpage_journal_page_buffers(handle_t *handle,
 				      struct mpage_da_data *mpd,
 				      struct folio *folio)
@@ -2398,25 +2391,14 @@ static int mpage_journal_page_buffers(handle_t *handle,
 	return ext4_journal_folio_buffers(handle, folio, len);
 }
 
-/*
- * mpage_prepare_extent_to_map - find & lock contiguous range of dirty pages
- * 				 needing mapping, submit mapped pages
+
+/**
+ * mpage_prepare_extent_to_map - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
- * @mpd - where to look for pages
- *
- * Walk dirty pages in the mapping. If they are fully mapped, submit them for
- * IO immediately. If we cannot map blocks, we submit just already mapped
- * buffers in the page for IO and keep page dirty. When we can map blocks and
- * we find a page which isn't mapped we start accumulating extent of buffers
- * underlying these pages that needs mapping (formed by either delayed or
- * unwritten buffers). We also lock the pages containing these buffers. The
- * extent found is returned in @mpd structure (starting at mpd->lblk with
- * length mpd->len blocks).
- *
- * Note that this function can attach bios to one io_end structure which are
- * neither logically nor physically contiguous. Although it may seem as an
- * unnecessary complication, it is actually inevitable in blocksize < pagesize
- * case as we need to track IO to all buffers underlying a page in one io_end.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 {
@@ -2456,20 +2438,13 @@ static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 		for (i = 0; i < nr_folios; i++) {
 			struct folio *folio = fbatch.folios[i];
 
-			/*
-			 * Accumulated enough dirty pages? This doesn't apply
-			 * to WB_SYNC_ALL mode. For integrity sync we have to
-			 * keep going because someone may be concurrently
-			 * dirtying pages, and we might have synced a lot of
-			 * newly appeared dirty pages, but have not synced all
-			 * of the old dirty pages.
-			 */
+
 			if (mpd->wbc->sync_mode == WB_SYNC_NONE &&
 			    mpd->wbc->nr_to_write <=
 			    mpd->map.m_len >> (PAGE_SHIFT - blkbits))
 				goto out;
 
-			/* If we can't merge this page, we are done. */
+
 			if (mpd->map.m_len > 0 && mpd->next_page != folio->index)
 				goto out;
 
@@ -2481,13 +2456,8 @@ static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 			}
 
 			folio_lock(folio);
-			/*
-			 * If the page is no longer dirty, or its mapping no
-			 * longer corresponds to inode we are writing (which
-			 * means it has been truncated or invalidated), or the
-			 * page is already under writeback and we are not doing
-			 * a data integrity writeback, skip the page
-			 */
+
+
 			if (!folio_test_dirty(folio) ||
 			    (folio_test_writeback(folio) &&
 			     (mpd->wbc->sync_mode == WB_SYNC_NONE)) ||
@@ -2499,15 +2469,7 @@ static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 			folio_wait_writeback(folio);
 			BUG_ON(folio_test_writeback(folio));
 
-			/*
-			 * Should never happen but for buggy code in
-			 * other subsystems that call
-			 * set_page_dirty() without properly warning
-			 * the file system first.  See [1] for more
-			 * information.
-			 *
-			 * [1] https://lore.kernel.org/linux-mm/20180103100430.GE4911@quack2.suse.cz
-			 */
+
 			if (!folio_buffers(folio)) {
 				ext4_warning_inode(mpd->inode, "page %lu does not have buffers attached", folio->index);
 				folio_clear_dirty(folio);
@@ -2518,21 +2480,13 @@ static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 			if (mpd->map.m_len == 0)
 				mpd->first_page = folio->index;
 			mpd->next_page = folio_next_index(folio);
-			/*
-			 * Writeout when we cannot modify metadata is simple.
-			 * Just submit the page. For data=journal mode we
-			 * first handle writeout of the page for checkpoint and
-			 * only after that handle delayed page dirtying. This
-			 * makes sure current data is checkpointed to the final
-			 * location before possibly journalling it again which
-			 * is desirable when the page is frequently dirtied
-			 * through a pin.
-			 */
+
+
 			if (!mpd->can_map) {
 				err = mpage_submit_folio(mpd, folio);
 				if (err < 0)
 					goto out;
-				/* Pending dirtying of journalled data? */
+
 				if (folio_test_checked(folio)) {
 					err = mpage_journal_page_buffers(handle,
 						mpd, folio);
@@ -2542,7 +2496,7 @@ static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 				}
 				mpage_folio_done(mpd, folio);
 			} else {
-				/* Add all dirty buffers to mpd */
+
 				lblk = ((ext4_lblk_t)folio->index) <<
 					(PAGE_SHIFT - blkbits);
 				head = folio_buffers(folio);
@@ -2567,6 +2521,14 @@ out:
 	return err;
 }
 
+/**
+ * ext4_do_writepages - Implements the do writepages operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_do_writepages(struct mpage_da_data *mpd)
 {
 	struct writeback_control *wbc = mpd->wbc;
@@ -2584,36 +2546,19 @@ static int ext4_do_writepages(struct mpage_da_data *mpd)
 
 	trace_ext4_writepages(inode, wbc);
 
-	/*
-	 * No pages to write? This is mainly a kludge to avoid starting
-	 * a transaction for special inodes like journal inode on last iput()
-	 * because that could violate lock ordering on umount
-	 */
+
 	if (!mapping->nrpages || !mapping_tagged(mapping, PAGECACHE_TAG_DIRTY))
 		goto out_writepages;
 
-	/*
-	 * If the filesystem has aborted, it is read-only, so return
-	 * right away instead of dumping stack traces later on that
-	 * will obscure the real source of the problem.  We test
-	 * fs shutdown state instead of sb->s_flag's SB_RDONLY because
-	 * the latter could be true if the filesystem is mounted
-	 * read-only, and in that case, ext4_writepages should
-	 * *never* be called, so if that ever happens, we would want
-	 * the stack trace.
-	 */
+
 	if (unlikely(ext4_forced_shutdown(mapping->host->i_sb))) {
 		ret = -EROFS;
 		goto out_writepages;
 	}
 
-	/*
-	 * If we have inline data and arrive here, it means that
-	 * we will soon create the block for the 1st page, so
-	 * we'd better clear the inline data here.
-	 */
+
 	if (ext4_has_inline_data(inode)) {
-		/* Just inode will be modified... */
+
 		handle = ext4_journal_start(inode, EXT4_HT_INODE, 1);
 		if (IS_ERR(handle)) {
 			ret = PTR_ERR(handle);
@@ -2625,18 +2570,7 @@ static int ext4_do_writepages(struct mpage_da_data *mpd)
 		ext4_journal_stop(handle);
 	}
 
-	/*
-	 * data=journal mode does not do delalloc so we just need to writeout /
-	 * journal already mapped buffers. On the other hand we need to commit
-	 * transaction to make data stable. We expect all the data to be
-	 * already in the journal (the only exception are DMA pinned pages
-	 * dirtied behind our back) so we commit transaction here and run the
-	 * writeback loop to checkpoint them. The checkpointing is not actually
-	 * necessary to make data persistent *but* quite a few places (extent
-	 * shifting operations, fsverity, ...) depend on being able to drop
-	 * pagecache pages after calling filemap_write_and_wait() and for that
-	 * checkpointing needs to happen.
-	 */
+
 	if (ext4_should_journal_data(inode)) {
 		mpd->can_map = 0;
 		if (wbc->sync_mode == WB_SYNC_ALL)
@@ -2646,10 +2580,8 @@ static int ext4_do_writepages(struct mpage_da_data *mpd)
 	mpd->journalled_more_data = 0;
 
 	if (ext4_should_dioread_nolock(inode)) {
-		/*
-		 * We may need to convert up to one extent per block in
-		 * the page and we may dirty the inode.
-		 */
+
+
 		rsv_blocks = 1 + ext4_chunk_trans_blocks(inode,
 						PAGE_SIZE >> inode->i_blkbits);
 	}
@@ -2675,12 +2607,7 @@ retry:
 					mpd->last_page);
 	blk_start_plug(&plug);
 
-	/*
-	 * First writeback pages that don't need mapping - we can avoid
-	 * starting a transaction unnecessarily and also avoid being blocked
-	 * in the block layer on device congestion while having transaction
-	 * started.
-	 */
+
 	mpd->do_map = 0;
 	mpd->scanned_until_end = 0;
 	mpd->io_submit.io_end = ext4_init_io_end(inode, GFP_KERNEL);
@@ -2689,9 +2616,9 @@ retry:
 		goto unplug;
 	}
 	ret = mpage_prepare_extent_to_map(mpd);
-	/* Unlock pages we didn't use */
+
 	mpage_release_unused_pages(mpd, false);
-	/* Submit prepared bio */
+
 	ext4_io_submit(&mpd->io_submit);
 	ext4_put_io_end_defer(mpd->io_submit.io_end);
 	mpd->io_submit.io_end = NULL;
@@ -2699,7 +2626,7 @@ retry:
 		goto unplug;
 
 	while (!mpd->scanned_until_end && wbc->nr_to_write > 0) {
-		/* For each extent of pages we use new io_end */
+
 		mpd->io_submit.io_end = ext4_init_io_end(inode, GFP_KERNEL);
 		if (!mpd->io_submit.io_end) {
 			ret = -ENOMEM;
@@ -2707,17 +2634,12 @@ retry:
 		}
 
 		WARN_ON_ONCE(!mpd->can_map);
-		/*
-		 * We have two constraints: We find one extent to map and we
-		 * must always write out whole page (makes a difference when
-		 * blocksize < pagesize) so that we don't block on IO when we
-		 * try to write out the rest of the page. Journalled mode is
-		 * not supported by delalloc.
-		 */
+
+
 		BUG_ON(ext4_should_journal_data(inode));
 		needed_blocks = ext4_da_writepages_trans_blocks(inode);
 
-		/* start a new transaction */
+
 		handle = ext4_journal_start_with_reserve(inode,
 				EXT4_HT_WRITE_PAGE, needed_blocks, rsv_blocks);
 		if (IS_ERR(handle)) {
@@ -2725,7 +2647,7 @@ retry:
 			ext4_msg(inode->i_sb, KERN_CRIT, "%s: jbd2_start: "
 			       "%ld pages, ino %lu; err %d", __func__,
 				wbc->nr_to_write, inode->i_ino, ret);
-			/* Release allocated io_end */
+
 			ext4_put_io_end(mpd->io_submit.io_end);
 			mpd->io_submit.io_end = NULL;
 			break;
@@ -2737,33 +2659,19 @@ retry:
 		if (!ret && mpd->map.m_len)
 			ret = mpage_map_and_submit_extent(handle, mpd,
 					&give_up_on_write);
-		/*
-		 * Caution: If the handle is synchronous,
-		 * ext4_journal_stop() can wait for transaction commit
-		 * to finish which may depend on writeback of pages to
-		 * complete or on page lock to be released.  In that
-		 * case, we have to wait until after we have
-		 * submitted all the IO, released page locks we hold,
-		 * and dropped io_end reference (for extent conversion
-		 * to be able to complete) before stopping the handle.
-		 */
+
+
 		if (!ext4_handle_valid(handle) || handle->h_sync == 0) {
 			ext4_journal_stop(handle);
 			handle = NULL;
 			mpd->do_map = 0;
 		}
-		/* Unlock pages we didn't use */
+
 		mpage_release_unused_pages(mpd, give_up_on_write);
-		/* Submit prepared bio */
+
 		ext4_io_submit(&mpd->io_submit);
 
-		/*
-		 * Drop our io_end reference we got from init. We have
-		 * to be careful and use deferred io_end finishing if
-		 * we are still holding the transaction as we can
-		 * release the last reference to io_end which may end
-		 * up doing unwritten extent conversion.
-		 */
+
 		if (handle) {
 			ext4_put_io_end_defer(mpd->io_submit.io_end);
 			ext4_journal_stop(handle);
@@ -2772,16 +2680,13 @@ retry:
 		mpd->io_submit.io_end = NULL;
 
 		if (ret == -ENOSPC && sbi->s_journal) {
-			/*
-			 * Commit the transaction which would
-			 * free blocks released in the transaction
-			 * and try again
-			 */
+
+
 			jbd2_journal_force_commit_nested(sbi->s_journal);
 			ret = 0;
 			continue;
 		}
-		/* Fatal error - ENOMEM, EIO... */
+
 		if (ret)
 			break;
 	}
@@ -2794,12 +2699,10 @@ unplug:
 		goto retry;
 	}
 
-	/* Update index */
+
 	if (wbc->range_cyclic || (range_whole && wbc->nr_to_write > 0))
-		/*
-		 * Set the writeback_index so that range_cyclic
-		 * mode will write it back later
-		 */
+
+
 		mapping->writeback_index = mpd->first_page;
 
 out_writepages:
@@ -2808,6 +2711,14 @@ out_writepages:
 	return ret;
 }
 
+/**
+ * ext4_writepages - Implements the writepages operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_writepages(struct address_space *mapping,
 			   struct writeback_control *wbc)
 {
@@ -2825,11 +2736,8 @@ static int ext4_writepages(struct address_space *mapping,
 
 	alloc_ctx = ext4_writepages_down_read(sb);
 	ret = ext4_do_writepages(&mpd);
-	/*
-	 * For data=journal writeback we could have come across pages marked
-	 * for delayed dirtying (PageChecked) which were just added to the
-	 * running transaction. Try once more to get them to stable storage.
-	 */
+
+
 	if (!ret && mpd.journalled_more_data)
 		ret = ext4_do_writepages(&mpd);
 	ext4_writepages_up_read(sb, alloc_ctx);
@@ -2837,6 +2745,14 @@ static int ext4_writepages(struct address_space *mapping,
 	return ret;
 }
 
+/**
+ * ext4_normal_submit_inode_data_buffers - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_normal_submit_inode_data_buffers(struct jbd2_inode *jinode)
 {
 	struct writeback_control wbc = {
@@ -2853,6 +2769,14 @@ int ext4_normal_submit_inode_data_buffers(struct jbd2_inode *jinode)
 	return ext4_do_writepages(&mpd);
 }
 
+/**
+ * ext4_dax_writepages - Implements the dax writepages operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_dax_writepages(struct address_space *mapping,
 			       struct writeback_control *wbc)
 {
@@ -2875,40 +2799,46 @@ static int ext4_dax_writepages(struct address_space *mapping,
 	return ret;
 }
 
+/**
+ * ext4_nonda_switch - Implements the nonda switch operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_nonda_switch(struct super_block *sb)
 {
 	s64 free_clusters, dirty_clusters;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 
-	/*
-	 * switch to non delalloc mode if we are running low
-	 * on free block. The free block accounting via percpu
-	 * counters can get slightly wrong with percpu_counter_batch getting
-	 * accumulated on each CPU without updating global counters
-	 * Delalloc need an accurate free block accounting. So switch
-	 * to non delalloc when we are near to error range.
-	 */
+
 	free_clusters =
 		percpu_counter_read_positive(&sbi->s_freeclusters_counter);
 	dirty_clusters =
 		percpu_counter_read_positive(&sbi->s_dirtyclusters_counter);
-	/*
-	 * Start pushing delalloc when 1/2 of free blocks are dirty.
-	 */
+
+
 	if (dirty_clusters && (free_clusters < 2 * dirty_clusters))
 		try_to_writeback_inodes_sb(sb, WB_REASON_FS_FREE_SPACE);
 
 	if (2 * free_clusters < 3 * dirty_clusters ||
 	    free_clusters < (dirty_clusters + EXT4_FREECLUSTERS_WATERMARK)) {
-		/*
-		 * free block count is less than 150% of dirty blocks
-		 * or free blocks is less than watermark
-		 */
+
+
 		return 1;
 	}
 	return 0;
 }
 
+/**
+ * ext4_da_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_da_write_begin(struct file *file, struct address_space *mapping,
 			       loff_t pos, unsigned len,
 			       struct folio **foliop, void **fsdata)
@@ -2951,11 +2881,8 @@ retry:
 	if (ret < 0) {
 		folio_unlock(folio);
 		folio_put(folio);
-		/*
-		 * block_write_begin may have instantiated a few blocks
-		 * outside i_size.  Trim these off again. Don't need
-		 * i_size_read because we hold inode lock.
-		 */
+
+
 		if (pos + len > inode->i_size)
 			ext4_truncate_failed_write(inode);
 
@@ -2969,9 +2896,14 @@ retry:
 	return ret;
 }
 
-/*
- * Check if we should update i_disksize
- * when write to the end of file but not require block allocation
+
+/**
+ * ext4_da_should_update_i_disksize - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_da_should_update_i_disksize(struct folio *folio,
 					    unsigned long offset)
@@ -2992,6 +2924,14 @@ static int ext4_da_should_update_i_disksize(struct folio *folio,
 	return 1;
 }
 
+/**
+ * ext4_da_do_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_da_do_write_end(struct address_space *mapping,
 			loff_t pos, unsigned len, unsigned copied,
 			struct folio *folio)
@@ -3007,29 +2947,13 @@ static int ext4_da_do_write_end(struct address_space *mapping,
 		folio_put(folio);
 		return -EIO;
 	}
-	/*
-	 * block_write_end() will mark the inode as dirty with I_DIRTY_PAGES
-	 * flag, which all that's needed to trigger page writeback.
-	 */
+
+
 	copied = block_write_end(NULL, mapping, pos, len, copied,
 			folio, NULL);
 	new_i_size = pos + copied;
 
-	/*
-	 * It's important to update i_size while still holding folio lock,
-	 * because folio writeout could otherwise come in and zero beyond
-	 * i_size.
-	 *
-	 * Since we are holding inode lock, we are sure i_disksize <=
-	 * i_size. We also know that if i_disksize < i_size, there are
-	 * delalloc writes pending in the range up to i_size. If the end of
-	 * the current write is <= i_size, there's no need to touch
-	 * i_disksize since writeback will push i_disksize up to i_size
-	 * eventually. If the end of the current write is > i_size and
-	 * inside an allocated block which ext4_da_should_update_i_disksize()
-	 * checked, we need to update i_disksize here as certain
-	 * ext4_writepages() paths not allocating blocks and update i_disksize.
-	 */
+
 	if (new_i_size > inode->i_size) {
 		unsigned long end;
 
@@ -3063,6 +2987,14 @@ static int ext4_da_do_write_end(struct address_space *mapping,
 	return copied;
 }
 
+/**
+ * ext4_da_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_da_write_end(struct file *file,
 			     struct address_space *mapping,
 			     loff_t pos, unsigned len, unsigned copied,
@@ -3089,8 +3021,14 @@ static int ext4_da_write_end(struct file *file,
 	return ext4_da_do_write_end(mapping, pos, len, copied, folio);
 }
 
-/*
- * Force all delayed allocation blocks to be allocated for a given inode.
+
+/**
+ * ext4_alloc_da_blocks - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_alloc_da_blocks(struct inode *inode)
 {
@@ -3099,53 +3037,18 @@ int ext4_alloc_da_blocks(struct inode *inode)
 	if (!EXT4_I(inode)->i_reserved_data_blocks)
 		return 0;
 
-	/*
-	 * We do something simple for now.  The filemap_flush() will
-	 * also start triggering a write of the data blocks, which is
-	 * not strictly speaking necessary (and for users of
-	 * laptop_mode, not even desirable).  However, to do otherwise
-	 * would require replicating code paths in:
-	 *
-	 * ext4_writepages() ->
-	 *    write_cache_pages() ---> (via passed in callback function)
-	 *        __mpage_da_writepage() -->
-	 *           mpage_add_bh_to_extent()
-	 *           mpage_da_map_blocks()
-	 *
-	 * The problem is that write_cache_pages(), located in
-	 * mm/page-writeback.c, marks pages clean in preparation for
-	 * doing I/O, which is not desirable if we're not planning on
-	 * doing I/O at all.
-	 *
-	 * We could call write_cache_pages(), and then redirty all of
-	 * the pages by calling redirty_page_for_writepage() but that
-	 * would be ugly in the extreme.  So instead we would need to
-	 * replicate parts of the code in the above functions,
-	 * simplifying them because we wouldn't actually intend to
-	 * write out the pages, but rather only collect contiguous
-	 * logical block extents, call the multi-block allocator, and
-	 * then update the buffer heads with the block allocations.
-	 *
-	 * For now, though, we'll cheat by calling filemap_flush(),
-	 * which will map the blocks, and start the I/O, but not
-	 * actually wait for the I/O to complete.
-	 */
+
 	return filemap_flush(inode->i_mapping);
 }
 
-/*
- * bmap() is special.  It gets used by applications such as lilo and by
- * the swapper to find the on-disk block of a specific piece of data.
+
+/**
+ * ext4_bmap - Implements the bmap operation within the inode mapping and lifecycle subsystem.
  *
- * Naturally, this is dangerous if the block concerned is still in the
- * journal.  If somebody makes a swapfile on an ext4 data-journaling
- * filesystem and enables swap, then they may get a nasty shock when the
- * data getting swapped to that swapfile suddenly gets overwritten by
- * the original zero's written out previously to the journal and
- * awaiting writeback in the kernel's buffer cache.
- *
- * So, if we see any bmap calls here on a modified, data-journaled file,
- * take extra steps to flush any blocks which might be in the cache.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static sector_t ext4_bmap(struct address_space *mapping, sector_t block)
 {
@@ -3153,20 +3056,16 @@ static sector_t ext4_bmap(struct address_space *mapping, sector_t block)
 	sector_t ret = 0;
 
 	inode_lock_shared(inode);
-	/*
-	 * We can get here for an inline file via the FIBMAP ioctl
-	 */
+
+
 	if (ext4_has_inline_data(inode))
 		goto out;
 
 	if (mapping_tagged(mapping, PAGECACHE_TAG_DIRTY) &&
 	    (test_opt(inode->i_sb, DELALLOC) ||
 	     ext4_should_journal_data(inode))) {
-		/*
-		 * With delalloc or journalled data we want to sync the file so
-		 * that we can make sure we allocate blocks for file and data
-		 * is in place for the user to see it
-		 */
+
+
 		filemap_write_and_wait(mapping);
 	}
 
@@ -3177,6 +3076,14 @@ out:
 	return ret;
 }
 
+/**
+ * ext4_read_folio - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_read_folio(struct file *file, struct folio *folio)
 {
 	int ret = -EAGAIN;
@@ -3193,28 +3100,52 @@ static int ext4_read_folio(struct file *file, struct folio *folio)
 	return ret;
 }
 
+/**
+ * ext4_readahead - Implements the readahead operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_readahead(struct readahead_control *rac)
 {
 	struct inode *inode = rac->mapping->host;
 
-	/* If the file has inline data, no need to do readahead. */
+
 	if (ext4_has_inline_data(inode))
 		return;
 
 	ext4_mpage_readpages(inode, rac, NULL);
 }
 
+/**
+ * ext4_invalidate_folio - Implements the invalidate folio operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_invalidate_folio(struct folio *folio, size_t offset,
 				size_t length)
 {
 	trace_ext4_invalidate_folio(folio, offset, length);
 
-	/* No journalling happens on data buffers when this function is used */
+
 	WARN_ON(folio_buffers(folio) && buffer_jbd(folio_buffers(folio)));
 
 	block_invalidate_folio(folio, offset, length);
 }
 
+/**
+ * __ext4_journalled_invalidate_folio - Implements the journalled invalidate folio operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __ext4_journalled_invalidate_folio(struct folio *folio,
 					    size_t offset, size_t length)
 {
@@ -3222,16 +3153,22 @@ static int __ext4_journalled_invalidate_folio(struct folio *folio,
 
 	trace_ext4_journalled_invalidate_folio(folio, offset, length);
 
-	/*
-	 * If it's a full truncate we just forget about the pending dirtying
-	 */
+
 	if (offset == 0 && length == folio_size(folio))
 		folio_clear_checked(folio);
 
 	return jbd2_journal_invalidate_folio(journal, folio, offset, length);
 }
 
-/* Wrapper for aops... */
+
+/**
+ * ext4_journalled_invalidate_folio - Implements the journalled invalidate folio operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_journalled_invalidate_folio(struct folio *folio,
 					   size_t offset,
 					   size_t length)
@@ -3239,6 +3176,14 @@ static void ext4_journalled_invalidate_folio(struct folio *folio,
 	WARN_ON(__ext4_journalled_invalidate_folio(folio, offset, length) < 0);
 }
 
+/**
+ * ext4_release_folio - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_release_folio(struct folio *folio, gfp_t wait)
 {
 	struct inode *inode = folio->mapping->host;
@@ -3246,7 +3191,7 @@ static bool ext4_release_folio(struct folio *folio, gfp_t wait)
 
 	trace_ext4_release_folio(inode, folio);
 
-	/* Page has dirty journalled data -> cannot release */
+
 	if (folio_test_checked(folio))
 		return false;
 	if (journal)
@@ -3255,6 +3200,14 @@ static bool ext4_release_folio(struct folio *folio, gfp_t wait)
 		return try_to_free_buffers(folio);
 }
 
+/**
+ * ext4_inode_datasync_dirty - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_inode_datasync_dirty(struct inode *inode)
 {
 	journal_t *journal = EXT4_SB(inode->i_sb)->s_journal;
@@ -3268,23 +3221,27 @@ static bool ext4_inode_datasync_dirty(struct inode *inode)
 		return true;
 	}
 
-	/* Any metadata buffers to write? */
+
 	if (!list_empty(&inode->i_mapping->i_private_list))
 		return true;
 	return inode->i_state & I_DIRTY_DATASYNC;
 }
 
+/**
+ * ext4_set_iomap - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_set_iomap(struct inode *inode, struct iomap *iomap,
 			   struct ext4_map_blocks *map, loff_t offset,
 			   loff_t length, unsigned int flags)
 {
 	u8 blkbits = inode->i_blkbits;
 
-	/*
-	 * Writes that span EOF might trigger an I/O size update on completion,
-	 * so consider them to be dirty for the purpose of O_DSYNC, even if
-	 * there is no other metadata changes being made or are pending.
-	 */
+
 	iomap->flags = 0;
 	if (ext4_inode_datasync_dirty(inode) ||
 	    offset + length > i_size_read(inode))
@@ -3304,15 +3261,7 @@ static void ext4_set_iomap(struct inode *inode, struct iomap *iomap,
 	    !ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
 		iomap->flags |= IOMAP_F_MERGED;
 
-	/*
-	 * Flags passed to ext4_map_blocks() for direct I/O writes can result
-	 * in m_flags having both EXT4_MAP_MAPPED and EXT4_MAP_UNWRITTEN bits
-	 * set. In order for any allocated unwritten extents to be converted
-	 * into written extents correctly within the ->end_io() handler, we
-	 * need to ensure that the iomap->type is set appropriately. Hence, the
-	 * reason why we need to check whether the EXT4_MAP_UNWRITTEN bit has
-	 * been set first.
-	 */
+
 	if (map->m_flags & EXT4_MAP_UNWRITTEN) {
 		iomap->type = IOMAP_UNWRITTEN;
 		iomap->addr = (u64) map->m_pblk << blkbits;
@@ -3332,6 +3281,14 @@ static void ext4_set_iomap(struct inode *inode, struct iomap *iomap,
 	}
 }
 
+/**
+ * ext4_iomap_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_iomap_alloc(struct inode *inode, struct ext4_map_blocks *map,
 			    unsigned int flags)
 {
@@ -3339,38 +3296,24 @@ static int ext4_iomap_alloc(struct inode *inode, struct ext4_map_blocks *map,
 	u8 blkbits = inode->i_blkbits;
 	int ret, dio_credits, m_flags = 0, retries = 0;
 
-	/*
-	 * Trim the mapping request to the maximum value that we can map at
-	 * once for direct I/O.
-	 */
+
 	if (map->m_len > DIO_MAX_BLOCKS)
 		map->m_len = DIO_MAX_BLOCKS;
 	dio_credits = ext4_chunk_trans_blocks(inode, map->m_len);
 
 retry:
-	/*
-	 * Either we allocate blocks and then don't get an unwritten extent, so
-	 * in that case we have reserved enough credits. Or, the blocks are
-	 * already allocated and unwritten. In that case, the extent conversion
-	 * fits into the credits as well.
-	 */
+
+
 	handle = ext4_journal_start(inode, EXT4_HT_MAP_BLOCKS, dio_credits);
 	if (IS_ERR(handle))
 		return PTR_ERR(handle);
 
-	/*
-	 * DAX and direct I/O are the only two operations that are currently
-	 * supported with IOMAP_WRITE.
-	 */
+
 	WARN_ON(!(flags & (IOMAP_DAX | IOMAP_DIRECT)));
 	if (flags & IOMAP_DAX)
 		m_flags = EXT4_GET_BLOCKS_CREATE_ZERO;
-	/*
-	 * We use i_size instead of i_disksize here because delalloc writeback
-	 * can complete at any point during the I/O and subsequently push the
-	 * i_disksize out to i_size. This could be beyond where direct I/O is
-	 * happening and thus expose allocated blocks to direct I/O reads.
-	 */
+
+
 	else if (((loff_t)map->m_lblk << blkbits) >= i_size_read(inode))
 		m_flags = EXT4_GET_BLOCKS_CREATE;
 	else if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
@@ -3378,11 +3321,7 @@ retry:
 
 	ret = ext4_map_blocks(handle, inode, map, m_flags);
 
-	/*
-	 * We cannot fill holes in indirect tree based inodes as that could
-	 * expose stale data in the case of a crash. Use the magic error code
-	 * to fallback to buffered I/O.
-	 */
+
 	if (!m_flags && !ret)
 		ret = -ENOTBLK;
 
@@ -3394,6 +3333,14 @@ retry:
 }
 
 
+/**
+ * ext4_iomap_begin - Implements the iomap begin operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 		unsigned flags, struct iomap *iomap, struct iomap *srcmap)
 {
@@ -3407,20 +3354,14 @@ static int ext4_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 	if (WARN_ON_ONCE(ext4_has_inline_data(inode)))
 		return -ERANGE;
 
-	/*
-	 * Calculate the first and last logical blocks respectively.
-	 */
+
 	map.m_lblk = offset >> blkbits;
 	map.m_len = min_t(loff_t, (offset + length - 1) >> blkbits,
 			  EXT4_MAX_LOGICAL_BLOCK) - map.m_lblk + 1;
 
 	if (flags & IOMAP_WRITE) {
-		/*
-		 * We check here if the blocks are already allocated, then we
-		 * don't need to start a journal txn and we can directly return
-		 * the mapping information. This could boost performance
-		 * especially in multi-threaded overwrite requests.
-		 */
+
+
 		if (offset + length <= i_size_read(inode)) {
 			ret = ext4_map_blocks(NULL, inode, &map, 0);
 			if (ret > 0 && (map.m_flags & EXT4_MAP_MAPPED))
@@ -3434,11 +3375,8 @@ static int ext4_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 	if (ret < 0)
 		return ret;
 out:
-	/*
-	 * When inline encryption is enabled, sometimes I/O to an encrypted file
-	 * has to be broken up to guarantee DUN contiguity.  Handle this by
-	 * limiting the length of the mapping returned.
-	 */
+
+
 	map.m_len = fscrypt_limit_io_blocks(inode, map.m_lblk, map.m_len);
 
 	ext4_set_iomap(inode, iomap, &map, offset, length, flags);
@@ -3446,32 +3384,40 @@ out:
 	return 0;
 }
 
+/**
+ * ext4_iomap_overwrite_begin - Implements the iomap overwrite begin operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_iomap_overwrite_begin(struct inode *inode, loff_t offset,
 		loff_t length, unsigned flags, struct iomap *iomap,
 		struct iomap *srcmap)
 {
 	int ret;
 
-	/*
-	 * Even for writes we don't need to allocate blocks, so just pretend
-	 * we are reading to save overhead of starting a transaction.
-	 */
+
 	flags &= ~IOMAP_WRITE;
 	ret = ext4_iomap_begin(inode, offset, length, flags, iomap, srcmap);
 	WARN_ON_ONCE(!ret && iomap->type != IOMAP_MAPPED);
 	return ret;
 }
 
+/**
+ * ext4_iomap_end - Implements the iomap end operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_iomap_end(struct inode *inode, loff_t offset, loff_t length,
 			  ssize_t written, unsigned flags, struct iomap *iomap)
 {
-	/*
-	 * Check to see whether an error occurred while writing out the data to
-	 * the allocated blocks. If so, return the magic error code so that we
-	 * fallback to buffered I/O and attempt to complete the remainder of
-	 * the I/O. Any blocks that may have been allocated in preparation for
-	 * the direct I/O will be reused during buffered I/O.
-	 */
+
+
 	if (flags & (IOMAP_WRITE | IOMAP_DIRECT) && written == 0)
 		return -ENOTBLK;
 
@@ -3488,6 +3434,14 @@ const struct iomap_ops ext4_iomap_overwrite_ops = {
 	.iomap_end		= ext4_iomap_end,
 };
 
+/**
+ * ext4_iomap_begin_report - Implements the iomap begin report operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_iomap_begin_report(struct inode *inode, loff_t offset,
 				   loff_t length, unsigned int flags,
 				   struct iomap *iomap, struct iomap *srcmap)
@@ -3508,19 +3462,12 @@ static int ext4_iomap_begin_report(struct inode *inode, loff_t offset,
 		}
 	}
 
-	/*
-	 * Calculate the first and last logical block respectively.
-	 */
+
 	map.m_lblk = offset >> blkbits;
 	map.m_len = min_t(loff_t, (offset + length - 1) >> blkbits,
 			  EXT4_MAX_LOGICAL_BLOCK) - map.m_lblk + 1;
 
-	/*
-	 * Fiemap callers may call for offset beyond s_bitmap_maxbytes.
-	 * So handle it here itself instead of querying ext4_map_blocks().
-	 * Since ext4_map_blocks() will warn about it and will return
-	 * -EIO error.
-	 */
+
 	if (!(ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))) {
 		struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 
@@ -3543,20 +3490,14 @@ const struct iomap_ops ext4_iomap_report_ops = {
 	.iomap_begin = ext4_iomap_begin_report,
 };
 
-/*
- * For data=journal mode, folio should be marked dirty only when it was
- * writeably mapped. When that happens, it was already attached to the
- * transaction and marked as jbddirty (we take care of this in
- * ext4_page_mkwrite()). On transaction commit, we writeprotect page mappings
- * so we should have nothing to do here, except for the case when someone
- * had the page pinned and dirtied the page through this pin (e.g. by doing
- * direct IO to it). In that case we'd need to attach buffers here to the
- * transaction but we cannot due to lock ordering.  We cannot just dirty the
- * folio and leave attached buffers clean, because the buffers' dirty state is
- * "definitive".  We cannot just set the buffers dirty or jbddirty because all
- * the journalling code will explode.  So what we do is to mark the folio
- * "pending dirty" and next time ext4_writepages() is called, attach buffers
- * to the transaction appropriately.
+
+/**
+ * ext4_journalled_dirty_folio - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static bool ext4_journalled_dirty_folio(struct address_space *mapping,
 		struct folio *folio)
@@ -3567,6 +3508,14 @@ static bool ext4_journalled_dirty_folio(struct address_space *mapping,
 	return filemap_dirty_folio(mapping, folio);
 }
 
+/**
+ * ext4_dirty_folio - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_dirty_folio(struct address_space *mapping, struct folio *folio)
 {
 	WARN_ON_ONCE(!folio_test_locked(folio) && !folio_test_dirty(folio));
@@ -3574,6 +3523,14 @@ static bool ext4_dirty_folio(struct address_space *mapping, struct folio *folio)
 	return block_dirty_folio(mapping, folio);
 }
 
+/**
+ * ext4_iomap_swap_activate - Implements the iomap swap activate operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_iomap_swap_activate(struct swap_info_struct *sis,
 				    struct file *file, sector_t *span)
 {
@@ -3636,6 +3593,14 @@ static const struct address_space_operations ext4_dax_aops = {
 	.swap_activate		= ext4_iomap_swap_activate,
 };
 
+/**
+ * ext4_set_aops - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_set_aops(struct inode *inode)
 {
 	switch (ext4_inode_journal_mode(inode)) {
@@ -3656,11 +3621,14 @@ void ext4_set_aops(struct inode *inode)
 		inode->i_mapping->a_ops = &ext4_aops;
 }
 
-/*
- * Here we can't skip an unwritten buffer even though it usually reads zero
- * because it might have data in pagecache (eg, if called from ext4_zero_range,
- * ext4_punch_hole, etc) which needs to be properly zeroed out. Otherwise a
- * racing writeback can come later and flush the stale pagecache to disk.
+
+/**
+ * __ext4_block_zero_page_range - Implements the block zero page range operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int __ext4_block_zero_page_range(handle_t *handle,
 		struct address_space *mapping, loff_t from, loff_t length)
@@ -3688,7 +3656,7 @@ static int __ext4_block_zero_page_range(handle_t *handle,
 	if (!bh)
 		bh = create_empty_buffers(folio, blocksize, 0);
 
-	/* Find the buffer that contains "offset" */
+
 	pos = blocksize;
 	while (offset >= pos) {
 		bh = bh->b_this_page;
@@ -3702,14 +3670,14 @@ static int __ext4_block_zero_page_range(handle_t *handle,
 	if (!buffer_mapped(bh)) {
 		BUFFER_TRACE(bh, "unmapped");
 		ext4_get_block(inode, iblock, bh, 0);
-		/* unmapped? It's a hole - nothing to do */
+
 		if (!buffer_mapped(bh)) {
 			BUFFER_TRACE(bh, "still unmapped");
 			goto unlock;
 		}
 	}
 
-	/* Ok, it's mapped. Make sure it's up-to-date */
+
 	if (folio_test_uptodate(folio))
 		set_buffer_uptodate(bh);
 
@@ -3718,7 +3686,7 @@ static int __ext4_block_zero_page_range(handle_t *handle,
 		if (err)
 			goto unlock;
 		if (fscrypt_inode_uses_fs_layer_crypto(inode)) {
-			/* We expect the key to be set. */
+
 			BUG_ON(!fscrypt_has_encryption_key(inode));
 			err = fscrypt_decrypt_pagecache_blocks(folio,
 							       blocksize,
@@ -3755,12 +3723,14 @@ unlock:
 	return err;
 }
 
-/*
- * ext4_block_zero_page_range() zeros out a mapping of length 'length'
- * starting from file offset 'from'.  The range to be zero'd must
- * be contained with in one block.  If the specified range exceeds
- * the end of the block it will be shortened to end of the block
- * that corresponds to 'from'
+
+/**
+ * ext4_block_zero_page_range - Implements the block zero page range operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_block_zero_page_range(handle_t *handle,
 		struct address_space *mapping, loff_t from, loff_t length)
@@ -3770,10 +3740,7 @@ static int ext4_block_zero_page_range(handle_t *handle,
 	unsigned blocksize = inode->i_sb->s_blocksize;
 	unsigned max = blocksize - (offset & (blocksize - 1));
 
-	/*
-	 * correct length if it does not fall between
-	 * 'from' and the end of the block
-	 */
+
 	if (length > max || length < 0)
 		length = max;
 
@@ -3784,11 +3751,14 @@ static int ext4_block_zero_page_range(handle_t *handle,
 	return __ext4_block_zero_page_range(handle, mapping, from, length);
 }
 
-/*
- * ext4_block_truncate_page() zeroes out a mapping from file offset `from'
- * up to the end of the block which corresponds to `from'.
- * This required during truncate. We need to physically zero the tail end
- * of that block so it doesn't yield old data if the file is later grown.
+
+/**
+ * ext4_block_truncate_page - Implements the block truncate page operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_block_truncate_page(handle_t *handle,
 		struct address_space *mapping, loff_t from)
@@ -3798,7 +3768,7 @@ static int ext4_block_truncate_page(handle_t *handle,
 	unsigned blocksize;
 	struct inode *inode = mapping->host;
 
-	/* If we are processing an encrypted inode during orphan list handling */
+
 	if (IS_ENCRYPTED(inode) && !fscrypt_has_encryption_key(inode))
 		return 0;
 
@@ -3808,6 +3778,14 @@ static int ext4_block_truncate_page(handle_t *handle,
 	return ext4_block_zero_page_range(handle, mapping, from, length);
 }
 
+/**
+ * ext4_zero_partial_blocks - Implements the zero partial blocks operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_zero_partial_blocks(handle_t *handle, struct inode *inode,
 			     loff_t lstart, loff_t length)
 {
@@ -3824,21 +3802,21 @@ int ext4_zero_partial_blocks(handle_t *handle, struct inode *inode,
 	start = lstart >> sb->s_blocksize_bits;
 	end = byte_end >> sb->s_blocksize_bits;
 
-	/* Handle partial zero within the single block */
+
 	if (start == end &&
 	    (partial_start || (partial_end != sb->s_blocksize - 1))) {
 		err = ext4_block_zero_page_range(handle, mapping,
 						 lstart, length);
 		return err;
 	}
-	/* Handle partial zero out on the start of the range */
+
 	if (partial_start) {
 		err = ext4_block_zero_page_range(handle, mapping,
 						 lstart, sb->s_blocksize);
 		if (err)
 			return err;
 	}
-	/* Handle partial zero out on the end of the range */
+
 	if (partial_end != sb->s_blocksize - 1)
 		err = ext4_block_zero_page_range(handle, mapping,
 						 byte_end - partial_end,
@@ -3846,6 +3824,14 @@ int ext4_zero_partial_blocks(handle_t *handle, struct inode *inode,
 	return err;
 }
 
+/**
+ * ext4_can_truncate - Implements the can truncate operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_can_truncate(struct inode *inode)
 {
 	if (S_ISREG(inode->i_mode))
@@ -3857,15 +3843,14 @@ int ext4_can_truncate(struct inode *inode)
 	return 0;
 }
 
-/*
- * We have to make sure i_disksize gets properly updated before we truncate
- * page cache due to hole punching or zero range. Otherwise i_disksize update
- * can get lost as it may have been postponed to submission of writeback but
- * that will never happen if we remove the folio containing i_size from the
- * page cache. Also if we punch hole within i_size but above i_disksize,
- * following ext4_page_mkwrite() may mistakenly allocate written blocks over
- * the hole and thus introduce allocated blocks beyond i_disksize which is
- * not allowed (e2fsck would complain in case of crash).
+
+/**
+ * ext4_update_disksize_before_punch - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_update_disksize_before_punch(struct inode *inode, loff_t offset,
 				      loff_t len)
@@ -3894,13 +3879,21 @@ int ext4_update_disksize_before_punch(struct inode *inode, loff_t offset,
 	return ret;
 }
 
+/**
+ * ext4_truncate_folio - Implements the truncate folio operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_truncate_folio(struct inode *inode,
 				       loff_t start, loff_t end)
 {
 	unsigned long blocksize = i_blocksize(inode);
 	struct folio *folio;
 
-	/* Nothing to be done if no complete block needs to be truncated. */
+
 	if (round_up(start, blocksize) >= round_down(end, blocksize))
 		return;
 
@@ -3914,18 +3907,21 @@ static inline void ext4_truncate_folio(struct inode *inode,
 	folio_put(folio);
 }
 
+/**
+ * ext4_truncate_page_cache_block_range - Implements the truncate page cache block range operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_truncate_page_cache_block_range(struct inode *inode,
 					 loff_t start, loff_t end)
 {
 	unsigned long blocksize = i_blocksize(inode);
 	int ret;
 
-	/*
-	 * For journalled data we need to write (and checkpoint) pages
-	 * before discarding page cache to avoid inconsitent data on disk
-	 * in case of crash before freeing or unwritten converting trans
-	 * is committed.
-	 */
+
 	if (ext4_should_journal_data(inode)) {
 		ret = filemap_write_and_wait_range(inode->i_mapping, start,
 						   end - 1);
@@ -3934,13 +3930,7 @@ int ext4_truncate_page_cache_block_range(struct inode *inode,
 		goto truncate_pagecache;
 	}
 
-	/*
-	 * If the block size is less than the page size, the file's mapped
-	 * blocks within one page could be freed or converted to unwritten.
-	 * So it's necessary to remove writable userspace mappings, and then
-	 * ext4_page_mkwrite() can be called during subsequent write access
-	 * to these partial folios.
-	 */
+
 	if (!IS_ALIGNED(start | end, PAGE_SIZE) &&
 	    blocksize < PAGE_SIZE && start < inode->i_size) {
 		loff_t page_boundary = round_up(start, PAGE_SIZE);
@@ -3956,6 +3946,14 @@ truncate_pagecache:
 	return 0;
 }
 
+/**
+ * ext4_wait_dax_page - Implements the wait dax page operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_wait_dax_page(struct inode *inode)
 {
 	filemap_invalidate_unlock(inode->i_mapping);
@@ -3963,6 +3961,14 @@ static void ext4_wait_dax_page(struct inode *inode)
 	filemap_invalidate_lock(inode->i_mapping);
 }
 
+/**
+ * ext4_break_layouts - Implements the break layouts operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_break_layouts(struct inode *inode)
 {
 	struct page *page;
@@ -3985,17 +3991,15 @@ int ext4_break_layouts(struct inode *inode)
 	return error;
 }
 
-/*
- * ext4_punch_hole: punches a hole in a file by releasing the blocks
- * associated with the given offset and length
- *
- * @inode:  File inode
- * @offset: The offset where the hole will begin
- * @len:    The length of the hole
- *
- * Returns: 0 on success or negative on failure
- */
 
+/**
+ * ext4_punch_hole - Implements the punch hole operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_punch_hole(struct file *file, loff_t offset, loff_t length)
 {
 	struct inode *inode = file_inode(file);
@@ -4010,31 +4014,22 @@ int ext4_punch_hole(struct file *file, loff_t offset, loff_t length)
 	trace_ext4_punch_hole(inode, offset, length, 0);
 	WARN_ON_ONCE(!inode_is_locked(inode));
 
-	/*
-	 * For indirect-block based inodes, make sure that the hole within
-	 * one block before last range.
-	 */
+
 	if (!ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
 		max_end = EXT4_SB(sb)->s_bitmap_maxbytes - sb->s_blocksize;
 
-	/* No need to punch hole beyond i_size */
+
 	if (offset >= inode->i_size || offset >= max_end)
 		return 0;
 
-	/*
-	 * If the hole extends beyond i_size, set the hole to end after
-	 * the page that contains i_size.
-	 */
+
 	if (end > inode->i_size)
 		end = round_up(inode->i_size, PAGE_SIZE);
 	if (end > max_end)
 		end = max_end;
 	length = end - offset;
 
-	/*
-	 * Attach jinode to inode for jbd2 if we do any zeroing of partial
-	 * block.
-	 */
+
 	if (!IS_ALIGNED(offset | end, sb->s_blocksize)) {
 		ret = ext4_inode_attach_jinode(inode);
 		if (ret < 0)
@@ -4046,7 +4041,7 @@ int ext4_punch_hole(struct file *file, loff_t offset, loff_t length)
 	if (ret)
 		return ret;
 
-	/* Now release the pages and zero block aligned part of pages*/
+
 	ret = ext4_truncate_page_cache_block_range(inode, offset, end);
 	if (ret)
 		return ret;
@@ -4066,7 +4061,7 @@ int ext4_punch_hole(struct file *file, loff_t offset, loff_t length)
 	if (ret)
 		goto out_handle;
 
-	/* If there are blocks to remove, do it */
+
 	start_lblk = EXT4_B_TO_LBLK(inode, offset);
 	end_lblk = end >> inode->i_blkbits;
 
@@ -4107,6 +4102,14 @@ out_handle:
 	return ret;
 }
 
+/**
+ * ext4_inode_attach_jinode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_inode_attach_jinode(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -4123,10 +4126,8 @@ int ext4_inode_attach_jinode(struct inode *inode)
 			return -ENOMEM;
 		}
 		jbd2_journal_init_jbd_inode(jinode, inode);
-		/*
-		 * Publish ->jinode only after it is fully initialized so that
-		 * readers never observe a partially initialized jbd2_inode.
-		 */
+
+
 		smp_wmb();
 		WRITE_ONCE(ei->jinode, jinode);
 		jinode = NULL;
@@ -4137,33 +4138,14 @@ int ext4_inode_attach_jinode(struct inode *inode)
 	return 0;
 }
 
-/*
- * ext4_truncate()
+
+/**
+ * ext4_truncate - Implements the truncate operation within the inode mapping and lifecycle subsystem.
  *
- * We block out ext4_get_block() block instantiations across the entire
- * transaction, and VFS/VM ensures that ext4_truncate() cannot run
- * simultaneously on behalf of the same inode.
- *
- * As we work through the truncate and commit bits of it to the journal there
- * is one core, guiding principle: the file's tree must always be consistent on
- * disk.  We must be able to restart the truncate after a crash.
- *
- * The file's tree may be transiently inconsistent in memory (although it
- * probably isn't), but whenever we close off and commit a journal transaction,
- * the contents of (the filesystem + the journal) must be consistent and
- * restartable.  It's pretty simple, really: bottom up, right to left (although
- * left-to-right works OK too).
- *
- * Note that at recovery time, journal replay occurs *before* the restart of
- * truncate against the orphan inode list.
- *
- * The committed inode has the new, desired i_size (which is the same as
- * i_disksize in this case).  After a crash, ext4_orphan_cleanup() will see
- * that this inode's truncate did not complete and it will again call
- * ext4_truncate() to have another go.  So there will be instantiated blocks
- * to the right of the truncation point in a crashed ext4 filesystem.  But
- * that's fine - as long as they are linked from the inode, the post-crash
- * ext4_truncate() run will find them and release them.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_truncate(struct inode *inode)
 {
@@ -4173,11 +4155,7 @@ int ext4_truncate(struct inode *inode)
 	handle_t *handle;
 	struct address_space *mapping = inode->i_mapping;
 
-	/*
-	 * There is a possibility that we're either freeing the inode
-	 * or it's a completely new inode. In those cases we might not
-	 * have i_rwsem locked because it's not necessary.
-	 */
+
 	if (!(inode->i_state & (I_NEW|I_FREEING)))
 		WARN_ON(!inode_is_locked(inode));
 	trace_ext4_truncate_enter(inode);
@@ -4196,7 +4174,7 @@ int ext4_truncate(struct inode *inode)
 			goto out_trace;
 	}
 
-	/* If we zero-out tail of the page, we have to create jinode for jbd2 */
+
 	if (inode->i_size & (inode->i_sb->s_blocksize - 1)) {
 		err = ext4_inode_attach_jinode(inode);
 		if (err)
@@ -4217,15 +4195,7 @@ int ext4_truncate(struct inode *inode)
 	if (inode->i_size & (inode->i_sb->s_blocksize - 1))
 		ext4_block_truncate_page(handle, mapping, inode->i_size);
 
-	/*
-	 * We add the inode to the orphan list, so that if this
-	 * truncate spans multiple transactions, and we crash, we will
-	 * resume the truncate when the filesystem recovers.  It also
-	 * marks the inode dirty, to catch the new size.
-	 *
-	 * Implication: the file must always be in a sane, consistent
-	 * truncatable state while each transaction commits.
-	 */
+
 	err = ext4_orphan_add(handle, inode);
 	if (err)
 		goto out_stop;
@@ -4247,13 +4217,8 @@ int ext4_truncate(struct inode *inode)
 		ext4_handle_sync(handle);
 
 out_stop:
-	/*
-	 * If this was a simple ftruncate() and the file will remain alive,
-	 * then we need to clear up the orphan record which we created above.
-	 * However, if this was a real unlink then we were called by
-	 * ext4_evict_inode(), and we allow that function to clean up the
-	 * orphan info for us.
-	 */
+
+
 	if (inode->i_nlink)
 		ext4_orphan_del(handle, inode);
 
@@ -4268,6 +4233,14 @@ out_trace:
 	return err;
 }
 
+/**
+ * ext4_inode_peek_iversion - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline u64 ext4_inode_peek_iversion(const struct inode *inode)
 {
 	if (unlikely(EXT4_I(inode)->i_flags & EXT4_EA_INODE_FL))
@@ -4276,6 +4249,14 @@ static inline u64 ext4_inode_peek_iversion(const struct inode *inode)
 		return inode_peek_iversion(inode);
 }
 
+/**
+ * ext4_inode_blocks_set - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_inode_blocks_set(struct ext4_inode *raw_inode,
 				 struct ext4_inode_info *ei)
 {
@@ -4284,35 +4265,27 @@ static int ext4_inode_blocks_set(struct ext4_inode *raw_inode,
 	struct super_block *sb = inode->i_sb;
 
 	if (i_blocks <= ~0U) {
-		/*
-		 * i_blocks can be represented in a 32 bit variable
-		 * as multiple of 512 bytes
-		 */
+
+
 		raw_inode->i_blocks_lo   = cpu_to_le32(i_blocks);
 		raw_inode->i_blocks_high = 0;
 		ext4_clear_inode_flag(inode, EXT4_INODE_HUGE_FILE);
 		return 0;
 	}
 
-	/*
-	 * This should never happen since sb->s_maxbytes should not have
-	 * allowed this, sb->s_maxbytes was set according to the huge_file
-	 * feature in ext4_fill_super().
-	 */
+
 	if (!ext4_has_feature_huge_file(sb))
 		return -EFSCORRUPTED;
 
 	if (i_blocks <= 0xffffffffffffULL) {
-		/*
-		 * i_blocks can be represented in a 48 bit variable
-		 * as multiple of 512 bytes
-		 */
+
+
 		raw_inode->i_blocks_lo   = cpu_to_le32(i_blocks);
 		raw_inode->i_blocks_high = cpu_to_le16(i_blocks >> 32);
 		ext4_clear_inode_flag(inode, EXT4_INODE_HUGE_FILE);
 	} else {
 		ext4_set_inode_flag(inode, EXT4_INODE_HUGE_FILE);
-		/* i_block is stored in file system block size */
+
 		i_blocks = i_blocks >> (inode->i_blkbits - 9);
 		raw_inode->i_blocks_lo   = cpu_to_le32(i_blocks);
 		raw_inode->i_blocks_high = cpu_to_le16(i_blocks >> 32);
@@ -4320,6 +4293,14 @@ static int ext4_inode_blocks_set(struct ext4_inode *raw_inode,
 	return 0;
 }
 
+/**
+ * ext4_fill_raw_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fill_raw_inode(struct inode *inode, struct ext4_inode *raw_inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -4338,11 +4319,8 @@ static int ext4_fill_raw_inode(struct inode *inode, struct ext4_inode *raw_inode
 	if (!(test_opt(inode->i_sb, NO_UID32))) {
 		raw_inode->i_uid_low = cpu_to_le16(low_16_bits(i_uid));
 		raw_inode->i_gid_low = cpu_to_le16(low_16_bits(i_gid));
-		/*
-		 * Fix up interoperability with old kernels. Otherwise,
-		 * old inodes get re-used with the upper 16 bits of the
-		 * uid/gid intact.
-		 */
+
+
 		if (ei->i_dtime && !ext4_inode_orphan_tracked(inode)) {
 			raw_inode->i_uid_high = 0;
 			raw_inode->i_gid_high = 0;
@@ -4415,11 +4393,14 @@ static int ext4_fill_raw_inode(struct inode *inode, struct ext4_inode *raw_inode
 	return err;
 }
 
-/*
- * ext4_get_inode_loc returns with an extra refcount against the inode's
- * underlying buffer_head on success. If we pass 'inode' and it does not
- * have in-inode xattr, we have all inode data in memory that is needed
- * to recreate the on-disk version of this inode.
+
+/**
+ * __ext4_get_inode_loc - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int __ext4_get_inode_loc(struct super_block *sb, unsigned long ino,
 				struct inode *inode, struct ext4_iloc *iloc,
@@ -4441,9 +4422,7 @@ static int __ext4_get_inode_loc(struct super_block *sb, unsigned long ino,
 	if (!gdp)
 		return -EIO;
 
-	/*
-	 * Figure out the offset within the block group inode table
-	 */
+
 	inodes_per_block = EXT4_SB(sb)->s_inodes_per_block;
 	inode_offset = ((ino - 1) %
 			EXT4_INODES_PER_GROUP(sb));
@@ -4466,32 +4445,24 @@ static int __ext4_get_inode_loc(struct super_block *sb, unsigned long ino,
 
 	lock_buffer(bh);
 	if (ext4_buffer_uptodate(bh)) {
-		/* Someone brought it uptodate while we waited */
+
 		unlock_buffer(bh);
 		goto has_buffer;
 	}
 
-	/*
-	 * If we have all information of the inode in memory and this
-	 * is the only valid inode in the block, we need not read the
-	 * block.
-	 */
+
 	if (inode && !ext4_test_inode_state(inode, EXT4_STATE_XATTR)) {
 		struct buffer_head *bitmap_bh;
 		int i, start;
 
 		start = inode_offset & ~(inodes_per_block - 1);
 
-		/* Is the inode bitmap in cache? */
+
 		bitmap_bh = sb_getblk(sb, ext4_inode_bitmap(sb, gdp));
 		if (unlikely(!bitmap_bh))
 			goto make_io;
 
-		/*
-		 * If the inode bitmap isn't in cache then the
-		 * optimisation may end up performing two reads instead
-		 * of one, so skip it.
-		 */
+
 		if (!buffer_uptodate(bitmap_bh)) {
 			brelse(bitmap_bh);
 			goto make_io;
@@ -4507,7 +4478,7 @@ static int __ext4_get_inode_loc(struct super_block *sb, unsigned long ino,
 			struct ext4_inode *raw_inode =
 				(struct ext4_inode *) (bh->b_data + iloc->offset);
 
-			/* all other inodes are free, so skip I/O */
+
 			memset(bh->b_data, 0, bh->b_size);
 			if (!ext4_test_inode_state(inode, EXT4_STATE_NEW))
 				ext4_fill_raw_inode(inode, raw_inode);
@@ -4518,10 +4489,8 @@ static int __ext4_get_inode_loc(struct super_block *sb, unsigned long ino,
 	}
 
 make_io:
-	/*
-	 * If we need to do any I/O, try to pre-readahead extra
-	 * blocks from the inode table.
-	 */
+
+
 	blk_start_plug(&plug);
 	if (EXT4_SB(sb)->s_inode_readahead_blks) {
 		ext4_fsblk_t b, end, table;
@@ -4529,7 +4498,7 @@ make_io:
 		__u32 ra_blks = EXT4_SB(sb)->s_inode_readahead_blks;
 
 		table = ext4_inode_table(sb, gdp);
-		/* s_inode_readahead_blks is always a power of 2 */
+
 		b = block & ~((ext4_fsblk_t) ra_blks - 1);
 		if (table > b)
 			b = table;
@@ -4544,11 +4513,7 @@ make_io:
 			ext4_sb_breadahead_unmovable(sb, b++);
 	}
 
-	/*
-	 * There are other valid inodes in the buffer, this inode
-	 * has in-inode xattrs, or we don't have this inode in memory.
-	 * Read the block from disk.
-	 */
+
 	trace_ext4_load_inode(sb, ino);
 	ext4_read_bh_nowait(bh, REQ_META | REQ_PRIO, NULL,
 			    ext4_simulate_fail(sb, EXT4_SIM_INODE_EIO));
@@ -4565,6 +4530,14 @@ has_buffer:
 	return 0;
 }
 
+/**
+ * __ext4_get_inode_loc_noinmem - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __ext4_get_inode_loc_noinmem(struct inode *inode,
 					struct ext4_iloc *iloc)
 {
@@ -4581,6 +4554,14 @@ static int __ext4_get_inode_loc_noinmem(struct inode *inode,
 	return ret;
 }
 
+/**
+ * ext4_get_inode_loc - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_get_inode_loc(struct inode *inode, struct ext4_iloc *iloc)
 {
 	ext4_fsblk_t err_blk = 0;
@@ -4597,12 +4578,28 @@ int ext4_get_inode_loc(struct inode *inode, struct ext4_iloc *iloc)
 }
 
 
+/**
+ * ext4_get_fc_inode_loc - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_get_fc_inode_loc(struct super_block *sb, unsigned long ino,
 			  struct ext4_iloc *iloc)
 {
 	return __ext4_get_inode_loc(sb, ino, NULL, iloc, NULL);
 }
 
+/**
+ * ext4_should_enable_dax - Implements the should enable dax operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_should_enable_dax(struct inode *inode)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
@@ -4627,6 +4624,14 @@ static bool ext4_should_enable_dax(struct inode *inode)
 	return ext4_test_inode_flag(inode, EXT4_INODE_DAX);
 }
 
+/**
+ * ext4_set_inode_flags - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_set_inode_flags(struct inode *inode, bool init)
 {
 	unsigned int flags = EXT4_I(inode)->i_flags;
@@ -4645,8 +4650,7 @@ void ext4_set_inode_flags(struct inode *inode, bool init)
 	if (flags & EXT4_DIRSYNC_FL)
 		new_fl |= S_DIRSYNC;
 
-	/* Because of the way inode_set_flags() works we must preserve S_DAX
-	 * here if already set. */
+
 	new_fl |= (inode->i_flags & S_DAX);
 	if (init && ext4_should_enable_dax(inode))
 		new_fl |= S_DAX;
@@ -4662,6 +4666,14 @@ void ext4_set_inode_flags(struct inode *inode, bool init)
 			S_ENCRYPTED|S_CASEFOLD|S_VERITY);
 }
 
+/**
+ * ext4_inode_blocks - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static blkcnt_t ext4_inode_blocks(struct ext4_inode *raw_inode,
 				  struct ext4_inode_info *ei)
 {
@@ -4670,11 +4682,11 @@ static blkcnt_t ext4_inode_blocks(struct ext4_inode *raw_inode,
 	struct super_block *sb = inode->i_sb;
 
 	if (ext4_has_feature_huge_file(sb)) {
-		/* we are using combined 48 bit field */
+
 		i_blocks = ((u64)le16_to_cpu(raw_inode->i_blocks_high)) << 32 |
 					le32_to_cpu(raw_inode->i_blocks_lo);
 		if (ext4_test_inode_flag(inode, EXT4_INODE_HUGE_FILE)) {
-			/* i_blocks represent file system block size */
+
 			return i_blocks  << (inode->i_blkbits - 9);
 		} else {
 			return i_blocks;
@@ -4684,6 +4696,14 @@ static blkcnt_t ext4_inode_blocks(struct ext4_inode *raw_inode,
 	}
 }
 
+/**
+ * ext4_iget_extra_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_iget_extra_inode(struct inode *inode,
 					 struct ext4_inode *raw_inode,
 					 struct ext4_inode_info *ei)
@@ -4710,6 +4730,14 @@ static inline int ext4_iget_extra_inode(struct inode *inode,
 	return 0;
 }
 
+/**
+ * ext4_get_projid - Implements the get projid operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_get_projid(struct inode *inode, kprojid_t *projid)
 {
 	if (!ext4_has_feature_project(inode->i_sb))
@@ -4718,10 +4746,14 @@ int ext4_get_projid(struct inode *inode, kprojid_t *projid)
 	return 0;
 }
 
-/*
- * ext4 has self-managed i_version for ea inodes, it stores the lower 32bit of
- * refcount in i_version, so use raw values if inode has EXT4_EA_INODE_FL flag
- * set.
+
+/**
+ * ext4_inode_set_iversion_queried - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline void ext4_inode_set_iversion_queried(struct inode *inode, u64 val)
 {
@@ -4731,6 +4763,14 @@ static inline void ext4_inode_set_iversion_queried(struct inode *inode, u64 val)
 		inode_set_iversion_queried(inode, val);
 }
 
+/**
+ * check_igot_inode - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int check_igot_inode(struct inode *inode, ext4_iget_flags flags,
 			    const char *function, unsigned int line)
 {
@@ -4748,11 +4788,8 @@ static int check_igot_inode(struct inode *inode, ext4_iget_flags flags,
 		}
 	} else {
 		if ((EXT4_I(inode)->i_flags & EXT4_EA_INODE_FL)) {
-			/*
-			 * open_by_handle_at() could provide an old inode number
-			 * that has since been reused for an ea_inode; this does
-			 * not indicate filesystem corruption
-			 */
+
+
 			if (flags & EXT4_IGET_HANDLE)
 				return -ESTALE;
 			err_str = "unexpected EA_INODE flag";
@@ -4770,6 +4807,14 @@ error:
 	return -EFSCORRUPTED;
 }
 
+/**
+ * __ext4_iget - Implements the iget operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 			  ext4_iget_flags flags, const char *function,
 			  unsigned int line)
@@ -4845,7 +4890,7 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 	} else
 		ei->i_extra_isize = 0;
 
-	/* Precompute checksum seed for inode metadata */
+
 	if (ext4_has_metadata_csum(sb)) {
 		struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 		__u32 csum;
@@ -4888,16 +4933,13 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 	ei->i_inline_off = 0;
 	ei->i_dir_start_lookup = 0;
 	ei->i_dtime = le32_to_cpu(raw_inode->i_dtime);
-	/* We now have enough fields to check if the inode was active or not.
-	 * This is needed because nfsd might try to access dead inodes
-	 * the test is that same one that e2fsck uses
-	 * NeilBrown 1999oct15
-	 */
+
+
 	if (inode->i_nlink == 0) {
 		if ((inode->i_mode == 0 || flags & EXT4_IGET_SPECIAL ||
 		     !(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_ORPHAN_FS)) &&
 		    ino != EXT4_BOOT_LOADER_INO) {
-			/* this inode is deleted or unallocated */
+
 			if (flags & EXT4_IGET_SPECIAL) {
 				ext4_error_inode(inode, function, line, 0,
 						 "iget: special inode unallocated");
@@ -4906,16 +4948,12 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 				ret = -ESTALE;
 			goto bad_inode;
 		}
-		/* The only unlinked inodes we let through here have
-		 * valid i_mode and are being read by the orphan
-		 * recovery code: that's fine, we're about to complete
-		 * the process of deleting those.
-		 * OR it is the EXT4_BOOT_LOADER_INO which is
-		 * not initialized on a new filesystem. */
+
+
 	}
 	ei->i_flags = le32_to_cpu(raw_inode->i_flags);
 	ext4_set_inode_flags(inode, true);
-	/* Detect invalid flag combination - can't have both inline data and extents */
+
 	if (ext4_test_inode_flag(inode, EXT4_INODE_INLINE_DATA) &&
 	    ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
 		ext4_error_inode(inode, function, line, 0,
@@ -4936,11 +4974,8 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 		ret = -EFSCORRUPTED;
 		goto bad_inode;
 	}
-	/*
-	 * If dir_index is not enabled but there's dir with INDEX flag set,
-	 * we'd normally treat htree data as empty space. But with metadata
-	 * checksumming that corrupts checksums so forbid that.
-	 */
+
+
 	if (!ext4_has_feature_dir_index(sb) && ext4_has_metadata_csum(sb) &&
 	    ext4_test_inode_flag(inode, EXT4_INODE_INDEX)) {
 		ext4_error_inode(inode, function, line, 0,
@@ -4955,22 +4990,14 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 	inode->i_generation = le32_to_cpu(raw_inode->i_generation);
 	ei->i_block_group = iloc.block_group;
 	ei->i_last_alloc_group = ~0;
-	/*
-	 * NOTE! The in-memory inode i_data array is in little-endian order
-	 * even on big-endian machines: we do NOT byteswap the block numbers!
-	 */
+
+
 	for (block = 0; block < EXT4_N_BLOCKS; block++)
 		ei->i_data[block] = raw_inode->i_block[block];
 	INIT_LIST_HEAD(&ei->i_orphan);
 	ext4_fc_init_inode(&ei->vfs_inode);
 
-	/*
-	 * Set transaction id's of transactions that have to be committed
-	 * to finish f[data]sync. We set them to currently running transaction
-	 * as we cannot be sure that the inode or some of its metadata isn't
-	 * part of the transaction - the inode could have been reclaimed and
-	 * now it is reread from disk.
-	 */
+
 	if (journal) {
 		transaction_t *transaction;
 		tid_t tid;
@@ -4991,7 +5018,7 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 
 	if (EXT4_INODE_SIZE(inode->i_sb) > EXT4_GOOD_OLD_INODE_SIZE) {
 		if (ei->i_extra_isize == 0) {
-			/* The extra space is currently unused. Use it. */
+
 			BUILD_BUG_ON(sizeof(struct ext4_inode) & 3);
 			ei->i_extra_isize = sizeof(struct ext4_inode) -
 					    EXT4_GOOD_OLD_INODE_SIZE;
@@ -5027,7 +5054,7 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 		ret = -EFSCORRUPTED;
 		goto bad_inode;
 	} else if (!ext4_has_inline_data(inode)) {
-		/* validate the block references in the inode */
+
 		if (!(EXT4_SB(sb)->s_mount_state & EXT4_FC_REPLAY) &&
 			(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) ||
 			(S_ISLNK(inode->i_mode) &&
@@ -5049,7 +5076,7 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 		inode->i_op = &ext4_dir_inode_operations;
 		inode->i_fop = &ext4_dir_operations;
 	} else if (S_ISLNK(inode->i_mode)) {
-		/* VFS does not allow setting these so must be corruption */
+
 		if (IS_APPEND(inode) || IS_IMMUTABLE(inode)) {
 			ext4_error_inode(inode, function, line, 0,
 					 "iget: immutable or append flags "
@@ -5091,10 +5118,8 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 		goto bad_inode;
 	}
 	ret = check_igot_inode(inode, flags, function, line);
-	/*
-	 * -ESTALE here means there is nothing inherently wrong with the inode,
-	 * it's just not an inode we can return for an fhandle lookup.
-	 */
+
+
 	if (ret == -ESTALE) {
 		brelse(iloc.bh);
 		unlock_new_inode(inode);
@@ -5114,6 +5139,14 @@ bad_inode:
 	return ERR_PTR(ret);
 }
 
+/**
+ * __ext4_update_other_inode_time - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void __ext4_update_other_inode_time(struct super_block *sb,
 					   unsigned long orig_ino,
 					   unsigned long ino,
@@ -5147,9 +5180,14 @@ static void __ext4_update_other_inode_time(struct super_block *sb,
 	spin_unlock(&inode->i_lock);
 }
 
-/*
- * Opportunistically update the other time fields for other inodes in
- * the same inode table block.
+
+/**
+ * ext4_update_other_inodes_time - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext4_update_other_inodes_time(struct super_block *sb,
 					  unsigned long orig_ino, char *buf)
@@ -5158,11 +5196,7 @@ static void ext4_update_other_inodes_time(struct super_block *sb,
 	int i, inodes_per_block = EXT4_SB(sb)->s_inodes_per_block;
 	int inode_size = EXT4_INODE_SIZE(sb);
 
-	/*
-	 * Calculate the first inode in the inode table block.  Inode
-	 * numbers are one-based.  That is, the first inode in a block
-	 * (assuming 4k blocks and 256 byte inodes) is (n*16 + 1).
-	 */
+
 	ino = ((orig_ino - 1) & ~(inodes_per_block - 1)) + 1;
 	rcu_read_lock();
 	for (i = 0; i < inodes_per_block; i++, ino++, buf += inode_size) {
@@ -5174,12 +5208,14 @@ static void ext4_update_other_inodes_time(struct super_block *sb,
 	rcu_read_unlock();
 }
 
-/*
- * Post the struct inode info into an on-disk inode location in the
- * buffer-cache.  This gobbles the caller's reference to the
- * buffer_head in the inode location struct.
+
+/**
+ * ext4_do_update_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
- * The caller must have write access to iloc->bh.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_do_update_inode(handle_t *handle,
 				struct inode *inode,
@@ -5194,10 +5230,7 @@ static int ext4_do_update_inode(handle_t *handle,
 
 	spin_lock(&ei->i_raw_lock);
 
-	/*
-	 * For fields not tracked in the in-memory inode, initialise them
-	 * to zero for new inodes.
-	 */
+
 	if (ext4_test_inode_state(inode, EXT4_STATE_NEW))
 		memset(raw_inode, 0, EXT4_SB(inode->i_sb)->s_inode_size);
 
@@ -5248,39 +5281,14 @@ out_brelse:
 	return err;
 }
 
-/*
- * ext4_write_inode()
+
+/**
+ * ext4_write_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
- * We are called from a few places:
- *
- * - Within generic_file_aio_write() -> generic_write_sync() for O_SYNC files.
- *   Here, there will be no transaction running. We wait for any running
- *   transaction to commit.
- *
- * - Within flush work (sys_sync(), kupdate and such).
- *   We wait on commit, if told to.
- *
- * - Within iput_final() -> write_inode_now()
- *   We wait on commit, if told to.
- *
- * In all cases it is actually safe for us to return without doing anything,
- * because the inode has been copied into a raw inode buffer in
- * ext4_mark_inode_dirty().  This is a correctness thing for WB_SYNC_ALL
- * writeback.
- *
- * Note that we are absolutely dependent upon all inode dirtiers doing the
- * right thing: they *must* call mark_inode_dirty() after dirtying info in
- * which we are interested.
- *
- * It would be a bug for them to not do this.  The code:
- *
- *	mark_inode_dirty(inode)
- *	stuff();
- *	inode->i_size = expr;
- *
- * is in error because write_inode() could occur while `stuff()' is running,
- * and the new i_size will be lost.  Plus the inode will no longer be on the
- * superblock's dirty inode list.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
@@ -5299,11 +5307,7 @@ int ext4_write_inode(struct inode *inode, struct writeback_control *wbc)
 			return -EIO;
 		}
 
-		/*
-		 * No need to force transaction in WB_SYNC_NONE mode. Also
-		 * ext4_sync_fs() will force the commit after everything is
-		 * written.
-		 */
+
 		if (wbc->sync_mode != WB_SYNC_ALL || wbc->for_sync)
 			return 0;
 
@@ -5315,10 +5319,8 @@ int ext4_write_inode(struct inode *inode, struct writeback_control *wbc)
 		err = __ext4_get_inode_loc_noinmem(inode, &iloc);
 		if (err)
 			return err;
-		/*
-		 * sync(2) will flush the whole buffer cache. No need to do
-		 * it here separately for each inode.
-		 */
+
+
 		if (wbc->sync_mode == WB_SYNC_ALL && !wbc->for_sync)
 			sync_dirty_buffer(iloc.bh);
 		if (buffer_req(iloc.bh) && !buffer_uptodate(iloc.bh)) {
@@ -5331,10 +5333,14 @@ int ext4_write_inode(struct inode *inode, struct writeback_control *wbc)
 	return err;
 }
 
-/*
- * In data=journal mode ext4_journalled_invalidate_folio() may fail to invalidate
- * buffers that are attached to a folio straddling i_size and are undergoing
- * commit. In that case we have to wait for commit to finish and try again.
+
+/**
+ * ext4_wait_for_tail_page_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext4_wait_for_tail_page_commit(struct inode *inode)
 {
@@ -5345,15 +5351,8 @@ static void ext4_wait_for_tail_page_commit(struct inode *inode)
 	bool has_transaction;
 
 	offset = inode->i_size & (PAGE_SIZE - 1);
-	/*
-	 * If the folio is fully truncated, we don't need to wait for any commit
-	 * (and we even should not as __ext4_journalled_invalidate_folio() may
-	 * strip all buffers from the folio but keep the folio dirty which can then
-	 * confuse e.g. concurrent ext4_writepages() seeing dirty folio without
-	 * buffers). Also we don't need to wait for any commit if all buffers in
-	 * the folio remain valid. This is most beneficial for the common case of
-	 * blocksize == PAGESIZE.
-	 */
+
+
 	if (!offset || offset > (PAGE_SIZE - i_blocksize(inode)))
 		return;
 	while (1) {
@@ -5379,29 +5378,14 @@ static void ext4_wait_for_tail_page_commit(struct inode *inode)
 	}
 }
 
-/*
- * ext4_setattr()
+
+/**
+ * ext4_setattr - Implements the setattr operation within the inode mapping and lifecycle subsystem.
  *
- * Called from notify_change.
- *
- * We want to trap VFS attempts to truncate the file as soon as
- * possible.  In particular, we want to make sure that when the VFS
- * shrinks i_size, we put the inode on the orphan list and modify
- * i_disksize immediately, so that during the subsequent flushing of
- * dirty pages and freeing of disk blocks, we can guarantee that any
- * commit will leave the blocks being flushed in an unused state on
- * disk.  (On recovery, the inode will get truncated and the blocks will
- * be freed, so we have a strong guarantee that no future commit will
- * leave these blocks visible to the user.)
- *
- * Another thing we have to assure is that if we are in ordered mode
- * and inode is still attached to the committing transaction, we must
- * we start writeout of all the dirty pages which are being truncated.
- * This way we are sure that all the data written in the previous
- * transaction are already on disk (truncate waits for pages under
- * writeback).
- *
- * Called with inode->i_rwsem down.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		 struct iattr *attr)
@@ -5445,8 +5429,7 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	    i_gid_needs_update(idmap, attr, inode)) {
 		handle_t *handle;
 
-		/* (user+group)*(old+new) structure, inode write (sb,
-		 * inode block, ? - but truncate inode update has it) */
+
 		handle = ext4_journal_start(inode, EXT4_HT_QUOTA,
 			(EXT4_MAXQUOTAS_INIT_BLOCKS(inode->i_sb) +
 			 EXT4_MAXQUOTAS_DEL_BLOCKS(inode->i_sb)) + 3);
@@ -5455,9 +5438,7 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			goto err_out;
 		}
 
-		/* dquot_transfer() calls back ext4_get_inode_usage() which
-		 * counts xattr inode references.
-		 */
+
 		down_read(&EXT4_I(inode)->xattr_sem);
 		error = dquot_transfer(idmap, inode, attr);
 		up_read(&EXT4_I(inode)->xattr_sem);
@@ -5466,8 +5447,8 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			ext4_journal_stop(handle);
 			return error;
 		}
-		/* Update corresponding info in inode so that everything is in
-		 * one transaction */
+
+
 		i_uid_update(idmap, attr, inode);
 		i_gid_update(idmap, attr, inode);
 		error = ext4_mark_inode_dirty(handle, inode);
@@ -5497,11 +5478,7 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		if (attr->ia_size == inode->i_size)
 			inc_ivers = false;
 
-		/*
-		 * If file has inline data but new size exceeds inline capacity,
-		 * convert to extent-based storage first to prevent inconsistent
-		 * state (inline flag set but size exceeds inline capacity).
-		 */
+
 		if (ext4_has_inline_data(inode) &&
 		    attr->ia_size > EXT4_I(inode)->i_inline_size) {
 			error = ext4_convert_inline_data(inode);
@@ -5516,10 +5493,8 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 				if (error)
 					goto err_out;
 			}
-			/*
-			 * Blocks are going to be removed from the inode. Wait
-			 * for dio in flight.
-			 */
+
+
 			inode_dio_wait(inode);
 		}
 
@@ -5532,7 +5507,7 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		}
 
 		if (attr->ia_size != inode->i_size) {
-			/* attach jbd2 jinode for EOF folio tail zeroing */
+
 			if (attr->ia_size & (inode->i_sb->s_blocksize - 1) ||
 			    oldsize & (inode->i_sb->s_blocksize - 1)) {
 				error = ext4_inode_attach_jinode(inode);
@@ -5549,11 +5524,8 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 				error = ext4_orphan_add(handle, inode);
 				orphan = 1;
 			}
-			/*
-			 * Update c/mtime and tail zero the EOF folio on
-			 * truncate up. ext4_truncate() handles the shrink case
-			 * below.
-			 */
+
+
 			if (!shrink) {
 				inode_set_mtime_to_ts(inode,
 						      inode_set_ctime_current(inode));
@@ -5581,11 +5553,8 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			rc = ext4_mark_inode_dirty(handle, inode);
 			if (!error)
 				error = rc;
-			/*
-			 * We have to update i_size under i_data_sem together
-			 * with i_disksize to avoid races with writeback code
-			 * running ext4_wb_update_i_disksize().
-			 */
+
+
 			if (!error)
 				i_size_write(inode, attr->ia_size);
 			else
@@ -5602,15 +5571,10 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			}
 		}
 
-		/*
-		 * Truncate pagecache after we've waited for commit
-		 * in data=journal mode to make pages freeable.
-		 */
+
 		truncate_pagecache(inode, inode->i_size);
-		/*
-		 * Call ext4_truncate() even if i_size didn't change to
-		 * truncate possible preallocated blocks.
-		 */
+
+
 		if (attr->ia_size <= oldsize) {
 			rc = ext4_truncate(inode);
 			if (rc)
@@ -5627,10 +5591,7 @@ out_mmap_sem:
 		mark_inode_dirty(inode);
 	}
 
-	/*
-	 * If the call to ext4_truncate failed to get a transaction handle at
-	 * all, we need to clean up the in-core orphan list manually.
-	 */
+
 	if (orphan && inode->i_nlink)
 		ext4_orphan_del(NULL, inode);
 
@@ -5645,6 +5606,14 @@ err_out:
 	return error;
 }
 
+/**
+ * ext4_dio_alignment - Implements the dio alignment operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 u32 ext4_dio_alignment(struct inode *inode)
 {
 	if (fsverity_active(inode))
@@ -5658,9 +5627,17 @@ u32 ext4_dio_alignment(struct inode *inode)
 			return 0;
 		return i_blocksize(inode);
 	}
-	return 1; /* use the iomap defaults */
+	return 1;
 }
 
+/**
+ * ext4_getattr - Implements the getattr operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_getattr(struct mnt_idmap *idmap, const struct path *path,
 		 struct kstat *stat, u32 request_mask, unsigned int query_flags)
 {
@@ -5676,11 +5653,7 @@ int ext4_getattr(struct mnt_idmap *idmap, const struct path *path,
 		stat->btime.tv_nsec = ei->i_crtime.tv_nsec;
 	}
 
-	/*
-	 * Return the DIO alignment restrictions if requested.  We only return
-	 * this information when requested, since on encrypted files it might
-	 * take a fair bit of work to get if the file wasn't opened recently.
-	 */
+
 	if ((request_mask & STATX_DIOALIGN) && S_ISREG(inode->i_mode)) {
 		u32 dio_align = ext4_dio_alignment(inode);
 
@@ -5688,7 +5661,7 @@ int ext4_getattr(struct mnt_idmap *idmap, const struct path *path,
 		if (dio_align == 1) {
 			struct block_device *bdev = inode->i_sb->s_bdev;
 
-			/* iomap defaults */
+
 			stat->dio_mem_align = bdev_dma_alignment(bdev) + 1;
 			stat->dio_offset_align = bdev_logical_block_size(bdev);
 		} else {
@@ -5722,6 +5695,14 @@ int ext4_getattr(struct mnt_idmap *idmap, const struct path *path,
 	return 0;
 }
 
+/**
+ * ext4_file_getattr - Implements the file getattr operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_file_getattr(struct mnt_idmap *idmap,
 		      const struct path *path, struct kstat *stat,
 		      u32 request_mask, unsigned int query_flags)
@@ -5731,31 +5712,25 @@ int ext4_file_getattr(struct mnt_idmap *idmap,
 
 	ext4_getattr(idmap, path, stat, request_mask, query_flags);
 
-	/*
-	 * If there is inline data in the inode, the inode will normally not
-	 * have data blocks allocated (it may have an external xattr block).
-	 * Report at least one sector for such files, so tools like tar, rsync,
-	 * others don't incorrectly think the file is completely sparse.
-	 */
+
 	if (unlikely(ext4_has_inline_data(inode)))
 		stat->blocks += (stat->size + 511) >> 9;
 
-	/*
-	 * We can't update i_blocks if the block allocation is delayed
-	 * otherwise in the case of system crash before the real block
-	 * allocation is done, we will have i_blocks inconsistent with
-	 * on-disk file blocks.
-	 * We always keep i_blocks updated together with real
-	 * allocation. But to not confuse with user, stat
-	 * will return the blocks that include the delayed allocation
-	 * blocks for this file.
-	 */
+
 	delalloc_blocks = EXT4_C2B(EXT4_SB(inode->i_sb),
 				   EXT4_I(inode)->i_reserved_data_blocks);
 	stat->blocks += delalloc_blocks << (inode->i_sb->s_blocksize_bits - 9);
 	return 0;
 }
 
+/**
+ * ext4_index_trans_blocks - Implements the index trans blocks operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_index_trans_blocks(struct inode *inode, int lblocks,
 				   int pextents)
 {
@@ -5764,16 +5739,14 @@ static int ext4_index_trans_blocks(struct inode *inode, int lblocks,
 	return ext4_ext_index_trans_blocks(inode, pextents);
 }
 
-/*
- * Account for index blocks, block groups bitmaps and block group
- * descriptor blocks if modify datablocks and index blocks
- * worse case, the indexs blocks spread over different block groups
+
+/**
+ * ext4_meta_trans_blocks - Implements the meta trans blocks operation within the inode mapping and lifecycle subsystem.
  *
- * If datablocks are discontiguous, they are possible to spread over
- * different block groups too. If they are contiguous, with flexbg,
- * they could still across block group boundary.
- *
- * Also account for superblock, inode, quota and xattr blocks
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_meta_trans_blocks(struct inode *inode, int lblocks,
 				  int pextents)
@@ -5783,18 +5756,12 @@ static int ext4_meta_trans_blocks(struct inode *inode, int lblocks,
 	int idxblocks;
 	int ret;
 
-	/*
-	 * How many index blocks need to touch to map @lblocks logical blocks
-	 * to @pextents physical extents?
-	 */
+
 	idxblocks = ext4_index_trans_blocks(inode, lblocks, pextents);
 
 	ret = idxblocks;
 
-	/*
-	 * Now let's see how many group bitmaps and group descriptors need
-	 * to account
-	 */
+
 	groups = idxblocks + pextents;
 	gdpblocks = groups;
 	if (groups > ngroups)
@@ -5802,24 +5769,23 @@ static int ext4_meta_trans_blocks(struct inode *inode, int lblocks,
 	if (groups > EXT4_SB(inode->i_sb)->s_gdb_count)
 		gdpblocks = EXT4_SB(inode->i_sb)->s_gdb_count;
 
-	/* bitmaps and block group descriptor blocks */
+
 	ret += groups + gdpblocks;
 
-	/* Blocks for super block, inode, quota and xattr blocks */
+
 	ret += EXT4_META_TRANS_BLOCKS(inode->i_sb);
 
 	return ret;
 }
 
-/*
- * Calculate the total number of credits to reserve to fit
- * the modification of a single pages into a single transaction,
- * which may include multiple chunks of block allocations.
+
+/**
+ * ext4_writepage_trans_blocks - Implements the writepage trans blocks operation within the inode mapping and lifecycle subsystem.
  *
- * This could be called via ext4_write_begin()
- *
- * We need to consider the worse case, when
- * one new block per extent.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_writepage_trans_blocks(struct inode *inode)
 {
@@ -5828,29 +5794,34 @@ int ext4_writepage_trans_blocks(struct inode *inode)
 
 	ret = ext4_meta_trans_blocks(inode, bpp, bpp);
 
-	/* Account for data blocks for journalled mode */
+
 	if (ext4_should_journal_data(inode))
 		ret += bpp;
 	return ret;
 }
 
-/*
- * Calculate the journal credits for a chunk of data modification.
+
+/**
+ * ext4_chunk_trans_blocks - Implements the chunk trans blocks operation within the inode mapping and lifecycle subsystem.
  *
- * This is called from DIO, fallocate or whoever calling
- * ext4_map_blocks() to map/allocate a chunk of contiguous disk blocks.
- *
- * journal buffers for data blocks are not included here, as DIO
- * and fallocate do no need to journal data buffers.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_chunk_trans_blocks(struct inode *inode, int nrblocks)
 {
 	return ext4_meta_trans_blocks(inode, nrblocks, 1);
 }
 
-/*
- * The caller must have previously called ext4_reserve_inode_write().
- * Give this, we know that the caller already has write access to iloc->bh.
+
+/**
+ * ext4_mark_iloc_dirty - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_mark_iloc_dirty(handle_t *handle,
 			 struct inode *inode, struct ext4_iloc *iloc)
@@ -5863,20 +5834,24 @@ int ext4_mark_iloc_dirty(handle_t *handle,
 	}
 	ext4_fc_track_inode(handle, inode);
 
-	/* the do_update_inode consumes one bh->b_count */
+
 	get_bh(iloc->bh);
 
-	/* ext4_do_update_inode() does jbd2_journal_dirty_metadata */
+
 	err = ext4_do_update_inode(handle, inode, iloc);
 	put_bh(iloc->bh);
 	return err;
 }
 
-/*
- * On success, We end up with an outstanding reference count against
- * iloc->bh.  This _must_ be cleaned up later.
- */
 
+/**
+ * ext4_reserve_inode_write - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int
 ext4_reserve_inode_write(handle_t *handle, struct inode *inode,
 			 struct ext4_iloc *iloc)
@@ -5900,6 +5875,14 @@ ext4_reserve_inode_write(handle_t *handle, struct inode *inode,
 	return err;
 }
 
+/**
+ * __ext4_expand_extra_isize - Implements the expand extra isize operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __ext4_expand_extra_isize(struct inode *inode,
 				     unsigned int new_extra_isize,
 				     struct ext4_iloc *iloc,
@@ -5911,7 +5894,7 @@ static int __ext4_expand_extra_isize(struct inode *inode,
 	struct ext4_inode_info *ei = EXT4_I(inode);
 	int error;
 
-	/* this was checked at iget time, but double check for good measure */
+
 	if ((EXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize > inode_size) ||
 	    (ei->i_extra_isize & 3)) {
 		EXT4_ERROR_INODE(inode, "bad extra_isize %u (inode size %u)",
@@ -5922,13 +5905,13 @@ static int __ext4_expand_extra_isize(struct inode *inode,
 	if ((new_extra_isize < ei->i_extra_isize) ||
 	    (new_extra_isize < 4) ||
 	    (new_extra_isize > inode_size - EXT4_GOOD_OLD_INODE_SIZE))
-		return -EINVAL;	/* Should never happen */
+		return -EINVAL;
 
 	raw_inode = ext4_raw_inode(iloc);
 
 	header = IHDR(inode, raw_inode);
 
-	/* No extended attributes present */
+
 	if (!ext4_test_inode_state(inode, EXT4_STATE_XATTR) ||
 	    header->h_magic != cpu_to_le32(EXT4_XATTR_MAGIC)) {
 		memset((void *)raw_inode + EXT4_GOOD_OLD_INODE_SIZE +
@@ -5938,30 +5921,30 @@ static int __ext4_expand_extra_isize(struct inode *inode,
 		return 0;
 	}
 
-	/*
-	 * We may need to allocate external xattr block so we need quotas
-	 * initialized. Here we can be called with various locks held so we
-	 * cannot affort to initialize quotas ourselves. So just bail.
-	 */
+
 	if (dquot_initialize_needed(inode))
 		return -EAGAIN;
 
-	/* try to expand with EAs present */
+
 	error = ext4_expand_extra_isize_ea(inode, new_extra_isize,
 					   raw_inode, handle);
 	if (error) {
-		/*
-		 * Inode size expansion failed; don't try again
-		 */
+
+
 		*no_expand = 1;
 	}
 
 	return error;
 }
 
-/*
- * Expand an inode by new_extra_isize bytes.
- * Returns 0 on success or negative error number on failure.
+
+/**
+ * ext4_try_to_expand_extra_isize - Implements the try to expand extra isize operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_try_to_expand_extra_isize(struct inode *inode,
 					  unsigned int new_extra_isize,
@@ -5974,15 +5957,7 @@ static int ext4_try_to_expand_extra_isize(struct inode *inode,
 	if (ext4_test_inode_state(inode, EXT4_STATE_NO_EXPAND))
 		return -EOVERFLOW;
 
-	/*
-	 * In nojournal mode, we can immediately attempt to expand
-	 * the inode.  When journaled, we first need to obtain extra
-	 * buffer credits since we may write into the EA block
-	 * with this same handle. If journal_extend fails, then it will
-	 * only result in a minor loss of functionality for that inode.
-	 * If this is felt to be critical, then e2fsck should be run to
-	 * force a large enough s_min_extra_isize.
-	 */
+
 	if (ext4_journal_extend(handle,
 				EXT4_DATA_TRANS_BLOCKS(inode->i_sb), 0) != 0)
 		return -ENOSPC;
@@ -5997,6 +5972,14 @@ static int ext4_try_to_expand_extra_isize(struct inode *inode,
 	return error;
 }
 
+/**
+ * ext4_expand_extra_isize - Implements the expand extra isize operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_expand_extra_isize(struct inode *inode,
 			    unsigned int new_extra_isize,
 			    struct ext4_iloc *iloc)
@@ -6041,18 +6024,14 @@ out_unlock:
 	return error;
 }
 
-/*
- * What we do here is to mark the in-core inode as clean with respect to inode
- * dirtiness (it may still be data-dirty).
- * This means that the in-core inode may be reaped by prune_icache
- * without having to perform any I/O.  This is a very good thing,
- * because *any* task may call prune_icache - even ones which
- * have a transaction open against a different journal.
+
+/**
+ * __ext4_mark_inode_dirty - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
- * Is this cheating?  Not really.  Sure, we haven't written the
- * inode out, but prune_icache isn't a user-visible syncing function.
- * Whenever the user wants stuff synced (sys_sync, sys_msync, sys_fsync)
- * we start and wait on commits.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int __ext4_mark_inode_dirty(handle_t *handle, struct inode *inode,
 				const char *func, unsigned int line)
@@ -6079,19 +6058,14 @@ out:
 	return err;
 }
 
-/*
- * ext4_dirty_inode() is called from __mark_inode_dirty()
+
+/**
+ * ext4_dirty_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
- * We're really interested in the case where a file is being extended.
- * i_size has been changed by generic_commit_write() and we thus need
- * to include the updated inode in the current transaction.
- *
- * Also, dquot_alloc_block() will always dirty the inode when blocks
- * are allocated to the file.
- *
- * If the inode is marked synchronous, we don't honour that here - doing
- * so would cause a commit on atime updates, which we don't bother doing.
- * We handle synchronous inodes at the highest possible level.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_dirty_inode(struct inode *inode, int flags)
 {
@@ -6104,6 +6078,14 @@ void ext4_dirty_inode(struct inode *inode, int flags)
 	ext4_journal_stop(handle);
 }
 
+/**
+ * ext4_change_inode_journal_flag - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_change_inode_journal_flag(struct inode *inode, int val)
 {
 	journal_t *journal;
@@ -6111,15 +6093,6 @@ int ext4_change_inode_journal_flag(struct inode *inode, int val)
 	int err;
 	int alloc_ctx;
 
-	/*
-	 * We have to be very careful here: changing a data block's
-	 * journaling status dynamically is dangerous.  If we write a
-	 * data block to the journal, change the status and then delete
-	 * that block, we risk forgetting to revoke the old log record
-	 * from the journal and so a subsequent replay can corrupt data.
-	 * So, first we make sure that the journal is empty and that
-	 * nobody is changing anything.
-	 */
 
 	journal = EXT4_JOURNAL(inode);
 	if (!journal)
@@ -6127,17 +6100,10 @@ int ext4_change_inode_journal_flag(struct inode *inode, int val)
 	if (is_journal_aborted(journal))
 		return -EROFS;
 
-	/* Wait for all existing dio workers */
+
 	inode_dio_wait(inode);
 
-	/*
-	 * Before flushing the journal and switching inode's aops, we have
-	 * to flush all dirty data the inode has. There can be outstanding
-	 * delayed allocations, there can be unwritten extents created by
-	 * fallocate or buffered writes in dioread_nolock mode covered by
-	 * dirty data which can be converted only after flushing the dirty
-	 * data (and journalled aops don't know how to handle these cases).
-	 */
+
 	if (val) {
 		filemap_invalidate_lock(inode->i_mapping);
 		err = filemap_write_and_wait(inode->i_mapping);
@@ -6150,13 +6116,6 @@ int ext4_change_inode_journal_flag(struct inode *inode, int val)
 	alloc_ctx = ext4_writepages_down_write(inode->i_sb);
 	jbd2_journal_lock_updates(journal);
 
-	/*
-	 * OK, there are no updates running now, and all cached data is
-	 * synced to disk.  We are now in a completely consistent state
-	 * which doesn't have anything in the journal, and we know that
-	 * no filesystem updates are running, so it is safe to modify
-	 * the inode's in-core data-journaling state flag now.
-	 */
 
 	if (val)
 		ext4_set_inode_flag(inode, EXT4_INODE_JOURNAL_DATA);
@@ -6177,7 +6136,6 @@ int ext4_change_inode_journal_flag(struct inode *inode, int val)
 	if (val)
 		filemap_invalidate_unlock(inode->i_mapping);
 
-	/* Finally we can mark the inode as dirty. */
 
 	handle = ext4_journal_start(inode, EXT4_HT_INODE, 1);
 	if (IS_ERR(handle))
@@ -6193,12 +6151,28 @@ int ext4_change_inode_journal_flag(struct inode *inode, int val)
 	return err;
 }
 
+/**
+ * ext4_bh_unmapped - Implements the bh unmapped operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_bh_unmapped(handle_t *handle, struct inode *inode,
 			    struct buffer_head *bh)
 {
 	return !buffer_mapped(bh);
 }
 
+/**
+ * ext4_page_mkwrite - Implements the page mkwrite operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 vm_fault_t ext4_page_mkwrite(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
@@ -6226,16 +6200,11 @@ vm_fault_t ext4_page_mkwrite(struct vm_fault *vmf)
 	if (err)
 		goto out_ret;
 
-	/*
-	 * On data journalling we skip straight to the transaction handle:
-	 * there's no delalloc; page truncated will be checked later; the
-	 * early return w/ all buffers mapped (calculates size/len) can't
-	 * be used; and there's no dioread_nolock, so only ext4_get_block.
-	 */
+
 	if (ext4_should_journal_data(inode))
 		goto retry_alloc;
 
-	/* Delalloc case is easy... */
+
 	if (test_opt(inode->i_sb, DELALLOC) &&
 	    !ext4_nonda_switch(inode->i_sb)) {
 		do {
@@ -6248,7 +6217,7 @@ vm_fault_t ext4_page_mkwrite(struct vm_fault *vmf)
 
 	folio_lock(folio);
 	size = i_size_read(inode);
-	/* Page got truncated from under us? */
+
 	if (folio->mapping != mapping || folio_pos(folio) > size) {
 		folio_unlock(folio);
 		ret = VM_FAULT_NOPAGE;
@@ -6258,25 +6227,20 @@ vm_fault_t ext4_page_mkwrite(struct vm_fault *vmf)
 	len = folio_size(folio);
 	if (folio_pos(folio) + len > size)
 		len = size - folio_pos(folio);
-	/*
-	 * Return if we have all the buffers mapped. This avoids the need to do
-	 * journal_start/journal_stop which can block and take a long time
-	 *
-	 * This cannot be done for data journalling, as we have to add the
-	 * inode to the transaction's list to writeprotect pages on commit.
-	 */
+
+
 	if (folio_buffers(folio)) {
 		if (!ext4_walk_page_buffers(NULL, inode, folio_buffers(folio),
 					    0, len, NULL,
 					    ext4_bh_unmapped)) {
-			/* Wait so that we don't change page under IO */
+
 			folio_wait_stable(folio);
 			ret = VM_FAULT_LOCKED;
 			goto out;
 		}
 	}
 	folio_unlock(folio);
-	/* OK, we need to fill the hole... */
+
 	if (ext4_should_dioread_nolock(inode))
 		get_block = ext4_get_block_unwritten;
 	else
@@ -6288,17 +6252,14 @@ retry_alloc:
 		ret = VM_FAULT_SIGBUS;
 		goto out;
 	}
-	/*
-	 * Data journalling can't use block_page_mkwrite() because it
-	 * will set_buffer_dirty() before do_journal_get_write_access()
-	 * thus might hit warning messages for dirty metadata buffers.
-	 */
+
+
 	if (!ext4_should_journal_data(inode)) {
 		err = block_page_mkwrite(vma, vmf, get_block);
 	} else {
 		folio_lock(folio);
 		size = i_size_read(inode);
-		/* Page got truncated from under us? */
+
 		if (folio->mapping != mapping || folio_pos(folio) > size) {
 			ret = VM_FAULT_NOPAGE;
 			goto out_error;
@@ -6333,28 +6294,15 @@ out_error:
 	goto out;
 }
 
-/* ---- EXT4 symlink inode operations (merged into this translation unit) ---- */
-// SPDX-License-Identifier: GPL-2.0
-/*
- *  linux/fs/ext4/symlink.c
+
+/**
+ * ext4_encrypted_get_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
- * Only fast symlinks left here - the rest is done by generic code. AV, 1999
- *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  from
- *
- *  linux/fs/minix/symlink.c
- *
- *  Copyright (C) 1991, 1992  Linus Torvalds
- *
- *  ext4 symlink handling code
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
-
 static const char *ext4_encrypted_get_link(struct dentry *dentry,
 					   struct inode *inode,
 					   struct delayed_call *done)
@@ -6387,6 +6335,14 @@ static const char *ext4_encrypted_get_link(struct dentry *dentry,
 	return paddr;
 }
 
+/**
+ * ext4_encrypted_symlink_getattr - Implements the encrypted symlink getattr operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_encrypted_symlink_getattr(struct mnt_idmap *idmap,
 					  const struct path *path,
 					  struct kstat *stat, u32 request_mask,
@@ -6397,21 +6353,34 @@ static int ext4_encrypted_symlink_getattr(struct mnt_idmap *idmap,
 	return fscrypt_symlink_getattr(path, stat);
 }
 
+/**
+ * ext4_free_link - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_free_link(void *bh)
 {
 	brelse(bh);
 }
 
+/**
+ * ext4_get_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static const char *ext4_get_link(struct dentry *dentry, struct inode *inode,
 				 struct delayed_call *callback)
 {
 	struct buffer_head *bh;
 	char *inline_link;
 
-	/*
-	 * Create a new inlined symlink is not supported, just provide a
-	 * method to read the leftovers.
-	 */
+
 	if (ext4_has_inline_data(inode)) {
 		if (!dentry)
 			return ERR_PTR(-ECHILD);

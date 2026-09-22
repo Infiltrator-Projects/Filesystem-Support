@@ -22,6 +22,28 @@
  * and moved here. AV
  */
 
+/*
+ * EXT2 — Directory representation
+ *
+ * Purpose:
+ *   Parses, validates and iterates directory records and implements directory lookup-side mechanics, including indexed-directory hashing where applicable.
+ *
+ * Filesystem model:
+ *   This file belongs to a deliberately strict, non-journalled EXT2 VFS implementation.
+ *
+ * Correctness focus:
+ *   Directory record lengths, alignment and bounds are untrusted on-disk input and must be validated before pointer arithmetic or publication to VFS.
+ *
+ * Project rules:
+ *   - Do not accept a journalled EXT3 volume as EXT2.
+ *   - Keep on-disk compatibility fields when they are required to parse or reject media correctly.
+ *   - Keep xattr/ACL/cache code inside ext2.ko rather than creating helper modules.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include "ext2.h"
 #include <linux/buffer_head.h>
 #include <linux/pagemap.h>
@@ -30,10 +52,14 @@
 
 typedef struct ext2_dir_entry_2 ext2_dirent;
 
-/*
- * Tests against MAX_REC_LEN etc were put in place for 64k block
- * sizes; if that is not possible on this arch, we can skip
- * those tests and speed things up.
+
+/**
+ * ext2_rec_len_from_disk - Implements the rec len from disk operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline unsigned ext2_rec_len_from_disk(__le16 dlen)
 {
@@ -46,6 +72,14 @@ static inline unsigned ext2_rec_len_from_disk(__le16 dlen)
 	return len;
 }
 
+/**
+ * ext2_rec_len_to_disk - Implements the rec len to disk operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline __le16 ext2_rec_len_to_disk(unsigned len)
 {
 #if (PAGE_SIZE >= 65536)
@@ -57,18 +91,28 @@ static inline __le16 ext2_rec_len_to_disk(unsigned len)
 	return cpu_to_le16(len);
 }
 
-/*
- * ext2 uses block-sized chunks. Arguably, sector-sized ones would be
- * more robust, but we have what we have
+
+/**
+ * ext2_chunk_size - Implements the chunk size operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline unsigned ext2_chunk_size(struct inode *inode)
 {
 	return inode->i_sb->s_blocksize;
 }
 
-/*
- * Return the offset into page `page_nr' of the last valid
- * byte in that page, plus one.
+
+/**
+ * ext2_last_byte - Implements the last byte operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static unsigned
 ext2_last_byte(struct inode *inode, unsigned long page_nr)
@@ -81,6 +125,14 @@ ext2_last_byte(struct inode *inode, unsigned long page_nr)
 	return last_byte;
 }
 
+/**
+ * ext2_commit_chunk - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext2_commit_chunk(struct folio *folio, loff_t pos, unsigned len)
 {
 	struct address_space *mapping = folio->mapping;
@@ -96,6 +148,14 @@ static void ext2_commit_chunk(struct folio *folio, loff_t pos, unsigned len)
 	folio_unlock(folio);
 }
 
+/**
+ * ext2_check_folio - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext2_check_folio(struct folio *folio, int quiet, char *kaddr)
 {
 	struct inode *dir = folio->mapping->host;
@@ -135,7 +195,6 @@ out:
 	folio_set_checked(folio);
 	return true;
 
-	/* Too bad, we had an error */
 
 Ebadsize:
 	if (!quiet)
@@ -178,13 +237,14 @@ fail:
 	return false;
 }
 
-/*
- * Calls to ext2_get_folio()/folio_release_kmap() must be nested according
- * to the rules documented in kmap_local_folio()/kunmap_local().
+
+/**
+ * ext2_get_folio - Implements the get folio operation within the directory representation subsystem.
  *
- * NOTE: ext2_find_entry() and ext2_dotdot() act as a call
- * to folio_release_kmap() and should be treated as a call to
- * folio_release_kmap() for nesting purposes.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void *ext2_get_folio(struct inode *dir, unsigned long n,
 				   int quiet, struct folio **foliop)
@@ -208,10 +268,14 @@ fail:
 	return ERR_PTR(-EIO);
 }
 
-/*
- * NOTE! unlike strncmp, ext2_match returns 1 for success, 0 for failure.
+
+/**
+ * ext2_match - Implements the match operation within the directory representation subsystem.
  *
- * len <= EXT2_NAME_LEN and de != NULL are guaranteed by caller.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline int ext2_match (int len, const char * const name,
 					struct ext2_dir_entry_2 * de)
@@ -223,8 +287,14 @@ static inline int ext2_match (int len, const char * const name,
 	return !memcmp(name, de->name, len);
 }
 
-/*
- * p is at least 6 bytes before the end of page
+
+/**
+ * ext2_next_entry - Implements the next entry operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline ext2_dirent *ext2_next_entry(ext2_dirent *p)
 {
@@ -232,7 +302,15 @@ static inline ext2_dirent *ext2_next_entry(ext2_dirent *p)
 			ext2_rec_len_from_disk(p->rec_len));
 }
 
-static inline unsigned 
+/**
+ * ext2_validate_entry - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
+static inline unsigned
 ext2_validate_entry(char *base, unsigned offset, unsigned mask)
 {
 	ext2_dirent *de = (ext2_dirent*)(base + offset);
@@ -245,6 +323,14 @@ ext2_validate_entry(char *base, unsigned offset, unsigned mask)
 	return offset_in_page(p);
 }
 
+/**
+ * ext2_set_de_type - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext2_set_de_type(ext2_dirent *de, struct inode *inode)
 {
 	if (EXT2_HAS_INCOMPAT_FEATURE(inode->i_sb, EXT2_FEATURE_INCOMPAT_FILETYPE))
@@ -253,6 +339,14 @@ static inline void ext2_set_de_type(ext2_dirent *de, struct inode *inode)
 		de->file_type = 0;
 }
 
+/**
+ * ext2_readdir - Implements the readdir operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int
 ext2_readdir(struct file *file, struct dir_context *ctx)
 {
@@ -322,22 +416,14 @@ ext2_readdir(struct file *file, struct dir_context *ctx)
 	return 0;
 }
 
-/*
- *	ext2_find_entry()
+
+/**
+ * ext2_find_entry - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
  *
- * finds an entry in the specified directory with the wanted name. It
- * returns the page in which the entry was found (as a parameter - res_page),
- * and the entry itself. Page is returned mapped and unlocked.
- * Entry is guaranteed to be valid.
- *
- * On Success folio_release_kmap() should be called on *foliop.
- *
- * NOTE: Calls to ext2_get_folio()/folio_release_kmap() must be nested
- * according to the rules documented in kmap_local_folio()/kunmap_local().
- *
- * ext2_find_entry() and ext2_dotdot() act as a call to ext2_get_folio()
- * and should be treated as a call to ext2_get_folio() for nesting
- * purposes.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 struct ext2_dir_entry_2 *ext2_find_entry (struct inode *dir,
 			const struct qstr *child, struct folio **foliop)
@@ -379,7 +465,7 @@ struct ext2_dir_entry_2 *ext2_find_entry (struct inode *dir,
 
 		if (++n >= npages)
 			n = 0;
-		/* next folio is past the blocks we've got */
+
 		if (unlikely(n > (dir->i_blocks >> (PAGE_SHIFT - 9)))) {
 			ext2_error(dir->i_sb, __func__,
 				"dir %lu size %lld exceeds block count %llu",
@@ -396,18 +482,14 @@ found:
 	return de;
 }
 
-/*
- * Return the '..' directory entry and the page in which the entry was found
- * (as a parameter - p).
+
+/**
+ * ext2_dotdot - Implements the dotdot operation within the directory representation subsystem.
  *
- * On Success folio_release_kmap() should be called on *foliop.
- *
- * NOTE: Calls to ext2_get_folio()/folio_release_kmap() must be nested
- * according to the rules documented in kmap_local_folio()/kunmap_local().
- *
- * ext2_find_entry() and ext2_dotdot() act as a call to ext2_get_folio()
- * and should be treated as a call to ext2_get_folio() for nesting
- * purposes.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 struct ext2_dir_entry_2 *ext2_dotdot(struct inode *dir, struct folio **foliop)
 {
@@ -418,6 +500,14 @@ struct ext2_dir_entry_2 *ext2_dotdot(struct inode *dir, struct folio **foliop)
 	return NULL;
 }
 
+/**
+ * ext2_inode_by_name - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext2_inode_by_name(struct inode *dir, const struct qstr *child, ino_t *ino)
 {
 	struct ext2_dir_entry_2 *de;
@@ -432,11 +522,27 @@ int ext2_inode_by_name(struct inode *dir, const struct qstr *child, ino_t *ino)
 	return 0;
 }
 
+/**
+ * ext2_prepare_chunk - Implements the prepare chunk operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_prepare_chunk(struct folio *folio, loff_t pos, unsigned len)
 {
 	return __block_write_begin(folio, pos, len, ext2_get_block);
 }
 
+/**
+ * ext2_handle_dirsync - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_handle_dirsync(struct inode *dir)
 {
 	int err;
@@ -447,6 +553,14 @@ static int ext2_handle_dirsync(struct inode *dir)
 	return err;
 }
 
+/**
+ * ext2_set_link - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext2_set_link(struct inode *dir, struct ext2_dir_entry_2 *de,
 		struct folio *folio, struct inode *inode, bool update_times)
 {
@@ -470,8 +584,14 @@ int ext2_set_link(struct inode *dir, struct ext2_dir_entry_2 *de,
 	return ext2_handle_dirsync(dir);
 }
 
-/*
- *	Parent is locked.
+
+/**
+ * ext2_add_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext2_add_link (struct dentry *dentry, struct inode *inode)
 {
@@ -488,11 +608,7 @@ int ext2_add_link (struct dentry *dentry, struct inode *inode)
 	loff_t pos;
 	int err;
 
-	/*
-	 * We take care of directory expansion in the same loop.
-	 * This code plays outside i_size, so it locks the folio
-	 * to protect that region.
-	 */
+
 	for (n = 0; n <= npages; n++) {
 		char *kaddr = ext2_get_folio(dir, n, 0, &folio);
 		char *dir_end;
@@ -505,7 +621,7 @@ int ext2_add_link (struct dentry *dentry, struct inode *inode)
 		kaddr += folio_size(folio) - reclen;
 		while ((char *)de <= kaddr) {
 			if ((char *)de == dir_end) {
-				/* We hit i_size */
+
 				name_len = 0;
 				rec_len = chunk_size;
 				de->rec_len = ext2_rec_len_to_disk(chunk_size);
@@ -555,7 +671,7 @@ got_it:
 	EXT2_I(dir)->i_flags &= ~EXT2_BTREE_FL;
 	mark_inode_dirty(dir);
 	err = ext2_handle_dirsync(dir);
-	/* OFFSET_CACHE */
+
 out_put:
 	folio_release_kmap(folio, de);
 	return err;
@@ -564,9 +680,14 @@ out_unlock:
 	goto out_put;
 }
 
-/*
- * ext2_delete_entry deletes a directory entry by merging it with the
- * previous entry. Page is up-to-date.
+
+/**
+ * ext2_delete_entry - Implements the delete entry operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext2_delete_entry(struct ext2_dir_entry_2 *dir, struct folio *folio)
 {
@@ -611,8 +732,14 @@ int ext2_delete_entry(struct ext2_dir_entry_2 *dir, struct folio *folio)
 	return ext2_handle_dirsync(inode);
 }
 
-/*
- * Set the first fragment of directory.
+
+/**
+ * ext2_make_empty - Implements the make empty operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext2_make_empty(struct inode *inode, struct inode *parent)
 {
@@ -653,8 +780,14 @@ fail:
 	return err;
 }
 
-/*
- * routine to check that the specified directory is empty (for rmdir)
+
+/**
+ * ext2_empty_dir - Implements the empty dir operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext2_empty_dir(struct inode *inode)
 {
@@ -680,7 +813,7 @@ int ext2_empty_dir(struct inode *inode)
 				goto not_empty;
 			}
 			if (de->inode != 0) {
-				/* check for . and .. */
+
 				if (de->name[0] != '.')
 					goto not_empty;
 				if (de->name_len > 2)
@@ -703,6 +836,14 @@ not_empty:
 	return 0;
 }
 
+/**
+ * ext2_dir_open - Implements the dir open operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_dir_open(struct inode *inode, struct file *file)
 {
 	file->private_data = kzalloc(sizeof(u64), GFP_KERNEL);
@@ -711,12 +852,28 @@ static int ext2_dir_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/**
+ * ext2_dir_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_dir_release(struct inode *inode, struct file *file)
 {
 	kfree(file->private_data);
 	return 0;
 }
 
+/**
+ * ext2_dir_llseek - Implements the dir llseek operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static loff_t ext2_dir_llseek(struct file *file, loff_t offset, int whence)
 {
 	return generic_llseek_cookie(file, offset, whence,

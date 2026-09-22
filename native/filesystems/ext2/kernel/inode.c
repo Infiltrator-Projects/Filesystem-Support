@@ -23,6 +23,28 @@
  *  Assorted race fixes, rewrite of ext2_get_block() by Al Viro, 2000
  */
 
+/*
+ * EXT2 — Inode mapping and lifecycle
+ *
+ * Purpose:
+ *   Implements inode read/write conversion, logical-to-physical block mapping, truncation, address-space operations and inode lifecycle transitions.
+ *
+ * Filesystem model:
+ *   This file belongs to a deliberately strict, non-journalled EXT2 VFS implementation.
+ *
+ * Correctness focus:
+ *   The in-memory inode and its durable representation may advance at different times; crash-safe ordering and orphan handling must preserve a recoverable disk state.
+ *
+ * Project rules:
+ *   - Do not accept a journalled EXT3 volume as EXT2.
+ *   - Keep on-disk compatibility fields when they are required to parse or reject media correctly.
+ *   - Keep xattr/ACL/cache code inside ext2.ko rather than creating helper modules.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/time.h>
 #include <linux/highuid.h>
 #include <linux/pagemap.h>
@@ -40,8 +62,14 @@
 
 static int __ext2_write_inode(struct inode *inode, int do_sync);
 
-/*
- * Test whether an inode is a fast symlink.
+
+/**
+ * ext2_inode_is_fast_symlink - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline int ext2_inode_is_fast_symlink(struct inode *inode)
 {
@@ -54,6 +82,14 @@ static inline int ext2_inode_is_fast_symlink(struct inode *inode)
 
 static void ext2_truncate_blocks(struct inode *inode, loff_t offset);
 
+/**
+ * ext2_write_failed - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext2_write_failed(struct address_space *mapping, loff_t to)
 {
 	struct inode *inode = mapping->host;
@@ -64,8 +100,14 @@ void ext2_write_failed(struct address_space *mapping, loff_t to)
 	}
 }
 
-/*
- * Called at the last iput() if i_nlink is zero.
+
+/**
+ * ext2_evict_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext2_evict_inode(struct inode * inode)
 {
@@ -83,11 +125,11 @@ void ext2_evict_inode(struct inode * inode)
 
 	if (want_delete) {
 		sb_start_intwrite(inode->i_sb);
-		/* set dtime */
+
 		EXT2_I(inode)->i_dtime	= ktime_get_real_seconds();
 		mark_inode_dirty(inode);
 		__ext2_write_inode(inode, inode_needs_sync(inode));
-		/* truncate to 0 */
+
 		inode->i_size = 0;
 		if (inode->i_blocks)
 			ext2_truncate_blocks(inode, 0);
@@ -115,12 +157,28 @@ typedef struct {
 	struct buffer_head *bh;
 } Indirect;
 
+/**
+ * add_chain - Implements the add chain operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void add_chain(Indirect *p, struct buffer_head *bh, __le32 *v)
 {
 	p->key = *(p->p = v);
 	p->bh = bh;
 }
 
+/**
+ * verify_chain - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int verify_chain(Indirect *from, Indirect *to)
 {
 	while (from <= to && from->key == *from->p)
@@ -128,36 +186,15 @@ static inline int verify_chain(Indirect *from, Indirect *to)
 	return (from > to);
 }
 
+
 /**
- *	ext2_block_to_path - parse the block number into array of offsets
- *	@inode: inode in question (we are only interested in its superblock)
- *	@i_block: block number to be parsed
- *	@offsets: array to store the offsets in
- *      @boundary: set this non-zero if the referred-to block is likely to be
- *             followed (on disk) by an indirect block.
- *	To store the locations of file's data ext2 uses a data structure common
- *	for UNIX filesystems - tree of pointers anchored in the inode, with
- *	data blocks at leaves and indirect blocks in intermediate nodes.
- *	This function translates the block number into path in that tree -
- *	return value is the path length and @offsets[n] is the offset of
- *	pointer to (n+1)th node in the nth one. If @block is out of range
- *	(negative or too large) warning is printed and zero returned.
+ * ext2_block_to_path - Implements the block to path operation within the inode mapping and lifecycle subsystem.
  *
- *	Note: function doesn't find node addresses, so no IO is needed. All
- *	we need to know is the capacity of indirect blocks (taken from the
- *	inode->i_sb).
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
-/*
- * Portability note: the last comparison (check that we fit into triple
- * indirect block) is spelled differently, because otherwise on an
- * architecture with 32-bit longs and 8Kb pages we might get into trouble
- * if our filesystem had 8Kb blocks. We might use long long, but that would
- * kill us on x86. Oh, well, at least the sign propagation does not matter -
- * i_block would have to be negative in the very beginning, so we would not
- * get there at all.
- */
-
 static int ext2_block_to_path(struct inode *inode,
 			long i_block, int offsets[4], int *boundary)
 {
@@ -200,34 +237,14 @@ static int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
+
 /**
- *	ext2_get_branch - read the chain of indirect blocks leading to data
- *	@inode: inode in question
- *	@depth: depth of the chain (1 - direct pointer, etc.)
- *	@offsets: offsets of pointers in inode/indirect blocks
- *	@chain: place to store the result
- *	@err: here we store the error value
+ * ext2_get_branch - Implements the get branch operation within the inode mapping and lifecycle subsystem.
  *
- *	Function fills the array of triples <key, p, bh> and returns %NULL
- *	if everything went OK or the pointer to the last filled triple
- *	(incomplete one) otherwise. Upon the return chain[i].key contains
- *	the number of (i+1)-th block in the chain (as it is stored in memory,
- *	i.e. little-endian 32-bit), chain[i].p contains the address of that
- *	number (it points into struct inode for i==0 and into the bh->b_data
- *	for i>0) and chain[i].bh points to the buffer_head of i-th indirect
- *	block for i>0 and NULL for i==0. In other words, it holds the block
- *	numbers of the chain, addresses they were taken from (and where we can
- *	verify that chain did not change) and buffer_heads hosting these
- *	numbers.
- *
- *	Function stops when it stumbles upon zero pointer (absent block)
- *		(pointer to last triple returned, *@err == 0)
- *	or when it gets an IO error reading an indirect block
- *		(ditto, *@err == -EIO)
- *	or when it notices that chain had been changed while it was reading
- *		(ditto, *@err == -EAGAIN)
- *	or when it reads all @depth-1 indirect blocks successfully and finds
- *	the whole chain, all way to the data (returns %NULL, *err == 0).
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static Indirect *ext2_get_branch(struct inode *inode,
 				 int depth,
@@ -240,7 +257,7 @@ static Indirect *ext2_get_branch(struct inode *inode,
 	struct buffer_head *bh;
 
 	*err = 0;
-	/* i_data is not going away, no lock needed */
+
 	add_chain (chain, NULL, EXT2_I(inode)->i_data + *offsets);
 	if (!p->key)
 		goto no_block;
@@ -269,26 +286,15 @@ no_block:
 	return p;
 }
 
-/**
- *	ext2_find_near - find a place for allocation with sufficient locality
- *	@inode: owner
- *	@ind: descriptor of indirect block.
- *
- *	This function returns the preferred place for block allocation.
- *	It is used when heuristic for sequential allocation fails.
- *	Rules are:
- *	  + if there is a block to the left of our position - allocate near it.
- *	  + if pointer will live in indirect block - allocate near that block.
- *	  + if pointer will live in inode - allocate in the same cylinder group.
- *
- * In the latter case we colour the starting block by the callers PID to
- * prevent it from clashing with concurrent allocations for a different inode
- * in the same block group.   The PID is used here so that functionally related
- * files will be close-by on-disk.
- *
- *	Caller must make sure that @ind is valid and will stay that way.
- */
 
+/**
+ * ext2_find_near - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ext2_fsblk_t ext2_find_near(struct inode *inode, Indirect *ind)
 {
 	struct ext2_inode_info *ei = EXT2_I(inode);
@@ -297,34 +303,31 @@ static ext2_fsblk_t ext2_find_near(struct inode *inode, Indirect *ind)
 	ext2_fsblk_t bg_start;
 	ext2_fsblk_t colour;
 
-	/* Try to find previous block */
+
 	for (p = ind->p - 1; p >= start; p--)
 		if (*p)
 			return le32_to_cpu(*p);
 
-	/* No such thing, so let's try location of indirect block */
+
 	if (ind->bh)
 		return ind->bh->b_blocknr;
 
-	/*
-	 * It is going to be referred from inode itself? OK, just put it into
-	 * the same cylinder group then.
-	 */
+
 	bg_start = ext2_group_first_block_no(inode->i_sb, ei->i_block_group);
 	colour = (current->pid % 16) *
 			(EXT2_BLOCKS_PER_GROUP(inode->i_sb) / 16);
 	return bg_start + colour;
 }
 
-/**
- *	ext2_find_goal - find a preferred place for allocation.
- *	@inode: owner
- *	@block:  block we want
- *	@partial: pointer to the last triple within a chain
- *
- *	Returns preferred place for a block (the goal).
- */
 
+/**
+ * ext2_find_goal - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline ext2_fsblk_t ext2_find_goal(struct inode *inode, long block,
 					  Indirect *partial)
 {
@@ -332,10 +335,7 @@ static inline ext2_fsblk_t ext2_find_goal(struct inode *inode, long block,
 
 	block_i = EXT2_I(inode)->i_block_alloc_info;
 
-	/*
-	 * try the heuristic for sequential allocation,
-	 * failing that at least try to get decent locality.
-	 */
+
 	if (block_i && (block == block_i->last_alloc_logical_block + 1)
 		&& (block_i->last_alloc_physical_block != 0)) {
 		return block_i->last_alloc_physical_block + 1;
@@ -344,16 +344,14 @@ static inline ext2_fsblk_t ext2_find_goal(struct inode *inode, long block,
 	return ext2_find_near(inode, partial);
 }
 
+
 /**
- *	ext2_blks_to_allocate: Look up the block map and count the number
- *	of direct blocks need to be allocated for the given branch.
+ * ext2_blks_to_allocate - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
- * 	@branch: chain of indirect blocks
- *	@k: number of blocks need for indirect blocks
- *	@blks: number of data blocks to be mapped.
- *	@blocks_to_boundary:  the offset in the indirect block
- *
- *	return the number of direct blocks to allocate.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int
 ext2_blks_to_allocate(Indirect * branch, int k, unsigned long blks,
@@ -361,12 +359,9 @@ ext2_blks_to_allocate(Indirect * branch, int k, unsigned long blks,
 {
 	unsigned long count = 0;
 
-	/*
-	 * Simple case, [t,d]Indirect block(s) has not allocated yet
-	 * then it's clear blocks on that path have not allocated
-	 */
+
 	if (k > 0) {
-		/* right now don't hanel cross boundary allocation */
+
 		if (blks < blocks_to_boundary + 1)
 			count += blks;
 		else
@@ -382,17 +377,14 @@ ext2_blks_to_allocate(Indirect * branch, int k, unsigned long blks,
 	return count;
 }
 
+
 /**
- * ext2_alloc_blocks: Allocate multiple blocks needed for a branch.
- * @inode: Owner.
- * @goal: Preferred place for allocation.
- * @indirect_blks: The number of blocks needed to allocate for indirect blocks.
- * @blks: The number of blocks need to allocate for direct blocks.
- * @new_blocks: On return it will store the new block numbers for
- *	the indirect blocks(if needed) and the first direct block.
- * @err: Error pointer.
+ * ext2_alloc_blocks - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
- * Return: Number of blocks allocated.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext2_alloc_blocks(struct inode *inode,
 			ext2_fsblk_t goal, int indirect_blks, int blks,
@@ -404,25 +396,18 @@ static int ext2_alloc_blocks(struct inode *inode,
 	ext2_fsblk_t current_block = 0;
 	int ret = 0;
 
-	/*
-	 * Here we try to allocate the requested multiple blocks at once,
-	 * on a best-effort basis.
-	 * To build a branch, we should allocate blocks for
-	 * the indirect blocks(if not allocated yet), and at least
-	 * the first direct block of this branch.  That's the
-	 * minimum number of blocks need to allocate(required)
-	 */
+
 	target = blks + indirect_blks;
 
 	while (1) {
 		count = target;
-		/* allocating blocks for indirect blocks and direct blocks */
+
 		current_block = ext2_new_blocks(inode, goal, &count, err, 0);
 		if (*err)
 			goto failed_out;
 
 		target -= count;
-		/* allocate blocks for indirect blocks */
+
 		while (index < indirect_blks && count) {
 			new_blocks[index++] = current_block++;
 			count--;
@@ -432,10 +417,10 @@ static int ext2_alloc_blocks(struct inode *inode,
 			break;
 	}
 
-	/* save the new block number for the first direct block */
+
 	new_blocks[index] = current_block;
 
-	/* total number of blocks allocated for direct blocks */
+
 	ret = count;
 	*err = 0;
 	return ret;
@@ -447,33 +432,15 @@ failed_out:
 	return ret;
 }
 
-/**
- *	ext2_alloc_branch - allocate and set up a chain of blocks.
- *	@inode: owner
- *	@indirect_blks: depth of the chain (number of blocks to allocate)
- *	@blks: number of allocated direct blocks
- *	@goal: preferred place for allocation
- *	@offsets: offsets (in the blocks) to store the pointers to next.
- *	@branch: place to store the chain in.
- *
- *	This function allocates @num blocks, zeroes out all but the last one,
- *	links them into chain and (if we are synchronous) writes them to disk.
- *	In other words, it prepares a branch that can be spliced onto the
- *	inode. It stores the information about that chain in the branch[], in
- *	the same format as ext2_get_branch() would do. We are calling it after
- *	we had read the existing part of chain and partial points to the last
- *	triple of that (one with zero ->key). Upon the exit we have the same
- *	picture as after the successful ext2_get_block(), except that in one
- *	place chain is disconnected - *branch->p is still zero (we did not
- *	set the last link), but branch->key contains the number that should
- *	be placed into *branch->p to fill that gap.
- *
- *	If allocation fails we free all blocks we've allocated (and forget
- *	their buffer_heads) and return the error value the from failed
- *	ext2_alloc_block() (normally -ENOSPC). Otherwise we set the chain
- *	as described above and return 0.
- */
 
+/**
+ * ext2_alloc_branch - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_alloc_branch(struct inode *inode,
 			int indirect_blks, int *blks, ext2_fsblk_t goal,
 			int *offsets, Indirect *branch)
@@ -492,15 +459,11 @@ static int ext2_alloc_branch(struct inode *inode,
 		return err;
 
 	branch[0].key = cpu_to_le32(new_blocks[0]);
-	/*
-	 * metadata blocks and data blocks are allocated.
-	 */
+
+
 	for (n = 1; n <= indirect_blks;  n++) {
-		/*
-		 * Get buffer_head for parent block, zero it out
-		 * and set the pointer to new one, then send
-		 * parent to disk.
-		 */
+
+
 		bh = sb_getblk(inode->i_sb, new_blocks[n-1]);
 		if (unlikely(!bh)) {
 			err = -ENOMEM;
@@ -514,21 +477,16 @@ static int ext2_alloc_branch(struct inode *inode,
 		*branch[n].p = branch[n].key;
 		if ( n == indirect_blks) {
 			current_block = new_blocks[n];
-			/*
-			 * End of chain, update the last new metablock of
-			 * the chain to point to the new allocated
-			 * data blocks numbers
-			 */
+
+
 			for (i=1; i < num; i++)
 				*(branch[n].p + i) = cpu_to_le32(++current_block);
 		}
 		set_buffer_uptodate(bh);
 		unlock_buffer(bh);
 		mark_buffer_dirty_inode(bh, inode);
-		/* We used to sync bh here if IS_SYNC(inode).
-		 * But we now rely upon generic_write_sync()
-		 * and b_inode_buffers.  But not for directories.
-		 */
+
+
 		if (S_ISDIR(inode->i_mode) && IS_DIRSYNC(inode))
 			sync_dirty_buffer(bh);
 	}
@@ -544,17 +502,14 @@ failed:
 	return err;
 }
 
+
 /**
- * ext2_splice_branch - splice the allocated branch onto inode.
- * @inode: owner
- * @block: (logical) number of block we are adding
- * @where: location of missing link
- * @num:   number of indirect blocks we are adding
- * @blks:  number of direct blocks we are adding
+ * ext2_splice_branch - Implements the splice branch operation within the inode mapping and lifecycle subsystem.
  *
- * This function fills the missing link and does all housekeeping needed in
- * inode (->i_blocks, etc.). In case of success we end up with the full
- * chain to new block and return 0.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext2_splice_branch(struct inode *inode,
 			long block, Indirect *where, int num, int blks)
@@ -565,35 +520,24 @@ static void ext2_splice_branch(struct inode *inode,
 
 	block_i = EXT2_I(inode)->i_block_alloc_info;
 
-	/* XXX LOCKING probably should have i_meta_lock ?*/
-	/* That's it */
 
 	*where->p = where->key;
 
-	/*
-	 * Update the host buffer_head or inode to point to more just allocated
-	 * direct blocks blocks
-	 */
+
 	if (num == 0 && blks > 1) {
 		current_block = le32_to_cpu(where->key) + 1;
 		for (i = 1; i < blks; i++)
 			*(where->p + i ) = cpu_to_le32(current_block++);
 	}
 
-	/*
-	 * update the most recently allocated logical & physical block
-	 * in i_block_alloc_info, to assist find the proper goal block for next
-	 * allocation
-	 */
+
 	if (block_i) {
 		block_i->last_alloc_logical_block = block + blks - 1;
 		block_i->last_alloc_physical_block =
 				le32_to_cpu(where[num].key) + blks - 1;
 	}
 
-	/* We are done with atomic stuff, now do the rest of housekeeping */
 
-	/* had we spliced it onto indirect block? */
 	if (where->bh)
 		mark_buffer_dirty_inode(where->bh, inode);
 
@@ -601,23 +545,14 @@ static void ext2_splice_branch(struct inode *inode,
 	mark_inode_dirty(inode);
 }
 
-/*
- * Allocation strategy is simple: if we have to allocate something, we will
- * have to go the whole way to leaf. So let's do it before attaching anything
- * to tree, set linkage between the newborn blocks, write them if sync is
- * required, recheck the path, free and repeat if check fails, otherwise
- * set the last missing link (that will protect us from any truncate-generated
- * removals - all blocks on the path are immune now) and possibly force the
- * write on the parent block.
- * That has a nice additional property: no special recovery from the failed
- * allocations is needed - we simply release blocks and do not touch anything
- * reachable from inode.
+
+/**
+ * ext2_get_blocks - Implements the get blocks operation within the inode mapping and lifecycle subsystem.
  *
- * `handle' can be NULL if create == 0.
- *
- * return > 0, # of blocks mapped or allocated.
- * return = 0, if plain lookup failed.
- * return < 0, error case.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext2_get_blocks(struct inode *inode,
 			   sector_t iblock, unsigned long maxblocks,
@@ -644,21 +579,17 @@ static int ext2_get_blocks(struct inode *inode,
 		return -EIO;
 
 	partial = ext2_get_branch(inode, depth, offsets, chain, &err);
-	/* Simplest case - block found, no allocation needed */
+
 	if (!partial) {
 		first_block = le32_to_cpu(chain[depth - 1].key);
 		count++;
-		/*map more blocks*/
+
 		while (count < maxblocks && count <= blocks_to_boundary) {
 			ext2_fsblk_t blk;
 
 			if (!verify_chain(chain, chain + depth - 1)) {
-				/*
-				 * Indirect block might be removed by
-				 * truncate while we were reading it.
-				 * Handling of that case: forget what we've
-				 * got now, go to reread.
-				 */
+
+
 				err = -EAGAIN;
 				count = 0;
 				partial = chain + depth - 1;
@@ -674,23 +605,13 @@ static int ext2_get_blocks(struct inode *inode,
 			goto got_it;
 	}
 
-	/* Next simple case - plain lookup or failed read of indirect block */
+
 	if (!create || err == -EIO)
 		goto cleanup;
 
 	mutex_lock(&ei->truncate_mutex);
-	/*
-	 * If the indirect block is missing while we are reading
-	 * the chain(ext2_get_branch() returns -EAGAIN err), or
-	 * if the chain has been changed after we grab the semaphore,
-	 * (either because another process truncated this branch, or
-	 * another get_block allocated this branch) re-grab the chain to see if
-	 * the request block has been allocated or not.
-	 *
-	 * Since we already block the truncate/other get_block
-	 * at this point, we will have the current copy of the chain when we
-	 * splice the branch into the tree.
-	 */
+
+
 	if (err == -EAGAIN || !verify_chain(chain, partial)) {
 		while (partial > chain) {
 			brelse(partial->bh);
@@ -709,26 +630,20 @@ static int ext2_get_blocks(struct inode *inode,
 		}
 	}
 
-	/*
-	 * Okay, we need to do block allocation.  Lazily initialize the block
-	 * allocation info here if necessary
-	*/
+
 	if (S_ISREG(inode->i_mode) && (!ei->i_block_alloc_info))
 		ext2_init_block_alloc_info(inode);
 
 	goal = ext2_find_goal(inode, iblock, partial);
 
-	/* the number of blocks need to allocate for [d,t]indirect blocks */
+
 	indirect_blks = (chain + depth) - partial - 1;
-	/*
-	 * Next look up the indirect map to count the total number of
-	 * direct blocks to allocate for this branch.
-	 */
+
+
 	count = ext2_blks_to_allocate(partial, indirect_blks,
 					maxblocks, blocks_to_boundary);
-	/*
-	 * XXX ???? Block out ext2_truncate while we alter the tree
-	 */
+
+
 	err = ext2_alloc_branch(inode, indirect_blks, &count, goal,
 				offsets + (partial - chain), partial);
 
@@ -738,18 +653,13 @@ static int ext2_get_blocks(struct inode *inode,
 	}
 
 	if (IS_DAX(inode)) {
-		/*
-		 * We must unmap blocks before zeroing so that writeback cannot
-		 * overwrite zeros with stale data from block device page cache.
-		 */
+
+
 		clean_bdev_aliases(inode->i_sb->s_bdev,
 				   le32_to_cpu(chain[depth-1].key),
 				   count);
-		/*
-		 * block must be initialised before we put it in the tree
-		 * so that it's not found by another thread before it's
-		 * initialised
-		 */
+
+
 		err = sb_issue_zeroout(inode->i_sb,
 				le32_to_cpu(chain[depth-1].key), count,
 				GFP_KERNEL);
@@ -766,8 +676,8 @@ got_it:
 	if (count > blocks_to_boundary)
 		*boundary = true;
 	err = count;
-	/* Clean up and exit */
-	partial = chain + depth - 1;	/* the whole chain */
+
+	partial = chain + depth - 1;
 cleanup:
 	while (partial > chain) {
 		brelse(partial->bh);
@@ -778,6 +688,14 @@ cleanup:
 	return err;
 }
 
+/**
+ * ext2_get_block - Implements the get block operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext2_get_block(struct inode *inode, sector_t iblock,
 		struct buffer_head *bh_result, int create)
 {
@@ -801,6 +719,14 @@ int ext2_get_block(struct inode *inode, sector_t iblock,
 
 }
 
+/**
+ * ext2_iomap_begin - Implements the iomap begin operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 		unsigned flags, struct iomap *iomap, struct iomap *srcmap)
 {
@@ -813,20 +739,12 @@ static int ext2_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 	int ret;
 	bool create = flags & IOMAP_WRITE;
 
-	/*
-	 * For writes that could fill holes inside i_size on a
-	 * DIO_SKIP_HOLES filesystem we forbid block creations: only
-	 * overwrites are permitted.
-	 */
+
 	if ((flags & IOMAP_DIRECT) &&
 	    (first_block << blkbits) < i_size_read(inode))
 		create = 0;
 
-	/*
-	 * Writes that span EOF might trigger an IO size update on completion,
-	 * so consider them to be dirty for the purposes of O_DSYNC even if
-	 * there is no other metadata changes pending or have been made here.
-	 */
+
 	if ((flags & IOMAP_WRITE) && offset + length > i_size_read(inode))
 		iomap->flags |= IOMAP_F_DIRTY;
 
@@ -843,10 +761,8 @@ static int ext2_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 		iomap->bdev = inode->i_sb->s_bdev;
 
 	if (ret == 0) {
-		/*
-		 * Switch to buffered-io for writing to holes in a non-extent
-		 * based filesystem to avoid stale data exposure problem.
-		 */
+
+
 		if (!create && (flags & IOMAP_WRITE) && (flags & IOMAP_DIRECT))
 			return -ENOTBLK;
 		iomap->type = IOMAP_HOLE;
@@ -866,14 +782,20 @@ static int ext2_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 	return 0;
 }
 
+/**
+ * ext2_iomap_end - Implements the iomap end operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int
 ext2_iomap_end(struct inode *inode, loff_t offset, loff_t length,
 		ssize_t written, unsigned flags, struct iomap *iomap)
 {
-	/*
-	 * Switch to buffered-io in case of any error.
-	 * Blocks allocated can be used by the buffered-io path.
-	 */
+
+
 	if ((flags & IOMAP_DIRECT) && (flags & IOMAP_WRITE) && written == 0)
 		return -ENOTBLK;
 
@@ -889,6 +811,14 @@ const struct iomap_ops ext2_iomap_ops = {
 	.iomap_end		= ext2_iomap_end,
 };
 
+/**
+ * ext2_fiemap - Implements the fiemap operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		u64 start, u64 len)
 {
@@ -897,12 +827,8 @@ int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 
 	inode_lock(inode);
 	i_size = i_size_read(inode);
-	/*
-	 * iomap_fiemap() returns EINVAL for 0 length. Make sure we don't trim
-	 * length to 0 but still trim the range as much as possible since
-	 * ext2_get_blocks() iterates unmapped space block by block which is
-	 * slow.
-	 */
+
+
 	if (i_size == 0)
 		i_size = 1;
 	len = min_t(u64, len, i_size);
@@ -912,16 +838,40 @@ int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 	return ret;
 }
 
+/**
+ * ext2_read_folio - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_read_folio(struct file *file, struct folio *folio)
 {
 	return mpage_read_folio(folio, ext2_get_block);
 }
 
+/**
+ * ext2_readahead - Implements the readahead operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext2_readahead(struct readahead_control *rac)
 {
 	mpage_readahead(rac, ext2_get_block);
 }
 
+/**
+ * ext2_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int
 ext2_write_begin(struct file *file, struct address_space *mapping,
 		loff_t pos, unsigned len, struct folio **foliop, void **fsdata)
@@ -934,6 +884,14 @@ ext2_write_begin(struct file *file, struct address_space *mapping,
 	return ret;
 }
 
+/**
+ * ext2_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_write_end(struct file *file, struct address_space *mapping,
 			loff_t pos, unsigned len, unsigned copied,
 			struct folio *folio, void *fsdata)
@@ -946,17 +904,41 @@ static int ext2_write_end(struct file *file, struct address_space *mapping,
 	return ret;
 }
 
+/**
+ * ext2_bmap - Implements the bmap operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static sector_t ext2_bmap(struct address_space *mapping, sector_t block)
 {
 	return generic_block_bmap(mapping,block,ext2_get_block);
 }
 
+/**
+ * ext2_writepages - Implements the writepages operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int
 ext2_writepages(struct address_space *mapping, struct writeback_control *wbc)
 {
 	return mpage_writepages(mapping, wbc, ext2_get_block);
 }
 
+/**
+ * ext2_dax_writepages - Implements the dax writepages operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int
 ext2_dax_writepages(struct address_space *mapping, struct writeback_control *wbc)
 {
@@ -984,10 +966,14 @@ static const struct address_space_operations ext2_dax_aops = {
 	.dirty_folio		= noop_dirty_folio,
 };
 
-/*
- * Probably it should be a library function... search for first non-zero word
- * or memcmp with zero_page, whatever is better for particular architecture.
- * Linus?
+
+/**
+ * all_zeroes - Implements the all zeroes operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline int all_zeroes(__le32 *p, __le32 *q)
 {
@@ -997,40 +983,15 @@ static inline int all_zeroes(__le32 *p, __le32 *q)
 	return 1;
 }
 
-/**
- *	ext2_find_shared - find the indirect blocks for partial truncation.
- *	@inode:	  inode in question
- *	@depth:	  depth of the affected branch
- *	@offsets: offsets of pointers in that branch (see ext2_block_to_path)
- *	@chain:	  place to store the pointers to partial indirect blocks
- *	@top:	  place to the (detached) top of branch
- *
- *	This is a helper function used by ext2_truncate().
- *
- *	When we do truncate() we may have to clean the ends of several indirect
- *	blocks but leave the blocks themselves alive. Block is partially
- *	truncated if some data below the new i_size is referred from it (and
- *	it is on the path to the first completely truncated data block, indeed).
- *	We have to free the top of that path along with everything to the right
- *	of the path. Since no allocation past the truncation point is possible
- *	until ext2_truncate() finishes, we may safely do the latter, but top
- *	of branch may require special attention - pageout below the truncation
- *	point might try to populate it.
- *
- *	We atomically detach the top of branch from the tree, store the block
- *	number of its root in *@top, pointers to buffer_heads of partially
- *	truncated blocks - in @chain[].bh and pointers to their last elements
- *	that should not be removed - in @chain[].p. Return value is the pointer
- *	to last filled element of @chain.
- *
- *	The work left to caller to do the actual freeing of subtrees:
- *		a) free the subtree starting from *@top
- *		b) free the subtrees whose roots are stored in
- *			(@chain[i].p+1 .. end of @chain[i].bh->b_data)
- *		c) free the subtrees growing from the inode past the @chain[0].p
- *			(no partially truncated stuff there).
- */
 
+/**
+ * ext2_find_shared - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static Indirect *ext2_find_shared(struct inode *inode,
 				int depth,
 				int offsets[4],
@@ -1046,10 +1007,8 @@ static Indirect *ext2_find_shared(struct inode *inode,
 	partial = ext2_get_branch(inode, k, offsets, chain, &err);
 	if (!partial)
 		partial = chain + k-1;
-	/*
-	 * If the branch acquired continuation since we've looked at it -
-	 * fine, it should all survive and (new) top doesn't belong to us.
-	 */
+
+
 	write_lock(&EXT2_I(inode)->i_meta_lock);
 	if (!partial->key && *partial->p) {
 		write_unlock(&EXT2_I(inode)->i_meta_lock);
@@ -1057,12 +1016,8 @@ static Indirect *ext2_find_shared(struct inode *inode,
 	}
 	for (p=partial; p>chain && all_zeroes((__le32*)p->bh->b_data,p->p); p--)
 		;
-	/*
-	 * OK, we've found the last block that must survive. The rest of our
-	 * branch should be detached before unlocking. However, if that rest
-	 * of branch is all ours and does not grow immediately from the inode
-	 * it's easier to cheat and just decrement partial->p.
-	 */
+
+
 	if (p == chain + k - 1 && p > chain) {
 		p->p--;
 	} else {
@@ -1080,15 +1035,14 @@ no_top:
 	return partial;
 }
 
+
 /**
- *	ext2_free_data - free a list of data blocks
- *	@inode:	inode we are dealing with
- *	@p:	array of block numbers
- *	@q:	points immediately past the end of array
+ * ext2_free_data - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
- *	We are freeing all blocks referred from that array (numbers are
- *	stored as little-endian 32-bit) and updating @inode->i_blocks
- *	appropriately.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q)
 {
@@ -1099,7 +1053,7 @@ static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q)
 		nr = le32_to_cpu(*p);
 		if (nr) {
 			*p = 0;
-			/* accumulate blocks to free if they're contiguous */
+
 			if (count == 0)
 				goto free_this;
 			else if (block_to_free == nr - count)
@@ -1119,16 +1073,14 @@ static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q)
 	}
 }
 
+
 /**
- *	ext2_free_branches - free an array of branches
- *	@inode:	inode we are dealing with
- *	@p:	array of block numbers
- *	@q:	pointer immediately past the end of array
- *	@depth:	depth of the branches to free
+ * ext2_free_branches - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
- *	We are freeing all blocks referred from these branches (numbers are
- *	stored as little-endian 32-bit) and updating @inode->i_blocks
- *	appropriately.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext2_free_branches(struct inode *inode, __le32 *p, __le32 *q, int depth)
 {
@@ -1143,10 +1095,8 @@ static void ext2_free_branches(struct inode *inode, __le32 *p, __le32 *q, int de
 				continue;
 			*p = 0;
 			bh = sb_bread(inode->i_sb, nr);
-			/*
-			 * A read failure? Report error and clear slot
-			 * (should be rare).
-			 */ 
+
+
 			if (!bh) {
 				ext2_error(inode->i_sb, "ext2_free_branches",
 					"Read failure, inode=%ld, block=%ld",
@@ -1165,7 +1115,15 @@ static void ext2_free_branches(struct inode *inode, __le32 *p, __le32 *q, int de
 		ext2_free_data(inode, p, q);
 }
 
-/* mapping->invalidate_lock must be held when calling this function */
+
+/**
+ * __ext2_truncate_blocks - Implements the truncate blocks operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 {
 	__le32 *i_data = EXT2_I(inode)->i_data;
@@ -1189,10 +1147,7 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	if (n == 0)
 		return;
 
-	/*
-	 * From here we block out all ext2_get_block() callers who want to
-	 * modify the block allocation tree.
-	 */
+
 	mutex_lock(&ei->truncate_mutex);
 
 	if (n == 1) {
@@ -1202,7 +1157,7 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	}
 
 	partial = ext2_find_shared(inode, n, offsets, chain, &nr);
-	/* Kill the top of shared branch (already detached) */
+
 	if (nr) {
 		if (partial == chain)
 			mark_inode_dirty(inode);
@@ -1210,7 +1165,7 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 			mark_buffer_dirty_inode(partial->bh, inode);
 		ext2_free_branches(inode, &nr, &nr+1, (chain+n-1) - partial);
 	}
-	/* Clear the ends of indirect blocks on the shared branch */
+
 	while (partial > chain) {
 		ext2_free_branches(inode,
 				   partial->p + 1,
@@ -1221,7 +1176,7 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 		partial--;
 	}
 do_indirects:
-	/* Kill the remaining (whole) subtrees */
+
 	switch (offsets[0]) {
 		default:
 			nr = i_data[EXT2_IND_BLOCK];
@@ -1256,6 +1211,14 @@ do_indirects:
 	mutex_unlock(&ei->truncate_mutex);
 }
 
+/**
+ * ext2_truncate_blocks - Implements the truncate blocks operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext2_truncate_blocks(struct inode *inode, loff_t offset)
 {
 	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) ||
@@ -1269,6 +1232,14 @@ static void ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	filemap_invalidate_unlock(inode->i_mapping);
 }
 
+/**
+ * ext2_setsize - Implements the setsize operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_setsize(struct inode *inode, loff_t newsize)
 {
 	int error;
@@ -1308,6 +1279,14 @@ static int ext2_setsize(struct inode *inode, loff_t newsize)
 	return 0;
 }
 
+/**
+ * ext2_get_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct ext2_inode *ext2_get_inode(struct super_block *sb, ino_t ino,
 					struct buffer_head **p)
 {
@@ -1326,9 +1305,8 @@ static struct ext2_inode *ext2_get_inode(struct super_block *sb, ino_t ino,
 	gdp = ext2_get_group_desc(sb, block_group, NULL);
 	if (!gdp)
 		goto Egdp;
-	/*
-	 * Figure out the offset within the block group inode table
-	 */
+
+
 	offset = ((ino - 1) % EXT2_INODES_PER_GROUP(sb)) * EXT2_INODE_SIZE(sb);
 	block = le32_to_cpu(gdp->bg_inode_table) +
 		(offset >> EXT2_BLOCK_SIZE_BITS(sb));
@@ -1351,6 +1329,14 @@ Egdp:
 	return ERR_PTR(-EIO);
 }
 
+/**
+ * ext2_set_inode_flags - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext2_set_inode_flags(struct inode *inode)
 {
 	unsigned int flags = EXT2_I(inode)->i_flags;
@@ -1371,6 +1357,14 @@ void ext2_set_inode_flags(struct inode *inode)
 		inode->i_flags |= S_DAX;
 }
 
+/**
+ * ext2_set_file_ops - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext2_set_file_ops(struct inode *inode)
 {
 	inode->i_op = &ext2_file_inode_operations;
@@ -1381,6 +1375,14 @@ void ext2_set_file_ops(struct inode *inode)
 		inode->i_mapping->a_ops = &ext2_aops;
 }
 
+/**
+ * ext2_iget - Implements the iget operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 struct inode *ext2_iget (struct super_block *sb, unsigned long ino)
 {
 	struct ext2_inode_info *ei;
@@ -1422,14 +1424,11 @@ struct inode *ext2_iget (struct super_block *sb, unsigned long ino)
 	inode_set_ctime(inode, (signed)le32_to_cpu(raw_inode->i_ctime), 0);
 	inode_set_mtime(inode, (signed)le32_to_cpu(raw_inode->i_mtime), 0);
 	ei->i_dtime = le32_to_cpu(raw_inode->i_dtime);
-	/* We now have enough fields to check if the inode was active or not.
-	 * This is needed because nfsd might try to access dead inodes
-	 * the test is that same one that e2fsck uses
-	 * NeilBrown 1999oct15
-	 */
+
+
 	if (inode->i_nlink == 0) {
 		if (inode->i_mode == 0 || ei->i_dtime) {
-			/* this inode is deleted */
+
 			ret = -ESTALE;
 		} else {
 			ext2_error(sb, __func__,
@@ -1471,10 +1470,7 @@ struct inode *ext2_iget (struct super_block *sb, unsigned long ino)
 	ei->i_block_group = (ino - 1) / EXT2_INODES_PER_GROUP(inode->i_sb);
 	ei->i_dir_start_lookup = 0;
 
-	/*
-	 * NOTE! The in-memory inode i_data array is in little-endian order
-	 * even on big-endian machines: we do NOT byteswap the block numbers!
-	 */
+
 	for (n = 0; n < EXT2_N_BLOCKS; n++)
 		ei->i_data[n] = raw_inode->i_block[n];
 
@@ -1500,20 +1496,28 @@ struct inode *ext2_iget (struct super_block *sb, unsigned long ino)
 		if (raw_inode->i_block[0])
 			init_special_inode(inode, inode->i_mode,
 			   old_decode_dev(le32_to_cpu(raw_inode->i_block[0])));
-		else 
+		else
 			init_special_inode(inode, inode->i_mode,
 			   new_decode_dev(le32_to_cpu(raw_inode->i_block[1])));
 	}
 	brelse (bh);
 	unlock_new_inode(inode);
 	return inode;
-	
+
 bad_inode:
 	brelse(bh);
 	iget_failed(inode);
 	return ERR_PTR(ret);
 }
 
+/**
+ * __ext2_write_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __ext2_write_inode(struct inode *inode, int do_sync)
 {
 	struct ext2_inode_info *ei = EXT2_I(inode);
@@ -1529,8 +1533,7 @@ static int __ext2_write_inode(struct inode *inode, int do_sync)
 	if (IS_ERR(raw_inode))
  		return -EIO;
 
-	/* For fields not tracking in the in-memory inode,
-	 * initialise them to zero for new inodes. */
+
 	if (ei->i_state & EXT2_STATE_NEW)
 		memset(raw_inode, 0, EXT2_SB(sb)->s_inode_size);
 
@@ -1538,10 +1541,8 @@ static int __ext2_write_inode(struct inode *inode, int do_sync)
 	if (!(test_opt(sb, NO_UID32))) {
 		raw_inode->i_uid_low = cpu_to_le16(low_16_bits(uid));
 		raw_inode->i_gid_low = cpu_to_le16(low_16_bits(gid));
-/*
- * Fix up interoperability with old kernels. Otherwise, old inodes get
- * re-used with the upper 16 bits of the uid/gid intact
- */
+
+
 		if (!ei->i_dtime) {
 			raw_inode->i_uid_high = cpu_to_le16(high_16_bits(uid));
 			raw_inode->i_gid_high = cpu_to_le16(high_16_bits(gid));
@@ -1577,9 +1578,8 @@ static int __ext2_write_inode(struct inode *inode, int do_sync)
 					EXT2_FEATURE_RO_COMPAT_LARGE_FILE) ||
 			    EXT2_SB(sb)->s_es->s_rev_level ==
 					cpu_to_le32(EXT2_GOOD_OLD_REV)) {
-			       /* If this is the first large file
-				* created, add a flag to the superblock.
-				*/
+
+
 				spin_lock(&EXT2_SB(sb)->s_lock);
 				ext2_update_dynamic_rev(sb);
 				EXT2_SET_RO_COMPAT_FEATURE(sb,
@@ -1589,7 +1589,7 @@ static int __ext2_write_inode(struct inode *inode, int do_sync)
 			}
 		}
 	}
-	
+
 	raw_inode->i_generation = cpu_to_le32(inode->i_generation);
 	if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode)) {
 		if (old_valid_dev(inode->i_rdev)) {
@@ -1618,11 +1618,27 @@ static int __ext2_write_inode(struct inode *inode, int do_sync)
 	return err;
 }
 
+/**
+ * ext2_write_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext2_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
 	return __ext2_write_inode(inode, wbc->sync_mode == WB_SYNC_ALL);
 }
 
+/**
+ * ext2_getattr - Implements the getattr operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext2_getattr(struct mnt_idmap *idmap, const struct path *path,
 		 struct kstat *stat, u32 request_mask, unsigned int query_flags)
 {
@@ -1649,6 +1665,14 @@ int ext2_getattr(struct mnt_idmap *idmap, const struct path *path,
 	return 0;
 }
 
+/**
+ * ext2_setattr - Implements the setattr operation within the inode mapping and lifecycle subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext2_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		 struct iattr *iattr)
 {
@@ -1683,27 +1707,6 @@ int ext2_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	return error;
 }
 
-/* ---- EXT2 symlink inode operations (merged into this translation unit) ---- */
-// SPDX-License-Identifier: GPL-2.0
-/*
- *  linux/fs/ext2/symlink.c
- *
- * Only fast symlinks left here - the rest is done by generic code. AV, 1999
- *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  from
- *
- *  linux/fs/minix/symlink.c
- *
- *  Copyright (C) 1991, 1992  Linus Torvalds
- *
- *  ext2 symlink handling code
- */
-
 
 const struct inode_operations ext2_symlink_inode_operations = {
 	.get_link	= page_get_link,
@@ -1711,7 +1714,7 @@ const struct inode_operations ext2_symlink_inode_operations = {
 	.setattr	= ext2_setattr,
 	.listxattr	= ext2_listxattr,
 };
- 
+
 const struct inode_operations ext2_fast_symlink_inode_operations = {
 	.get_link	= simple_get_link,
 	.getattr	= ext2_getattr,

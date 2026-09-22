@@ -1,5 +1,15 @@
 # SPDX-License-Identifier: GPL-2.0
-# Self-contained Infiltrator EXT2 kernel module.
+# EXT2 — Kernel build contract
+#
+# Defines the single composite filesystem module and the object-level feature composition used by Kbuild.
+# This build describes a deliberately strict, non-journalled EXT2 VFS implementation.
+# Correctness: The object list is part of the module boundary: it must not accidentally recreate a helper .ko or omit a filesystem feature engine.
+#
+# Project rules:
+#   - Do not accept a journalled EXT3 volume as EXT2.
+#   - Keep on-disk compatibility fields when they are required to parse or reject media correctly.
+#   - Keep xattr/ACL/cache code inside ext2.ko rather than creating helper modules.
+#
 
 obj-m += ext2.o
 

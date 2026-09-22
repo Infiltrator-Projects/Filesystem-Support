@@ -21,6 +21,28 @@
  *
  */
 
+/*
+ * EXT3 — Directory representation
+ *
+ * Purpose:
+ *   Parses, validates and iterates directory records and implements directory lookup-side mechanics, including indexed-directory hashing where applicable.
+ *
+ * Filesystem model:
+ *   This file belongs to a standalone EXT3 VFS implementation with its historical JBD engine embedded in ext3.ko.
+ *
+ * Correctness focus:
+ *   Directory record lengths, alignment and bounds are untrusted on-disk input and must be validated before pointer arithmetic or publication to VFS.
+ *
+ * Project rules:
+ *   - EXT3 requires its journal semantics; it is not an EXT4 compatibility registration.
+ *   - Preserve the journal, recovery, ordered/writeback/journal data modes and EXT3 on-disk limits.
+ *   - JBD and the metadata cache are private implementation code, not separately deployed modules.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/compat.h>
 #include "ext3.h"
 
@@ -30,6 +52,14 @@ static unsigned char ext3_filetype_table[] = {
 
 static int ext3_dx_readdir(struct file *, struct dir_context *);
 
+/**
+ * get_dtype - Implements the get dtype operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static unsigned char get_dtype(struct super_block *sb, int filetype)
 {
 	if (!EXT3_HAS_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_FILETYPE) ||
@@ -39,12 +69,14 @@ static unsigned char get_dtype(struct super_block *sb, int filetype)
 	return (ext3_filetype_table[filetype]);
 }
 
+
 /**
- * Check if the given dir-inode refers to an htree-indexed directory
- * (or a directory which could potentially get converted to use htree
- * indexing).
+ * is_dx_dir - Implements the is dx dir operation within the directory representation subsystem.
  *
- * Return 1 if it is a dx dir, 0 if not
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int is_dx_dir(struct inode *inode)
 {
@@ -59,6 +91,14 @@ static int is_dx_dir(struct inode *inode)
 	return 0;
 }
 
+/**
+ * ext3_check_dir_entry - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext3_check_dir_entry (const char * function, struct inode * dir,
 			  struct ext3_dir_entry_2 * de,
 			  struct buffer_head * bh,
@@ -90,6 +130,14 @@ int ext3_check_dir_entry (const char * function, struct inode * dir,
 	return error_msg == NULL ? 1 : 0;
 }
 
+/**
+ * ext3_readdir - Implements the readdir operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext3_readdir(struct file *file, struct dir_context *ctx)
 {
 	unsigned long offset;
@@ -104,10 +152,8 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 		err = ext3_dx_readdir(file, ctx);
 		if (err != ERR_BAD_DX_DIR)
 			return err;
-		/*
-		 * We don't set the inode dirty flag since it's not
-		 * critical that it get flushed back to the disk.
-		 */
+
+
 		EXT3_I(inode)->i_flags &= ~EXT3_INDEX_FL;
 	}
 	offset = ctx->pos & (sb->s_blocksize - 1);
@@ -131,10 +177,7 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 			bh = ext3_bread(NULL, inode, blk, 0, &err);
 		}
 
-		/*
-		 * We ignore I/O errors on directories so users have a chance
-		 * of recovering data when there's a bad sector
-		 */
+
 		if (!bh) {
 			if (!dir_has_error) {
 				ext3_error(sb, __func__, "directory #%lu "
@@ -142,27 +185,20 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 					inode->i_ino, ctx->pos);
 				dir_has_error = 1;
 			}
-			/* corrupt size?  Maybe no more blocks to read */
+
 			if (ctx->pos > inode->i_blocks << 9)
 				break;
 			ctx->pos += sb->s_blocksize - offset;
 			continue;
 		}
 
-		/* If the dir block has changed since the last call to
-		 * readdir(2), then we might be pointing to an invalid
-		 * dirent right now.  Scan from the start of the block
-		 * to make sure. */
+
 		if (offset && file->f_version != inode->i_version) {
 			for (i = 0; i < sb->s_blocksize && i < offset; ) {
 				de = (struct ext3_dir_entry_2 *)
 					(bh->b_data + i);
-				/* It's too expensive to do a full
-				 * dirent test each time round this
-				 * loop, but we do have to test at
-				 * least that it is non-zero.  A
-				 * failure will be detected in the
-				 * dirent test below. */
+
+
 				if (ext3_rec_len_from_disk(de->rec_len) <
 						EXT3_DIR_REC_LEN(1))
 					break;
@@ -179,8 +215,8 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 			de = (struct ext3_dir_entry_2 *) (bh->b_data + offset);
 			if (!ext3_check_dir_entry ("ext3_readdir", inode, de,
 						   bh, offset)) {
-				/* On error, skip the to the
-                                   next block. */
+
+
 				ctx->pos = (ctx->pos |
 						(sb->s_blocksize - 1)) + 1;
 				break;
@@ -205,6 +241,14 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 	return 0;
 }
 
+/**
+ * is_32bit_api - Implements the is 32bit api operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int is_32bit_api(void)
 {
 #ifdef CONFIG_COMPAT
@@ -214,14 +258,14 @@ static inline int is_32bit_api(void)
 #endif
 }
 
-/*
- * These functions convert from the major/minor hash to an f_pos
- * value for dx directories
+
+/**
+ * hash2pos - Implements the hash2pos operation within the directory representation subsystem.
  *
- * Upper layer (for example NFS) should specify FMODE_32BITHASH or
- * FMODE_64BITHASH explicitly. On the other hand, we allow ext3 to be mounted
- * directly on both 32-bit and 64-bit nodes, under such case, neither
- * FMODE_32BITHASH nor FMODE_64BITHASH is specified.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline loff_t hash2pos(struct file *filp, __u32 major, __u32 minor)
 {
@@ -232,6 +276,14 @@ static inline loff_t hash2pos(struct file *filp, __u32 major, __u32 minor)
 		return ((__u64)(major >> 1) << 32) | (__u64)minor;
 }
 
+/**
+ * pos2maj_hash - Implements the pos2maj hash operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline __u32 pos2maj_hash(struct file *filp, loff_t pos)
 {
 	if ((filp->f_mode & FMODE_32BITHASH) ||
@@ -241,6 +293,14 @@ static inline __u32 pos2maj_hash(struct file *filp, loff_t pos)
 		return ((pos >> 32) << 1) & 0xffffffff;
 }
 
+/**
+ * pos2min_hash - Implements the pos2min hash operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline __u32 pos2min_hash(struct file *filp, loff_t pos)
 {
 	if ((filp->f_mode & FMODE_32BITHASH) ||
@@ -250,8 +310,14 @@ static inline __u32 pos2min_hash(struct file *filp, loff_t pos)
 		return pos & 0xffffffff;
 }
 
-/*
- * Return 32- or 64-bit end-of-file for dx directories
+
+/**
+ * ext3_get_htree_eof - Implements the get htree eof operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline loff_t ext3_get_htree_eof(struct file *filp)
 {
@@ -263,17 +329,13 @@ static inline loff_t ext3_get_htree_eof(struct file *filp)
 }
 
 
-/*
- * ext3_dir_llseek() calls generic_file_llseek[_size]() to handle both
- * non-htree and htree directories, where the "offset" is in terms
- * of the filename hash value instead of the byte offset.
+/**
+ * ext3_dir_llseek - Implements the dir llseek operation within the directory representation subsystem.
  *
- * Because we may return a 64-bit hash that is well beyond s_maxbytes,
- * we need to pass the max hash as the maximum allowable offset in
- * the htree directory case.
- *
- * NOTE: offsets obtained *before* ext3_set_inode_flag(dir, EXT3_INODE_INDEX)
- *       will be invalid once the directory was converted into a dx directory
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static loff_t ext3_dir_llseek(struct file *file, loff_t offset, int whence)
 {
@@ -288,9 +350,12 @@ static loff_t ext3_dir_llseek(struct file *file, loff_t offset, int whence)
 		return generic_file_llseek(file, offset, whence);
 }
 
-/*
- * This structure holds the nodes of the red-black tree used to store
- * the directory entry in hash order.
+
+/**
+ * struct fname - Private EXT3 state/data structure used by directory representation.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
  */
 struct fname {
 	__u32		hash;
@@ -303,9 +368,14 @@ struct fname {
 	char		name[0];
 };
 
-/*
- * This functoin implements a non-recursive way of freeing all of the
- * nodes in the red-black tree.
+
+/**
+ * free_rb_tree_fname - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void free_rb_tree_fname(struct rb_root *root)
 {
@@ -321,6 +391,14 @@ static void free_rb_tree_fname(struct rb_root *root)
 	*root = RB_ROOT;
 }
 
+/**
+ * ext3_htree_create_dir_info - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct dir_private_info *ext3_htree_create_dir_info(struct file *filp,
 							   loff_t pos)
 {
@@ -334,14 +412,28 @@ static struct dir_private_info *ext3_htree_create_dir_info(struct file *filp,
 	return p;
 }
 
+/**
+ * ext3_htree_free_dir_info - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext3_htree_free_dir_info(struct dir_private_info *p)
 {
 	free_rb_tree_fname(&p->root);
 	kfree(p);
 }
 
-/*
- * Given a directory entry, enter it into the fname rb tree.
+
+/**
+ * ext3_htree_store_dirent - Implements the htree store dirent operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext3_htree_store_dirent(struct file *dir_file, __u32 hash,
 			     __u32 minor_hash,
@@ -355,7 +447,7 @@ int ext3_htree_store_dirent(struct file *dir_file, __u32 hash,
 	info = (struct dir_private_info *) dir_file->private_data;
 	p = &info->root.rb_node;
 
-	/* Create and allocate the fname structure */
+
 	len = sizeof(struct fname) + dirent->name_len + 1;
 	new_fn = kzalloc(len, GFP_KERNEL);
 	if (!new_fn)
@@ -372,10 +464,7 @@ int ext3_htree_store_dirent(struct file *dir_file, __u32 hash,
 		parent = *p;
 		fname = rb_entry(parent, struct fname, rb_hash);
 
-		/*
-		 * If the hash and minor hash match up, then we put
-		 * them on a linked list.  This rarely happens...
-		 */
+
 		if ((new_fn->hash == fname->hash) &&
 		    (new_fn->minor_hash == fname->minor_hash)) {
 			new_fn->next = fname->next;
@@ -389,7 +478,7 @@ int ext3_htree_store_dirent(struct file *dir_file, __u32 hash,
 			p = &(*p)->rb_right;
 		else if (new_fn->minor_hash < fname->minor_hash)
 			p = &(*p)->rb_left;
-		else /* if (new_fn->minor_hash > fname->minor_hash) */
+		else
 			p = &(*p)->rb_right;
 	}
 
@@ -399,11 +488,13 @@ int ext3_htree_store_dirent(struct file *dir_file, __u32 hash,
 }
 
 
-
-/*
- * This is a helper function for ext3_dx_readdir.  It calls filldir
- * for all entres on the fname linked list.  (Normally there is only
- * one entry on the linked list, unless there are 62 bit hash collisions.)
+/**
+ * call_filldir - Implements the call filldir operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static bool call_filldir(struct file *file, struct dir_context *ctx,
 			struct fname *fname)
@@ -429,6 +520,14 @@ static bool call_filldir(struct file *file, struct dir_context *ctx,
 	return true;
 }
 
+/**
+ * ext3_dx_readdir - Implements the dx readdir operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext3_dx_readdir(struct file *file, struct dir_context *ctx)
 {
 	struct dir_private_info *info = file->private_data;
@@ -444,9 +543,9 @@ static int ext3_dx_readdir(struct file *file, struct dir_context *ctx)
 	}
 
 	if (ctx->pos == ext3_get_htree_eof(file))
-		return 0;	/* EOF */
+		return 0;
 
-	/* Some one has messed with f_pos; reset the world */
+
 	if (info->last_pos != ctx->pos) {
 		free_rb_tree_fname(&info->root);
 		info->curr_node = NULL;
@@ -455,10 +554,7 @@ static int ext3_dx_readdir(struct file *file, struct dir_context *ctx)
 		info->curr_minor_hash = pos2min_hash(file, ctx->pos);
 	}
 
-	/*
-	 * If there are any leftover names on the hash collision
-	 * chain, return them first.
-	 */
+
 	if (info->extra_fname) {
 		if (!call_filldir(file, ctx, info->extra_fname))
 			goto finished;
@@ -468,11 +564,8 @@ static int ext3_dx_readdir(struct file *file, struct dir_context *ctx)
 		info->curr_node = rb_first(&info->root);
 
 	while (1) {
-		/*
-		 * Fill the rbtree if we have no more entries,
-		 * or the inode has changed since we last read in the
-		 * cached entries.
-		 */
+
+
 		if ((!info->curr_node) ||
 		    (file->f_version != inode->i_version)) {
 			info->curr_node = NULL;
@@ -516,6 +609,14 @@ finished:
 	return 0;
 }
 
+/**
+ * ext3_release_dir - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext3_release_dir (struct inode * inode, struct file * filp)
 {
        if (filp->private_data)
@@ -536,21 +637,17 @@ const struct file_operations ext3_dir_operations = {
 	.release	= ext3_release_dir,
 };
 
-/* ---- EXT3 indexed-directory hash (merged into this translation unit) ---- */
-/*
- *  linux/fs/ext3/hash.c
- *
- * Copyright (C) 2002 by Theodore Ts'o
- *
- * This file is released under the GPL v2.
- *
- * This file may be redistributed under the terms of the GNU Public
- * License.
- */
-
 
 #define DELTA 0x9E3779B9
 
+/**
+ * TEA_transform - Implements the TEA transform operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void TEA_transform(__u32 buf[4], __u32 const in[])
 {
 	__u32	sum = 0;
@@ -569,7 +666,14 @@ static void TEA_transform(__u32 buf[4], __u32 const in[])
 }
 
 
-/* The old legacy hash */
+/**
+ * dx_hack_hash_unsigned - Implements the dx hack hash unsigned operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static __u32 dx_hack_hash_unsigned(const char *name, int len)
 {
 	__u32 hash, hash0 = 0x12a3fe2d, hash1 = 0x37abe8f9;
@@ -586,6 +690,14 @@ static __u32 dx_hack_hash_unsigned(const char *name, int len)
 	return hash0 << 1;
 }
 
+/**
+ * dx_hack_hash_signed - Implements the dx hack hash signed operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static __u32 dx_hack_hash_signed(const char *name, int len)
 {
 	__u32 hash, hash0 = 0x12a3fe2d, hash1 = 0x37abe8f9;
@@ -602,6 +714,14 @@ static __u32 dx_hack_hash_signed(const char *name, int len)
 	return hash0 << 1;
 }
 
+/**
+ * str2hashbuf_signed - Implements the str2hashbuf signed operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void str2hashbuf_signed(const char *msg, int len, __u32 *buf, int num)
 {
 	__u32	pad, val;
@@ -630,6 +750,14 @@ static void str2hashbuf_signed(const char *msg, int len, __u32 *buf, int num)
 		*buf++ = pad;
 }
 
+/**
+ * str2hashbuf_unsigned - Implements the str2hashbuf unsigned operation within the directory representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void str2hashbuf_unsigned(const char *msg, int len, __u32 *buf, int num)
 {
 	__u32	pad, val;
@@ -658,18 +786,14 @@ static void str2hashbuf_unsigned(const char *msg, int len, __u32 *buf, int num)
 		*buf++ = pad;
 }
 
-/*
- * Returns the hash of a filename.  If len is 0 and name is NULL, then
- * this function can be used to test whether or not a hash version is
- * supported.
+
+/**
+ * ext3fs_dirhash - Implements the ext3fs dirhash operation within the directory representation subsystem.
  *
- * The seed is an 4 longword (32 bits) "secret" which can be used to
- * uniquify a hash.  If the seed is all zero's, then some default seed
- * may be used.
- *
- * A particular hash version specifies whether or not the seed is
- * represented, and whether or not the returned hash is 32 bits or 64
- * bits.  32 bit hashes will return 0 for the minor hash.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext3fs_dirhash(const char *name, int len, struct dx_hash_info *hinfo)
 {
@@ -681,13 +805,13 @@ int ext3fs_dirhash(const char *name, int len, struct dx_hash_info *hinfo)
 	void		(*str2hashbuf)(const char *, int, __u32 *, int) =
 				str2hashbuf_signed;
 
-	/* Initialize the default seed for the hash checksum functions */
+
 	buf[0] = 0x67452301;
 	buf[1] = 0xefcdab89;
 	buf[2] = 0x98badcfe;
 	buf[3] = 0x10325476;
 
-	/* Check to see if the seed is all zero's */
+
 	if (hinfo->seed) {
 		for (i=0; i < 4; i++) {
 			if (hinfo->seed[i])

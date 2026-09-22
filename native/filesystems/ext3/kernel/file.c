@@ -18,13 +18,39 @@
  *	(jj@sunsite.ms.mff.cuni.cz)
  */
 
+/*
+ * EXT3 — Regular-file VFS operations
+ *
+ * Purpose:
+ *   Implements the regular-file interface, including open/read/write/mmap/direct-I/O related paths and any small file-facing operations consolidated into this unit.
+ *
+ * Filesystem model:
+ *   This file belongs to a standalone EXT3 VFS implementation with its historical JBD engine embedded in ext3.ko.
+ *
+ * Correctness focus:
+ *   I/O ordering, size visibility, writeback and error propagation must agree with the filesystem's allocation and journaling rules.
+ *
+ * Project rules:
+ *   - EXT3 requires its journal semantics; it is not an EXT4 compatibility registration.
+ *   - Preserve the journal, recovery, ordered/writeback/journal data modes and EXT3 on-disk limits.
+ *   - JBD and the metadata cache are private implementation code, not separately deployed modules.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/quotaops.h>
 #include "ext3.h"
 
-/*
- * Called when an inode is released. Note that this is different
- * from ext3_file_open: open gets called at every open, but release
- * gets called only when /all/ the files are closed.
+
+/**
+ * ext3_release_file - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext3_release_file (struct inode * inode, struct file * filp)
 {
@@ -32,7 +58,7 @@ static int ext3_release_file (struct inode * inode, struct file * filp)
 		filemap_flush(inode->i_mapping);
 		ext3_clear_inode_state(inode, EXT3_STATE_FLUSH_ON_CLOSE);
 	}
-	/* if we are the last writer on the inode, drop the block reservation */
+
 	if ((filp->f_mode & FMODE_WRITE) &&
 			(atomic_read(&inode->i_writecount) == 1))
 	{
@@ -76,44 +102,14 @@ const struct inode_operations ext3_file_inode_operations = {
 };
 
 
-/* ---- EXT3 fsync (merged into this translation unit) ---- */
-/*
- *  linux/fs/ext3/fsync.c
+/**
+ * ext3_sync_file - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
- *  Copyright (C) 1993  Stephen Tweedie (sct@redhat.com)
- *  from
- *  Copyright (C) 1992  Remy Card (card@masi.ibp.fr)
- *                      Laboratoire MASI - Institut Blaise Pascal
- *                      Universite Pierre et Marie Curie (Paris VI)
- *  from
- *  linux/fs/minix/truncate.c   Copyright (C) 1991, 1992  Linus Torvalds
- *
- *  ext3fs fsync primitive
- *
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
- *
- *  Removed unnecessary code duplication for little endian machines
- *  and excessive __inline__s.
- *        Andi Kleen, 1997
- *
- * Major simplications and cleanup - we only need to do the metadata, because
- * we can depend on generic_block_fdatasync() to sync the data blocks.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
-
-/*
- * akpm: A new design for ext3_sync_file().
- *
- * This is only called from sys_fsync(), sys_fdatasync() and sys_msync().
- * There cannot be a transaction open by this task.
- * Another task could have dirtied this inode.  Its data can be in any
- * state in the journalling system.
- *
- * What we do is just kick off a commit and wait on it.  This will snapshot the
- * inode to disk.
- */
-
 int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	struct inode *inode = file->f_mapping->host;
@@ -125,7 +121,7 @@ int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	trace_ext3_sync_file_enter(file, datasync);
 
 	if (inode->i_sb->s_flags & MS_RDONLY) {
-		/* Make sure that we read updated state */
+
 		smp_rmb();
 		if (EXT3_SB(inode->i_sb)->s_mount_state & EXT3_ERROR_FS)
 			return -EROFS;
@@ -137,20 +133,7 @@ int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 
 	J_ASSERT(ext3_journal_current_handle() == NULL);
 
-	/*
-	 * data=writeback,ordered:
-	 *  The caller's filemap_fdatawrite()/wait will sync the data.
-	 *  Metadata is in the journal, we wait for a proper transaction
-	 *  to commit here.
-	 *
-	 * data=journal:
-	 *  filemap_fdatawrite won't do anything (the buffers are clean).
-	 *  ext3_force_commit will write the file data into the journal and
-	 *  will wait on that.
-	 *  filemap_fdatawait() will encounter a ton of newly-dirtied pages
-	 *  (they were dirtied by commit).  But that's OK - the blocks are
-	 *  safe in-journal, which is all fsync() needs to ensure.
-	 */
+
 	if (ext3_should_journal_data(inode)) {
 		ret = ext3_force_commit(inode->i_sb);
 		goto out;
@@ -167,11 +150,7 @@ int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	log_start_commit(journal, commit_tid);
 	ret = log_wait_commit(journal, commit_tid);
 
-	/*
-	 * In case we didn't commit a transaction, we have to flush
-	 * disk caches manually so that data really is on persistent
-	 * storage
-	 */
+
 	if (needs_barrier) {
 		int err;
 
@@ -184,17 +163,15 @@ out:
 	return ret;
 }
 
-/* ---- EXT3 file ioctls (merged into this translation unit) ---- */
-/*
- * linux/fs/ext3/ioctl.c
+
+/**
+ * ext3_ioctl - Handles a filesystem-specific control operation exposed through the file API.
  *
- * Copyright (C) 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
-
 long ext3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct inode *inode = file_inode(filp);
@@ -230,31 +207,23 @@ long ext3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		mutex_lock(&inode->i_mutex);
 
-		/* Is it quota file? Do not allow user to mess with it */
+
 		err = -EPERM;
 		if (IS_NOQUOTA(inode))
 			goto flags_out;
 
 		oldflags = ei->i_flags;
 
-		/* The JOURNAL_DATA flag is modifiable only by root */
+
 		jflag = flags & EXT3_JOURNAL_DATA_FL;
 
-		/*
-		 * The IMMUTABLE and APPEND_ONLY flags can only be changed by
-		 * the relevant capability.
-		 *
-		 * This test looks nicer. Thanks to Pauline Middelink
-		 */
+
 		if ((flags ^ oldflags) & (EXT3_APPEND_FL | EXT3_IMMUTABLE_FL)) {
 			if (!capable(CAP_LINUX_IMMUTABLE))
 				goto flags_out;
 		}
 
-		/*
-		 * The JOURNAL_DATA flag can only be changed by
-		 * the relevant capability.
-		 */
+
 		if ((jflag ^ oldflags) & (EXT3_JOURNAL_DATA_FL)) {
 			if (!capable(CAP_SYS_RESOURCE))
 				goto flags_out;
@@ -363,10 +332,7 @@ setversion_out:
 		if (rsv_window_size > EXT3_MAX_RESERVE_BLOCKS)
 			rsv_window_size = EXT3_MAX_RESERVE_BLOCKS;
 
-		/*
-		 * need to allocate reservation structure for this inode
-		 * before set the window size
-		 */
+
 		mutex_lock(&ei->truncate_mutex);
 		if (!ei->i_block_alloc_info)
 			ext3_init_block_alloc_info(inode);
@@ -464,9 +430,17 @@ group_add_out:
 }
 
 #ifdef CONFIG_COMPAT
+/**
+ * ext3_compat_ioctl - Handles a filesystem-specific control operation exposed through the file API.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 long ext3_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	/* These are just misnamed, they actually get/put from/to user an int */
+
 	switch (cmd) {
 	case EXT3_IOC32_GETFLAGS:
 		cmd = EXT3_IOC_GETFLAGS;

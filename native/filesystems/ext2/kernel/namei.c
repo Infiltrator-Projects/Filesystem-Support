@@ -31,10 +31,40 @@
  *        David S. Miller (davem@caip.rutgers.edu), 1995
  */
 
+/*
+ * EXT2 — Namespace mutation
+ *
+ * Purpose:
+ *   Implements create/link/unlink/rename/mkdir/rmdir/mknod and related pathname-facing VFS operations.
+ *
+ * Filesystem model:
+ *   This file belongs to a deliberately strict, non-journalled EXT2 VFS implementation.
+ *
+ * Correctness focus:
+ *   Namespace updates may touch several inodes and directory blocks; partial failure must leave a valid namespace and a recoverable transaction.
+ *
+ * Project rules:
+ *   - Do not accept a journalled EXT3 volume as EXT2.
+ *   - Keep on-disk compatibility fields when they are required to parse or reject media correctly.
+ *   - Keep xattr/ACL/cache code inside ext2.ko rather than creating helper modules.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/pagemap.h>
 #include <linux/quotaops.h>
 #include "ext2.h"
 
+/**
+ * ext2_add_nondir - Implements the add nondir operation within the namespace mutation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext2_add_nondir(struct dentry *dentry, struct inode *inode)
 {
 	int err = ext2_add_link(dentry, inode);
@@ -47,16 +77,21 @@ static inline int ext2_add_nondir(struct dentry *dentry, struct inode *inode)
 	return err;
 }
 
-/*
- * Methods themselves.
- */
 
+/**
+ * ext2_lookup - Locates filesystem state without changing the authoritative persistent representation unless the surrounding API explicitly permits it.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct dentry *ext2_lookup(struct inode * dir, struct dentry *dentry, unsigned int flags)
 {
 	struct inode * inode;
 	ino_t ino;
 	int res;
-	
+
 	if (dentry->d_name.len > EXT2_NAME_LEN)
 		return ERR_PTR(-ENAMETOOLONG);
 
@@ -77,6 +112,14 @@ static struct dentry *ext2_lookup(struct inode * dir, struct dentry *dentry, uns
 	return d_splice_alias(inode, dentry);
 }
 
+/**
+ * ext2_get_parent - Implements the get parent operation within the namespace mutation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 struct dentry *ext2_get_parent(struct dentry *child)
 {
 	ino_t ino;
@@ -87,15 +130,16 @@ struct dentry *ext2_get_parent(struct dentry *child)
 		return ERR_PTR(res);
 
 	return d_obtain_alias(ext2_iget(child->d_sb, ino));
-} 
+}
 
-/*
- * By the time this is called, we already have created
- * the directory cache entry for the new file, but it
- * is so far negative - it has no inode.
+
+/**
+ * ext2_create - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
- * If the create succeeds, we fill in the inode information
- * with d_instantiate(). 
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext2_create (struct mnt_idmap * idmap,
 			struct inode * dir, struct dentry * dentry,
@@ -117,6 +161,14 @@ static int ext2_create (struct mnt_idmap * idmap,
 	return ext2_add_nondir(dentry, inode);
 }
 
+/**
+ * ext2_tmpfile - Implements the tmpfile operation within the namespace mutation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
 			struct file *file, umode_t mode)
 {
@@ -131,6 +183,14 @@ static int ext2_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
 	return finish_open_simple(file, 0);
 }
 
+/**
+ * ext2_mknod - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_mknod (struct mnt_idmap * idmap, struct inode * dir,
 	struct dentry *dentry, umode_t mode, dev_t rdev)
 {
@@ -152,6 +212,14 @@ static int ext2_mknod (struct mnt_idmap * idmap, struct inode * dir,
 	return err;
 }
 
+/**
+ * ext2_symlink - Implements the symlink operation within the namespace mutation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_symlink (struct mnt_idmap * idmap, struct inode * dir,
 	struct dentry * dentry, const char * symname)
 {
@@ -173,7 +241,7 @@ static int ext2_symlink (struct mnt_idmap * idmap, struct inode * dir,
 		goto out;
 
 	if (l > sizeof (EXT2_I(inode)->i_data)) {
-		/* slow symlink */
+
 		inode->i_op = &ext2_symlink_inode_operations;
 		inode_nohighmem(inode);
 		inode->i_mapping->a_ops = &ext2_aops;
@@ -181,7 +249,7 @@ static int ext2_symlink (struct mnt_idmap * idmap, struct inode * dir,
 		if (err)
 			goto out_fail;
 	} else {
-		/* fast symlink */
+
 		inode->i_op = &ext2_fast_symlink_inode_operations;
 		inode->i_link = (char*)EXT2_I(inode)->i_data;
 		memcpy(inode->i_link, symname, l);
@@ -199,6 +267,14 @@ out_fail:
 	goto out;
 }
 
+/**
+ * ext2_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_link (struct dentry * old_dentry, struct inode * dir,
 	struct dentry *dentry)
 {
@@ -223,6 +299,14 @@ static int ext2_link (struct dentry * old_dentry, struct inode * dir,
 	return err;
 }
 
+/**
+ * ext2_mkdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_mkdir(struct mnt_idmap * idmap,
 	struct inode * dir, struct dentry * dentry, umode_t mode)
 {
@@ -267,6 +351,14 @@ out_dir:
 	goto out;
 }
 
+/**
+ * ext2_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
@@ -296,6 +388,14 @@ out:
 	return err;
 }
 
+/**
+ * ext2_rmdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_rmdir (struct inode * dir, struct dentry *dentry)
 {
 	struct inode * inode = d_inode(dentry);
@@ -312,6 +412,14 @@ static int ext2_rmdir (struct inode * dir, struct dentry *dentry)
 	return err;
 }
 
+/**
+ * ext2_rename - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT2
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext2_rename (struct mnt_idmap * idmap,
 			struct inode * old_dir, struct dentry * old_dentry,
 			struct inode * new_dir, struct dentry * new_dentry,
@@ -378,10 +486,7 @@ static int ext2_rename (struct mnt_idmap * idmap,
 			inode_inc_link_count(new_dir);
 	}
 
-	/*
-	 * Like most other Unix systems, set the ctime for inodes on a
- 	 * rename.
-	 */
+
 	inode_set_ctime_current(old_inode);
 	mark_inode_dirty(old_inode);
 

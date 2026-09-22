@@ -1,173 +1,44 @@
 // SPDX-License-Identifier: GPL-2.0
 
 /*
- * fs/ext4/fast_commit.c
+ * EXT4 — Fast-commit engine
  *
- * Written by Harshad Shirwadkar <harshadshirwadkar@gmail.com>
+ * Purpose:
+ *   Implements EXT4 fast-commit tracking, compact log emission and replay for eligible metadata changes.
  *
- * Ext4 fast commits routines.
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Fast commit is an optimisation over full JBD2 commit: ineligibility or uncertainty must fall back to the full journal rather than weaken recovery.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
  */
+
 #include "ext4.h"
 #include "ext4_jbd2.h"
 #include "ext4_extents.h"
 #include "mballoc.h"
 
-/*
- * Ext4 Fast Commits
- * -----------------
- *
- * Ext4 fast commits implement fine grained journalling for Ext4.
- *
- * Fast commits are organized as a log of tag-length-value (TLV) structs. (See
- * struct ext4_fc_tl). Each TLV contains some delta that is replayed TLV by
- * TLV during the recovery phase. For the scenarios for which we currently
- * don't have replay code, fast commit falls back to full commits.
- * Fast commits record delta in one of the following three categories.
- *
- * (A) Directory entry updates:
- *
- * - EXT4_FC_TAG_UNLINK		- records directory entry unlink
- * - EXT4_FC_TAG_LINK		- records directory entry link
- * - EXT4_FC_TAG_CREAT		- records inode and directory entry creation
- *
- * (B) File specific data range updates:
- *
- * - EXT4_FC_TAG_ADD_RANGE	- records addition of new blocks to an inode
- * - EXT4_FC_TAG_DEL_RANGE	- records deletion of blocks from an inode
- *
- * (C) Inode metadata (mtime / ctime etc):
- *
- * - EXT4_FC_TAG_INODE		- record the inode that should be replayed
- *				  during recovery. Note that iblocks field is
- *				  not replayed and instead derived during
- *				  replay.
- * Commit Operation
- * ----------------
- * With fast commits, we maintain all the directory entry operations in the
- * order in which they are issued in an in-memory queue. This queue is flushed
- * to disk during the commit operation. We also maintain a list of inodes
- * that need to be committed during a fast commit in another in memory queue of
- * inodes. During the commit operation, we commit in the following order:
- *
- * [1] Lock inodes for any further data updates by setting COMMITTING state
- * [2] Submit data buffers of all the inodes
- * [3] Wait for [2] to complete
- * [4] Commit all the directory entry updates in the fast commit space
- * [5] Commit all the changed inode structures
- * [6] Write tail tag (this tag ensures the atomicity, please read the following
- *     section for more details).
- * [7] Wait for [4], [5] and [6] to complete.
- *
- * All the inode updates must call ext4_fc_start_update() before starting an
- * update. If such an ongoing update is present, fast commit waits for it to
- * complete. The completion of such an update is marked by
- * ext4_fc_stop_update().
- *
- * Fast Commit Ineligibility
- * -------------------------
- *
- * Not all operations are supported by fast commits today (e.g extended
- * attributes). Fast commit ineligibility is marked by calling
- * ext4_fc_mark_ineligible(): This makes next fast commit operation to fall back
- * to full commit.
- *
- * Atomicity of commits
- * --------------------
- * In order to guarantee atomicity during the commit operation, fast commit
- * uses "EXT4_FC_TAG_TAIL" tag that marks a fast commit as complete. Tail
- * tag contains CRC of the contents and TID of the transaction after which
- * this fast commit should be applied. Recovery code replays fast commit
- * logs only if there's at least 1 valid tail present. For every fast commit
- * operation, there is 1 tail. This means, we may end up with multiple tails
- * in the fast commit space. Here's an example:
- *
- * - Create a new file A and remove existing file B
- * - fsync()
- * - Append contents to file A
- * - Truncate file A
- * - fsync()
- *
- * The fast commit space at the end of above operations would look like this:
- *      [HEAD] [CREAT A] [UNLINK B] [TAIL] [ADD_RANGE A] [DEL_RANGE A] [TAIL]
- *             |<---  Fast Commit 1   --->|<---      Fast Commit 2     ---->|
- *
- * Replay code should thus check for all the valid tails in the FC area.
- *
- * Fast Commit Replay Idempotence
- * ------------------------------
- *
- * Fast commits tags are idempotent in nature provided the recovery code follows
- * certain rules. The guiding principle that the commit path follows while
- * committing is that it stores the result of a particular operation instead of
- * storing the procedure.
- *
- * Let's consider this rename operation: 'mv /a /b'. Let's assume dirent '/a'
- * was associated with inode 10. During fast commit, instead of storing this
- * operation as a procedure "rename a to b", we store the resulting file system
- * state as a "series" of outcomes:
- *
- * - Link dirent b to inode 10
- * - Unlink dirent a
- * - Inode <10> with valid refcount
- *
- * Now when recovery code runs, it needs "enforce" this state on the file
- * system. This is what guarantees idempotence of fast commit replay.
- *
- * Let's take an example of a procedure that is not idempotent and see how fast
- * commits make it idempotent. Consider following sequence of operations:
- *
- *     rm A;    mv B A;    read A
- *  (x)     (y)        (z)
- *
- * (x), (y) and (z) are the points at which we can crash. If we store this
- * sequence of operations as is then the replay is not idempotent. Let's say
- * while in replay, we crash at (z). During the second replay, file A (which was
- * actually created as a result of "mv B A" operation) would get deleted. Thus,
- * file named A would be absent when we try to read A. So, this sequence of
- * operations is not idempotent. However, as mentioned above, instead of storing
- * the procedure fast commits store the outcome of each procedure. Thus the fast
- * commit log for above procedure would be as follows:
- *
- * (Let's assume dirent A was linked to inode 10 and dirent B was linked to
- * inode 11 before the replay)
- *
- *    [Unlink A]   [Link A to inode 11]   [Unlink B]   [Inode 11]
- * (w)          (x)                    (y)          (z)
- *
- * If we crash at (z), we will have file A linked to inode 11. During the second
- * replay, we will remove file A (inode 11). But we will create it back and make
- * it point to inode 11. We won't find B, so we'll just skip that step. At this
- * point, the refcount for inode 11 is not reliable, but that gets fixed by the
- * replay of last inode 11 tag. Crashes at points (w), (x) and (y) get handled
- * similarly. Thus, by converting a non-idempotent procedure into a series of
- * idempotent outcomes, fast commits ensured idempotence during the replay.
- *
- * TODOs
- * -----
- *
- * 0) Fast commit replay path hardening: Fast commit replay code should use
- *    journal handles to make sure all the updates it does during the replay
- *    path are atomic. With that if we crash during fast commit replay, after
- *    trying to do recovery again, we will find a file system where fast commit
- *    area is invalid (because new full commit would be found). In order to deal
- *    with that, fast commit replay code should ensure that the "FC_REPLAY"
- *    superblock state is persisted before starting the replay, so that after
- *    the crash, fast commit recovery code can look at that flag and perform
- *    fast commit recovery even if that area is invalidated by later full
- *    commits.
- *
- * 1) Fast commit's commit path locks the entire file system during fast
- *    commit. This has significant performance penalty. Instead of that, we
- *    should use ext4_fc_start/stop_update functions to start inode level
- *    updates from ext4_journal_start/stop. Once we do that we can drop file
- *    system locking during commit path.
- *
- * 2) Handle more ineligible cases.
- */
 
 #include <trace/events/ext4.h>
 static struct kmem_cache *ext4_fc_dentry_cachep;
 
+/**
+ * ext4_end_buffer_io_sync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 {
 	BUFFER_TRACE(bh, "");
@@ -184,6 +55,14 @@ static void ext4_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 	unlock_buffer(bh);
 }
 
+/**
+ * ext4_fc_reset_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_fc_reset_inode(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -192,6 +71,14 @@ static inline void ext4_fc_reset_inode(struct inode *inode)
 	ei->i_fc_lblk_len = 0;
 }
 
+/**
+ * ext4_fc_init_inode - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fc_init_inode(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -204,7 +91,15 @@ void ext4_fc_init_inode(struct inode *inode)
 	atomic_set(&ei->i_fc_updates, 0);
 }
 
-/* This function must be called with sbi->s_fc_lock held. */
+
+/**
+ * __releases - Implements the releases operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_fc_wait_committing_inode(struct inode *inode)
 __releases(&EXT4_SB(inode->i_sb)->s_fc_lock)
 {
@@ -229,18 +124,28 @@ __releases(&EXT4_SB(inode->i_sb)->s_fc_lock)
 	finish_wait(wq, &wait.wq_entry);
 }
 
+/**
+ * ext4_fc_disabled - Implements the fc disabled operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_fc_disabled(struct super_block *sb)
 {
 	return (!test_opt2(sb, JOURNAL_FAST_COMMIT) ||
 		(EXT4_SB(sb)->s_mount_state & EXT4_FC_REPLAY));
 }
 
-/*
- * Inform Ext4's fast about start of an inode update
+
+/**
+ * ext4_fc_start_update - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
- * This function is called by the high level call VFS callbacks before
- * performing any inode update. This function blocks if there's an ongoing
- * fast commit on the inode in question.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_fc_start_update(struct inode *inode)
 {
@@ -263,8 +168,14 @@ out:
 	spin_unlock(&EXT4_SB(inode->i_sb)->s_fc_lock);
 }
 
-/*
- * Stop inode update and wake up waiting fast commits if any.
+
+/**
+ * ext4_fc_stop_update - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_fc_stop_update(struct inode *inode)
 {
@@ -277,9 +188,14 @@ void ext4_fc_stop_update(struct inode *inode)
 		wake_up_all(&ei->i_fc_wait);
 }
 
-/*
- * Remove inode from fast commit list. If the inode is being committed
- * we wait until inode commit is done.
+
+/**
+ * ext4_fc_del - Implements the fc del operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_fc_del(struct inode *inode)
 {
@@ -305,10 +221,7 @@ restart:
 	if (!list_empty(&ei->i_fc_list))
 		list_del_init(&ei->i_fc_list);
 
-	/*
-	 * Since this inode is getting removed, let's also remove all FC
-	 * dentry create references, since it is not needed to log it anyways.
-	 */
+
 	if (list_empty(&ei->i_fc_dilist)) {
 		spin_unlock(&sbi->s_fc_lock);
 		return;
@@ -330,10 +243,14 @@ restart:
 	return;
 }
 
-/*
- * Mark file system as fast commit ineligible, and record latest
- * ineligible transaction tid. This means until the recorded
- * transaction, commit operation would result in a full jbd2 commit.
+
+/**
+ * ext4_fc_mark_ineligible - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_fc_mark_ineligible(struct super_block *sb, int reason, handle_t *handle)
 {
@@ -367,15 +284,14 @@ void ext4_fc_mark_ineligible(struct super_block *sb, int reason, handle_t *handl
 	sbi->s_fc_stats.fc_ineligible_reason_count[reason]++;
 }
 
-/*
- * Generic fast commit tracking function. If this is the first time this we are
- * called after a full commit, we initialize fast commit fields and then call
- * __fc_track_fn() with update = 0. If we have already been called after a full
- * commit, we pass update = 1. Based on that, the track function can determine
- * if it needs to track a field for the first time or if it needs to just
- * update the previously tracked value.
+
+/**
+ * ext4_fc_track_template - Implements the fc track template operation within the fast-commit engine subsystem.
  *
- * If enqueue is set, this function enqueues the inode in fast commit list.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_fc_track_template(
 	handle_t *handle, struct inode *inode,
@@ -414,12 +330,26 @@ static int ext4_fc_track_template(
 	return ret;
 }
 
+/**
+ * struct __track_dentry_update_args - Private EXT4 state/data structure used by fast-commit engine.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct __track_dentry_update_args {
 	struct dentry *dentry;
 	int op;
 };
 
-/* __track_fn for directory entry updates. Called with ei->i_fc_lock. */
+
+/**
+ * __track_dentry_update - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __track_dentry_update(handle_t *handle, struct inode *inode,
 				 void *arg, bool update)
 {
@@ -476,15 +406,7 @@ static int __track_dentry_update(handle_t *handle, struct inode *inode,
 	else
 		list_add_tail(&node->fcd_list, &sbi->s_fc_dentry_q[FC_Q_MAIN]);
 
-	/*
-	 * This helps us keep a track of all fc_dentry updates which is part of
-	 * this ext4 inode. So in case the inode is getting unlinked, before
-	 * even we get a chance to fsync, we could remove all fc_dentry
-	 * references while evicting the inode in ext4_fc_del().
-	 * Also with this, we don't need to loop over all the inodes in
-	 * sbi->s_fc_q to get the corresponding inode in
-	 * ext4_fc_commit_dentry_updates().
-	 */
+
 	if (dentry_update->op == EXT4_FC_TAG_CREAT) {
 		WARN_ON(!list_empty(&ei->i_fc_dilist));
 		list_add_tail(&node->fcd_dilist, &ei->i_fc_dilist);
@@ -495,6 +417,14 @@ static int __track_dentry_update(handle_t *handle, struct inode *inode,
 	return 0;
 }
 
+/**
+ * __ext4_fc_track_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void __ext4_fc_track_unlink(handle_t *handle,
 		struct inode *inode, struct dentry *dentry)
 {
@@ -509,6 +439,14 @@ void __ext4_fc_track_unlink(handle_t *handle,
 	trace_ext4_fc_track_unlink(handle, inode, dentry, ret);
 }
 
+/**
+ * ext4_fc_track_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fc_track_unlink(handle_t *handle, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
@@ -522,6 +460,14 @@ void ext4_fc_track_unlink(handle_t *handle, struct dentry *dentry)
 	__ext4_fc_track_unlink(handle, inode, dentry);
 }
 
+/**
+ * __ext4_fc_track_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void __ext4_fc_track_link(handle_t *handle,
 	struct inode *inode, struct dentry *dentry)
 {
@@ -536,6 +482,14 @@ void __ext4_fc_track_link(handle_t *handle,
 	trace_ext4_fc_track_link(handle, inode, dentry, ret);
 }
 
+/**
+ * ext4_fc_track_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fc_track_link(handle_t *handle, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
@@ -549,6 +503,14 @@ void ext4_fc_track_link(handle_t *handle, struct dentry *dentry)
 	__ext4_fc_track_link(handle, inode, dentry);
 }
 
+/**
+ * __ext4_fc_track_create - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void __ext4_fc_track_create(handle_t *handle, struct inode *inode,
 			  struct dentry *dentry)
 {
@@ -563,6 +525,14 @@ void __ext4_fc_track_create(handle_t *handle, struct inode *inode,
 	trace_ext4_fc_track_create(handle, inode, dentry, ret);
 }
 
+/**
+ * ext4_fc_track_create - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fc_track_create(handle_t *handle, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
@@ -576,7 +546,15 @@ void ext4_fc_track_create(handle_t *handle, struct dentry *dentry)
 	__ext4_fc_track_create(handle, inode, dentry);
 }
 
-/* __track_fn for inode tracking */
+
+/**
+ * __track_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __track_inode(handle_t *handle, struct inode *inode, void *arg,
 			 bool update)
 {
@@ -588,6 +566,14 @@ static int __track_inode(handle_t *handle, struct inode *inode, void *arg,
 	return 0;
 }
 
+/**
+ * ext4_fc_track_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fc_track_inode(handle_t *handle, struct inode *inode)
 {
 	int ret;
@@ -611,11 +597,25 @@ void ext4_fc_track_inode(handle_t *handle, struct inode *inode)
 	trace_ext4_fc_track_inode(handle, inode, ret);
 }
 
+/**
+ * struct __track_range_args - Private EXT4 state/data structure used by fast-commit engine.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct __track_range_args {
 	ext4_lblk_t start, end;
 };
 
-/* __track_fn for tracking data updates */
+
+/**
+ * __track_range - Implements the track range operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __track_range(handle_t *handle, struct inode *inode, void *arg,
 			 bool update)
 {
@@ -644,6 +644,14 @@ static int __track_range(handle_t *handle, struct inode *inode, void *arg,
 	return 0;
 }
 
+/**
+ * ext4_fc_track_range - Implements the fc track range operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fc_track_range(handle_t *handle, struct inode *inode, ext4_lblk_t start,
 			 ext4_lblk_t end)
 {
@@ -673,12 +681,20 @@ void ext4_fc_track_range(handle_t *handle, struct inode *inode, ext4_lblk_t star
 	trace_ext4_fc_track_range(handle, inode, start, end, ret);
 }
 
+/**
+ * ext4_fc_submit_bh - Implements the fc submit bh operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_fc_submit_bh(struct super_block *sb, bool is_tail)
 {
 	blk_opf_t write_flags = JBD2_JOURNAL_REQ_FLAGS;
 	struct buffer_head *bh = EXT4_SB(sb)->s_fc_bh;
 
-	/* Add REQ_FUA | REQ_PREFLUSH only its tail */
+
 	if (test_opt(sb, BARRIER) && is_tail)
 		write_flags |= REQ_FUA | REQ_PREFLUSH;
 	lock_buffer(bh);
@@ -689,18 +705,14 @@ static void ext4_fc_submit_bh(struct super_block *sb, bool is_tail)
 	EXT4_SB(sb)->s_fc_bh = NULL;
 }
 
-/* Ext4 commit path routines */
 
-/*
- * Allocate len bytes on a fast commit buffer.
+/**
+ * ext4_fc_reserve_space - Implements the fc reserve space operation within the fast-commit engine subsystem.
  *
- * During the commit time this function is used to manage fast commit
- * block space. We don't split a fast commit log onto different
- * blocks. So this function makes sure that if there's not enough space
- * on the current block, the remaining space in the current block is
- * marked as unused by adding EXT4_FC_TAG_PAD tag. In that case,
- * new block is from jbd2 and CRC is updated to reflect the padding
- * we added.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static u8 *ext4_fc_reserve_space(struct super_block *sb, int len, u32 *crc)
 {
@@ -712,10 +724,7 @@ static u8 *ext4_fc_reserve_space(struct super_block *sb, int len, u32 *crc)
 	int remaining;
 	u8 *dst;
 
-	/*
-	 * If 'len' is too long to fit in any block alongside a PAD tlv, then we
-	 * cannot fulfill the request.
-	 */
+
 	if (len > bsize - EXT4_FC_TAG_BASE_LEN)
 		return NULL;
 
@@ -727,20 +736,13 @@ static u8 *ext4_fc_reserve_space(struct super_block *sb, int len, u32 *crc)
 	}
 	dst = sbi->s_fc_bh->b_data + off;
 
-	/*
-	 * Allocate the bytes in the current block if we can do so while still
-	 * leaving enough space for a PAD tlv.
-	 */
+
 	remaining = bsize - EXT4_FC_TAG_BASE_LEN - off;
 	if (len <= remaining) {
 		sbi->s_fc_bytes += len;
 		return dst;
 	}
 
-	/*
-	 * Else, terminate the current block with a PAD tlv, then allocate a new
-	 * block and allocate the bytes at the start of that new block.
-	 */
 
 	tl.fc_tag = cpu_to_le16(EXT4_FC_TAG_PAD);
 	tl.fc_len = cpu_to_le16(remaining);
@@ -758,13 +760,14 @@ static u8 *ext4_fc_reserve_space(struct super_block *sb, int len, u32 *crc)
 	return sbi->s_fc_bh->b_data;
 }
 
-/*
- * Complete a fast commit by writing tail tag.
+
+/**
+ * ext4_fc_write_tail - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
- * Writing tail tag marks the end of a fast commit. In order to guarantee
- * atomicity, after writing tail tag, even if there's space remaining
- * in the block, next commit shouldn't use it. That's why tail tag
- * has the length as that of the remaining space on the block.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_fc_write_tail(struct super_block *sb, u32 crc)
 {
@@ -774,10 +777,7 @@ static int ext4_fc_write_tail(struct super_block *sb, u32 crc)
 	int off, bsize = sbi->s_journal->j_blocksize;
 	u8 *dst;
 
-	/*
-	 * ext4_fc_reserve_space takes care of allocating an extra block if
-	 * there's no enough space on this block for accommodating this tail.
-	 */
+
 	dst = ext4_fc_reserve_space(sb, EXT4_FC_TAG_BASE_LEN + sizeof(tail), &crc);
 	if (!dst)
 		return -ENOSPC;
@@ -798,16 +798,21 @@ static int ext4_fc_write_tail(struct super_block *sb, u32 crc)
 	tail.fc_crc = cpu_to_le32(crc);
 	memcpy(dst, &tail.fc_crc, sizeof(tail.fc_crc));
 	dst += sizeof(tail.fc_crc);
-	memset(dst, 0, bsize - off); /* Don't leak uninitialized memory. */
+	memset(dst, 0, bsize - off);
 
 	ext4_fc_submit_bh(sb, true);
 
 	return 0;
 }
 
-/*
- * Adds tag, length, value and updates CRC. Returns true if tlv was added.
- * Returns false if there's not enough space.
+
+/**
+ * ext4_fc_add_tlv - Implements the fc add tlv operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static bool ext4_fc_add_tlv(struct super_block *sb, u16 tag, u16 len, u8 *val,
 			   u32 *crc)
@@ -828,7 +833,15 @@ static bool ext4_fc_add_tlv(struct super_block *sb, u16 tag, u16 len, u8 *val,
 	return true;
 }
 
-/* Same as above, but adds dentry tlv. */
+
+/**
+ * ext4_fc_add_dentry_tlv - Implements the fc add dentry tlv operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_fc_add_dentry_tlv(struct super_block *sb, u32 *crc,
 				   struct ext4_fc_dentry_update *fc_dentry)
 {
@@ -854,9 +867,14 @@ static bool ext4_fc_add_dentry_tlv(struct super_block *sb, u32 *crc,
 	return true;
 }
 
-/*
- * Writes inode in the fast commit space under TLV with tag @tag.
- * Returns 0 on success, error on failure.
+
+/**
+ * ext4_fc_write_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_fc_write_inode(struct inode *inode, u32 *crc)
 {
@@ -898,9 +916,14 @@ err:
 	return ret;
 }
 
-/*
- * Writes updated data ranges for the inode in question. Updates CRC.
- * Returns 0 on success, error otherwise.
+
+/**
+ * ext4_fc_write_inode_data - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_fc_write_inode_data(struct inode *inode, u32 *crc)
 {
@@ -949,7 +972,7 @@ static int ext4_fc_write_inode_data(struct inode *inode, u32 *crc)
 			unsigned int max = (map.m_flags & EXT4_MAP_UNWRITTEN) ?
 				EXT_UNWRITTEN_MAX_LEN : EXT_INIT_MAX_LEN;
 
-			/* Limit the number of blocks in one extent */
+
 			map.m_len = min(max, map.m_len);
 
 			fc_ext.fc_ino = cpu_to_le32(inode->i_ino);
@@ -973,7 +996,14 @@ static int ext4_fc_write_inode_data(struct inode *inode, u32 *crc)
 }
 
 
-/* Submit data for all the fast commit inodes */
+/**
+ * ext4_fc_submit_inode_data_all - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fc_submit_inode_data_all(journal_t *journal)
 {
 	struct super_block *sb = journal->j_private;
@@ -1007,7 +1037,15 @@ static int ext4_fc_submit_inode_data_all(journal_t *journal)
 	return ret;
 }
 
-/* Wait for completion of data for all the fast commit inodes */
+
+/**
+ * ext4_fc_wait_inode_data_all - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fc_wait_inode_data_all(journal_t *journal)
 {
 	struct super_block *sb = journal->j_private;
@@ -1032,7 +1070,15 @@ static int ext4_fc_wait_inode_data_all(journal_t *journal)
 	return 0;
 }
 
-/* Commit all the directory entry updates */
+
+/**
+ * __releases - Implements the releases operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fc_commit_dentry_updates(journal_t *journal, u32 *crc)
 __acquires(&sbi->s_fc_lock)
 __releases(&sbi->s_fc_lock)
@@ -1057,10 +1103,8 @@ __releases(&sbi->s_fc_lock)
 			spin_lock(&sbi->s_fc_lock);
 			continue;
 		}
-		/*
-		 * With fcd_dilist we need not loop in sbi->s_fc_q to get the
-		 * corresponding inode pointer
-		 */
+
+
 		WARN_ON(list_empty(&fc_dentry->fcd_dilist));
 		ei = list_first_entry(&fc_dentry->fcd_dilist,
 				struct ext4_inode_info, i_fc_dilist);
@@ -1069,13 +1113,7 @@ __releases(&sbi->s_fc_lock)
 
 		spin_unlock(&sbi->s_fc_lock);
 
-		/*
-		 * We first write the inode and then the create dirent. This
-		 * allows the recovery code to create an unnamed inode first
-		 * and then link it to a directory entry. This allows us
-		 * to use namei.c routines almost as is and simplifies
-		 * the recovery code.
-		 */
+
 		ret = ext4_fc_write_inode(inode, crc);
 		if (ret)
 			goto lock_and_exit;
@@ -1097,6 +1135,14 @@ lock_and_exit:
 	return ret;
 }
 
+/**
+ * ext4_fc_perform_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fc_perform_commit(journal_t *journal)
 {
 	struct super_block *sb = journal->j_private;
@@ -1116,19 +1162,14 @@ static int ext4_fc_perform_commit(journal_t *journal)
 	if (ret)
 		return ret;
 
-	/*
-	 * If file system device is different from journal device, issue a cache
-	 * flush before we start writing fast commit blocks.
-	 */
+
 	if (journal->j_fs_dev != journal->j_dev)
 		blkdev_issue_flush(journal->j_fs_dev);
 
 	blk_start_plug(&plug);
 	if (sbi->s_fc_bytes == 0) {
-		/*
-		 * Add a head tag only if this is the first fast commit
-		 * in this TID.
-		 */
+
+
 		head.fc_features = cpu_to_le32(EXT4_FC_SUPPORTED_FEATURES);
 		head.fc_tid = cpu_to_le32(
 			sbi->s_journal->j_running_transaction->t_tid);
@@ -1169,6 +1210,14 @@ out:
 	return ret;
 }
 
+/**
+ * ext4_fc_update_stats - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_fc_update_stats(struct super_block *sb, int status,
 				 u64 commit_time, int nblks, tid_t commit_tid)
 {
@@ -1196,11 +1245,14 @@ static void ext4_fc_update_stats(struct super_block *sb, int status,
 	trace_ext4_fc_commit_stop(sb, nblks, status, commit_tid);
 }
 
-/*
- * The main commit entry point. Performs a fast commit for transaction
- * commit_tid if needed. If it's not possible to perform a fast commit
- * due to various reasons, we fall back to full commit. Returns 0
- * on success, error otherwise.
+
+/**
+ * ext4_fc_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
 {
@@ -1221,7 +1273,7 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
 restart_fc:
 	ret = jbd2_fc_begin_commit(journal, commit_tid);
 	if (ret == -EALREADY) {
-		/* There was an ongoing commit, check if we need to restart */
+
 		if (atomic_read(&sbi->s_fc_subtid) <= subtid &&
 		    tid_gt(commit_tid, journal->j_commit_sequence))
 			goto restart_fc;
@@ -1229,19 +1281,14 @@ restart_fc:
 				commit_tid);
 		return 0;
 	} else if (ret) {
-		/*
-		 * Commit couldn't start. Just update stats and perform a
-		 * full commit.
-		 */
+
+
 		ext4_fc_update_stats(sb, EXT4_FC_STATUS_FAILED, 0, 0,
 				commit_tid);
 		return jbd2_complete_transaction(journal, commit_tid);
 	}
 
-	/*
-	 * After establishing journal barrier via jbd2_fc_begin_commit(), check
-	 * if we are fast commit ineligible.
-	 */
+
 	if (ext4_test_mount_flag(sb, EXT4_MF_FC_INELIGIBLE)) {
 		status = EXT4_FC_STATUS_INELIGIBLE;
 		goto fallback;
@@ -1261,10 +1308,8 @@ restart_fc:
 	}
 	atomic_inc(&sbi->s_fc_subtid);
 	ret = jbd2_fc_end_commit(journal);
-	/*
-	 * weight the commit time higher than the average time so we
-	 * don't react too strongly to vast changes in the commit time
-	 */
+
+
 	commit_time = ktime_to_ns(ktime_sub(ktime_get(), start_time));
 	ext4_fc_update_stats(sb, status, commit_time, nblks, commit_tid);
 	return ret;
@@ -1275,9 +1320,14 @@ fallback:
 	return ret;
 }
 
-/*
- * Fast commit cleanup routine. This is called after every fast commit and
- * full commit. full is true if we are called after a full commit.
+
+/**
+ * ext4_fc_cleanup - Implements the fc cleanup operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext4_fc_cleanup(journal_t *journal, int full, tid_t tid)
 {
@@ -1301,19 +1351,12 @@ static void ext4_fc_cleanup(journal_t *journal, int full, tid_t tid)
 		if (tid_geq(tid, iter->i_sync_tid)) {
 			ext4_fc_reset_inode(&iter->vfs_inode);
 		} else if (full) {
-			/*
-			 * We are called after a full commit, inode has been
-			 * modified while the commit was running. Re-enqueue
-			 * the inode into STAGING, which will then be splice
-			 * back into MAIN. This cannot happen during
-			 * fastcommit because the journal is locked all the
-			 * time in that case (and tid doesn't increase so
-			 * tid check above isn't reliable).
-			 */
+
+
 			list_add_tail(&EXT4_I(&iter->vfs_inode)->i_fc_list,
 				      &sbi->s_fc_q[FC_Q_STAGING]);
 		}
-		/* Make sure EXT4_STATE_FC_COMMITTING bit is clear */
+
 		smp_mb();
 #if (BITS_PER_LONG < 64)
 		wake_up_bit(&iter->i_state_flags, EXT4_STATE_FC_COMMITTING);
@@ -1353,20 +1396,38 @@ static void ext4_fc_cleanup(journal_t *journal, int full, tid_t tid)
 	trace_ext4_fc_stats(sb);
 }
 
-/* Ext4 Replay Path Routines */
 
-/* Helper struct for dentry replay routines */
+/**
+ * struct dentry_info_args - Private EXT4 state/data structure used by fast-commit engine.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct dentry_info_args {
 	int parent_ino, dname_len, ino, inode_len;
 	char *dname;
 };
 
-/* Same as struct ext4_fc_tl, but uses native endianness fields */
+
+/**
+ * struct ext4_fc_tl_mem - Private EXT4 state/data structure used by fast-commit engine.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_fc_tl_mem {
 	u16 fc_tag;
 	u16 fc_len;
 };
 
+/**
+ * tl_to_darg - Implements the tl to darg operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void tl_to_darg(struct dentry_info_args *darg,
 			      struct ext4_fc_tl_mem *tl, u8 *val)
 {
@@ -1380,6 +1441,14 @@ static inline void tl_to_darg(struct dentry_info_args *darg,
 	darg->dname_len = tl->fc_len - sizeof(struct ext4_fc_dentry_info);
 }
 
+/**
+ * ext4_fc_get_tl - Implements the fc get tl operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_fc_get_tl(struct ext4_fc_tl_mem *tl, u8 *val)
 {
 	struct ext4_fc_tl tl_disk;
@@ -1389,7 +1458,15 @@ static inline void ext4_fc_get_tl(struct ext4_fc_tl_mem *tl, u8 *val)
 	tl->fc_tag = le16_to_cpu(tl_disk.fc_tag);
 }
 
-/* Unlink replay function */
+
+/**
+ * ext4_fc_replay_unlink - Participates in crash recovery and reconstruction of durable filesystem state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fc_replay_unlink(struct super_block *sb,
 				 struct ext4_fc_tl_mem *tl, u8 *val)
 {
@@ -1421,7 +1498,7 @@ static int ext4_fc_replay_unlink(struct super_block *sb,
 	}
 
 	ret = __ext4_unlink(old_parent, &entry, inode, NULL);
-	/* -ENOENT ok coz it might not exist anymore. */
+
 	if (ret == -ENOENT)
 		ret = 0;
 	iput(old_parent);
@@ -1429,6 +1506,14 @@ static int ext4_fc_replay_unlink(struct super_block *sb,
 	return ret;
 }
 
+/**
+ * ext4_fc_replay_link_internal - Participates in crash recovery and reconstruction of durable filesystem state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fc_replay_link_internal(struct super_block *sb,
 				struct dentry_info_args *darg,
 				struct inode *inode)
@@ -1460,12 +1545,8 @@ static int ext4_fc_replay_link_internal(struct super_block *sb,
 	}
 
 	ret = __ext4_link(dir, inode, dentry_inode);
-	/*
-	 * It's possible that link already existed since data blocks
-	 * for the dir in question got persisted before we crashed OR
-	 * we replayed this tag and crashed before the entire replay
-	 * could complete.
-	 */
+
+
 	if (ret && ret != -EEXIST) {
 		ext4_debug("Failed to link\n");
 		goto out;
@@ -1487,7 +1568,15 @@ out:
 	return ret;
 }
 
-/* Link replay function */
+
+/**
+ * ext4_fc_replay_link - Participates in crash recovery and reconstruction of durable filesystem state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fc_replay_link(struct super_block *sb,
 			       struct ext4_fc_tl_mem *tl, u8 *val)
 {
@@ -1510,9 +1599,14 @@ static int ext4_fc_replay_link(struct super_block *sb,
 	return ret;
 }
 
-/*
- * Record all the modified inodes during replay. We use this later to setup
- * block bitmaps correctly.
+
+/**
+ * ext4_fc_record_modified_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_fc_record_modified_inode(struct super_block *sb, int ino)
 {
@@ -1540,8 +1634,14 @@ static int ext4_fc_record_modified_inode(struct super_block *sb, int ino)
 	return 0;
 }
 
-/*
- * Inode replay function
+
+/**
+ * ext4_fc_replay_inode - Participates in crash recovery and reconstruction of durable filesystem state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_fc_replay_inode(struct super_block *sb,
 				struct ext4_fc_tl_mem *tl, u8 *val)
@@ -1598,7 +1698,7 @@ static int ext4_fc_replay_inode(struct super_block *sb,
 			sizeof(raw_inode->i_block));
 	}
 
-	/* Immediately update the inode on disk. */
+
 	ret = ext4_handle_dirty_metadata(NULL, NULL, iloc.bh);
 	if (ret)
 		goto out_brelse;
@@ -1609,7 +1709,7 @@ static int ext4_fc_replay_inode(struct super_block *sb,
 	if (ret)
 		goto out_brelse;
 
-	/* Given that we just wrote the inode on disk, this SHOULD succeed. */
+
 	inode = ext4_iget(sb, ino, EXT4_IGET_NORMAL);
 	if (IS_ERR(inode)) {
 		ext4_debug("Inode not found.");
@@ -1618,11 +1718,7 @@ static int ext4_fc_replay_inode(struct super_block *sb,
 		goto out_brelse;
 	}
 
-	/*
-	 * Our allocator could have made different decisions than before
-	 * crashing. This should be fixed but until then, we calculate
-	 * the number of blocks the inode.
-	 */
+
 	if (!ext4_test_inode_flag(inode, EXT4_INODE_INLINE_DATA))
 		ext4_ext_replay_set_iblocks(inode);
 
@@ -1642,12 +1738,14 @@ out:
 	return ret;
 }
 
-/*
- * Dentry create replay function.
+
+/**
+ * ext4_fc_replay_create - Participates in crash recovery and reconstruction of durable filesystem state.
  *
- * EXT4_FC_TAG_CREAT is preceded by EXT4_FC_TAG_INODE_FULL. Which means, the
- * inode for which we are trying to create a dentry here, should already have
- * been replayed before we start here.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_fc_replay_create(struct super_block *sb,
 				 struct ext4_fc_tl_mem *tl, u8 *val)
@@ -1662,7 +1760,7 @@ static int ext4_fc_replay_create(struct super_block *sb,
 	trace_ext4_fc_replay(sb, EXT4_FC_TAG_CREAT, darg.ino,
 			darg.parent_ino, darg.dname_len);
 
-	/* This takes care of update group descriptor and other metadata */
+
 	ret = ext4_mark_inode_used(sb, darg.ino);
 	if (ret)
 		goto out;
@@ -1676,10 +1774,8 @@ static int ext4_fc_replay_create(struct super_block *sb,
 	}
 
 	if (S_ISDIR(inode->i_mode)) {
-		/*
-		 * If we are creating a directory, we need to make sure that the
-		 * dot and dot dot dirents are setup properly.
-		 */
+
+
 		dir = ext4_iget(sb, darg.parent_ino, EXT4_IGET_NORMAL);
 		if (IS_ERR(dir)) {
 			ext4_debug("Dir %d not found.", darg.ino);
@@ -1702,10 +1798,14 @@ out:
 	return ret;
 }
 
-/*
- * Record physical disk regions which are in use as per fast commit area,
- * and used by inodes during replay phase. Our simple replay phase
- * allocator excludes these regions from allocation.
+
+/**
+ * ext4_fc_record_regions - Implements the fc record regions operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_fc_record_regions(struct super_block *sb, int ino,
 		ext4_lblk_t lblk, ext4_fsblk_t pblk, int len, int replay)
@@ -1714,10 +1814,8 @@ int ext4_fc_record_regions(struct super_block *sb, int ino,
 	struct ext4_fc_alloc_region *region;
 
 	state = &EXT4_SB(sb)->s_fc_replay_state;
-	/*
-	 * during replay phase, the fc_regions_valid may not same as
-	 * fc_regions_used, update it when do new additions.
-	 */
+
+
 	if (replay && state->fc_regions_used != state->fc_regions_valid)
 		state->fc_regions_used = state->fc_regions_valid;
 	if (state->fc_regions_used == state->fc_regions_size) {
@@ -1746,7 +1844,15 @@ int ext4_fc_record_regions(struct super_block *sb, int ino,
 	return 0;
 }
 
-/* Replay add range tag */
+
+/**
+ * ext4_fc_replay_add_range - Participates in crash recovery and reconstruction of durable filesystem state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_fc_replay_add_range(struct super_block *sb,
 				    struct ext4_fc_tl_mem *tl, u8 *val)
 {
@@ -1797,7 +1903,7 @@ static int ext4_fc_replay_add_range(struct super_block *sb,
 			goto out;
 
 		if (ret == 0) {
-			/* Range is not mapped */
+
 			path = ext4_find_extent(inode, cur, path, 0);
 			if (IS_ERR(path)) {
 				ret = PTR_ERR(path);
@@ -1824,30 +1930,20 @@ static int ext4_fc_replay_add_range(struct super_block *sb,
 		}
 
 		if (start_pblk + cur - start != map.m_pblk) {
-			/*
-			 * Logical to physical mapping changed. This can happen
-			 * if this range was removed and then reallocated to
-			 * map to new physical blocks during a fast commit.
-			 */
+
+
 			ret = ext4_ext_replay_update_ex(inode, cur, map.m_len,
 					ext4_ext_is_unwritten(ex),
 					start_pblk + cur - start);
 			if (ret)
 				goto out;
-			/*
-			 * Mark the old blocks as free since they aren't used
-			 * anymore. We maintain an array of all the modified
-			 * inodes. In case these blocks are still used at either
-			 * a different logical range in the same inode or in
-			 * some different inode, we will mark them as allocated
-			 * at the end of the FC replay using our array of
-			 * modified inodes.
-			 */
+
+
 			ext4_mb_mark_bb(inode->i_sb, map.m_pblk, map.m_len, false);
 			goto next;
 		}
 
-		/* Range is mapped and needs a state change */
+
 		ext4_debug("Converting from %ld to %d %lld",
 				map.m_flags & EXT4_MAP_UNWRITTEN,
 			ext4_ext_is_unwritten(ex), map.m_pblk);
@@ -1855,10 +1951,8 @@ static int ext4_fc_replay_add_range(struct super_block *sb,
 					ext4_ext_is_unwritten(ex), map.m_pblk);
 		if (ret)
 			goto out;
-		/*
-		 * We may have split the extent tree while toggling the state.
-		 * Try to shrink the extent tree now.
-		 */
+
+
 		ext4_ext_replay_shrink_inode(inode, start + len);
 next:
 		cur += map.m_len;
@@ -1873,7 +1967,15 @@ out:
 	return ret;
 }
 
-/* Replay DEL_RANGE tag */
+
+/**
+ * ext4_fc_replay_del_range - Participates in crash recovery and reconstruction of durable filesystem state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int
 ext4_fc_replay_del_range(struct super_block *sb,
 			 struct ext4_fc_tl_mem *tl, u8 *val)
@@ -1937,6 +2039,14 @@ out:
 	return ret;
 }
 
+/**
+ * ext4_fc_set_bitmaps_and_counters - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_fc_set_bitmaps_and_counters(struct super_block *sb)
 {
 	struct ext4_fc_replay_state *state;
@@ -1991,10 +2101,14 @@ static void ext4_fc_set_bitmaps_and_counters(struct super_block *sb)
 	ext4_free_ext_path(path);
 }
 
-/*
- * Check if block is in excluded regions for block allocation. The simple
- * allocator that runs during replay phase is calls this function to see
- * if it is okay to use a block.
+
+/**
+ * ext4_fc_replay_check_excluded - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 bool ext4_fc_replay_check_excluded(struct super_block *sb, ext4_fsblk_t blk)
 {
@@ -2013,7 +2127,15 @@ bool ext4_fc_replay_check_excluded(struct super_block *sb, ext4_fsblk_t blk)
 	return false;
 }
 
-/* Cleanup function called after replay */
+
+/**
+ * ext4_fc_replay_cleanup - Participates in crash recovery and reconstruction of durable filesystem state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fc_replay_cleanup(struct super_block *sb)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -2023,6 +2145,14 @@ void ext4_fc_replay_cleanup(struct super_block *sb)
 	kfree(sbi->s_fc_replay_state.fc_modified_inodes);
 }
 
+/**
+ * ext4_fc_value_len_isvalid - Implements the fc value len isvalid operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static bool ext4_fc_value_len_isvalid(struct ext4_sb_info *sbi,
 				      int tag, int len)
 {
@@ -2041,7 +2171,7 @@ static bool ext4_fc_value_len_isvalid(struct ext4_sb_info *sbi,
 		return len >= EXT4_GOOD_OLD_INODE_SIZE &&
 			len <= sbi->s_inode_size;
 	case EXT4_FC_TAG_PAD:
-		return true; /* padding can have any length */
+		return true;
 	case EXT4_FC_TAG_TAIL:
 		return len >= sizeof(struct ext4_fc_tail);
 	case EXT4_FC_TAG_HEAD:
@@ -2050,22 +2180,14 @@ static bool ext4_fc_value_len_isvalid(struct ext4_sb_info *sbi,
 	return false;
 }
 
-/*
- * Recovery Scan phase handler
+
+/**
+ * ext4_fc_replay_scan - Participates in crash recovery and reconstruction of durable filesystem state.
  *
- * This function is called during the scan phase and is responsible
- * for doing following things:
- * - Make sure the fast commit area has valid tags for replay
- * - Count number of tags that need to be replayed by the replay handler
- * - Verify CRC
- * - Create a list of excluded blocks for allocation during replay phase
- *
- * This function returns JBD2_FC_REPLAY_CONTINUE to indicate that SCAN is
- * incomplete and JBD2 should send more blocks. It returns JBD2_FC_REPLAY_STOP
- * to indicate that scan has finished and JBD2 can now start replay phase.
- * It returns a negative error to indicate that there was an error. At the end
- * of a successful scan phase, sbi->s_fc_replay_state.fc_replay_num_tags is set
- * to indicate the number of tags that need to replayed during the replay phase.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_fc_replay_scan(journal_t *journal,
 				struct buffer_head *bh, int off,
@@ -2094,7 +2216,7 @@ static int ext4_fc_replay_scan(journal_t *journal,
 		state->fc_regions = NULL;
 		state->fc_regions_valid = state->fc_regions_used =
 			state->fc_regions_size = 0;
-		/* Check if we can stop early */
+
 		if (le16_to_cpu(((struct ext4_fc_tl *)start)->fc_tag)
 			!= EXT4_FC_TAG_HEAD)
 			return 0;
@@ -2186,9 +2308,14 @@ out_err:
 	return ret;
 }
 
-/*
- * Main recovery path entry point.
- * The meaning of return codes is similar as above.
+
+/**
+ * ext4_fc_replay - Participates in crash recovery and reconstruction of durable filesystem state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 				enum passtype pass, int off, tid_t expected_tid)
@@ -2282,13 +2409,18 @@ static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 	return ret;
 }
 
+/**
+ * ext4_fc_init - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fc_init(struct super_block *sb, journal_t *journal)
 {
-	/*
-	 * We set replay callback even if fast commit disabled because we may
-	 * could still have fast commit blocks that need to be replayed even if
-	 * fast commit has now been turned off.
-	 */
+
+
 	journal->j_fc_replay_callback = ext4_fc_replay;
 	if (!test_opt2(sb, JOURNAL_FAST_COMMIT))
 		return;
@@ -2308,6 +2440,14 @@ static const char * const fc_ineligible_reasons[] = {
 	[EXT4_FC_REASON_ENCRYPTED_FILENAME] = "Encrypted filename",
 };
 
+/**
+ * ext4_fc_info_show - Implements the fc info show operation within the fast-commit engine subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_fc_info_show(struct seq_file *seq, void *v)
 {
 	struct ext4_sb_info *sbi = EXT4_SB((struct super_block *)seq->private);
@@ -2330,6 +2470,14 @@ int ext4_fc_info_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+/**
+ * ext4_fc_init_dentry_cache - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int __init ext4_fc_init_dentry_cache(void)
 {
 	ext4_fc_dentry_cachep = KMEM_CACHE(ext4_fc_dentry_update,
@@ -2341,6 +2489,14 @@ int __init ext4_fc_init_dentry_cache(void)
 	return 0;
 }
 
+/**
+ * ext4_fc_destroy_dentry_cache - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_fc_destroy_dentry_cache(void)
 {
 	kmem_cache_destroy(ext4_fc_dentry_cachep);

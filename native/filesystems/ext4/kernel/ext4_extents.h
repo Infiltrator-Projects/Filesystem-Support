@@ -4,96 +4,112 @@
  * Written by Alex Tomas <alex@clusterfs.com>
  */
 
+/*
+ * EXT4 — Extent-tree representation
+ *
+ * Purpose:
+ *   Defines the persistent and in-memory structures used by EXT4 extent trees.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Extent headers, indexes and leaves are on-disk data structures; depth, entry counts and logical/physical ranges require validation before traversal.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #ifndef _EXT4_EXTENTS
 #define _EXT4_EXTENTS
 
 #include "ext4.h"
 
-/*
- * With AGGRESSIVE_TEST defined, the capacity of index/leaf blocks
- * becomes very small, so index split, in-depth growing and
- * other hard changes happen much more often.
- * This is for debug purposes only.
- */
+
 #define AGGRESSIVE_TEST_
 
-/*
- * With EXTENTS_STATS defined, the number of blocks and extents
- * are collected in the truncate path. They'll be shown at
- * umount time.
- */
+
 #define EXTENTS_STATS__
 
-/*
- * If CHECK_BINSEARCH is defined, then the results of the binary search
- * will also be checked by linear search.
- */
+
 #define CHECK_BINSEARCH__
 
-/*
- * If EXT_STATS is defined then stats numbers are collected.
- * These number will be displayed at umount time.
- */
+
 #define EXT_STATS_
 
 
-/*
- * ext4_inode has i_block array (60 bytes total).
- * The first 12 bytes store ext4_extent_header;
- * the remainder stores an array of ext4_extent.
- * For non-inode extent blocks, ext4_extent_tail
- * follows the array.
- */
-
-/*
- * This is the extent tail on-disk structure.
- * All other extent structures are 12 bytes long.  It turns out that
- * block_size % 12 >= 4 for at least all powers of 2 greater than 512, which
- * covers all valid ext4 block sizes.  Therefore, this tail structure can be
- * crammed into the end of the block without having to rebalance the tree.
+/**
+ * struct ext4_extent_tail - Private EXT4 state/data structure used by extent-tree representation.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
  */
 struct ext4_extent_tail {
-	__le32	et_checksum;	/* crc32c(uuid+inum+extent_block) */
+	__le32	et_checksum;
 };
 
-/*
- * This is the extent on-disk structure.
- * It's used at the bottom of the tree.
+
+/**
+ * struct ext4_extent - Private EXT4 state/data structure used by extent-tree representation.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
  */
 struct ext4_extent {
-	__le32	ee_block;	/* first logical block extent covers */
-	__le16	ee_len;		/* number of blocks covered by extent */
-	__le16	ee_start_hi;	/* high 16 bits of physical block */
-	__le32	ee_start_lo;	/* low 32 bits of physical block */
+	__le32	ee_block;
+	__le16	ee_len;
+	__le16	ee_start_hi;
+	__le32	ee_start_lo;
 };
 
-/*
- * This is index on-disk structure.
- * It's used at all the levels except the bottom.
+
+/**
+ * struct ext4_extent_idx - Private EXT4 state/data structure used by extent-tree representation.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
  */
 struct ext4_extent_idx {
-	__le32	ei_block;	/* index covers logical blocks from 'block' */
-	__le32	ei_leaf_lo;	/* pointer to the physical block of the next *
-				 * level. leaf or next index could be there */
-	__le16	ei_leaf_hi;	/* high 16 bits of physical block */
+	__le32	ei_block;
+	__le32	ei_leaf_lo;
+
+	__le16	ei_leaf_hi;
 	__u16	ei_unused;
 };
 
-/*
- * Each block (leaves and indexes), even inode-stored has header.
+
+/**
+ * struct ext4_extent_header - Private EXT4 state/data structure used by extent-tree representation.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
  */
 struct ext4_extent_header {
-	__le16	eh_magic;	/* probably will support different formats */
-	__le16	eh_entries;	/* number of valid entries */
-	__le16	eh_max;		/* capacity of store in entries */
-	__le16	eh_depth;	/* has tree real underlying blocks? */
-	__le32	eh_generation;	/* generation of the tree */
+	__le16	eh_magic;
+	__le16	eh_entries;
+	__le16	eh_max;
+	__le16	eh_depth;
+	__le32	eh_generation;
 };
 
 #define EXT4_EXT_MAGIC		cpu_to_le16(0xf30a)
 #define EXT4_MAX_EXTENT_DEPTH 5
 
 #define EXT4_EXTENT_TAIL_OFFSET(hdr) \
+/**
+ * find_ext4_extent_tail - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 	(sizeof(struct ext4_extent_header) + \
 	 (sizeof(struct ext4_extent) * le16_to_cpu((hdr)->eh_max)))
 
@@ -104,10 +120,12 @@ find_ext4_extent_tail(struct ext4_extent_header *eh)
 					   EXT4_EXTENT_TAIL_OFFSET(eh));
 }
 
-/*
- * Array of ext4_ext_path contains path to some extent.
- * Creation/lookup routines use it for traversal/splitting/etc.
- * Truncate uses it to simulate recursive walking.
+
+/**
+ * struct ext4_ext_path - Private EXT4 state/data structure used by extent-tree representation.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
  */
 struct ext4_ext_path {
 	ext4_fsblk_t			p_block;
@@ -119,45 +137,33 @@ struct ext4_ext_path {
 	struct buffer_head		*p_bh;
 };
 
-/*
- * Used to record a portion of a cluster found at the beginning or end
- * of an extent while traversing the extent tree during space removal.
- * A partial cluster may be removed if it does not contain blocks shared
- * with extents that aren't being deleted (tofree state).  Otherwise,
- * it cannot be removed (nofree state).
+
+/**
+ * struct partial_cluster - Private EXT4 state/data structure used by extent-tree representation.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
  */
 struct partial_cluster {
-	ext4_fsblk_t pclu;  /* physical cluster number */
-	ext4_lblk_t lblk;   /* logical block number within logical cluster */
+	ext4_fsblk_t pclu;
+	ext4_lblk_t lblk;
 	enum {initial, tofree, nofree} state;
 };
 
-/*
- * structure for external API
- */
 
-/*
- * EXT_INIT_MAX_LEN is the maximum number of blocks we can have in an
- * initialized extent. This is 2^15 and not (2^16 - 1), since we use the
- * MSB of ee_len field in the extent datastructure to signify if this
- * particular extent is an initialized extent or an unwritten (i.e.
- * preallocated).
- * EXT_UNWRITTEN_MAX_LEN is the maximum number of blocks we can have in an
- * unwritten extent.
- * If ee_len is <= 0x8000, it is an initialized extent. Otherwise, it is an
- * unwritten one. In other words, if MSB of ee_len is set, it is an
- * unwritten extent with only one special scenario when ee_len = 0x8000.
- * In this case we can not have an unwritten extent of zero length and
- * thus we make it as a special case of initialized extent with 0x8000 length.
- * This way we get better extent-to-group alignment for initialized extents.
- * Hence, the maximum number of blocks we can have in an *initialized*
- * extent is 2^15 (32768) and in an *unwritten* extent is 2^15-1 (32767).
- */
 #define EXT_INIT_MAX_LEN	(1UL << 15)
 #define EXT_UNWRITTEN_MAX_LEN	(EXT_INIT_MAX_LEN - 1)
 
 
 #define EXT_FIRST_EXTENT(__hdr__) \
+/**
+ * ext_inode_hdr - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 	((struct ext4_extent *) (((char *) (__hdr__)) +		\
 				 sizeof(struct ext4_extent_header)))
 #define EXT_FIRST_INDEX(__hdr__) \
@@ -184,29 +190,69 @@ static inline struct ext4_extent_header *ext_inode_hdr(struct inode *inode)
 	return (struct ext4_extent_header *) EXT4_I(inode)->i_data;
 }
 
+/**
+ * ext_block_hdr - Implements the ext block hdr operation within the extent-tree representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline struct ext4_extent_header *ext_block_hdr(struct buffer_head *bh)
 {
 	return (struct ext4_extent_header *) bh->b_data;
 }
 
+/**
+ * ext_depth - Implements the ext depth operation within the extent-tree representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline unsigned short ext_depth(struct inode *inode)
 {
 	return le16_to_cpu(ext_inode_hdr(inode)->eh_depth);
 }
 
+/**
+ * ext4_ext_mark_unwritten - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_ext_mark_unwritten(struct ext4_extent *ext)
 {
-	/* We can not have an unwritten extent of zero length! */
+
 	BUG_ON((le16_to_cpu(ext->ee_len) & ~EXT_INIT_MAX_LEN) == 0);
 	ext->ee_len |= cpu_to_le16(EXT_INIT_MAX_LEN);
 }
 
+/**
+ * ext4_ext_is_unwritten - Implements the ext is unwritten operation within the extent-tree representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_ext_is_unwritten(struct ext4_extent *ext)
 {
-	/* Extent with ee_len of 0x8000 is treated as an initialized extent */
+
 	return (le16_to_cpu(ext->ee_len) > EXT_INIT_MAX_LEN);
 }
 
+/**
+ * ext4_ext_get_actual_len - Implements the ext get actual len operation within the extent-tree representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_ext_get_actual_len(struct ext4_extent *ext)
 {
 	return (le16_to_cpu(ext->ee_len) <= EXT_INIT_MAX_LEN ?
@@ -214,14 +260,27 @@ static inline int ext4_ext_get_actual_len(struct ext4_extent *ext)
 		(le16_to_cpu(ext->ee_len) - EXT_INIT_MAX_LEN));
 }
 
+/**
+ * ext4_ext_mark_initialized - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_ext_mark_initialized(struct ext4_extent *ext)
 {
 	ext->ee_len = cpu_to_le16(ext4_ext_get_actual_len(ext));
 }
 
-/*
- * ext4_ext_pblock:
- * combine low and high parts of physical block number into ext4_fsblk_t
+
+/**
+ * ext4_ext_pblock - Implements the ext pblock operation within the extent-tree representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline ext4_fsblk_t ext4_ext_pblock(struct ext4_extent *ex)
 {
@@ -232,9 +291,14 @@ static inline ext4_fsblk_t ext4_ext_pblock(struct ext4_extent *ex)
 	return block;
 }
 
-/*
- * ext4_idx_pblock:
- * combine low and high parts of a leaf physical block number into ext4_fsblk_t
+
+/**
+ * ext4_idx_pblock - Implements the idx pblock operation within the extent-tree representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline ext4_fsblk_t ext4_idx_pblock(struct ext4_extent_idx *ix)
 {
@@ -245,10 +309,14 @@ static inline ext4_fsblk_t ext4_idx_pblock(struct ext4_extent_idx *ix)
 	return block;
 }
 
-/*
- * ext4_ext_store_pblock:
- * stores a large physical block number into an extent struct,
- * breaking it into parts
+
+/**
+ * ext4_ext_store_pblock - Implements the ext store pblock operation within the extent-tree representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline void ext4_ext_store_pblock(struct ext4_extent *ex,
 					 ext4_fsblk_t pb)
@@ -258,10 +326,14 @@ static inline void ext4_ext_store_pblock(struct ext4_extent *ex,
 				      0xffff);
 }
 
-/*
- * ext4_idx_store_pblock:
- * stores a large physical block number into an index struct,
- * breaking it into parts
+
+/**
+ * ext4_idx_store_pblock - Implements the idx store pblock operation within the extent-tree representation subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline void ext4_idx_store_pblock(struct ext4_extent_idx *ix,
 					 ext4_fsblk_t pb)
@@ -271,5 +343,4 @@ static inline void ext4_idx_store_pblock(struct ext4_extent_idx *ix,
 				     0xffff);
 }
 
-#endif /* _EXT4_EXTENTS */
-
+#endif

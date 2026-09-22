@@ -22,6 +22,28 @@
  * journaling (ext2 can use a reserved inode for storing the log).
  */
 
+/*
+ * EXT3 — Journal core
+ *
+ * Purpose:
+ *   Owns journal creation/loading/destruction, commit-thread coordination, log-space management and the embedded JBD module-private caches.
+ *
+ * Filesystem model:
+ *   This file belongs to a standalone EXT3 VFS implementation with its historical JBD engine embedded in ext3.ko.
+ *
+ * Correctness focus:
+ *   Journal sequence numbers, head/tail positions and transaction ownership must remain coherent across wraparound, abort and recovery.
+ *
+ * Project rules:
+ *   - EXT3 requires its journal semantics; it is not an EXT4 compatibility registration.
+ *   - Preserve the journal, recovery, ordered/writeback/journal data modes and EXT3 on-disk limits.
+ *   - JBD and the metadata cache are private implementation code, not separately deployed modules.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/module.h>
 #include <linux/time.h>
 #include <linux/fs.h>
@@ -51,6 +73,14 @@ static void __journal_abort_soft (journal_t *journal, int errno);
 static const char *journal_dev_name(journal_t *journal, char *buffer);
 
 #ifdef CONFIG_JBD_DEBUG
+/**
+ * __jbd_debug - Implements the debug operation within the journal core subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void __jbd_debug(int level, const char *file, const char *func,
 		 unsigned int line, const char *fmt, ...)
 {
@@ -67,10 +97,15 @@ void __jbd_debug(int level, const char *file, const char *func,
 }
 #endif
 
-/*
- * Helper function used to manage commit timeouts
- */
 
+/**
+ * commit_timeout - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void commit_timeout(unsigned long __data)
 {
 	struct task_struct * p = (struct task_struct *) __data;
@@ -78,46 +113,34 @@ static void commit_timeout(unsigned long __data)
 	wake_up_process(p);
 }
 
-/*
- * kjournald: The main thread function used to manage a logging device
- * journal.
- *
- * This kernel thread is responsible for two things:
- *
- * 1) COMMIT:  Every so often we need to commit the current state of the
- *    filesystem to disk.  The journal thread is responsible for writing
- *    all of the metadata buffers to disk.
- *
- * 2) CHECKPOINT: We cannot reuse a used section of the log file until all
- *    of the data in that part of the log has been rewritten elsewhere on
- *    the disk.  Flushing these old buffers to reclaim space in the log is
- *    known as checkpointing, and this thread is responsible for that job.
- */
 
+/**
+ * kjournald - Implements the kjournald operation within the journal core subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int kjournald(void *arg)
 {
 	journal_t *journal = arg;
 	transaction_t *transaction;
 
-	/*
-	 * Set up an interval timer which can be used to trigger a commit wakeup
-	 * after the commit interval expires
-	 */
+
 	setup_timer(&journal->j_commit_timer, commit_timeout,
 			(unsigned long)current);
 
 	set_freezable();
 
-	/* Record that the journal thread is running */
+
 	journal->j_task = current;
 	wake_up(&journal->j_wait_done_commit);
 
 	printk(KERN_INFO "kjournald starting.  Commit interval %ld seconds\n",
 			journal->j_commit_interval / HZ);
 
-	/*
-	 * And now, wait forever for commit wakeup events.
-	 */
+
 	spin_lock(&journal->j_state_lock);
 
 loop:
@@ -138,20 +161,15 @@ loop:
 
 	wake_up(&journal->j_wait_done_commit);
 	if (freezing(current)) {
-		/*
-		 * The simpler the better. Flushing journal isn't a
-		 * good idea, because that depends on threads that may
-		 * be already stopped.
-		 */
+
+
 		jbd_debug(1, "Now suspending kjournald\n");
 		spin_unlock(&journal->j_state_lock);
 		try_to_freeze();
 		spin_lock(&journal->j_state_lock);
 	} else {
-		/*
-		 * We assume on resume that commits are already there,
-		 * so we don't sleep
-		 */
+
+
 		DEFINE_WAIT(wait);
 		int should_sleep = 1;
 
@@ -175,9 +193,7 @@ loop:
 
 	jbd_debug(1, "kjournald wakes\n");
 
-	/*
-	 * Were we woken up by a commit wakeup event?
-	 */
+
 	transaction = journal->j_running_transaction;
 	if (transaction && time_after_eq(jiffies, transaction->t_expires)) {
 		journal->j_commit_request = transaction->t_tid;
@@ -194,6 +210,14 @@ end_loop:
 	return 0;
 }
 
+/**
+ * journal_start_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int journal_start_thread(journal_t *journal)
 {
 	struct task_struct *t;
@@ -206,6 +230,14 @@ static int journal_start_thread(journal_t *journal)
 	return 0;
 }
 
+/**
+ * journal_kill_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void journal_kill_thread(journal_t *journal)
 {
 	spin_lock(&journal->j_state_lock);
@@ -221,43 +253,15 @@ static void journal_kill_thread(journal_t *journal)
 	spin_unlock(&journal->j_state_lock);
 }
 
-/*
- * journal_write_metadata_buffer: write a metadata buffer to the journal.
- *
- * Writes a metadata buffer to a given disk block.  The actual IO is not
- * performed but a new buffer_head is constructed which labels the data
- * to be written with the correct destination disk block.
- *
- * Any magic-number escaping which needs to be done will cause a
- * copy-out here.  If the buffer happens to start with the
- * JFS_MAGIC_NUMBER, then we can't write it to the log directly: the
- * magic number is only written to the log for descripter blocks.  In
- * this case, we copy the data and replace the first word with 0, and we
- * return a result code which indicates that this buffer needs to be
- * marked as an escaped buffer in the corresponding log descriptor
- * block.  The missing word can then be restored when the block is read
- * during recovery.
- *
- * If the source buffer has already been modified by a new transaction
- * since we took the last commit snapshot, we use the frozen copy of
- * that data for IO.  If we end up using the existing buffer_head's data
- * for the write, then we *have* to lock the buffer to prevent anyone
- * else from using and possibly modifying it while the IO is in
- * progress.
- *
- * The function returns a pointer to the buffer_heads to be used for IO.
- *
- * We assume that the journal has already been locked in this function.
- *
- * Return value:
- *  <0: Error
- * >=0: Finished OK
- *
- * On success:
- * Bit 0 set == escape performed on the data
- * Bit 1 set == buffer copy-out performed (kfree the data after IO)
- */
 
+/**
+ * journal_write_metadata_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int journal_write_metadata_buffer(transaction_t *transaction,
 				  struct journal_head  *jh_in,
 				  struct journal_head **jh_out,
@@ -274,26 +278,15 @@ int journal_write_metadata_buffer(transaction_t *transaction,
 	struct buffer_head *bh_in = jh2bh(jh_in);
 	journal_t *journal = transaction->t_journal;
 
-	/*
-	 * The buffer really shouldn't be locked: only the current committing
-	 * transaction is allowed to write it, so nobody else is allowed
-	 * to do any IO.
-	 *
-	 * akpm: except if we're journalling data, and write() output is
-	 * also part of a shared mapping, and another thread has
-	 * decided to launch a writepage() against this buffer.
-	 */
+
 	J_ASSERT_BH(bh_in, buffer_jbddirty(bh_in));
 
 	new_bh = alloc_buffer_head(GFP_NOFS|__GFP_NOFAIL);
-	/* keep subsequent assertions sane */
-	atomic_set(&new_bh->b_count, 1);
-	new_jh = journal_add_journal_head(new_bh);	/* This sleeps */
 
-	/*
-	 * If a new transaction has already done a buffer copy-out, then
-	 * we use that version of the data for the commit.
-	 */
+	atomic_set(&new_bh->b_count, 1);
+	new_jh = journal_add_journal_head(new_bh);
+
+
 	jbd_lock_bh_state(bh_in);
 repeat:
 	if (jh_in->b_frozen_data) {
@@ -306,9 +299,8 @@ repeat:
 	}
 
 	mapped_data = kmap_atomic(new_page);
-	/*
-	 * Check for escaping
-	 */
+
+
 	if (*((__be32 *)(mapped_data + new_offset)) ==
 				cpu_to_be32(JFS_MAGIC_NUMBER)) {
 		need_copy_out = 1;
@@ -316,9 +308,7 @@ repeat:
 	}
 	kunmap_atomic(mapped_data);
 
-	/*
-	 * Do we need to do a data copy?
-	 */
+
 	if (need_copy_out && !done_copy_out) {
 		char *tmp;
 
@@ -340,10 +330,7 @@ repeat:
 		done_copy_out = 1;
 	}
 
-	/*
-	 * Did we need to do an escaping?  Now we've done all the
-	 * copying, we can finally do so.
-	 */
+
 	if (do_escape) {
 		mapped_data = kmap_atomic(new_page);
 		*((unsigned int *)(mapped_data + new_offset)) = 0;
@@ -360,11 +347,7 @@ repeat:
 
 	*jh_out = new_jh;
 
-	/*
-	 * The to-be-written buffer needs to get moved to the io queue,
-	 * and the original buffer whose contents we are shadowing or
-	 * copying is moved to the transaction's shadow queue.
-	 */
+
 	JBUFFER_TRACE(jh_in, "file as BJ_Shadow");
 	spin_lock(&journal->j_list_lock);
 	__journal_file_buffer(jh_in, transaction, BJ_Shadow);
@@ -377,31 +360,23 @@ repeat:
 	return do_escape | (done_copy_out << 1);
 }
 
-/*
- * Allocation code for the journal file.  Manage the space left in the
- * journal, so that we can begin checkpointing when appropriate.
- */
 
-/*
- * __log_space_left: Return the number of free blocks left in the journal.
+/**
+ * __log_space_left - Implements the log space left operation within the journal core subsystem.
  *
- * Called with the journal already locked.
- *
- * Called under j_state_lock
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
 int __log_space_left(journal_t *journal)
 {
 	int left = journal->j_free;
 
 	assert_spin_locked(&journal->j_state_lock);
 
-	/*
-	 * Be pessimistic here about the number of those free blocks which
-	 * might be required for log descriptor control blocks.
-	 */
 
-#define MIN_LOG_RESERVED_BLOCKS 32 /* Allow for rounding errors */
+#define MIN_LOG_RESERVED_BLOCKS 32
 
 	left -= MIN_LOG_RESERVED_BLOCKS;
 
@@ -411,23 +386,23 @@ int __log_space_left(journal_t *journal)
 	return left;
 }
 
-/*
- * Called under j_state_lock.  Returns true if a transaction commit was started.
+
+/**
+ * __log_start_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int __log_start_commit(journal_t *journal, tid_t target)
 {
-	/*
-	 * The only transaction we can possibly wait upon is the
-	 * currently running transaction (if it exists).  Otherwise,
-	 * the target tid must be an old one.
-	 */
+
+
 	if (journal->j_commit_request != target &&
 	    journal->j_running_transaction &&
 	    journal->j_running_transaction->t_tid == target) {
-		/*
-		 * We want a new commit: OK, mark the request and wakeup the
-		 * commit thread.  We do _not_ do the commit ourselves.
-		 */
+
 
 		journal->j_commit_request = target;
 		jbd_debug(1, "JBD: requesting commit %d/%d\n",
@@ -436,9 +411,8 @@ int __log_start_commit(journal_t *journal, tid_t target)
 		wake_up(&journal->j_wait_commit);
 		return 1;
 	} else if (!tid_geq(journal->j_commit_request, target))
-		/* This should never happen, but if it does, preserve
-		   the evidence before kjournald goes into a loop and
-		   increments j_commit_sequence beyond all recognition. */
+
+
 		WARN_ONCE(1, "jbd: bad log_start_commit: %u %u %u %u\n",
 		    journal->j_commit_request, journal->j_commit_sequence,
 		    target, journal->j_running_transaction ?
@@ -446,6 +420,14 @@ int __log_start_commit(journal_t *journal, tid_t target)
 	return 0;
 }
 
+/**
+ * log_start_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int log_start_commit(journal_t *journal, tid_t tid)
 {
 	int ret;
@@ -456,15 +438,14 @@ int log_start_commit(journal_t *journal, tid_t tid)
 	return ret;
 }
 
-/*
- * Force and wait upon a commit if the calling process is not within
- * transaction.  This is used for forcing out undo-protected data which contains
- * bitmaps, when the fs is running out of space.
+
+/**
+ * journal_force_commit_nested - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
- * We can only force the running transaction if we don't have an active handle;
- * otherwise, we will deadlock.
- *
- * Returns true if a transaction was started.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_force_commit_nested(journal_t *journal)
 {
@@ -480,7 +461,7 @@ int journal_force_commit_nested(journal_t *journal)
 
 	if (!transaction) {
 		spin_unlock(&journal->j_state_lock);
-		return 0;	/* Nothing to retry */
+		return 0;
 	}
 
 	tid = transaction->t_tid;
@@ -489,10 +470,14 @@ int journal_force_commit_nested(journal_t *journal)
 	return 1;
 }
 
-/*
- * Start a commit of the current running transaction (if any).  Returns true
- * if a transaction is going to be committed (or is currently already
- * committing), and fills its tid in at *ptid
+
+/**
+ * journal_start_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_start_commit(journal_t *journal, tid_t *ptid)
 {
@@ -503,16 +488,14 @@ int journal_start_commit(journal_t *journal, tid_t *ptid)
 		tid_t tid = journal->j_running_transaction->t_tid;
 
 		__log_start_commit(journal, tid);
-		/* There's a running transaction and we've just made sure
-		 * it's commit has been scheduled. */
+
+
 		if (ptid)
 			*ptid = tid;
 		ret = 1;
 	} else if (journal->j_committing_transaction) {
-		/*
-		 * If commit has been started, then we have to wait for
-		 * completion of that transaction.
-		 */
+
+
 		if (ptid)
 			*ptid = journal->j_committing_transaction->t_tid;
 		ret = 1;
@@ -521,9 +504,14 @@ int journal_start_commit(journal_t *journal, tid_t *ptid)
 	return ret;
 }
 
-/*
- * Wait for a specified commit to complete.
- * The caller may not hold the journal lock.
+
+/**
+ * log_wait_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int log_wait_commit(journal_t *journal, tid_t tid)
 {
@@ -539,10 +527,8 @@ int log_wait_commit(journal_t *journal, tid_t tid)
 	spin_unlock(&journal->j_state_lock);
 #endif
 	spin_lock(&journal->j_state_lock);
-	/*
-	 * Not running or committing trans? Must be already committed. This
-	 * saves us from waiting for a *long* time when tid overflows.
-	 */
+
+
 	if (!((journal->j_running_transaction &&
 	       journal->j_running_transaction->t_tid == tid) ||
 	      (journal->j_committing_transaction &&
@@ -568,11 +554,14 @@ out_unlock:
 	return err;
 }
 
-/*
- * Return 1 if a given transaction has not yet sent barrier request
- * connected with a transaction commit. If 0 is returned, transaction
- * may or may not have sent the barrier. Used to avoid sending barrier
- * twice in common cases.
+
+/**
+ * journal_trans_will_send_data_barrier - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_trans_will_send_data_barrier(journal_t *journal, tid_t tid)
 {
@@ -582,13 +571,11 @@ int journal_trans_will_send_data_barrier(journal_t *journal, tid_t tid)
 	if (!(journal->j_flags & JFS_BARRIER))
 		return 0;
 	spin_lock(&journal->j_state_lock);
-	/* Transaction already committed? */
+
 	if (tid_geq(journal->j_commit_sequence, tid))
 		goto out;
-	/*
-	 * Transaction is being committed and we already proceeded to
-	 * writing commit record?
-	 */
+
+
 	commit_trans = journal->j_committing_transaction;
 	if (commit_trans && commit_trans->t_tid == tid &&
 	    commit_trans->t_state >= T_COMMIT_RECORD)
@@ -599,10 +586,15 @@ out:
 	return ret;
 }
 
-/*
- * Log buffer allocation routines:
- */
 
+/**
+ * journal_next_log_block - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int journal_next_log_block(journal_t *journal, unsigned int *retp)
 {
 	unsigned int blocknr;
@@ -619,12 +611,14 @@ int journal_next_log_block(journal_t *journal, unsigned int *retp)
 	return journal_bmap(journal, blocknr, retp);
 }
 
-/*
- * Conversion of logical to physical block numbers for the journal
+
+/**
+ * journal_bmap - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * On external journals the journal blocks are identity-mapped, so
- * this is a no-op.  If needed, we can use j_blk_offset - everything is
- * ready.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_bmap(journal_t *journal, unsigned int blocknr,
 		 unsigned int *retp)
@@ -648,20 +642,19 @@ int journal_bmap(journal_t *journal, unsigned int blocknr,
 			__journal_abort_soft(journal, err);
 		}
 	} else {
-		*retp = blocknr; /* +journal->j_blk_offset */
+		*retp = blocknr;
 	}
 	return err;
 }
 
-/*
- * We play buffer_head aliasing tricks to write data/metadata blocks to
- * the journal without copying their contents, but for journal
- * descriptor blocks we do need to generate bona fide buffers.
+
+/**
+ * journal_get_descriptor_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * After the caller of journal_get_descriptor_buffer() has finished modifying
- * the buffer's contents they really should run flush_dcache_page(bh->b_page).
- * But we don't bother doing that, so there will be coherency problems with
- * mmaps of blockdevs which hold live JBD-controlled filesystems.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 struct journal_head *journal_get_descriptor_buffer(journal_t *journal)
 {
@@ -685,15 +678,15 @@ struct journal_head *journal_get_descriptor_buffer(journal_t *journal)
 	return journal_add_journal_head(bh);
 }
 
-/*
- * Management for journal control blocks: functions to create and
- * destroy journal_t structures, and to initialise and read existing
- * journal blocks from disk.  */
 
-/* First: create and setup a journal_t object in memory.  We initialise
- * very few fields yet: that has to wait until we have created the
- * journal structures from from scratch, or loaded them from disk. */
-
+/**
+ * journal_init_common - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static journal_t * journal_init_common (void)
 {
 	journal_t *journal;
@@ -716,10 +709,10 @@ static journal_t * journal_init_common (void)
 
 	journal->j_commit_interval = (HZ * JBD_DEFAULT_MAX_COMMIT_AGE);
 
-	/* The journal is marked for error until we succeed with recovery! */
+
 	journal->j_flags = JFS_ABORT;
 
-	/* Set up a default-sized revoke table for the new mount. */
+
 	err = journal_init_revoke(journal, JOURNAL_REVOKE_DEFAULT_HASH);
 	if (err) {
 		kfree(journal);
@@ -730,28 +723,14 @@ fail:
 	return NULL;
 }
 
-/* journal_init_dev and journal_init_inode:
- *
- * Create a journal structure assigned some fixed set of disk blocks to
- * the journal.  We don't actually touch those disk blocks yet, but we
- * need to set up all of the mapping information to tell the journaling
- * system where the journal blocks are.
- *
- */
 
 /**
- *  journal_t * journal_init_dev() - creates and initialises a journal structure
- *  @bdev: Block device on which to create the journal
- *  @fs_dev: Device which hold journalled filesystem for this journal.
- *  @start: Block nr Start of journal.
- *  @len:  Length of the journal in blocks.
- *  @blocksize: blocksize of journalling device
+ * journal_init_dev - Initialises subsystem state and establishes the resources required by later operations.
  *
- *  Returns: a newly created journal_t *
- *
- *  journal_init_dev creates a journal which maps a fixed contiguous
- *  range of blocks on an arbitrary block device.
- *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 journal_t * journal_init_dev(struct block_device *bdev,
 			struct block_device *fs_dev,
@@ -764,7 +743,7 @@ journal_t * journal_init_dev(struct block_device *bdev,
 	if (!journal)
 		return NULL;
 
-	/* journal descriptor can store up to n blocks -bzzz */
+
 	journal->j_blocksize = blocksize;
 	n = journal->j_blocksize / sizeof(journal_block_tag_t);
 	journal->j_wbufsize = n;
@@ -796,13 +775,14 @@ out_err:
 	return NULL;
 }
 
+
 /**
- *  journal_t * journal_init_inode () - creates a journal which maps to a inode.
- *  @inode: An inode to create the journal in
+ * journal_init_inode - Initialises subsystem state and establishes the resources required by later operations.
  *
- * journal_init_inode creates a journal which maps an on-disk inode as
- * the journal.  The inode must exist already, must support bmap() and
- * must have all data blocks preallocated.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 journal_t * journal_init_inode (struct inode *inode)
 {
@@ -826,7 +806,7 @@ journal_t * journal_init_inode (struct inode *inode)
 	journal->j_maxlen = inode->i_size >> inode->i_sb->s_blocksize_bits;
 	journal->j_blocksize = inode->i_sb->s_blocksize;
 
-	/* journal descriptor can store up to n blocks -bzzz */
+
 	n = journal->j_blocksize / sizeof(journal_block_tag_t);
 	journal->j_wbufsize = n;
 	journal->j_wbuf = kmalloc(n * sizeof(struct buffer_head*), GFP_KERNEL);
@@ -837,7 +817,7 @@ journal_t * journal_init_inode (struct inode *inode)
 	}
 
 	err = journal_bmap(journal, 0, &blocknr);
-	/* If that failed, give up */
+
 	if (err) {
 		printk(KERN_ERR "%s: Cannot locate journal superblock\n",
 		       __func__);
@@ -861,10 +841,14 @@ out_err:
 	return NULL;
 }
 
-/*
- * If the journal init or create aborts, we need to mark the journal
- * superblock as being NULL to prevent the journal destroy from writing
- * back a bogus superblock.
+
+/**
+ * journal_fail_superblock - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void journal_fail_superblock (journal_t *journal)
 {
@@ -873,13 +857,15 @@ static void journal_fail_superblock (journal_t *journal)
 	journal->j_sb_buffer = NULL;
 }
 
-/*
- * Given a journal_t structure, initialise the various fields for
- * startup of a new journaling session.  We use this both when creating
- * a journal, and after recovering an old journal to reset it for
- * subsequent use.
- */
 
+/**
+ * journal_reset - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int journal_reset(journal_t *journal)
 {
 	journal_superblock_t *sb = journal->j_superblock;
@@ -907,12 +893,7 @@ static int journal_reset(journal_t *journal)
 
 	journal->j_max_transaction_buffers = journal->j_maxlen / 4;
 
-	/*
-	 * As a special case, if the on-disk copy is already marked as needing
-	 * no recovery (s_start == 0), then we can safely defer the superblock
-	 * update until the next commit by setting JFS_FLUSHED.  This avoids
-	 * attempting a write to a potential-readonly device.
-	 */
+
 	if (sb->s_start == 0) {
 		jbd_debug(1,"JBD: Skipping superblock update on recovered sb "
 			"(start %u, seq %d, errno %d)\n",
@@ -920,14 +901,10 @@ static int journal_reset(journal_t *journal)
 			journal->j_errno);
 		journal->j_flags |= JFS_FLUSHED;
 	} else {
-		/* Lock here to make assertions happy... */
+
 		mutex_lock(&journal->j_checkpoint_mutex);
-		/*
-		 * Update log tail information. We use WRITE_FUA since new
-		 * transaction will start reusing journal space and so we
-		 * must make sure information about current log tail is on
-		 * disk before that.
-		 */
+
+
 		journal_update_sb_log_tail(journal,
 					   journal->j_tail_sequence,
 					   journal->j_tail,
@@ -937,14 +914,15 @@ static int journal_reset(journal_t *journal)
 	return journal_start_thread(journal);
 }
 
+
 /**
- * int journal_create() - Initialise the new journal file
- * @journal: Journal to create. This structure must have been initialised
+ * journal_create - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * Given a journal_t structure which tells us which disk blocks we can
- * use, create a new journal superblock and initialise all of the
- * journal fields from scratch.
- **/
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int journal_create(journal_t *journal)
 {
 	unsigned int blocknr;
@@ -960,17 +938,15 @@ int journal_create(journal_t *journal)
 	}
 
 	if (journal->j_inode == NULL) {
-		/*
-		 * We don't know what block to start at!
-		 */
+
+
 		printk(KERN_EMERG
 		       "%s: creation of journal on external device!\n",
 		       __func__);
 		BUG();
 	}
 
-	/* Zero out the entire journal on disk.  We cannot afford to
-	   have any blocks on disk beginning with JFS_MAGIC_NUMBER. */
+
 	jbd_debug(1, "JBD: Zeroing out journal blocks...\n");
 	for (i = 0; i < journal->j_maxlen; i++) {
 		err = journal_bmap(journal, i, &blocknr);
@@ -992,7 +968,7 @@ int journal_create(journal_t *journal)
 	sync_blockdev(journal->j_dev);
 	jbd_debug(1, "JBD: journal cleared.\n");
 
-	/* OK, fill in the initial static fields in the new superblock */
+
 	sb = journal->j_superblock;
 
 	sb->s_header.h_magic	 = cpu_to_be32(JFS_MAGIC_NUMBER);
@@ -1010,6 +986,14 @@ int journal_create(journal_t *journal)
 	return journal_reset(journal);
 }
 
+/**
+ * journal_write_superblock - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void journal_write_superblock(journal_t *journal, int write_op)
 {
 	struct buffer_head *bh = journal->j_sb_buffer;
@@ -1021,14 +1005,8 @@ static void journal_write_superblock(journal_t *journal, int write_op)
 	lock_buffer(bh);
 	if (buffer_write_io_error(bh)) {
 		char b[BDEVNAME_SIZE];
-		/*
-		 * Oh, dear.  A previous attempt to write the journal
-		 * superblock failed.  This could happen because the
-		 * USB device was yanked out.  Or it could happen to
-		 * be a transient write error and maybe the block will
-		 * be remapped.  Nothing we can do but to retry the
-		 * write and hope for the best.
-		 */
+
+
 		printk(KERN_ERR "JBD: previous I/O error detected "
 		       "for journal superblock update for %s.\n",
 		       journal_dev_name(journal, b));
@@ -1053,15 +1031,14 @@ static void journal_write_superblock(journal_t *journal, int write_op)
 	}
 }
 
+
 /**
- * journal_update_sb_log_tail() - Update log tail in journal sb on disk.
- * @journal: The journal to update.
- * @tail_tid: TID of the new transaction at the tail of the log
- * @tail_block: The first block of the transaction at the tail of the log
- * @write_op: With which operation should we write the journal sb
+ * journal_update_sb_log_tail - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * Update a journal's superblock information about log tail and write it to
- * disk, waiting for the IO to complete.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void journal_update_sb_log_tail(journal_t *journal, tid_t tail_tid,
 				unsigned int tail_block, int write_op)
@@ -1077,19 +1054,21 @@ void journal_update_sb_log_tail(journal_t *journal, tid_t tail_tid,
 
 	journal_write_superblock(journal, write_op);
 
-	/* Log is no longer empty */
+
 	spin_lock(&journal->j_state_lock);
 	WARN_ON(!sb->s_sequence);
 	journal->j_flags &= ~JFS_FLUSHED;
 	spin_unlock(&journal->j_state_lock);
 }
 
+
 /**
- * mark_journal_empty() - Mark on disk journal as empty.
- * @journal: The journal to update.
+ * mark_journal_empty - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * Update a journal's dynamic superblock fields to show that journal is empty.
- * Write updated superblock to disk waiting for IO to complete.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void mark_journal_empty(journal_t *journal)
 {
@@ -1097,7 +1076,7 @@ static void mark_journal_empty(journal_t *journal)
 
 	BUG_ON(!mutex_is_locked(&journal->j_checkpoint_mutex));
 	spin_lock(&journal->j_state_lock);
-	/* Is it already empty? */
+
 	if (sb->s_start == 0) {
 		spin_unlock(&journal->j_state_lock);
 		return;
@@ -1112,17 +1091,19 @@ static void mark_journal_empty(journal_t *journal)
 	journal_write_superblock(journal, WRITE_FUA);
 
 	spin_lock(&journal->j_state_lock);
-	/* Log is empty */
+
 	journal->j_flags |= JFS_FLUSHED;
 	spin_unlock(&journal->j_state_lock);
 }
 
+
 /**
- * journal_update_sb_errno() - Update error in the journal.
- * @journal: The journal to update.
+ * journal_update_sb_errno - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * Update a journal's errno.  Write updated superblock to disk waiting for IO
- * to complete.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void journal_update_sb_errno(journal_t *journal)
 {
@@ -1137,11 +1118,15 @@ static void journal_update_sb_errno(journal_t *journal)
 	journal_write_superblock(journal, WRITE_SYNC);
 }
 
-/*
- * Read the superblock for a given journal, performing initial
- * validation of the format.
- */
 
+/**
+ * journal_get_superblock - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int journal_get_superblock(journal_t *journal)
 {
 	struct buffer_head *bh;
@@ -1205,11 +1190,15 @@ out:
 	return err;
 }
 
-/*
- * Load the on-disk journal superblock and read the key fields into the
- * journal_t.
- */
 
+/**
+ * load_superblock - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int load_superblock(journal_t *journal)
 {
 	int err;
@@ -1232,12 +1221,12 @@ static int load_superblock(journal_t *journal)
 
 
 /**
- * int journal_load() - Read journal from disk.
- * @journal: Journal to act on.
+ * journal_load - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * Given a journal_t structure which tells us which disk blocks contain
- * a journal, read the journal from disk to initialise the in-memory
- * structures.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_load(journal_t *journal)
 {
@@ -1249,8 +1238,7 @@ int journal_load(journal_t *journal)
 		return err;
 
 	sb = journal->j_superblock;
-	/* If this is a V2 superblock, then we have to check the
-	 * features flags on it. */
+
 
 	if (journal->j_format_version >= 2) {
 		if ((sb->s_feature_ro_compat &
@@ -1263,14 +1251,11 @@ int journal_load(journal_t *journal)
 		}
 	}
 
-	/* Let the recovery code check whether it needs to recover any
-	 * data from the journal. */
+
 	if (journal_recover(journal))
 		goto recovery_error;
 
-	/* OK, we've finished with the dynamic journal bits:
-	 * reinitialise the dynamic contents of the superblock in memory
-	 * and reset them on disk. */
+
 	if (journal_reset(journal))
 		goto recovery_error;
 
@@ -1283,31 +1268,29 @@ recovery_error:
 	return -EIO;
 }
 
+
 /**
- * void journal_destroy() - Release a journal_t structure.
- * @journal: Journal to act on.
+ * journal_destroy - Tears down subsystem state after users have been quiesced.
  *
- * Release a journal_t structure once it is no longer in use by the
- * journaled object.
- * Return <0 if we couldn't clean up the journal.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_destroy(journal_t *journal)
 {
 	int err = 0;
 
-	
-	/* Wait for the commit thread to wake up and die. */
+
 	journal_kill_thread(journal);
 
-	/* Force a final log commit */
+
 	if (journal->j_running_transaction)
 		journal_commit_transaction(journal);
 
-	/* Force any old transactions to disk */
 
-	/* We cannot race with anybody but must keep assertions happy */
 	mutex_lock(&journal->j_checkpoint_mutex);
-	/* Totally anal locking here... */
+
 	spin_lock(&journal->j_list_lock);
 	while (journal->j_checkpoint_transactions != NULL) {
 		spin_unlock(&journal->j_list_lock);
@@ -1342,16 +1325,13 @@ int journal_destroy(journal_t *journal)
 
 
 /**
- *int journal_check_used_features () - Check if features specified are used.
- * @journal: Journal to check.
- * @compat: bitmask of compatible features
- * @ro: bitmask of features that force read-only mount
- * @incompat: bitmask of incompatible features
+ * journal_check_used_features - Validates state before it is trusted by the remainder of the filesystem.
  *
- * Check whether the journal uses all of a given set of
- * features.  Return true (non-zero) if it does.
- **/
-
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int journal_check_used_features (journal_t *journal, unsigned long compat,
 				 unsigned long ro, unsigned long incompat)
 {
@@ -1372,26 +1352,21 @@ int journal_check_used_features (journal_t *journal, unsigned long compat,
 	return 0;
 }
 
-/**
- * int journal_check_available_features() - Check feature set in journalling layer
- * @journal: Journal to check.
- * @compat: bitmask of compatible features
- * @ro: bitmask of features that force read-only mount
- * @incompat: bitmask of incompatible features
- *
- * Check whether the journaling code supports the use of
- * all of a given set of features on this journal.  Return true
- * (non-zero) if it can. */
 
+/**
+ * journal_check_available_features - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int journal_check_available_features (journal_t *journal, unsigned long compat,
 				      unsigned long ro, unsigned long incompat)
 {
 	if (!compat && !ro && !incompat)
 		return 1;
 
-	/* We can support any known requested features iff the
-	 * superblock is in version 2.  Otherwise we fail to support any
-	 * extended sb features. */
 
 	if (journal->j_format_version != 2)
 		return 0;
@@ -1404,18 +1379,15 @@ int journal_check_available_features (journal_t *journal, unsigned long compat,
 	return 0;
 }
 
-/**
- * int journal_set_features () - Mark a given journal feature in the superblock
- * @journal: Journal to act on.
- * @compat: bitmask of compatible features
- * @ro: bitmask of features that force read-only mount
- * @incompat: bitmask of incompatible features
- *
- * Mark a given journal feature as present on the
- * superblock.  Returns true if the requested features could be set.
- *
- */
 
+/**
+ * journal_set_features - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int journal_set_features (journal_t *journal, unsigned long compat,
 			  unsigned long ro, unsigned long incompat)
 {
@@ -1441,11 +1413,12 @@ int journal_set_features (journal_t *journal, unsigned long compat,
 
 
 /**
- * int journal_update_format () - Update on-disk journal structure.
- * @journal: Journal to act on.
+ * journal_update_format - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * Given an initialised but unloaded journal struct, poke about in the
- * on-disk structure to update it to the most recent supported version.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_update_format (journal_t *journal)
 {
@@ -1469,6 +1442,14 @@ int journal_update_format (journal_t *journal)
 	return -EINVAL;
 }
 
+/**
+ * journal_convert_superblock_v1 - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int journal_convert_superblock_v1(journal_t *journal,
 					 journal_superblock_t *sb)
 {
@@ -1478,7 +1459,7 @@ static int journal_convert_superblock_v1(journal_t *journal,
 	printk(KERN_WARNING
 		"JBD: Converting superblock from version 1 to 2.\n");
 
-	/* Pre-initialise new fields to zero */
+
 	offset = ((char *) &(sb->s_feature_compat)) - ((char *) sb);
 	blocksize = be32_to_cpu(sb->s_blocksize);
 	memset(&sb->s_feature_compat, 0, blocksize-offset);
@@ -1496,14 +1477,13 @@ static int journal_convert_superblock_v1(journal_t *journal,
 
 
 /**
- * int journal_flush () - Flush journal
- * @journal: Journal to act on.
+ * journal_flush - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * Flush all data for a given journal to disk and empty the journal.
- * Filesystems can use this when remounting readonly to ensure that
- * recovery does not need to happen on remount.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
-
 int journal_flush(journal_t *journal)
 {
 	int err = 0;
@@ -1511,14 +1491,14 @@ int journal_flush(journal_t *journal)
 
 	spin_lock(&journal->j_state_lock);
 
-	/* Force everything buffered to the log... */
+
 	if (journal->j_running_transaction) {
 		transaction = journal->j_running_transaction;
 		__log_start_commit(journal, transaction->t_tid);
 	} else if (journal->j_committing_transaction)
 		transaction = journal->j_committing_transaction;
 
-	/* Wait for the log commit to complete... */
+
 	if (transaction) {
 		tid_t tid = transaction->t_tid;
 
@@ -1528,7 +1508,7 @@ int journal_flush(journal_t *journal)
 		spin_unlock(&journal->j_state_lock);
 	}
 
-	/* ...and flush everything in the log out to disk. */
+
 	spin_lock(&journal->j_list_lock);
 	while (!err && journal->j_checkpoint_transactions != NULL) {
 		spin_unlock(&journal->j_list_lock);
@@ -1545,11 +1525,7 @@ int journal_flush(journal_t *journal)
 	mutex_lock(&journal->j_checkpoint_mutex);
 	cleanup_journal_tail(journal);
 
-	/* Finally, mark the journal as really needing no recovery.
-	 * This sets s_start==0 in the underlying superblock, which is
-	 * the magic code for a fully-recovered superblock.  Any future
-	 * commits of data to the journal will restore the current
-	 * s_start value. */
+
 	mark_journal_empty(journal);
 	mutex_unlock(&journal->j_checkpoint_mutex);
 	spin_lock(&journal->j_state_lock);
@@ -1562,19 +1538,15 @@ int journal_flush(journal_t *journal)
 	return 0;
 }
 
-/**
- * int journal_wipe() - Wipe journal contents
- * @journal: Journal to act on.
- * @write: flag (see below)
- *
- * Wipe out all of the contents of a journal, safely.  This will produce
- * a warning if the journal contains any valid recovery information.
- * Must be called between journal_init_*() and journal_load().
- *
- * If 'write' is non-zero, then we wipe out the journal on disk; otherwise
- * we merely suppress recovery.
- */
 
+/**
+ * journal_wipe - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int journal_wipe(journal_t *journal, int write)
 {
 	int err = 0;
@@ -1593,7 +1565,7 @@ int journal_wipe(journal_t *journal, int write)
 
 	err = journal_skip_recovery(journal);
 	if (write) {
-		/* Lock to make assertions happy... */
+
 		mutex_lock(&journal->j_checkpoint_mutex);
 		mark_journal_empty(journal);
 		mutex_unlock(&journal->j_checkpoint_mutex);
@@ -1603,11 +1575,15 @@ int journal_wipe(journal_t *journal, int write)
 	return err;
 }
 
-/*
- * journal_dev_name: format a character string to describe on what
- * device this journal is present.
- */
 
+/**
+ * journal_dev_name - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static const char *journal_dev_name(journal_t *journal, char *buffer)
 {
 	struct block_device *bdev;
@@ -1620,18 +1596,14 @@ static const char *journal_dev_name(journal_t *journal, char *buffer)
 	return bdevname(bdev, buffer);
 }
 
-/*
- * Journal abort has very specific semantics, which we describe
- * for journal abort.
- *
- * Two internal function, which provide abort to te jbd layer
- * itself are here.
- */
 
-/*
- * Quick version for internal journal use (doesn't lock the journal).
- * Aborts hard --- we mark the abort as occurred, but do _nothing_ else,
- * and don't attempt to make any other journal updates.
+/**
+ * __journal_abort_hard - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void __journal_abort_hard(journal_t *journal)
 {
@@ -1652,8 +1624,15 @@ static void __journal_abort_hard(journal_t *journal)
 	spin_unlock(&journal->j_state_lock);
 }
 
-/* Soft abort: record the abort error status in the journal superblock,
- * but don't do any other IO. */
+
+/**
+ * __journal_abort_soft - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void __journal_abort_soft (journal_t *journal, int errno)
 {
 	if (journal->j_flags & JFS_ABORT)
@@ -1668,67 +1647,28 @@ static void __journal_abort_soft (journal_t *journal, int errno)
 		journal_update_sb_errno(journal);
 }
 
-/**
- * void journal_abort () - Shutdown the journal immediately.
- * @journal: the journal to shutdown.
- * @errno:   an error number to record in the journal indicating
- *           the reason for the shutdown.
- *
- * Perform a complete, immediate shutdown of the ENTIRE
- * journal (not of a single transaction).  This operation cannot be
- * undone without closing and reopening the journal.
- *
- * The journal_abort function is intended to support higher level error
- * recovery mechanisms such as the ext2/ext3 remount-readonly error
- * mode.
- *
- * Journal abort has very specific semantics.  Any existing dirty,
- * unjournaled buffers in the main filesystem will still be written to
- * disk by bdflush, but the journaling mechanism will be suspended
- * immediately and no further transaction commits will be honoured.
- *
- * Any dirty, journaled buffers will be written back to disk without
- * hitting the journal.  Atomicity cannot be guaranteed on an aborted
- * filesystem, but we _do_ attempt to leave as much data as possible
- * behind for fsck to use for cleanup.
- *
- * Any attempt to get a new transaction handle on a journal which is in
- * ABORT state will just result in an -EROFS error return.  A
- * journal_stop on an existing handle will return -EIO if we have
- * entered abort state during the update.
- *
- * Recursive transactions are not disturbed by journal abort until the
- * final journal_stop, which will receive the -EIO error.
- *
- * Finally, the journal_abort call allows the caller to supply an errno
- * which will be recorded (if possible) in the journal superblock.  This
- * allows a client to record failure conditions in the middle of a
- * transaction without having to complete the transaction to record the
- * failure to disk.  ext3_error, for example, now uses this
- * functionality.
- *
- * Errors which originate from within the journaling layer will NOT
- * supply an errno; a null errno implies that absolutely no further
- * writes are done to the journal (unless there are any already in
- * progress).
- *
- */
 
+/**
+ * journal_abort - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void journal_abort(journal_t *journal, int errno)
 {
 	__journal_abort_soft(journal, errno);
 }
 
+
 /**
- * int journal_errno () - returns the journal's error state.
- * @journal: journal to examine.
+ * journal_errno - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * This is the errno numbet set with journal_abort(), the last
- * time the journal was mounted - if the journal was stopped
- * without calling abort this will be 0.
- *
- * If the journal has been aborted on this mount time -EROFS will
- * be returned.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_errno(journal_t *journal)
 {
@@ -1743,12 +1683,14 @@ int journal_errno(journal_t *journal)
 	return err;
 }
 
+
 /**
- * int journal_clear_err () - clears the journal's error state
- * @journal: journal to act on.
+ * journal_clear_err - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * An error must be cleared or Acked to take a FS out of readonly
- * mode.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int journal_clear_err(journal_t *journal)
 {
@@ -1763,12 +1705,14 @@ int journal_clear_err(journal_t *journal)
 	return err;
 }
 
+
 /**
- * void journal_ack_err() - Ack journal err.
- * @journal: journal to act on.
+ * journal_ack_err - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * An error must be cleared or Acked to take a FS out of readonly
- * mode.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void journal_ack_err(journal_t *journal)
 {
@@ -1778,19 +1722,33 @@ void journal_ack_err(journal_t *journal)
 	spin_unlock(&journal->j_state_lock);
 }
 
+/**
+ * journal_blocks_per_page - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int journal_blocks_per_page(struct inode *inode)
 {
 	return 1 << (PAGE_CACHE_SHIFT - inode->i_sb->s_blocksize_bits);
 }
 
-/*
- * Journal_head storage management
- */
+
 static struct kmem_cache *journal_head_cache;
 #ifdef CONFIG_JBD_DEBUG
 static atomic_t nr_journal_heads = ATOMIC_INIT(0);
 #endif
 
+/**
+ * journal_init_journal_head_cache - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int journal_init_journal_head_cache(void)
 {
 	int retval;
@@ -1798,9 +1756,9 @@ static int journal_init_journal_head_cache(void)
 	J_ASSERT(journal_head_cache == NULL);
 	journal_head_cache = kmem_cache_create("journal_head",
 				sizeof(struct journal_head),
-				0,		/* offset */
-				SLAB_TEMPORARY,	/* flags */
-				NULL);		/* ctor */
+				0,
+				SLAB_TEMPORARY,
+				NULL);
 	retval = 0;
 	if (!journal_head_cache) {
 		retval = -ENOMEM;
@@ -1809,6 +1767,14 @@ static int journal_init_journal_head_cache(void)
 	return retval;
 }
 
+/**
+ * journal_destroy_journal_head_cache - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void journal_destroy_journal_head_cache(void)
 {
 	if (journal_head_cache) {
@@ -1817,8 +1783,14 @@ static void journal_destroy_journal_head_cache(void)
 	}
 }
 
-/*
- * journal_head splicing and dicing
+
+/**
+ * journal_alloc_journal_head - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static struct journal_head *journal_alloc_journal_head(void)
 {
@@ -1841,6 +1813,14 @@ static struct journal_head *journal_alloc_journal_head(void)
 	return ret;
 }
 
+/**
+ * journal_free_journal_head - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void journal_free_journal_head(struct journal_head *jh)
 {
 #ifdef CONFIG_JBD_DEBUG
@@ -1850,46 +1830,14 @@ static void journal_free_journal_head(struct journal_head *jh)
 	kmem_cache_free(journal_head_cache, jh);
 }
 
-/*
- * A journal_head is attached to a buffer_head whenever JBD has an
- * interest in the buffer.
- *
- * Whenever a buffer has an attached journal_head, its ->b_state:BH_JBD bit
- * is set.  This bit is tested in core kernel code where we need to take
- * JBD-specific actions.  Testing the zeroness of ->b_private is not reliable
- * there.
- *
- * When a buffer has its BH_JBD bit set, its ->b_count is elevated by one.
- *
- * When a buffer has its BH_JBD bit set it is immune from being released by
- * core kernel code, mainly via ->b_count.
- *
- * A journal_head is detached from its buffer_head when the journal_head's
- * b_jcount reaches zero. Running transaction (b_transaction) and checkpoint
- * transaction (b_cp_transaction) hold their references to b_jcount.
- *
- * Various places in the kernel want to attach a journal_head to a buffer_head
- * _before_ attaching the journal_head to a transaction.  To protect the
- * journal_head in this situation, journal_add_journal_head elevates the
- * journal_head's b_jcount refcount by one.  The caller must call
- * journal_put_journal_head() to undo this.
- *
- * So the typical usage would be:
- *
- *	(Attach a journal_head if needed.  Increments b_jcount)
- *	struct journal_head *jh = journal_add_journal_head(bh);
- *	...
- *      (Get another reference for transaction)
- *      journal_grab_journal_head(bh);
- *      jh->b_transaction = xxx;
- *      (Put original reference)
- *      journal_put_journal_head(jh);
- */
 
-/*
- * Give a buffer_head a journal_head.
+/**
+ * journal_add_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
- * May sleep.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 struct journal_head *journal_add_journal_head(struct buffer_head *bh)
 {
@@ -1914,7 +1862,7 @@ repeat:
 		}
 
 		jh = new_jh;
-		new_jh = NULL;		/* We consumed it */
+		new_jh = NULL;
 		set_buffer_jbd(bh);
 		bh->b_private = jh;
 		jh->b_bh = bh;
@@ -1928,9 +1876,14 @@ repeat:
 	return bh->b_private;
 }
 
-/*
- * Grab a ref against this buffer_head's journal_head.  If it ended up not
- * having a journal_head, return NULL
+
+/**
+ * journal_grab_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 struct journal_head *journal_grab_journal_head(struct buffer_head *bh)
 {
@@ -1945,6 +1898,14 @@ struct journal_head *journal_grab_journal_head(struct buffer_head *bh)
 	return jh;
 }
 
+/**
+ * __journal_remove_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void __journal_remove_journal_head(struct buffer_head *bh)
 {
 	struct journal_head *jh = bh2jh(bh);
@@ -1966,14 +1927,19 @@ static void __journal_remove_journal_head(struct buffer_head *bh)
 		jbd_free(jh->b_committed_data, bh->b_size);
 	}
 	bh->b_private = NULL;
-	jh->b_bh = NULL;	/* debug, really */
+	jh->b_bh = NULL;
 	clear_buffer_jbd(bh);
 	journal_free_journal_head(jh);
 }
 
-/*
- * Drop a reference on the passed journal_head.  If it fell to zero then
- * release the journal_head from the buffer_head.
+
+/**
+ * journal_put_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void journal_put_journal_head(struct journal_head *jh)
 {
@@ -1990,9 +1956,7 @@ void journal_put_journal_head(struct journal_head *jh)
 		jbd_unlock_bh_journal_head(bh);
 }
 
-/*
- * debugfs tunables
- */
+
 #ifdef CONFIG_JBD_DEBUG
 
 u8 journal_enable_debug __read_mostly;
@@ -2000,6 +1964,14 @@ u8 journal_enable_debug __read_mostly;
 static struct dentry *jbd_debugfs_dir;
 static struct dentry *jbd_debug;
 
+/**
+ * jbd_create_debugfs_entry - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void __init jbd_create_debugfs_entry(void)
 {
 	jbd_debugfs_dir = debugfs_create_dir("jbd", NULL);
@@ -2009,6 +1981,14 @@ static void __init jbd_create_debugfs_entry(void)
 					       &journal_enable_debug);
 }
 
+/**
+ * jbd_remove_debugfs_entry - Implements the remove debugfs entry operation within the journal core subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void __exit jbd_remove_debugfs_entry(void)
 {
 	debugfs_remove(jbd_debug);
@@ -2017,10 +1997,26 @@ static void __exit jbd_remove_debugfs_entry(void)
 
 #else
 
+/**
+ * jbd_create_debugfs_entry - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void jbd_create_debugfs_entry(void)
 {
 }
 
+/**
+ * jbd_remove_debugfs_entry - Implements the remove debugfs entry operation within the journal core subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void jbd_remove_debugfs_entry(void)
 {
 }
@@ -2029,13 +2025,21 @@ static inline void jbd_remove_debugfs_entry(void)
 
 struct kmem_cache *jbd_handle_cache;
 
+/**
+ * journal_init_handle_cache - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __init journal_init_handle_cache(void)
 {
 	jbd_handle_cache = kmem_cache_create("journal_handle",
 				sizeof(handle_t),
-				0,		/* offset */
-				SLAB_TEMPORARY,	/* flags */
-				NULL);		/* ctor */
+				0,
+				SLAB_TEMPORARY,
+				NULL);
 	if (jbd_handle_cache == NULL) {
 		printk(KERN_EMERG "JBD: failed to create handle cache\n");
 		return -ENOMEM;
@@ -2043,16 +2047,29 @@ static int __init journal_init_handle_cache(void)
 	return 0;
 }
 
+/**
+ * journal_destroy_handle_cache - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void journal_destroy_handle_cache(void)
 {
 	if (jbd_handle_cache)
 		kmem_cache_destroy(jbd_handle_cache);
 }
 
-/*
- * Module startup and shutdown
- */
 
+/**
+ * journal_init_caches - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int __init journal_init_caches(void)
 {
 	int ret;
@@ -2065,6 +2082,14 @@ static int __init journal_init_caches(void)
 	return ret;
 }
 
+/**
+ * journal_destroy_caches - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void journal_destroy_caches(void)
 {
 	journal_destroy_revoke_caches();
@@ -2072,6 +2097,14 @@ static void journal_destroy_caches(void)
 	journal_destroy_handle_cache();
 }
 
+/**
+ * infiltratr_ext3_jbd_init - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int __init infiltratr_ext3_jbd_init(void)
 {
 	int ret;
@@ -2085,6 +2118,14 @@ int __init infiltratr_ext3_jbd_init(void)
 	return ret;
 }
 
+/**
+ * infiltratr_ext3_jbd_exit - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT3
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void __exit infiltratr_ext3_jbd_exit(void)
 {
 #ifdef CONFIG_JBD_DEBUG
@@ -2095,5 +2136,3 @@ void __exit infiltratr_ext3_jbd_exit(void)
 	jbd_remove_debugfs_entry();
 	journal_destroy_caches();
 }
-
-

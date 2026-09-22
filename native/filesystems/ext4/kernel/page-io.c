@@ -1,10 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0
+
 /*
- * linux/fs/ext4/page-io.c
+ * EXT4 — Writeback page I/O
  *
- * This contains the new page_io functions for ext4
+ * Purpose:
+ *   Builds and submits block I/O for dirty EXT4 pages/folios while coordinating journal and unwritten-extent completion.
  *
- * Written by Theodore Ts'o, 2010.
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Completion ordering may transition unwritten extents and inode size state; error paths must not publish blocks as initialised prematurely.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
  */
 
 #include <linux/fs.h>
@@ -32,6 +47,14 @@
 static struct kmem_cache *io_end_cachep;
 static struct kmem_cache *io_end_vec_cachep;
 
+/**
+ * ext4_init_pageio - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int __init ext4_init_pageio(void)
 {
 	io_end_cachep = KMEM_CACHE(ext4_io_end, SLAB_RECLAIM_ACCOUNT);
@@ -46,12 +69,28 @@ int __init ext4_init_pageio(void)
 	return 0;
 }
 
+/**
+ * ext4_exit_pageio - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_exit_pageio(void)
 {
 	kmem_cache_destroy(io_end_cachep);
 	kmem_cache_destroy(io_end_vec_cachep);
 }
 
+/**
+ * ext4_alloc_io_end_vec - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 struct ext4_io_end_vec *ext4_alloc_io_end_vec(ext4_io_end_t *io_end)
 {
 	struct ext4_io_end_vec *io_end_vec;
@@ -64,6 +103,14 @@ struct ext4_io_end_vec *ext4_alloc_io_end_vec(ext4_io_end_t *io_end)
 	return io_end_vec;
 }
 
+/**
+ * ext4_free_io_end_vec - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_free_io_end_vec(ext4_io_end_t *io_end)
 {
 	struct ext4_io_end_vec *io_end_vec, *tmp;
@@ -76,18 +123,28 @@ static void ext4_free_io_end_vec(ext4_io_end_t *io_end)
 	}
 }
 
+/**
+ * ext4_last_io_end_vec - Implements the last io end vec operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 struct ext4_io_end_vec *ext4_last_io_end_vec(ext4_io_end_t *io_end)
 {
 	BUG_ON(list_empty(&io_end->list_vec));
 	return list_last_entry(&io_end->list_vec, struct ext4_io_end_vec, list);
 }
 
-/*
- * Print an buffer I/O error compatible with the fs/buffer.c.  This
- * provides compatibility with dmesg scrapers that look for a specific
- * buffer I/O error message.  We really need a unified error reporting
- * structure to userspace ala Digital Unix's uerf system, but it's
- * probably not going to happen in my lifetime, due to LKML politics...
+
+/**
+ * buffer_io_error - Implements the buffer io error operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void buffer_io_error(struct buffer_head *bh)
 {
@@ -96,6 +153,14 @@ static void buffer_io_error(struct buffer_head *bh)
 			(unsigned long long)bh->b_blocknr);
 }
 
+/**
+ * ext4_finish_bio - Implements the finish bio operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_finish_bio(struct bio *bio)
 {
 	struct folio_iter fi;
@@ -119,10 +184,8 @@ static void ext4_finish_bio(struct bio *bio)
 			mapping_set_error(folio->mapping, err);
 		}
 		bh = head = folio_buffers(folio);
-		/*
-		 * We check all buffers in the folio under b_uptodate_lock
-		 * to avoid races with other end io clearing async_write flags
-		 */
+
+
 		spin_lock_irqsave(&head->b_uptodate_lock, flags);
 		do {
 			if (bh_offset(bh) < bio_start ||
@@ -145,6 +208,14 @@ static void ext4_finish_bio(struct bio *bio)
 	}
 }
 
+/**
+ * ext4_release_io_end - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_release_io_end(ext4_io_end_t *io_end)
 {
 	struct bio *bio, *next_bio;
@@ -162,13 +233,14 @@ static void ext4_release_io_end(ext4_io_end_t *io_end)
 	kmem_cache_free(io_end_cachep, io_end);
 }
 
-/*
- * Check a range of space and convert unwritten extents to written. Note that
- * we are protected from truncate touching same part of extent tree by the
- * fact that truncate code waits for all DIO to finish (thus exclusion from
- * direct IO is achieved) and also waits for PageWriteback bits. Thus we
- * cannot get to ext4_ext_truncate() before all IOs overlapping that range are
- * completed (happens from ext4_free_ioend()).
+
+/**
+ * ext4_end_io_end - Implements the end io end operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_end_io_end(ext4_io_end_t *io_end)
 {
@@ -180,11 +252,8 @@ static int ext4_end_io_end(ext4_io_end_t *io_end)
 		   "list->prev 0x%p\n",
 		   io_end, inode->i_ino, io_end->list.next, io_end->list.prev);
 
-	/*
-	 * Do not convert the unwritten extents if data writeback fails,
-	 * or stale data may be exposed.
-	 */
-	io_end->handle = NULL;  /* Following call will use up the handle */
+
+	io_end->handle = NULL;
 	if (unlikely(io_end->flag & EXT4_IO_END_FAILED)) {
 		ret = -EIO;
 		if (handle)
@@ -204,6 +273,14 @@ static int ext4_end_io_end(ext4_io_end_t *io_end)
 	return ret;
 }
 
+/**
+ * dump_completed_IO - Implements the dump completed IO operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void dump_completed_IO(struct inode *inode, struct list_head *head)
 {
 #ifdef	EXT4FS_DEBUG
@@ -227,7 +304,15 @@ static void dump_completed_IO(struct inode *inode, struct list_head *head)
 #endif
 }
 
-/* Add the io_end to per-inode completed end_io list. */
+
+/**
+ * ext4_add_complete_io - Implements the add complete io operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_add_complete_io(ext4_io_end_t *io_end)
 {
 	struct ext4_inode_info *ei = EXT4_I(io_end->inode);
@@ -235,7 +320,7 @@ static void ext4_add_complete_io(ext4_io_end_t *io_end)
 	struct workqueue_struct *wq;
 	unsigned long flags;
 
-	/* Only reserved conversions from writeback should enter here */
+
 	WARN_ON(!(io_end->flag & EXT4_IO_END_UNWRITTEN));
 	WARN_ON(!io_end->handle && sbi->s_journal);
 	spin_lock_irqsave(&ei->i_completed_io_lock, flags);
@@ -246,6 +331,14 @@ static void ext4_add_complete_io(ext4_io_end_t *io_end)
 	spin_unlock_irqrestore(&ei->i_completed_io_lock, flags);
 }
 
+/**
+ * ext4_do_flush_completed_IO - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_do_flush_completed_IO(struct inode *inode,
 				      struct list_head *head)
 {
@@ -272,8 +365,14 @@ static int ext4_do_flush_completed_IO(struct inode *inode,
 	return ret;
 }
 
-/*
- * work on completed IO, to convert unwritten extents to extents
+
+/**
+ * ext4_end_io_rsv_work - Implements the end io rsv work operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void ext4_end_io_rsv_work(struct work_struct *work)
 {
@@ -282,6 +381,14 @@ void ext4_end_io_rsv_work(struct work_struct *work)
 	ext4_do_flush_completed_IO(&ei->vfs_inode, &ei->i_rsv_conversion_list);
 }
 
+/**
+ * ext4_init_io_end - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 ext4_io_end_t *ext4_init_io_end(struct inode *inode, gfp_t flags)
 {
 	ext4_io_end_t *io_end = kmem_cache_zalloc(io_end_cachep, flags);
@@ -295,6 +402,14 @@ ext4_io_end_t *ext4_init_io_end(struct inode *inode, gfp_t flags)
 	return io_end;
 }
 
+/**
+ * ext4_put_io_end_defer - Implements the put io end defer operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_put_io_end_defer(ext4_io_end_t *io_end)
 {
 	if (refcount_dec_and_test(&io_end->count)) {
@@ -307,6 +422,14 @@ void ext4_put_io_end_defer(ext4_io_end_t *io_end)
 	}
 }
 
+/**
+ * ext4_put_io_end - Implements the put io end operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_put_io_end(ext4_io_end_t *io_end)
 {
 	int err = 0;
@@ -323,13 +446,29 @@ int ext4_put_io_end(ext4_io_end_t *io_end)
 	return err;
 }
 
+/**
+ * ext4_get_io_end - Implements the get io end operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 ext4_io_end_t *ext4_get_io_end(ext4_io_end_t *io_end)
 {
 	refcount_inc(&io_end->count);
 	return io_end;
 }
 
-/* BIO completion function for page writeback */
+
+/**
+ * ext4_end_bio - Implements the end bio operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_end_bio(struct bio *bio)
 {
 	ext4_io_end_t *io_end = bio->bi_private;
@@ -360,24 +499,27 @@ static void ext4_end_bio(struct bio *bio)
 	}
 
 	if (io_end->flag & EXT4_IO_END_UNWRITTEN) {
-		/*
-		 * Link bio into list hanging from io_end. We have to do it
-		 * atomically as bio completions can be racing against each
-		 * other.
-		 */
+
+
 		bio->bi_private = xchg(&io_end->bio, bio);
 		ext4_put_io_end_defer(io_end);
 	} else {
-		/*
-		 * Drop io_end reference early. Inode can get freed once
-		 * we finish the bio.
-		 */
+
+
 		ext4_put_io_end_defer(io_end);
 		ext4_finish_bio(bio);
 		bio_put(bio);
 	}
 }
 
+/**
+ * ext4_io_submit - Implements the io submit operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_io_submit(struct ext4_io_submit *io)
 {
 	struct bio *bio = io->io_bio;
@@ -390,6 +532,14 @@ void ext4_io_submit(struct ext4_io_submit *io)
 	io->io_bio = NULL;
 }
 
+/**
+ * ext4_io_submit_init - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_io_submit_init(struct ext4_io_submit *io,
 			 struct writeback_control *wbc)
 {
@@ -398,15 +548,20 @@ void ext4_io_submit_init(struct ext4_io_submit *io,
 	io->io_end = NULL;
 }
 
+/**
+ * io_submit_init_bio - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void io_submit_init_bio(struct ext4_io_submit *io,
 			       struct buffer_head *bh)
 {
 	struct bio *bio;
 
-	/*
-	 * bio_alloc will _always_ be able to allocate a bio if
-	 * __GFP_DIRECT_RECLAIM is set, see comments for bio_alloc_bioset().
-	 */
+
 	bio = bio_alloc(bh->b_bdev, BIO_MAX_VECS, REQ_OP_WRITE, GFP_NOIO);
 	fscrypt_set_bio_crypt_ctx_bh(bio, bh, GFP_NOIO);
 	bio->bi_iter.bi_sector = bh->b_blocknr * (bh->b_size >> 9);
@@ -417,6 +572,14 @@ static void io_submit_init_bio(struct ext4_io_submit *io,
 	wbc_init_bio(io->io_wbc, bio);
 }
 
+/**
+ * io_submit_add_bh - Implements the io submit add bh operation within the writeback page i/o subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void io_submit_add_bh(struct ext4_io_submit *io,
 			     struct inode *inode,
 			     struct folio *folio,
@@ -436,6 +599,14 @@ submit_and_retry:
 	io->io_next_block++;
 }
 
+/**
+ * ext4_bio_write_folio - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_bio_write_folio(struct ext4_io_submit *io, struct folio *folio,
 		size_t len)
 {
@@ -451,24 +622,11 @@ int ext4_bio_write_folio(struct ext4_io_submit *io, struct folio *folio,
 	BUG_ON(!folio_test_locked(folio));
 	BUG_ON(folio_test_writeback(folio));
 
-	/*
-	 * Comments copied from block_write_full_folio:
-	 *
-	 * The folio straddles i_size.  It must be zeroed out on each and every
-	 * writepage invocation because it may be mmapped.  "A file is mapped
-	 * in multiples of the page size.  For a file that is not a multiple of
-	 * the page size, the remaining memory is zeroed when mapped, and
-	 * writes to that region are not written out to the file."
-	 */
+
 	if (len < folio_size(folio))
 		folio_zero_segment(folio, len, folio_size(folio));
-	/*
-	 * In the first loop we prepare and mark buffers to submit. We have to
-	 * mark all buffers in the folio before submitting so that
-	 * folio_end_writeback() cannot be called from ext4_end_bio() when IO
-	 * on the first buffer finishes and we are still working on submitting
-	 * the second buffer.
-	 */
+
+
 	bh = head = folio_buffers(folio);
 	do {
 		block_start = bh_offset(bh);
@@ -479,17 +637,11 @@ int ext4_bio_write_folio(struct ext4_io_submit *io, struct folio *folio,
 		}
 		if (!buffer_dirty(bh) || buffer_delay(bh) ||
 		    !buffer_mapped(bh) || buffer_unwritten(bh)) {
-			/* A hole? We can safely clear the dirty bit */
+
 			if (!buffer_mapped(bh))
 				clear_buffer_dirty(bh);
-			/*
-			 * Keeping dirty some buffer we cannot write? Make sure
-			 * to redirty the folio and keep TOWRITE tag so that
-			 * racing WB_SYNC_ALL writeback does not skip the folio.
-			 * This happens e.g. when doing writeout for
-			 * transaction commit or when journalled data is not
-			 * yet committed.
-			 */
+
+
 			if (buffer_dirty(bh) ||
 			    (buffer_jbd(bh) && buffer_jbddirty(bh))) {
 				if (!folio_test_dirty(folio))
@@ -506,10 +658,8 @@ int ext4_bio_write_folio(struct ext4_io_submit *io, struct folio *folio,
 	} while ((bh = bh->b_this_page) != head);
 
 	if (!nr_to_submit) {
-		/*
-		 * We have nothing to submit. Just cycle the folio through
-		 * writeback state to properly update xarray tags.
-		 */
+
+
 		__folio_start_writeback(folio, keep_towrite);
 		folio_end_writeback(folio);
 		return 0;
@@ -517,23 +667,13 @@ int ext4_bio_write_folio(struct ext4_io_submit *io, struct folio *folio,
 
 	bh = head = folio_buffers(folio);
 
-	/*
-	 * If any blocks are being written to an encrypted file, encrypt them
-	 * into a bounce page.  For simplicity, just encrypt until the last
-	 * block which might be needed.  This may cause some unneeded blocks
-	 * (e.g. holes) to be unnecessarily encrypted, but this is rare and
-	 * can't happen in the common case of blocksize == PAGE_SIZE.
-	 */
+
 	if (fscrypt_inode_uses_fs_layer_crypto(inode)) {
 		gfp_t gfp_flags = GFP_NOFS;
 		unsigned int enc_bytes = round_up(len, i_blocksize(inode));
 		struct page *bounce_page;
 
-		/*
-		 * Since bounce page allocation uses a mempool, we can only use
-		 * a waiting mask (i.e. request guaranteed allocation) on the
-		 * first page of the bio.  Otherwise it can deadlock.
-		 */
+
 		if (io->io_bio)
 			gfp_flags = GFP_NOWAIT | __GFP_NOWARN;
 	retry_encrypt:
@@ -570,7 +710,7 @@ int ext4_bio_write_folio(struct ext4_io_submit *io, struct folio *folio,
 
 	__folio_start_writeback(folio, keep_towrite);
 
-	/* Now submit buffers to write */
+
 	do {
 		if (!buffer_async_write(bh))
 			continue;

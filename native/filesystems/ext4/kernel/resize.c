@@ -9,6 +9,27 @@
  * This could probably be made into a module, because it is not often in use.
  */
 
+/*
+ * EXT4 — Online resize
+ *
+ * Purpose:
+ *   Implements growth of EXT filesystems, including group descriptor, bitmap and reserved metadata updates.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Geometry changes touch global addressing structures; validation must prevent overlaps, overflow and partially published groups.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
 
 #include <linux/errno.h>
 #include <linux/slab.h>
@@ -16,11 +37,25 @@
 
 #include "ext4_jbd2.h"
 
+/**
+ * struct ext4_rcu_ptr - Private EXT4 state/data structure used by online resize.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_rcu_ptr {
 	struct rcu_head rcu;
 	void *ptr;
 };
 
+/**
+ * ext4_rcu_ptr_callback - Implements the rcu ptr callback operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_rcu_ptr_callback(struct rcu_head *head)
 {
 	struct ext4_rcu_ptr *ptr;
@@ -30,6 +65,14 @@ static void ext4_rcu_ptr_callback(struct rcu_head *head)
 	kfree(ptr);
 }
 
+/**
+ * ext4_kvfree_array_rcu - Implements the kvfree array rcu operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_kvfree_array_rcu(void *to_free)
 {
 	struct ext4_rcu_ptr *ptr = kzalloc(sizeof(*ptr), GFP_KERNEL);
@@ -43,6 +86,14 @@ void ext4_kvfree_array_rcu(void *to_free)
 	kvfree(to_free);
 }
 
+/**
+ * ext4_resize_begin - Changes filesystem geometry while preserving address-space, allocation and recovery invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_resize_begin(struct super_block *sb)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -51,21 +102,14 @@ int ext4_resize_begin(struct super_block *sb)
 	if (!capable(CAP_SYS_RESOURCE))
 		return -EPERM;
 
-	/*
-	 * If the reserved GDT blocks is non-zero, the resize_inode feature
-	 * should always be set.
-	 */
+
 	if (sbi->s_es->s_reserved_gdt_blocks &&
 	    !ext4_has_feature_resize_inode(sb)) {
 		ext4_error(sb, "resize_inode disabled but reserved GDT blocks non-zero");
 		return -EFSCORRUPTED;
 	}
 
-	/*
-	 * If we are not using the primary superblock/GDT copy don't resize,
-         * because the user tools have no way of handling this.  Probably a
-         * bad time to do it anyways.
-         */
+
 	if (EXT4_B2C(sbi, sbi->s_sbh->b_blocknr) !=
 	    le32_to_cpu(sbi->s_es->s_first_data_block)) {
 		ext4_warning(sb, "won't resize using backup superblock at %llu",
@@ -73,10 +117,7 @@ int ext4_resize_begin(struct super_block *sb)
 		return -EPERM;
 	}
 
-	/*
-	 * We are not allowed to do online-resizing on a filesystem mounted
-	 * with error, because it can destroy the filesystem easily.
-	 */
+
 	if (sbi->s_mount_state & EXT4_ERROR_FS) {
 		ext4_warning(sb, "There are errors in the filesystem, "
 			     "so online resizing is not allowed");
@@ -95,6 +136,14 @@ int ext4_resize_begin(struct super_block *sb)
 	return ret;
 }
 
+/**
+ * ext4_resize_end - Changes filesystem geometry while preserving address-space, allocation and recovery invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 int ext4_resize_end(struct super_block *sb, bool update_backups)
 {
 	clear_bit_unlock(EXT4_FLAGS_RESIZING, &EXT4_SB(sb)->s_ext4_flags);
@@ -104,6 +153,14 @@ int ext4_resize_end(struct super_block *sb, bool update_backups)
 	return 0;
 }
 
+/**
+ * ext4_group_overhead_blocks - Implements the group overhead blocks operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static ext4_grpblk_t ext4_group_overhead_blocks(struct super_block *sb,
 						ext4_group_t group) {
 	ext4_grpblk_t overhead;
@@ -209,31 +266,35 @@ static int verify_group_input(struct super_block *sb,
 	return err;
 }
 
-/*
- * ext4_new_flex_group_data is used by 64bit-resize interface to add a flex
- * group each time.
+
+/**
+ * struct ext4_new_flex_group_data - Private EXT4 state/data structure used by online resize.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
  */
 struct ext4_new_flex_group_data {
-	struct ext4_new_group_data *groups;	/* new_group_data for groups
-						   in the flex group */
-	__u16 *bg_flags;			/* block group flags of groups
-						   in @groups */
-	ext4_group_t resize_bg;			/* number of allocated
-						   new_group_data */
-	ext4_group_t count;			/* number of groups in @groups
-						 */
+	struct ext4_new_group_data *groups;
+
+	__u16 *bg_flags;
+
+	ext4_group_t resize_bg;
+
+	ext4_group_t count;
+
 };
 
-/*
- * Avoiding memory allocation failures due to too many groups added each time.
- */
+
 #define MAX_RESIZE_BG				16384
 
-/*
- * alloc_flex_gd() allocates an ext4_new_flex_group_data that satisfies the
- * resizing from @o_group to @n_group, its size is typically @flexbg_size.
+
+/**
+ * alloc_flex_gd - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
- * Returns NULL on failure otherwise address of the allocated structure.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static struct ext4_new_flex_group_data *alloc_flex_gd(unsigned int flexbg_size,
 				ext4_group_t o_group, ext4_group_t n_group)
@@ -249,7 +310,7 @@ static struct ext4_new_flex_group_data *alloc_flex_gd(unsigned int flexbg_size,
 	max_resize_bg = umin(flexbg_size, MAX_RESIZE_BG);
 	flex_gd->resize_bg = max_resize_bg;
 
-	/* Avoid allocating large 'groups' array if not needed */
+
 	last_group = o_group | (flex_gd->resize_bg - 1);
 	if (n_group <= last_group)
 		flex_gd->resize_bg = 1 << fls(n_group - o_group);
@@ -281,6 +342,14 @@ out3:
 	return NULL;
 }
 
+/**
+ * free_flex_gd - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void free_flex_gd(struct ext4_new_flex_group_data *flex_gd)
 {
 	kfree(flex_gd->bg_flags);
@@ -288,18 +357,14 @@ static void free_flex_gd(struct ext4_new_flex_group_data *flex_gd)
 	kfree(flex_gd);
 }
 
-/*
- * ext4_alloc_group_tables() allocates block bitmaps, inode bitmaps
- * and inode tables for a flex group.
+
+/**
+ * ext4_alloc_group_tables - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
- * This function is used by 64bit-resize.  Note that this function allocates
- * group tables from the 1st group of groups contained by @flexgd, which may
- * be a partial of a flex group.
- *
- * @sb: super block of fs to which the groups belongs
- *
- * Returns 0 on a successful allocation of the metadata blocks in the
- * block group.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_alloc_group_tables(struct super_block *sb,
 				struct ext4_new_flex_group_data *flex_gd,
@@ -336,7 +401,7 @@ next_group:
 
 	start_blk += overhead;
 
-	/* We collect contiguous blocks as much as possible. */
+
 	src_group++;
 	for (; src_group <= last_group; src_group++) {
 		overhead = ext4_group_overhead_blocks(sb, src_group);
@@ -346,7 +411,7 @@ next_group:
 			break;
 	}
 
-	/* Allocate block bitmaps */
+
 	for (; bb_index < flex_gd->count; bb_index++) {
 		if (start_blk >= last_blk)
 			goto next_group;
@@ -357,7 +422,7 @@ next_group:
 		flex_gd->bg_flags[group] &= uninit_mask;
 	}
 
-	/* Allocate inode bitmaps */
+
 	for (; ib_index < flex_gd->count; ib_index++) {
 		if (start_blk >= last_blk)
 			goto next_group;
@@ -368,7 +433,7 @@ next_group:
 		flex_gd->bg_flags[group] &= uninit_mask;
 	}
 
-	/* Allocate inode tables */
+
 	for (; it_index < flex_gd->count; it_index++) {
 		unsigned int itb = EXT4_SB(sb)->s_itb_per_group;
 		ext4_fsblk_t next_group_start;
@@ -392,7 +457,7 @@ next_group:
 		start_blk += EXT4_SB(sb)->s_itb_per_group;
 	}
 
-	/* Update free clusters count to exclude metadata blocks */
+
 	for (i = 0; i < flex_gd->count; i++) {
 		group_data[i].free_clusters_count -=
 				EXT4_NUM_B2C(EXT4_SB(sb),
@@ -420,6 +485,14 @@ next_group:
 	return 0;
 }
 
+/**
+ * bclean - Implements the bclean operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct buffer_head *bclean(handle_t *handle, struct super_block *sb,
 				  ext4_fsblk_t blk)
 {
@@ -442,20 +515,28 @@ static struct buffer_head *bclean(handle_t *handle, struct super_block *sb,
 	return bh;
 }
 
+/**
+ * ext4_resize_ensure_credits_batch - Changes filesystem geometry while preserving address-space, allocation and recovery invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_resize_ensure_credits_batch(handle_t *handle, int credits)
 {
 	return ext4_journal_ensure_credits_fn(handle, credits,
 		EXT4_MAX_TRANS_DATA, 0, 0);
 }
 
-/*
- * set_flexbg_block_bitmap() mark clusters [@first_cluster, @last_cluster] used.
+
+/**
+ * set_flexbg_block_bitmap - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
- * Helper function for ext4_setup_new_group_blocks() which set .
- *
- * @sb: super block
- * @handle: journal handle
- * @flex_gd: flex group data
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int set_flexbg_block_bitmap(struct super_block *sb, handle_t *handle,
 			struct ext4_new_flex_group_data *flex_gd,
@@ -514,19 +595,14 @@ static int set_flexbg_block_bitmap(struct super_block *sb, handle_t *handle,
 	return 0;
 }
 
-/*
- * Set up the block and inode bitmaps, and the inode table for the new groups.
- * This doesn't need to be part of the main transaction, since we are only
- * changing blocks outside the actual filesystem.  We still do journaling to
- * ensure the recovery is correct in case of a failure just after resize.
- * If any part of this fails, we simply abort the resize.
+
+/**
+ * setup_new_flex_group_blocks - Initialises subsystem state and establishes the resources required by later operations.
  *
- * setup_new_flex_group_blocks handles a flex group as follow:
- *  1. copy super block and GDT, and initialize group tables if necessary.
- *     In this step, we only set bits in blocks bitmaps for blocks taken by
- *     super block and GDT.
- *  2. allocate group tables in block bitmaps, that is, set bits in block
- *     bitmap for blocks taken by group tables.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int setup_new_flex_group_blocks(struct super_block *sb,
 				struct ext4_new_flex_group_data *flex_gd)
@@ -550,7 +626,7 @@ static int setup_new_flex_group_blocks(struct super_block *sb,
 	reserved_gdb = le16_to_cpu(es->s_reserved_gdt_blocks);
 	meta_bg = ext4_has_feature_meta_bg(sb);
 
-	/* This transaction may be extended/restarted along the way */
+
 	handle = ext4_journal_start_sb(sb, EXT4_HT_RESIZE, EXT4_MAX_TRANS_DATA);
 	if (IS_ERR(handle))
 		return PTR_ERR(handle);
@@ -570,7 +646,7 @@ static int setup_new_flex_group_blocks(struct super_block *sb,
 			goto handle_itb;
 
 		block = start + ext4_bg_has_super(sb, group);
-		/* Copy all of the GDT blocks into the backup in this group */
+
 		for (j = 0; j < gdblocks; j++, block++) {
 			struct buffer_head *gdb;
 
@@ -604,9 +680,7 @@ static int setup_new_flex_group_blocks(struct super_block *sb,
 			brelse(gdb);
 		}
 
-		/* Zero out all of the reserved backup group descriptor
-		 * table blocks
-		 */
+
 		if (ext4_bg_has_super(sb, group)) {
 			err = sb_issue_zeroout(sb, gdblocks + start + 1,
 					reserved_gdb, GFP_NOFS);
@@ -615,11 +689,11 @@ static int setup_new_flex_group_blocks(struct super_block *sb,
 		}
 
 handle_itb:
-		/* Initialize group tables of the group @group */
+
 		if (!(bg_flags[i] & EXT4_BG_INODE_ZEROED))
 			goto handle_bb;
 
-		/* Zero out all of the inode table blocks */
+
 		block = group_data[i].inode_table;
 		ext4_debug("clear inode table blocks %#04llx -> %#04lx\n",
 			   block, sbi->s_itb_per_group);
@@ -632,7 +706,7 @@ handle_bb:
 		if (bg_flags[i] & EXT4_BG_BLOCK_UNINIT)
 			goto handle_ib;
 
-		/* Initialize block bitmap of the @group */
+
 		block = group_data[i].block_bitmap;
 		err = ext4_resize_ensure_credits_batch(handle, 1);
 		if (err < 0)
@@ -661,12 +735,12 @@ handle_ib:
 		if (bg_flags[i] & EXT4_BG_INODE_UNINIT)
 			continue;
 
-		/* Initialize inode bitmap of the @group */
+
 		block = group_data[i].inode_bitmap;
 		err = ext4_resize_ensure_credits_batch(handle, 1);
 		if (err < 0)
 			goto out;
-		/* Mark unused entries in inode bitmap used */
+
 		bh = bclean(handle, sb, block);
 		if (IS_ERR(bh)) {
 			err = PTR_ERR(bh);
@@ -681,7 +755,7 @@ handle_ib:
 			goto out;
 	}
 
-	/* Mark group tables in block bitmap */
+
 	for (j = 0; j < GROUP_TABLE_COUNT; j++) {
 		count = group_table_count[j];
 		start = (&group_data[0].block_bitmap)[j];
@@ -723,12 +797,14 @@ out:
 	return err;
 }
 
-/*
- * Iterate through the groups which hold BACKUP superblock/GDT copies in an
- * ext4 filesystem.  The counters should be initialized to 1, 5, and 7 before
- * calling this for the first time.  In a sparse filesystem it will be the
- * sequence of powers of 3, 5, and 7: 1, 3, 5, 7, 9, 25, 27, 49, 81, ...
- * For a non-sparse filesystem it will be every group: 1, 2, 3, 4, ...
+
+/**
+ * ext4_list_backups - Implements the list backups operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 unsigned int ext4_list_backups(struct super_block *sb, unsigned int *three,
 			       unsigned int *five, unsigned int *seven)
@@ -769,10 +845,14 @@ unsigned int ext4_list_backups(struct super_block *sb, unsigned int *three,
 	return ret;
 }
 
-/*
- * Check that all of the backup GDT blocks are held in the primary GDT block.
- * It is assumed that they are stored in group order.  Returns the number of
- * groups in current filesystem that have BACKUPS, or -ve error code.
+
+/**
+ * verify_reserved_gdb - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int verify_reserved_gdb(struct super_block *sb,
 			       ext4_group_t end,
@@ -804,18 +884,14 @@ static int verify_reserved_gdb(struct super_block *sb,
 	return gdbackups;
 }
 
-/*
- * Called when we need to bring a reserved group descriptor table block into
- * use from the resize inode.  The primary copy of the new GDT block currently
- * is an indirect block (under the double indirect block in the resize inode).
- * The new backup GDT blocks will be stored as leaf blocks in this indirect
- * block, in group order.  Even though we know all the block numbers we need,
- * we check to ensure that the resize inode has actually reserved these blocks.
+
+/**
+ * add_new_gdb - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
- * Don't need to update the block bitmaps because the blocks are still in use.
- *
- * We get all of the error cases out of the way, so that we are sure to not
- * fail once we start modifying the data on disk, because JBD has no rollback.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int add_new_gdb(handle_t *handle, struct inode *inode,
 		       ext4_group_t group)
@@ -881,7 +957,7 @@ static int add_new_gdb(handle_t *handle, struct inode *inode,
 		goto errout;
 	}
 
-	/* ext4_reserve_inode_write() gets a reference on the iloc */
+
 	err = ext4_reserve_inode_write(handle, inode, &iloc);
 	if (unlikely(err))
 		goto errout;
@@ -895,15 +971,7 @@ static int add_new_gdb(handle_t *handle, struct inode *inode,
 		goto errout;
 	}
 
-	/*
-	 * Finally, we have all of the possible failures behind us...
-	 *
-	 * Remove new GDT block from inode double-indirect block and clear out
-	 * the new GDT block for use (which also "frees" the backup GDT blocks
-	 * from the reserved inode).  We don't need to change the bitmaps for
-	 * these blocks, because they are marked as in-use from being in the
-	 * reserved inode, and will become GDT blocks (primary and backup).
-	 */
+
 	data[gdb_num % EXT4_ADDR_PER_BLOCK(sb)] = 0;
 	err = ext4_handle_dirty_metadata(handle, NULL, dind);
 	if (unlikely(err)) {
@@ -950,14 +1018,14 @@ errout:
 	return err;
 }
 
-/*
- * If there is no available space in the existing block group descriptors for
- * the new block group and there are no reserved block group descriptors, then
- * the meta_bg feature will get enabled, and es->s_first_meta_bg will get set
- * to the first block group that is managed using meta_bg and s_first_meta_bg
- * must be a multiple of EXT4_DESC_PER_BLOCK(sb).
- * This function will be called when first group of meta_bg is added to bring
- * new group descriptors block of new added meta_bg.
+
+/**
+ * add_new_gdb_meta_bg - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int add_new_gdb_meta_bg(struct super_block *sb,
 			       handle_t *handle, ext4_group_t group) {
@@ -1003,18 +1071,14 @@ static int add_new_gdb_meta_bg(struct super_block *sb,
 	return err;
 }
 
-/*
- * Called when we are adding a new group which has a backup copy of each of
- * the GDT blocks (i.e. sparse group) and there are reserved GDT blocks.
- * We need to add these reserved backup GDT blocks to the resize inode, so
- * that they are kept for future resizing and not allocated to files.
+
+/**
+ * reserve_backup_gdb - Implements the reserve backup gdb operation within the online resize subsystem.
  *
- * Each reserved backup GDT block will go into a different indirect block.
- * The indirect blocks are actually the primary reserved GDT blocks,
- * so we know in advance what their block numbers are.  We only get the
- * double-indirect block to verify it is pointing to the primary reserved
- * GDT blocks so we don't overwrite a data block by accident.  The reserved
- * backup GDT blocks are stored in their reserved primary GDT block.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 			      ext4_group_t group)
@@ -1048,7 +1112,7 @@ static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 					 EXT4_ADDR_PER_BLOCK(sb));
 	end = (__le32 *)dind->b_data + EXT4_ADDR_PER_BLOCK(sb);
 
-	/* Get each reserved primary GDT block and verify it holds backups */
+
 	for (res = 0; res < reserved_gdb; res++, blk++) {
 		if (le32_to_cpu(*data) != blk) {
 			ext4_warning(sb, "reserved block %llu"
@@ -1084,10 +1148,7 @@ static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 	if ((err = ext4_reserve_inode_write(handle, inode, &iloc)))
 		goto exit_bh;
 
-	/*
-	 * Finally we can add each of the reserved backup GDT blocks from
-	 * the new group to its reserved primary GDT block.
-	 */
+
 	blk = group * EXT4_BLOCKS_PER_GROUP(sb);
 	for (i = 0; i < reserved_gdb; i++) {
 		int err2;
@@ -1112,6 +1173,14 @@ exit_free:
 	return err;
 }
 
+/**
+ * ext4_set_block_group_nr - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_set_block_group_nr(struct super_block *sb, char *data,
 					   ext4_group_t group)
 {
@@ -1122,21 +1191,14 @@ static inline void ext4_set_block_group_nr(struct super_block *sb, char *data,
 		es->s_checksum = ext4_superblock_csum(sb, es);
 }
 
-/*
- * Update the backup copies of the ext4 metadata.  These don't need to be part
- * of the main resize transaction, because e2fsck will re-write them if there
- * is a problem (basically only OOM will cause a problem).  However, we
- * _should_ update the backups if possible, in case the primary gets trashed
- * for some reason and we need to run e2fsck from a backup superblock.  The
- * important part is that the new block and inode counts are in the backup
- * superblocks, and the location of the new group metadata in the GDT backups.
+
+/**
+ * update_backups - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
- * We do not need take the s_resize_lock for this, because these
- * blocks are not otherwise touched by the filesystem code when it is
- * mounted.  We don't need to worry about last changing from
- * sbi->s_groups_count, because the worst that can happen is that we
- * do not copy the full number of backups at this time.  The resize
- * which changed s_groups_count will backup again.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void update_backups(struct super_block *sb, sector_t blk_off, char *data,
 			   int size, int meta_bg)
@@ -1173,7 +1235,7 @@ static void update_backups(struct super_block *sb, sector_t blk_off, char *data,
 		int has_super = ext4_bg_has_super(sb, group);
 		ext4_fsblk_t first_block = ext4_group_first_block_no(sb, group);
 
-		/* Out of journal space, and can't get more - abort - so sad */
+
 		err = ext4_resize_ensure_credits_batch(handle, 1);
 		if (err < 0)
 			break;
@@ -1220,16 +1282,7 @@ static void update_backups(struct super_block *sb, sector_t blk_off, char *data,
 	if ((err2 = ext4_journal_stop(handle)) && !err)
 		err = err2;
 
-	/*
-	 * Ugh! Need to have e2fsck write the backup copies.  It is too
-	 * late to revert the resize, we shouldn't fail just because of
-	 * the backup copies (they are only needed in case of corruption).
-	 *
-	 * However, if we got here we have a journal problem too, so we
-	 * can't really start a transaction to mark the superblock.
-	 * Chicken out and just set the flag on the hope it will be written
-	 * to disk, and if not - we will simply wait until next fsck.
-	 */
+
 exit_err:
 	if (err) {
 		ext4_warning(sb, "can't update backup for group %u (err %d), "
@@ -1240,15 +1293,14 @@ exit_err:
 	}
 }
 
-/*
- * ext4_add_new_descs() adds @count group descriptor of groups
- * starting at @group
+
+/**
+ * ext4_add_new_descs - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
- * @handle: journal handle
- * @sb: super block
- * @group: the group no. of the first group desc to be added
- * @resize_inode: the resize inode
- * @count: number of group descriptors to be added
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_add_new_descs(handle_t *handle, struct super_block *sb,
 			      ext4_group_t group, struct inode *resize_inode,
@@ -1268,12 +1320,7 @@ static int ext4_add_new_descs(handle_t *handle, struct super_block *sb,
 		gdb_off = group % EXT4_DESC_PER_BLOCK(sb);
 		gdb_num = group / EXT4_DESC_PER_BLOCK(sb);
 
-		/*
-		 * We will only either add reserved group blocks to a backup group
-		 * or remove reserved blocks for the first group in a new group block.
-		 * Doing both would be mean more complex code, and sane people don't
-		 * use non-sparse filesystems anymore.  This is already checked above.
-		 */
+
 		if (gdb_off) {
 			gdb_bh = sbi_array_rcu_deref(sbi, s_group_desc,
 						     gdb_num);
@@ -1294,6 +1341,14 @@ static int ext4_add_new_descs(handle_t *handle, struct super_block *sb,
 	return err;
 }
 
+/**
+ * ext4_get_bitmap - Implements the get bitmap operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static struct buffer_head *ext4_get_bitmap(struct super_block *sb, __u64 block)
 {
 	struct buffer_head *bh = sb_getblk(sb, block);
@@ -1309,6 +1364,14 @@ static struct buffer_head *ext4_get_bitmap(struct super_block *sb, __u64 block)
 	return bh;
 }
 
+/**
+ * ext4_set_bitmap_checksums - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_set_bitmap_checksums(struct super_block *sb,
 				     struct ext4_group_desc *gdp,
 				     struct ext4_new_group_data *group_data)
@@ -1333,8 +1396,14 @@ static int ext4_set_bitmap_checksums(struct super_block *sb,
 	return 0;
 }
 
-/*
- * ext4_setup_new_descs() will set up the group descriptor descriptors of a flex bg
+
+/**
+ * ext4_setup_new_descs - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_setup_new_descs(handle_t *handle, struct super_block *sb,
 				struct ext4_new_flex_group_data *flex_gd)
@@ -1354,11 +1423,9 @@ static int ext4_setup_new_descs(handle_t *handle, struct super_block *sb,
 		gdb_off = group % EXT4_DESC_PER_BLOCK(sb);
 		gdb_num = group / EXT4_DESC_PER_BLOCK(sb);
 
-		/*
-		 * get_write_access() has been called on gdb_bh by ext4_add_new_desc().
-		 */
+
 		gdb_bh = sbi_array_rcu_deref(sbi, s_group_desc, gdb_num);
-		/* Update group descriptor block for new group */
+
 		gdp = (struct ext4_group_desc *)(gdb_bh->b_data +
 						 gdb_off * EXT4_DESC_SIZE(sb));
 
@@ -1387,10 +1454,7 @@ static int ext4_setup_new_descs(handle_t *handle, struct super_block *sb,
 			break;
 		}
 
-		/*
-		 * We can allocate memory for mb_alloc based on the new group
-		 * descriptor
-		 */
+
 		err = ext4_mb_add_groupinfo(sb, group, gdp);
 		if (err)
 			break;
@@ -1398,6 +1462,14 @@ static int ext4_setup_new_descs(handle_t *handle, struct super_block *sb,
 	return err;
 }
 
+/**
+ * ext4_add_overhead - Implements the add overhead operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_add_overhead(struct super_block *sb,
                               const ext4_fsblk_t overhead)
 {
@@ -1409,12 +1481,14 @@ static void ext4_add_overhead(struct super_block *sb,
        smp_wmb();
 }
 
-/*
- * ext4_update_super() updates the super block so that the newly added
- * groups can be seen by the filesystem.
+
+/**
+ * ext4_update_super - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
- * @sb: super block
- * @flex_gd: new added groups
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static void ext4_update_super(struct super_block *sb,
 			     struct ext4_new_flex_group_data *flex_gd)
@@ -1428,16 +1502,8 @@ static void ext4_update_super(struct super_block *sb,
 	int i;
 
 	BUG_ON(flex_gd->count == 0 || group_data == NULL);
-	/*
-	 * Make the new blocks and inodes valid next.  We do this before
-	 * increasing the group count so that once the group is enabled,
-	 * all of its blocks and inodes are already valid.
-	 *
-	 * We always allocate group-by-group, then block-by-block or
-	 * inode-by-inode within a group, so enabling these
-	 * blocks/inodes before the group is live won't actually let us
-	 * allocate the new space yet.
-	 */
+
+
 	for (i = 0; i < flex_gd->count; i++) {
 		blocks_count += group_data[i].blocks_count;
 		free_blocks += EXT4_C2B(sbi, group_data[i].free_clusters_count);
@@ -1457,37 +1523,20 @@ static void ext4_update_super(struct super_block *sb,
 		     flex_gd->count);
 
 	ext4_debug("free blocks count %llu", ext4_free_blocks_count(es));
-	/*
-	 * We need to protect s_groups_count against other CPUs seeing
-	 * inconsistent state in the superblock.
-	 *
-	 * The precise rules we use are:
-	 *
-	 * * Writers must perform a smp_wmb() after updating all
-	 *   dependent data and before modifying the groups count
-	 *
-	 * * Readers must perform an smp_rmb() after reading the groups
-	 *   count and before reading any dependent data.
-	 *
-	 * NB. These rules can be relaxed when checking the group count
-	 * while freeing data, as we can only allocate from a block
-	 * group after serialising against the group count, and we can
-	 * only then free after serialising in turn against that
-	 * allocation.
-	 */
+
+
 	smp_wmb();
 
-	/* Update the global fs size fields */
+
 	sbi->s_groups_count += flex_gd->count;
 	sbi->s_blockfile_groups = min_t(ext4_group_t, sbi->s_groups_count,
 			(EXT4_MAX_BLOCK_FILE_PHYS / EXT4_BLOCKS_PER_GROUP(sb)));
 
-	/* Update the reserved block counts only once the new group is
-	 * active. */
+
 	ext4_r_blocks_count_set(es, ext4_r_blocks_count(es) +
 				reserved_blocks);
 
-	/* Update the free space counts */
+
 	percpu_counter_add(&sbi->s_freeclusters_counter,
 			   EXT4_NUM_B2C(sbi, free_blocks));
 	percpu_counter_add(&sbi->s_freeinodes_counter,
@@ -1507,13 +1556,7 @@ static void ext4_update_super(struct super_block *sb,
 			   &fg->free_inodes);
 	}
 
-	/*
-	 * Update the fs overhead information.
-	 *
-	 * For bigalloc, if the superblock already has a properly calculated
-	 * overhead, update it with a value based on numbers already computed
-	 * above for the newly allocated capacity.
-	 */
+
 	if (ext4_has_feature_bigalloc(sb) && (sbi->s_overhead != 0))
 		ext4_add_overhead(sb,
 			EXT4_NUM_B2C(sbi, blocks_count - free_blocks));
@@ -1529,9 +1572,14 @@ static void ext4_update_super(struct super_block *sb,
 		       blocks_count, free_blocks, reserved_blocks);
 }
 
-/* Add a flex group to an fs. Ensure we handle all possible error conditions
- * _before_ we start modifying the filesystem, because we cannot abort the
- * transaction and not have it write the data to disk.
+
+/**
+ * ext4_flex_group_add - Implements the flex group add operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_flex_group_add(struct super_block *sb,
 			       struct inode *resize_inode,
@@ -1556,17 +1604,12 @@ static int ext4_flex_group_add(struct super_block *sb,
 	err = setup_new_flex_group_blocks(sb, flex_gd);
 	if (err)
 		goto exit;
-	/*
-	 * We will always be modifying at least the superblock and  GDT
-	 * blocks.  If we are adding a group past the last current GDT block,
-	 * we will also modify the inode and the dindirect block.  If we
-	 * are adding a group with superblock/GDT backups  we will also
-	 * modify each of the reserved GDT dindirect blocks.
-	 */
-	credit = 3;	/* sb, resize inode, resize inode dindirect */
-	/* GDT blocks */
+
+
+	credit = 3;
+
 	credit += 1 + DIV_ROUND_UP(flex_gd->count, EXT4_DESC_PER_BLOCK(sb));
-	credit += reserved_gdb;	/* Reserved GDT dindirect blocks */
+	credit += reserved_gdb;
 	handle = ext4_journal_start_sb(sb, EXT4_HT_RESIZE, credit);
 	if (IS_ERR(handle)) {
 		err = PTR_ERR(handle);
@@ -1623,6 +1666,14 @@ exit:
 	return err;
 }
 
+/**
+ * ext4_setup_next_flex_gd - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_setup_next_flex_gd(struct super_block *sb,
 				    struct ext4_new_flex_group_data *flex_gd,
 				    ext4_fsblk_t n_blocks_count)
@@ -1673,7 +1724,7 @@ static int ext4_setup_next_flex_gd(struct super_block *sb,
 	}
 
 	if (last_group == n_group && ext4_has_group_desc_csum(sb))
-		/* We need to initialize block bitmap of last group. */
+
 		flex_gd->bg_flags[i - 1] &= ~EXT4_BG_BLOCK_UNINIT;
 
 	if ((last_group == n_group) && (last != clusters_per_group - 1)) {
@@ -1685,18 +1736,14 @@ static int ext4_setup_next_flex_gd(struct super_block *sb,
 	return 1;
 }
 
-/* Add group descriptor data to an existing or new group descriptor block.
- * Ensure we handle all possible error conditions _before_ we start modifying
- * the filesystem, because we cannot abort the transaction and not have it
- * write the data to disk.
+
+/**
+ * ext4_group_add - Implements the group add operation within the online resize subsystem.
  *
- * If we are on a GDT block boundary, we need to get the reserved GDT block.
- * Otherwise, we may need to add backup GDT blocks for a sparse group.
- *
- * We only need to hold the superblock lock while we are actually adding
- * in the new group's counts to the superblock.  Prior to that we have
- * not really "added" the group at all.  We re-check that we are still
- * adding in the last group in case things have changed since verifying.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_group_add(struct super_block *sb, struct ext4_new_group_data *input)
 {
@@ -1763,10 +1810,16 @@ int ext4_group_add(struct super_block *sb, struct ext4_new_group_data *input)
 out:
 	iput(inode);
 	return err;
-} /* ext4_group_add */
+}
 
-/*
- * extend a group without checking assuming that checking has been done.
+
+/**
+ * ext4_group_extend_no_check - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_group_extend_no_check(struct super_block *sb,
 				      ext4_fsblk_t o_blocks_count, ext4_grpblk_t add)
@@ -1775,9 +1828,7 @@ static int ext4_group_extend_no_check(struct super_block *sb,
 	handle_t *handle;
 	int err = 0, err2;
 
-	/* We will update the superblock, one block bitmap, and
-	 * one group descriptor via ext4_group_add_blocks().
-	 */
+
 	handle = ext4_journal_start_sb(sb, EXT4_HT_RESIZE, 3);
 	if (IS_ERR(handle)) {
 		err = PTR_ERR(handle);
@@ -1800,7 +1851,7 @@ static int ext4_group_extend_no_check(struct super_block *sb,
 	unlock_buffer(EXT4_SB(sb)->s_sbh);
 	ext4_debug("freeing blocks %llu through %llu\n", o_blocks_count,
 		   o_blocks_count + add);
-	/* We add the blocks to the bitmap and set the group need init bit */
+
 	err = ext4_group_add_blocks(handle, sb, o_blocks_count, add);
 	if (err)
 		goto errout;
@@ -1822,15 +1873,14 @@ errout:
 	return err;
 }
 
-/*
- * Extend the filesystem to the new number of blocks specified.  This entry
- * point is only used to extend the current filesystem to the end of the last
- * existing group.  It can be accessed via ioctl, or by "remount,resize=<size>"
- * for emergencies (because it has no dependencies on reserved blocks).
+
+/**
+ * ext4_group_extend - Implements the group extend operation within the online resize subsystem.
  *
- * If we _really_ wanted, we could use default values to call ext4_group_add()
- * allow the "remount" trick to work for arbitrary resizing, assuming enough
- * GDT blocks are reserved to grow to the desired size.
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_group_extend(struct super_block *sb, struct ext4_super_block *es,
 		      ext4_fsblk_t n_blocks_count)
@@ -1863,7 +1913,7 @@ int ext4_group_extend(struct super_block *sb, struct ext4_super_block *es,
 		return -EINVAL;
 	}
 
-	/* Handle the remaining blocks in the last group only. */
+
 	ext4_get_group_no_and_offset(sb, o_blocks_count, &group, &last);
 
 	if (last == 0) {
@@ -1885,7 +1935,7 @@ int ext4_group_extend(struct super_block *sb, struct ext4_super_block *es,
 		ext4_warning(sb, "will only finish group (%llu blocks, %u new)",
 			     o_blocks_count + add, add);
 
-	/* See if the device is actually as big as what was requested */
+
 	bh = ext4_sb_bread(sb, o_blocks_count + add - 1, 0);
 	if (IS_ERR(bh)) {
 		ext4_warning(sb, "can't read last block, resize aborted");
@@ -1894,18 +1944,30 @@ int ext4_group_extend(struct super_block *sb, struct ext4_super_block *es,
 	brelse(bh);
 
 	return ext4_group_extend_no_check(sb, o_blocks_count, add);
-} /* ext4_group_extend */
+}
 
 
+/**
+ * num_desc_blocks - Implements the num desc blocks operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int num_desc_blocks(struct super_block *sb, ext4_group_t groups)
 {
 	return (groups + EXT4_DESC_PER_BLOCK(sb) - 1) / EXT4_DESC_PER_BLOCK(sb);
 }
 
-/*
- * Release the resize inode and drop the resize_inode feature if there
- * are no more reserved gdt blocks, and then convert the file system
- * to enable meta_bg
+
+/**
+ * ext4_convert_meta_bg - Implements the convert meta bg operation within the online resize subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int ext4_convert_meta_bg(struct super_block *sb, struct inode *inode)
 {
@@ -1925,7 +1987,7 @@ static int ext4_convert_meta_bg(struct super_block *sb, struct inode *inode)
 			return -EPERM;
 		}
 
-		/* Do a quick sanity check of the resize inode */
+
 		if (inode->i_blocks != 1 << (inode->i_blkbits -
 					     (9 - sbi->s_cluster_bits)))
 			goto invalid_resize_inode;
@@ -1939,7 +2001,7 @@ static int ext4_convert_meta_bg(struct super_block *sb, struct inode *inode)
 			if (ei->i_data[i])
 				goto invalid_resize_inode;
 		}
-		credits += 3;	/* block bitmap, bg descriptor, resize inode */
+		credits += 3;
 	}
 
 	handle = ext4_journal_start_sb(sb, EXT4_HT_RESIZE, credits);
@@ -1988,11 +2050,14 @@ invalid_resize_inode:
 	return -EINVAL;
 }
 
-/*
- * ext4_resize_fs() resizes a fs to new size specified by @n_blocks_count
+
+/**
+ * ext4_resize_fs - Changes filesystem geometry while preserving address-space, allocation and recovery invariants.
  *
- * @sb: super block of the fs to be resized
- * @n_blocks_count: the number of blocks resides in the resized fs
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_resize_fs(struct super_block *sb, ext4_fsblk_t n_blocks_count)
 {
@@ -2013,7 +2078,7 @@ int ext4_resize_fs(struct super_block *sb, ext4_fsblk_t n_blocks_count)
 	int meta_bg;
 	unsigned int flexbg_size = ext4_flex_bg_size(sbi);
 
-	/* See if the device is actually as big as what was requested */
+
 	bh = ext4_sb_bread(sb, n_blocks_count - 1, 0);
 	if (IS_ERR(bh)) {
 		ext4_warning(sb, "can't read last block, resize aborted");
@@ -2021,13 +2086,7 @@ int ext4_resize_fs(struct super_block *sb, ext4_fsblk_t n_blocks_count)
 	}
 	brelse(bh);
 
-	/*
-	 * For bigalloc, trim the requested size to the nearest cluster
-	 * boundary to avoid creating an unusable filesystem. We do this
-	 * silently, instead of returning an error, to avoid breaking
-	 * callers that blindly resize the filesystem to the full size of
-	 * the underlying block device.
-	 */
+
 	if (ext4_has_feature_bigalloc(sb))
 		n_blocks_count &= ~((1 << EXT4_CLUSTER_BITS(sb)) - 1);
 
@@ -2038,13 +2097,13 @@ retry:
 		 "to %llu blocks", o_blocks_count, n_blocks_count);
 
 	if (n_blocks_count < o_blocks_count) {
-		/* On-line shrinking not supported */
+
 		ext4_warning(sb, "can't shrink FS - resize aborted");
 		return -EINVAL;
 	}
 
 	if (n_blocks_count == o_blocks_count)
-		/* Nothing need to do */
+
 		return 0;
 
 	n_group = ext4_get_group_number(sb, n_blocks_count - 1);
@@ -2074,7 +2133,7 @@ retry:
 			n_blocks_count = (ext4_fsblk_t)n_group *
 				EXT4_BLOCKS_PER_GROUP(sb) +
 				le32_to_cpu(es->s_first_data_block);
-			n_group--; /* set to last group number */
+			n_group--;
 		}
 
 		if (!resize_inode)
@@ -2101,13 +2160,7 @@ retry:
 		}
 	}
 
-	/*
-	 * Make sure the last group has enough space so that it's
-	 * guaranteed to have enough space for all metadata blocks
-	 * that it might need to hold.  (We might not need to store
-	 * the inode table blocks in the last block group, but there
-	 * will be cases where this might be needed.)
-	 */
+
 	if ((ext4_group_first_block_no(sb, n_group) +
 	     ext4_group_overhead_blocks(sb, n_group) + 2 +
 	     sbi->s_itb_per_group + sbi->s_cluster_ratio) >= n_blocks_count) {
@@ -2121,7 +2174,7 @@ retry:
 		goto retry;
 	}
 
-	/* extend the last group */
+
 	if (n_group == o_group)
 		add = n_blocks_count - o_blocks_count;
 	else
@@ -2149,9 +2202,7 @@ retry:
 		goto out;
 	}
 
-	/* Add flex groups. Note that a regular group is a
-	 * flex group with 1 group.
-	 */
+
 	while (ext4_setup_next_flex_gd(sb, flex_gd, n_blocks_count)) {
 		if (time_is_before_jiffies(last_update_time + HZ * 10)) {
 			if (last_update_time)

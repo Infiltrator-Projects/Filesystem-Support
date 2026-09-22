@@ -1,4 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0
+
+/*
+ * EXT4 — Multiple-mount protection
+ *
+ * Purpose:
+ *   Implements the on-disk heartbeat used to detect concurrent read-write mounts of the same EXT4 filesystem.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Heartbeat timing and sequence updates are safety signals; stale or ambiguous state must be handled conservatively.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #include <linux/fs.h>
 #include <linux/random.h>
 #include <linux/buffer_head.h>
@@ -7,7 +30,15 @@
 
 #include "ext4.h"
 
-/* Checksumming functions */
+
+/**
+ * ext4_mmp_csum - Implements the mmp csum operation within the multiple-mount protection subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static __le32 ext4_mmp_csum(struct super_block *sb, struct mmp_struct *mmp)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -19,6 +50,14 @@ static __le32 ext4_mmp_csum(struct super_block *sb, struct mmp_struct *mmp)
 	return cpu_to_le32(csum);
 }
 
+/**
+ * ext4_mmp_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int ext4_mmp_csum_verify(struct super_block *sb, struct mmp_struct *mmp)
 {
 	if (!ext4_has_metadata_csum(sb))
@@ -27,6 +66,14 @@ static int ext4_mmp_csum_verify(struct super_block *sb, struct mmp_struct *mmp)
 	return mmp->mmp_checksum == ext4_mmp_csum(sb, mmp);
 }
 
+/**
+ * ext4_mmp_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static void ext4_mmp_csum_set(struct super_block *sb, struct mmp_struct *mmp)
 {
 	if (!ext4_has_metadata_csum(sb))
@@ -35,9 +82,14 @@ static void ext4_mmp_csum_set(struct super_block *sb, struct mmp_struct *mmp)
 	mmp->mmp_checksum = ext4_mmp_csum(sb, mmp);
 }
 
-/*
- * Write the MMP block using REQ_SYNC to try to get the block on-disk
- * faster.
+
+/**
+ * write_mmp_block_thawed - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int write_mmp_block_thawed(struct super_block *sb,
 				  struct buffer_head *bh)
@@ -55,23 +107,33 @@ static int write_mmp_block_thawed(struct super_block *sb,
 	return 0;
 }
 
+/**
+ * write_mmp_block - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static int write_mmp_block(struct super_block *sb, struct buffer_head *bh)
 {
 	int err;
 
-	/*
-	 * We protect against freezing so that we don't create dirty buffers
-	 * on frozen filesystem.
-	 */
+
 	sb_start_write(sb);
 	err = write_mmp_block_thawed(sb, bh);
 	sb_end_write(sb);
 	return err;
 }
 
-/*
- * Read the MMP block. It _must_ be read from disk and hence we clear the
- * uptodate flag on the buffer.
+
+/**
+ * read_mmp_block - Reads or materialises filesystem state for validation or higher-level processing.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int read_mmp_block(struct super_block *sb, struct buffer_head **bh,
 			  ext4_fsblk_t mmp_block)
@@ -82,9 +144,7 @@ static int read_mmp_block(struct super_block *sb, struct buffer_head **bh,
 	if (*bh)
 		clear_buffer_uptodate(*bh);
 
-	/* This would be sb_bread(sb, mmp_block), except we need to be sure
-	 * that the MD RAID device cache has been bypassed, and that the read
-	 * is not blocked in the elevator. */
+
 	if (!*bh) {
 		*bh = sb_getblk(sb, mmp_block);
 		if (!*bh) {
@@ -116,8 +176,14 @@ warn_exit:
 	return ret;
 }
 
-/*
- * Dump as much information as possible to help the admin.
+
+/**
+ * __dump_mmp_msg - Implements the dump mmp msg operation within the multiple-mount protection subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 void __dump_mmp_msg(struct super_block *sb, struct mmp_struct *mmp,
 		    const char *function, unsigned int line, const char *msg)
@@ -130,8 +196,14 @@ void __dump_mmp_msg(struct super_block *sb, struct mmp_struct *mmp,
 		       (int)sizeof(mmp->mmp_bdevname), mmp->mmp_bdevname);
 }
 
-/*
- * kmmpd will update the MMP sequence every s_mmp_update_interval seconds
+
+/**
+ * kmmpd - Implements the kmmpd operation within the multiple-mount protection subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static int kmmpd(void *data)
 {
@@ -151,10 +223,8 @@ static int kmmpd(void *data)
 	mmp_block = le64_to_cpu(es->s_mmp_block);
 	mmp = (struct mmp_struct *)(bh->b_data);
 	mmp->mmp_time = cpu_to_le64(ktime_get_real_seconds());
-	/*
-	 * Start with the higher mmp_check_interval and reduce it if
-	 * the MMP block is being updated on time.
-	 */
+
+
 	mmp_check_interval = max(EXT4_MMP_CHECK_MULT * mmp_update_interval,
 				 EXT4_MMP_MIN_CHECK_INTERVAL);
 	mmp->mmp_check_interval = cpu_to_le16(mmp_check_interval);
@@ -176,10 +246,8 @@ static int kmmpd(void *data)
 		last_update_time = jiffies;
 
 		retval = write_mmp_block(sb, bh);
-		/*
-		 * Don't spew too many error messages. Print one every
-		 * (s_mmp_update_interval * 60) seconds.
-		 */
+
+
 		if (retval) {
 			if ((failed_writes % 60) == 0) {
 				ext4_error_err(sb, -retval,
@@ -193,11 +261,7 @@ static int kmmpd(void *data)
 			schedule_timeout_interruptible(mmp_update_interval *
 						       HZ - diff);
 
-		/*
-		 * We need to make sure that more than mmp_check_interval
-		 * seconds have not passed since writing. If that has happened
-		 * we need to check if the MMP block is as we left it.
-		 */
+
 		diff = jiffies - last_update_time;
 		if (diff > mmp_check_interval * HZ) {
 			struct buffer_head *bh_check = NULL;
@@ -227,19 +291,14 @@ static int kmmpd(void *data)
 			put_bh(bh_check);
 		}
 
-		 /*
-		 * Adjust the mmp_check_interval depending on how much time
-		 * it took for the MMP block to be written.
-		 */
+
 		mmp_check_interval = max(min(EXT4_MMP_CHECK_MULT * diff / HZ,
 					     EXT4_MMP_MAX_CHECK_INTERVAL),
 					 EXT4_MMP_MIN_CHECK_INTERVAL);
 		mmp->mmp_check_interval = cpu_to_le16(mmp_check_interval);
 	}
 
-	/*
-	 * Unmount seems to be clean.
-	 */
+
 	mmp->mmp_seq = cpu_to_le32(EXT4_MMP_SEQ_CLEAN);
 	mmp->mmp_time = cpu_to_le64(ktime_get_real_seconds());
 
@@ -255,6 +314,14 @@ wait_to_exit:
 	return retval;
 }
 
+/**
+ * ext4_stop_mmpd - Implements the stop mmpd operation within the multiple-mount protection subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 void ext4_stop_mmpd(struct ext4_sb_info *sbi)
 {
 	if (sbi->s_mmp_tsk) {
@@ -264,17 +331,28 @@ void ext4_stop_mmpd(struct ext4_sb_info *sbi)
 	}
 }
 
-/*
- * Get a random new sequence number but make sure it is not greater than
- * EXT4_MMP_SEQ_MAX.
+
+/**
+ * mmp_new_seq - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static unsigned int mmp_new_seq(void)
 {
 	return get_random_u32_below(EXT4_MMP_SEQ_MAX + 1);
 }
 
-/*
- * Protect the filesystem from being mounted more than once.
+
+/**
+ * ext4_multi_mount_protect - Implements a mount-path operation for the owning filesystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 int ext4_multi_mount_protect(struct super_block *sb,
 				    ext4_fsblk_t mmp_block)
@@ -303,10 +381,7 @@ int ext4_multi_mount_protect(struct super_block *sb,
 	if (mmp_check_interval < EXT4_MMP_MIN_CHECK_INTERVAL)
 		mmp_check_interval = EXT4_MMP_MIN_CHECK_INTERVAL;
 
-	/*
-	 * If check_interval in MMP block is larger, use that instead of
-	 * update_interval from the superblock.
-	 */
+
 	if (le16_to_cpu(mmp->mmp_check_interval) > mmp_check_interval)
 		mmp_check_interval = le16_to_cpu(mmp->mmp_check_interval);
 
@@ -323,7 +398,7 @@ int ext4_multi_mount_protect(struct super_block *sb,
 	wait_time = min(mmp_check_interval * 2 + 1,
 			mmp_check_interval + 60);
 
-	/* Print MMP interval if more than 20 secs. */
+
 	if (wait_time > EXT4_MMP_MIN_CHECK_INTERVAL * 4)
 		ext4_warning(sb, "MMP interval %u higher than expected, please"
 			     " wait.\n", wait_time * 2);
@@ -346,23 +421,17 @@ int ext4_multi_mount_protect(struct super_block *sb,
 	}
 
 skip:
-	/*
-	 * write a new random sequence number.
-	 */
+
+
 	seq = mmp_new_seq();
 	mmp->mmp_seq = cpu_to_le32(seq);
 
-	/*
-	 * On mount / remount we are protected against fs freezing (by s_umount
-	 * semaphore) and grabbing freeze protection upsets lockdep
-	 */
+
 	retval = write_mmp_block_thawed(sb, bh);
 	if (retval)
 		goto failed;
 
-	/*
-	 * wait for MMP interval and check mmp_seq.
-	 */
+
 	if (schedule_timeout_interruptible(HZ * wait_time) != 0) {
 		ext4_warning(sb, "MMP startup interrupted, failing mount");
 		retval = -ETIMEDOUT;
@@ -386,9 +455,7 @@ skip:
 	snprintf(mmp->mmp_bdevname, sizeof(mmp->mmp_bdevname),
 		 "%pg", bh->b_bdev);
 
-	/*
-	 * Start a kernel thread to update the MMP block periodically.
-	 */
+
 	EXT4_SB(sb)->s_mmp_tsk = kthread_run(kmmpd, sb, "kmmpd-%.*s",
 					     (int)sizeof(mmp->mmp_bdevname),
 					     mmp->mmp_bdevname);

@@ -1,4 +1,27 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+
+/*
+ * EXT4 — JBD2 tracing schema
+ *
+ * Purpose:
+ *   Defines trace events used to observe journal transaction and checkpoint behaviour without changing filesystem semantics.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Tracepoints are diagnostic only: correctness must never depend on listeners, tracing enablement or trace-buffer availability.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
+
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM infiltratr_ext4_jbd2
 
@@ -491,7 +514,7 @@ TRACE_EVENT(jbd2_shrink_checkpoint_list,
 		  __entry->nr_freed, __entry->next_tid)
 );
 
-#endif /* _TRACE_JBD2_H */
+#endif
 
-/* This part must be outside protection */
+
 #include <trace/define_trace.h>

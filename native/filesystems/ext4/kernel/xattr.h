@@ -1,21 +1,36 @@
 // SPDX-License-Identifier: GPL-2.0
+
 /*
-  File: fs/ext4/xattr.h
-
-  On-disk format of extended attributes for the ext4 filesystem.
-
-  (C) 2001 Andreas Gruenbacher, <a.gruenbacher@computer.org>
-*/
+ * EXT4 — Extended-metadata interfaces
+ *
+ * Purpose:
+ *   Defines the private xattr structures, indexes and interfaces shared by the EXT4 extended-metadata implementation.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Encoded entry lengths, offsets and namespaces describe persistent metadata and must remain compatible with existing media.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
 
 #include <linux/xattr.h>
 
-/* Magic value in attribute blocks */
+
 #define EXT4_XATTR_MAGIC		0xEA020000
 
-/* Maximum number of references to one attribute block */
+
 #define EXT4_XATTR_REFCOUNT_MAX		1024
 
-/* Name indexes */
+
 #define EXT4_XATTR_INDEX_USER			1
 #define EXT4_XATTR_INDEX_POSIX_ACL_ACCESS	2
 #define EXT4_XATTR_INDEX_POSIX_ACL_DEFAULT	3
@@ -25,29 +40,47 @@
 #define EXT4_XATTR_INDEX_SYSTEM			7
 #define EXT4_XATTR_INDEX_RICHACL		8
 #define EXT4_XATTR_INDEX_ENCRYPTION		9
-#define EXT4_XATTR_INDEX_HURD			10 /* Reserved for Hurd */
+#define EXT4_XATTR_INDEX_HURD			10
 
+/**
+ * struct ext4_xattr_header - Private EXT4 state/data structure used by extended-metadata interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_xattr_header {
-	__le32	h_magic;	/* magic number for identification */
-	__le32	h_refcount;	/* reference count */
-	__le32	h_blocks;	/* number of disk blocks used */
-	__le32	h_hash;		/* hash value of all attributes */
-	__le32	h_checksum;	/* crc32c(uuid+blknum+xattrblock) */
-	__u32	h_reserved[3];	/* zero right now */
+	__le32	h_magic;
+	__le32	h_refcount;
+	__le32	h_blocks;
+	__le32	h_hash;
+	__le32	h_checksum;
+	__u32	h_reserved[3];
 };
 
+/**
+ * struct ext4_xattr_ibody_header - Private EXT4 state/data structure used by extended-metadata interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_xattr_ibody_header {
-	__le32	h_magic;	/* magic number for identification */
+	__le32	h_magic;
 };
 
+/**
+ * struct ext4_xattr_entry - Private EXT4 state/data structure used by extended-metadata interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_xattr_entry {
-	__u8	e_name_len;	/* length of name */
-	__u8	e_name_index;	/* attribute name index */
-	__le16	e_value_offs;	/* offset in disk block of value */
-	__le32	e_value_inum;	/* inode in which the value is stored */
-	__le32	e_value_size;	/* size of attribute value */
-	__le32	e_hash;		/* hash value of name and value */
-	char	e_name[];	/* attribute name */
+	__u8	e_name_len;
+	__u8	e_name_index;
+	__le16	e_value_offs;
+	__le32	e_value_inum;
+	__le32	e_value_size;
+	__le32	e_hash;
+	char	e_name[];
 };
 
 #define EXT4_XATTR_PAD_BITS		2
@@ -72,21 +105,10 @@ struct ext4_xattr_entry {
 	 EXT4_SB((inode)->i_sb)->s_inode_size)
 #define IFIRST(hdr) ((struct ext4_xattr_entry *)((hdr)+1))
 
-/*
- * XATTR_SIZE_MAX is currently 64k, but for the purposes of checking
- * for file system consistency errors, we use a somewhat bigger value.
- * This allows XATTR_SIZE_MAX to grow in the future, but by using this
- * instead of INT_MAX for certain consistency checks, we don't need to
- * worry about arithmetic overflows.  (Actually XATTR_SIZE_MAX is
- * defined in include/uapi/linux/limits.h, so changing it is going
- * not going to be trivial....)
- */
+
 #define EXT4_XATTR_SIZE_MAX (1 << 24)
 
-/*
- * The minimum size of EA value when you start storing it in an external inode
- * size of block - size of header - size of 1 entry - 4 null bytes
- */
+
 #define EXT4_XATTR_MIN_LARGE_EA_SIZE(b)					\
 	((b) - EXT4_XATTR_LEN(3) - sizeof(struct ext4_xattr_header) - 4)
 
@@ -97,13 +119,7 @@ struct ext4_xattr_entry {
 
 #define EXT4_ZERO_XATTR_VALUE ((void *)-1)
 
-/*
- * If we want to add an xattr to the inode, we should make sure that
- * i_extra_isize is not 0 and that the inode size is not less than
- * EXT4_GOOD_OLD_INODE_SIZE + extra_isize + pad.
- *   EXT4_GOOD_OLD_INODE_SIZE   extra_isize header   entry   pad  data
- * |--------------------------|------------|------|---------|---|-------|
- */
+
 #define EXT4_INODE_HAS_XATTR_SPACE(inode)				\
 	((EXT4_I(inode)->i_extra_isize != 0) &&				\
 	 (EXT4_GOOD_OLD_INODE_SIZE + EXT4_I(inode)->i_extra_isize +	\
@@ -118,6 +134,12 @@ struct ext4_xattr_info {
 	int in_inode;
 };
 
+/**
+ * struct ext4_xattr_search - Private EXT4 state/data structure used by extended-metadata interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_xattr_search {
 	struct ext4_xattr_entry *first;
 	void *base;
@@ -126,11 +148,23 @@ struct ext4_xattr_search {
 	int not_found;
 };
 
+/**
+ * struct ext4_xattr_ibody_find - Private EXT4 state/data structure used by extended-metadata interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_xattr_ibody_find {
 	struct ext4_xattr_search s;
 	struct ext4_iloc iloc;
 };
 
+/**
+ * struct ext4_xattr_inode_array - Private EXT4 state/data structure used by extended-metadata interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct ext4_xattr_inode_array {
 	unsigned int count;
 	struct inode *inodes[] __counted_by(count);
@@ -143,14 +177,14 @@ extern const struct xattr_handler ext4_xattr_hurd_handler;
 
 #define EXT4_XATTR_NAME_ENCRYPTION_CONTEXT "c"
 
-/*
- * The EXT4_STATE_NO_EXPAND is overloaded and used for two purposes.
- * The first is to signal that there the inline xattrs and data are
- * taking up so much space that we might as well not keep trying to
- * expand it.  The second is that xattr_sem is taken for writing, so
- * we shouldn't try to recurse into the inode expansion.  For this
- * second case, we need to make sure that we take save and restore the
- * NO_EXPAND state flag appropriately.
+
+/**
+ * ext4_write_lock_xattr - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
  */
 static inline void ext4_write_lock_xattr(struct inode *inode, int *save)
 {
@@ -159,6 +193,14 @@ static inline void ext4_write_lock_xattr(struct inode *inode, int *save)
 	ext4_set_inode_state(inode, EXT4_STATE_NO_EXPAND);
 }
 
+/**
+ * ext4_write_trylock_xattr - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_write_trylock_xattr(struct inode *inode, int *save)
 {
 	if (down_write_trylock(&EXT4_I(inode)->xattr_sem) == 0)
@@ -168,6 +210,14 @@ static inline int ext4_write_trylock_xattr(struct inode *inode, int *save)
 	return 1;
 }
 
+/**
+ * ext4_write_unlock_xattr - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_write_unlock_xattr(struct inode *inode, int *save)
 {
 	if (*save == 0)
@@ -220,6 +270,14 @@ __xattr_check_inode(struct inode *inode, struct ext4_xattr_ibody_header *header,
 extern int ext4_init_security(handle_t *handle, struct inode *inode,
 			      struct inode *dir, const struct qstr *qstr);
 #else
+/**
+ * ext4_init_security - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_init_security(handle_t *handle, struct inode *inode,
 				     struct inode *dir, const struct qstr *qstr)
 {
@@ -230,18 +288,19 @@ static inline int ext4_init_security(handle_t *handle, struct inode *inode,
 #ifdef CONFIG_LOCKDEP
 extern void ext4_xattr_inode_set_class(struct inode *ea_inode);
 #else
+/**
+ * ext4_xattr_inode_set_class - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void ext4_xattr_inode_set_class(struct inode *ea_inode) { }
 #endif
 
 extern int ext4_get_inode_usage(struct inode *inode, qsize_t *usage);
 
-/* ---- EXT4 ACL declarations ---- */
-// SPDX-License-Identifier: GPL-2.0
-/*
-  File: fs/ext4/acl.h
-
-  (C) 2001 Andreas Gruenbacher, <a.gruenbacher@computer.org>
-*/
 
 #include <linux/posix_acl_xattr.h>
 
@@ -262,6 +321,14 @@ typedef struct {
 	__le32		a_version;
 } ext4_acl_header;
 
+/**
+ * ext4_acl_size - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline size_t ext4_acl_size(int count)
 {
 	if (count <= 4) {
@@ -274,6 +341,14 @@ static inline size_t ext4_acl_size(int count)
 	}
 }
 
+/**
+ * ext4_acl_count - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int ext4_acl_count(size_t size)
 {
 	ssize_t s;
@@ -292,27 +367,33 @@ static inline int ext4_acl_count(size_t size)
 
 #ifdef CONFIG_EXT4_FS_POSIX_ACL
 
-/* acl.c */
+
 struct posix_acl *ext4_get_acl(struct inode *inode, int type, bool rcu);
 int ext4_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 		 struct posix_acl *acl, int type);
 extern int ext4_init_acl(handle_t *, struct inode *, struct inode *);
 
-#else  /* CONFIG_EXT4_FS_POSIX_ACL */
+#else
 #include <linux/sched.h>
 #define ext4_get_acl NULL
 #define ext4_set_acl NULL
 
+/**
+ * ext4_init_acl - Initialises subsystem state and establishes the resources required by later operations.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline int
 ext4_init_acl(handle_t *handle, struct inode *inode, struct inode *dir)
 {
 	return 0;
 }
-#endif  /* CONFIG_EXT4_FS_POSIX_ACL */
+#endif
 
 
-/* ---- EXT4 private metadata-cache declarations ---- */
-/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_MBCACHE_H
 #define _LINUX_MBCACHE_H
 
@@ -324,30 +405,31 @@ ext4_init_acl(handle_t *handle, struct inode *inode, struct inode *dir)
 
 struct mb_cache;
 
-/* Cache entry flags */
+
 enum {
 	MBE_REFERENCED_B = 0,
 	MBE_REUSABLE_B
 };
 
+/**
+ * struct mb_cache_entry - Private EXT4 state/data structure used by extended-metadata interfaces.
+ *
+ * Treat fields that mirror persistent media or cross subsystem boundaries
+ * as interface contracts rather than incidental layout.
+ */
 struct mb_cache_entry {
-	/* List of entries in cache - protected by cache->c_list_lock */
+
 	struct list_head	e_list;
-	/*
-	 * Hash table list - protected by hash chain bitlock. The entry is
-	 * guaranteed to be hashed while e_refcnt > 0.
-	 */
+
+
 	struct hlist_bl_node	e_hash_list;
-	/*
-	 * Entry refcount. Once it reaches zero, entry is unhashed and freed.
-	 * While refcount > 0, the entry is guaranteed to stay in the hash and
-	 * e.g. mb_cache_entry_try_delete() will fail.
-	 */
+
+
 	atomic_t		e_refcnt;
-	/* Key in hash - stable during lifetime of the entry */
+
 	u32			e_key;
 	unsigned long		e_flags;
-	/* User provided value - stable during lifetime of the entry */
+
 	u64			e_value;
 };
 
@@ -359,6 +441,14 @@ int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
 void __mb_cache_entry_free(struct mb_cache *cache,
 			   struct mb_cache_entry *entry);
 void mb_cache_entry_wait_unused(struct mb_cache_entry *entry);
+/**
+ * mb_cache_entry_put - Implements the mb cache entry put operation within the extended-metadata interfaces subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem; propagate an error or leave state recoverable when the
+ * operation cannot complete.
+ */
 static inline void mb_cache_entry_put(struct mb_cache *cache,
 				      struct mb_cache_entry *entry)
 {
@@ -383,4 +473,4 @@ struct mb_cache_entry *mb_cache_entry_find_next(struct mb_cache *cache,
 void mb_cache_entry_touch(struct mb_cache *cache,
 			  struct mb_cache_entry *entry);
 
-#endif	/* _LINUX_MBCACHE_H */
+#endif
