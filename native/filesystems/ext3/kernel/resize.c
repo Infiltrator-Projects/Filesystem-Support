@@ -811,14 +811,14 @@ int ext3_group_add(struct super_block *sb, struct ext3_new_group_data *input)
 		return -EPERM;
 	}
 
-	if (le32_to_cpu(es->s_blocks_count) + input->blocks_count <
-	    le32_to_cpu(es->s_blocks_count)) {
+	if (input->blocks_count >
+	    U32_MAX - le32_to_cpu(es->s_blocks_count)) {
 		ext3_warning(sb, __func__, "blocks_count overflow\n");
 		return -EINVAL;
 	}
 
-	if (le32_to_cpu(es->s_inodes_count) + EXT3_INODES_PER_GROUP(sb) <
-	    le32_to_cpu(es->s_inodes_count)) {
+	if (EXT3_INODES_PER_GROUP(sb) >
+	    U32_MAX - le32_to_cpu(es->s_inodes_count)) {
 		ext3_warning(sb, __func__, "inodes_count overflow\n");
 		return -EINVAL;
 	}

@@ -1787,14 +1787,14 @@ int ext4_group_add(struct super_block *sb, struct ext4_new_group_data *input)
 		return -EPERM;
 	}
 
-	if (ext4_blocks_count(es) + input->blocks_count <
-	    ext4_blocks_count(es)) {
+	if (input->blocks_count >
+	    U64_MAX - ext4_blocks_count(es)) {
 		ext4_warning(sb, "blocks_count overflow");
 		return -EINVAL;
 	}
 
-	if (le32_to_cpu(es->s_inodes_count) + EXT4_INODES_PER_GROUP(sb) <
-	    le32_to_cpu(es->s_inodes_count)) {
+	if (EXT4_INODES_PER_GROUP(sb) >
+	    U32_MAX - le32_to_cpu(es->s_inodes_count)) {
 		ext4_warning(sb, "inodes_count overflow");
 		return -EINVAL;
 	}

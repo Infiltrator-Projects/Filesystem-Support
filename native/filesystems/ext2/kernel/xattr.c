@@ -164,7 +164,7 @@ ext2_xattr_entry_valid(struct ext2_xattr_entry *entry,
 
 	size = le32_to_cpu(entry->e_value_size);
 	if (size > end_offs ||
-	    le16_to_cpu(entry->e_value_offs) + size > end_offs)
+	    le16_to_cpu(entry->e_value_offs) > end_offs - size)
 		return false;
 
 	return true;

@@ -38,7 +38,8 @@
 #include "ext3.h"
 
 
-#define in_range(b, first, len)	((b) >= (first) && (b) <= (first) + (len) - 1)
+#define in_range(b, first, len) \
+	((len) != 0 && (b) >= (first) && (b) - (first) < (len))
 
 
 /**
@@ -493,9 +494,10 @@ void ext3_free_blocks_sb(handle_t *handle, struct super_block *sb,
 	*pdquot_freed_blocks = 0;
 	sbi = EXT3_SB(sb);
 	es = sbi->s_es;
-	if (block < le32_to_cpu(es->s_first_data_block) ||
-	    block + count < block ||
-	    block + count > le32_to_cpu(es->s_blocks_count)) {
+	if (count == 0 ||
+	    block < le32_to_cpu(es->s_first_data_block) ||
+	    block >= le32_to_cpu(es->s_blocks_count) ||
+	    count > le32_to_cpu(es->s_blocks_count) - block) {
 		ext3_error (sb, "ext3_free_blocks",
 			    "Freeing blocks not in datazone - "
 			    "block = "E3FSBLK", count = %lu", block, count);

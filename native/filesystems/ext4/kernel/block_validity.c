@@ -102,7 +102,8 @@ void ext4_exit_system_zone(void)
 static inline int can_merge(struct ext4_system_zone *entry1,
 		     struct ext4_system_zone *entry2)
 {
-	if ((entry1->start_blk + entry1->count) == entry2->start_blk &&
+	if (entry2->start_blk >= entry1->start_blk &&
+	    entry2->start_blk - entry1->start_blk == entry1->count &&
 	    entry1->ino == entry2->ino)
 		return 1;
 	return 0;
@@ -148,7 +149,8 @@ static int add_system_zone(struct ext4_system_blocks *system_blks,
 		entry = rb_entry(parent, struct ext4_system_zone, node);
 		if (start_blk < entry->start_blk)
 			n = &(*n)->rb_left;
-		else if (start_blk >= (entry->start_blk + entry->count))
+		else if (start_blk >= entry->start_blk &&
+			 start_blk - entry->start_blk >= entry->count)
 			n = &(*n)->rb_right;
 		else
 			return -EFSCORRUPTED;
@@ -171,6 +173,8 @@ static int add_system_zone(struct ext4_system_blocks *system_blks,
 	if (node) {
 		entry = rb_entry(node, struct ext4_system_zone, node);
 		if (can_merge(entry, new_entry)) {
+			if (entry->count > UINT_MAX - new_entry->count)
+				return -EFSCORRUPTED;
 			new_entry->start_blk = entry->start_blk;
 			new_entry->count += entry->count;
 			rb_erase(node, &system_blks->root);
@@ -183,6 +187,8 @@ static int add_system_zone(struct ext4_system_blocks *system_blks,
 	if (node) {
 		entry = rb_entry(node, struct ext4_system_zone, node);
 		if (can_merge(new_entry, entry)) {
+			if (entry->count > UINT_MAX - new_entry->count)
+				return -EFSCORRUPTED;
 			new_entry->count += entry->count;
 			rb_erase(node, &system_blks->root);
 			kmem_cache_free(ext4_system_zone_cachep, entry);
@@ -399,14 +405,17 @@ int ext4_sb_block_valid(struct super_block *sb, struct inode *inode,
 	struct ext4_system_blocks *system_blks;
 	struct ext4_system_zone *entry;
 	struct rb_node *n;
+	ext4_fsblk_t blocks_count = ext4_blocks_count(sbi->s_es);
+	ext4_fsblk_t last_blk;
 	int ret = 1;
 
-	if ((start_blk <= le32_to_cpu(sbi->s_es->s_first_data_block)) ||
-	    (start_blk + count < start_blk) ||
-	    (start_blk + count > ext4_blocks_count(sbi->s_es)))
+	if (count == 0 ||
+	    start_blk <= le32_to_cpu(sbi->s_es->s_first_data_block) ||
+	    start_blk >= blocks_count ||
+	    count > blocks_count - start_blk)
 		return 0;
 
-
+	last_blk = start_blk + count - 1;
 	rcu_read_lock();
 	system_blks = rcu_dereference(sbi->s_system_blks);
 	if (system_blks == NULL)
@@ -415,9 +424,10 @@ int ext4_sb_block_valid(struct super_block *sb, struct inode *inode,
 	n = system_blks->root.rb_node;
 	while (n) {
 		entry = rb_entry(n, struct ext4_system_zone, node);
-		if (start_blk + count - 1 < entry->start_blk)
+		if (last_blk < entry->start_blk)
 			n = n->rb_left;
-		else if (start_blk >= (entry->start_blk + entry->count))
+		else if (start_blk >= entry->start_blk &&
+			 start_blk - entry->start_blk >= entry->count)
 			n = n->rb_right;
 		else {
 			ret = 0;
