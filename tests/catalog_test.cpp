@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "catalog.hpp"
 
+#include <fstream>
 #include <iostream>
+#include <iterator>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -14,7 +17,7 @@ int fail(const char* message)
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
     using filesystem_support::catalog;
     using filesystem_support::catalog_is_valid;
@@ -97,6 +100,34 @@ int main()
     }
     if (hfs_uses_removed_package) {
         return fail("HFS still references hfsutils, which is not in Debian trixie stable");
+    }
+
+    if (argc != 2) {
+        return fail("support-matrix path was not supplied");
+    }
+
+    std::ifstream matrix(argv[1]);
+    if (!matrix) {
+        return fail("support matrix could not be opened");
+    }
+
+    const std::string matrix_text(
+        (std::istreambuf_iterator<char>(matrix)),
+        std::istreambuf_iterator<char>());
+
+    for (const auto& entry : catalog()) {
+        const std::string marker = "| `" + std::string(entry.id) + "` |";
+        const std::size_t first = matrix_text.find(marker);
+        if (first == std::string::npos) {
+            std::cerr << "catalog_test: support matrix is missing catalogue ID "
+                      << entry.id << '\n';
+            return 1;
+        }
+        if (matrix_text.find(marker, first + marker.size()) != std::string::npos) {
+            std::cerr << "catalog_test: support matrix duplicates catalogue ID "
+                      << entry.id << '\n';
+            return 1;
+        }
     }
 
     return 0;

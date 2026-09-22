@@ -91,7 +91,10 @@ if(BUILD_TESTING)
     add_executable(filesystem-support-catalog-test tests/catalog_test.cpp)
     target_link_libraries(filesystem-support-catalog-test PRIVATE filesystem-support-core)
     filesystem_support_configure(filesystem-support-catalog-test)
-    add_test(NAME filesystem-support-catalog COMMAND filesystem-support-catalog-test)
+    add_test(
+        NAME filesystem-support-catalog
+        COMMAND filesystem-support-catalog-test
+                "${CMAKE_CURRENT_SOURCE_DIR}/docs/FILESYSTEM_SUPPORT_MATRIX.md")
 endif()
 
 set(CPACK_GENERATOR "DEB")

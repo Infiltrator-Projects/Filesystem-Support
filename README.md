@@ -12,6 +12,9 @@ The catalogue covers more than 100 Debian-stable filesystem and storage-namespac
 
 The catalogue intentionally includes kernel-only support where Debian may ship the driver but no separate userspace package. It also records important limitations such as read-only support, experimental write support, deprecated drivers and formats whose userspace tools are not in Debian stable.
 
+The complete, enumerated support contract is maintained in
+[`docs/FILESYSTEM_SUPPORT_MATRIX.md`](docs/FILESYSTEM_SUPPORT_MATRIX.md). CI verifies that every compiled catalogue ID is represented there exactly once.
+
 ## Safety and package policy
 
 - The GUI itself remains unprivileged.
