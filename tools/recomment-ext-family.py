@@ -840,11 +840,21 @@ def recomment_makefile(path: pathlib.Path, original: str) -> str:
     return rebuilt
 
 
-def transform(path: pathlib.Path) -> str:
-    original = path.read_text(encoding="utf-8")
+def transform_once(path: pathlib.Path, original: str) -> str:
     if path.name == "Makefile":
         return recomment_makefile(path, original)
     return recomment_c(path, original)
+
+
+def canonical_commentary(path: pathlib.Path, original: str) -> str:
+    """Iterate to a stable layout so --write and --check share one canonical form."""
+    current = original
+    for _ in range(6):
+        rebuilt = transform_once(path, current)
+        if rebuilt == current:
+            return rebuilt
+        current = rebuilt
+    raise RuntimeError(f"{path}: commentary layout did not converge")
 
 
 def iter_files() -> list[pathlib.Path]:
@@ -875,7 +885,7 @@ def main() -> int:
 
     for path in files:
         original = path.read_text(encoding="utf-8")
-        rebuilt = transform(path)
+        rebuilt = canonical_commentary(path, original)
         function_docs += len(re.findall(r"^ \* [A-Za-z_]\w* - ", rebuilt, re.MULTILINE))
         type_docs += len(re.findall(r"^ \* (?:struct|enum|union) [A-Za-z_]\w* - ", rebuilt, re.MULTILINE))
         if rebuilt != original:
