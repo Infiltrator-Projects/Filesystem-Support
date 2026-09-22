@@ -811,3 +811,270 @@ ext2_group_last_block_no(struct super_block *sb, unsigned long group_no)
 #define ext2_test_bit	test_bit_le
 #define ext2_find_first_zero_bit	find_first_zero_bit_le
 #define ext2_find_next_zero_bit		find_next_zero_bit_le
+
+/* ---- EXT2 ACL definitions ---- */
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+  File: fs/ext2/acl.h
+
+  (C) 2001 Andreas Gruenbacher, <a.gruenbacher@computer.org>
+*/
+
+#include <linux/posix_acl_xattr.h>
+
+#define EXT2_ACL_VERSION	0x0001
+
+typedef struct {
+	__le16		e_tag;
+	__le16		e_perm;
+	__le32		e_id;
+} ext2_acl_entry;
+
+typedef struct {
+	__le16		e_tag;
+	__le16		e_perm;
+} ext2_acl_entry_short;
+
+typedef struct {
+	__le32		a_version;
+} ext2_acl_header;
+
+static inline size_t ext2_acl_size(int count)
+{
+	if (count <= 4) {
+		return sizeof(ext2_acl_header) +
+		       count * sizeof(ext2_acl_entry_short);
+	} else {
+		return sizeof(ext2_acl_header) +
+		       4 * sizeof(ext2_acl_entry_short) +
+		       (count - 4) * sizeof(ext2_acl_entry);
+	}
+}
+
+static inline int ext2_acl_count(size_t size)
+{
+	ssize_t s;
+	size -= sizeof(ext2_acl_header);
+	s = size - 4 * sizeof(ext2_acl_entry_short);
+	if (s < 0) {
+		if (size % sizeof(ext2_acl_entry_short))
+			return -1;
+		return size / sizeof(ext2_acl_entry_short);
+	} else {
+		if (s % sizeof(ext2_acl_entry))
+			return -1;
+		return s / sizeof(ext2_acl_entry) + 4;
+	}
+}
+
+#ifdef CONFIG_EXT2_FS_POSIX_ACL
+
+/* acl.c */
+extern struct posix_acl *ext2_get_acl(struct inode *inode, int type, bool rcu);
+extern int ext2_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
+			struct posix_acl *acl, int type);
+extern int ext2_init_acl (struct inode *, struct inode *);
+
+#else
+#include <linux/sched.h>
+#define ext2_get_acl	NULL
+#define ext2_set_acl	NULL
+
+static inline int ext2_init_acl (struct inode *inode, struct inode *dir)
+{
+	return 0;
+}
+#endif
+
+
+/* ---- EXT2 extended-attribute definitions ---- */
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+  File: linux/ext2_xattr.h
+
+  On-disk format of extended attributes for the ext2 filesystem.
+
+  (C) 2001 Andreas Gruenbacher, <a.gruenbacher@computer.org>
+*/
+
+#include <linux/init.h>
+#include <linux/xattr.h>
+
+/* Magic value in attribute blocks */
+#define EXT2_XATTR_MAGIC		0xEA020000
+
+/* Maximum number of references to one attribute block */
+#define EXT2_XATTR_REFCOUNT_MAX		1024
+
+/* Name indexes */
+#define EXT2_XATTR_INDEX_USER			1
+#define EXT2_XATTR_INDEX_POSIX_ACL_ACCESS	2
+#define EXT2_XATTR_INDEX_POSIX_ACL_DEFAULT	3
+#define EXT2_XATTR_INDEX_TRUSTED		4
+#define	EXT2_XATTR_INDEX_LUSTRE			5
+#define EXT2_XATTR_INDEX_SECURITY	        6
+
+struct ext2_xattr_header {
+	__le32	h_magic;	/* magic number for identification */
+	__le32	h_refcount;	/* reference count */
+	__le32	h_blocks;	/* number of disk blocks used */
+	__le32	h_hash;		/* hash value of all attributes */
+	__u32	h_reserved[4];	/* zero right now */
+};
+
+struct ext2_xattr_entry {
+	__u8	e_name_len;	/* length of name */
+	__u8	e_name_index;	/* attribute name index */
+	__le16	e_value_offs;	/* offset in disk block of value */
+	__le32	e_value_block;	/* disk block attribute is stored on (n/i) */
+	__le32	e_value_size;	/* size of attribute value */
+	__le32	e_hash;		/* hash value of name and value */
+	char	e_name[];	/* attribute name */
+};
+
+#define EXT2_XATTR_PAD_BITS		2
+#define EXT2_XATTR_PAD		(1<<EXT2_XATTR_PAD_BITS)
+#define EXT2_XATTR_ROUND		(EXT2_XATTR_PAD-1)
+#define EXT2_XATTR_LEN(name_len) \
+	(((name_len) + EXT2_XATTR_ROUND + \
+	sizeof(struct ext2_xattr_entry)) & ~EXT2_XATTR_ROUND)
+#define EXT2_XATTR_NEXT(entry) \
+	( (struct ext2_xattr_entry *)( \
+	  (char *)(entry) + EXT2_XATTR_LEN((entry)->e_name_len)) )
+#define EXT2_XATTR_SIZE(size) \
+	(((size) + EXT2_XATTR_ROUND) & ~EXT2_XATTR_ROUND)
+
+struct mb_cache;
+
+# ifdef CONFIG_EXT2_FS_XATTR
+
+extern const struct xattr_handler ext2_xattr_user_handler;
+extern const struct xattr_handler ext2_xattr_trusted_handler;
+extern const struct xattr_handler ext2_xattr_security_handler;
+
+extern ssize_t ext2_listxattr(struct dentry *, char *, size_t);
+
+extern int ext2_xattr_get(struct inode *, int, const char *, void *, size_t);
+extern int ext2_xattr_set(struct inode *, int, const char *, const void *, size_t, int);
+
+extern void ext2_xattr_delete_inode(struct inode *);
+
+extern struct mb_cache *ext2_xattr_create_cache(void);
+extern void ext2_xattr_destroy_cache(struct mb_cache *cache);
+
+extern const struct xattr_handler * const ext2_xattr_handlers[];
+
+# else  /* CONFIG_EXT2_FS_XATTR */
+
+static inline int
+ext2_xattr_get(struct inode *inode, int name_index,
+	       const char *name, void *buffer, size_t size)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int
+ext2_xattr_set(struct inode *inode, int name_index, const char *name,
+	       const void *value, size_t size, int flags)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void
+ext2_xattr_delete_inode(struct inode *inode)
+{
+}
+
+static inline void ext2_xattr_destroy_cache(struct mb_cache *cache)
+{
+}
+
+#define ext2_xattr_handlers NULL
+#define ext2_listxattr NULL
+
+# endif  /* CONFIG_EXT2_FS_XATTR */
+
+#ifdef CONFIG_EXT2_FS_SECURITY
+extern int ext2_init_security(struct inode *inode, struct inode *dir,
+			      const struct qstr *qstr);
+#else
+static inline int ext2_init_security(struct inode *inode, struct inode *dir,
+				     const struct qstr *qstr)
+{
+	return 0;
+}
+#endif
+
+/* ---- EXT2 private metadata-block cache definitions ---- */
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef _LINUX_MBCACHE_H
+#define _LINUX_MBCACHE_H
+
+#include <linux/hash.h>
+#include <linux/list_bl.h>
+#include <linux/list.h>
+#include <linux/atomic.h>
+#include <linux/fs.h>
+
+struct mb_cache;
+
+/* Cache entry flags */
+enum {
+	MBE_REFERENCED_B = 0,
+	MBE_REUSABLE_B
+};
+
+struct mb_cache_entry {
+	/* List of entries in cache - protected by cache->c_list_lock */
+	struct list_head	e_list;
+	/*
+	 * Hash table list - protected by hash chain bitlock. The entry is
+	 * guaranteed to be hashed while e_refcnt > 0.
+	 */
+	struct hlist_bl_node	e_hash_list;
+	/*
+	 * Entry refcount. Once it reaches zero, entry is unhashed and freed.
+	 * While refcount > 0, the entry is guaranteed to stay in the hash and
+	 * e.g. mb_cache_entry_try_delete() will fail.
+	 */
+	atomic_t		e_refcnt;
+	/* Key in hash - stable during lifetime of the entry */
+	u32			e_key;
+	unsigned long		e_flags;
+	/* User provided value - stable during lifetime of the entry */
+	u64			e_value;
+};
+
+struct mb_cache *mb_cache_create(int bucket_bits);
+void mb_cache_destroy(struct mb_cache *cache);
+
+int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
+			  u64 value, bool reusable);
+void __mb_cache_entry_free(struct mb_cache *cache,
+			   struct mb_cache_entry *entry);
+void mb_cache_entry_wait_unused(struct mb_cache_entry *entry);
+static inline void mb_cache_entry_put(struct mb_cache *cache,
+				      struct mb_cache_entry *entry)
+{
+	unsigned int cnt = atomic_dec_return(&entry->e_refcnt);
+
+	if (cnt > 0) {
+		if (cnt <= 2)
+			wake_up_var(&entry->e_refcnt);
+		return;
+	}
+	__mb_cache_entry_free(cache, entry);
+}
+
+struct mb_cache_entry *mb_cache_entry_delete_or_get(struct mb_cache *cache,
+						    u32 key, u64 value);
+struct mb_cache_entry *mb_cache_entry_get(struct mb_cache *cache, u32 key,
+					  u64 value);
+struct mb_cache_entry *mb_cache_entry_find_first(struct mb_cache *cache,
+						 u32 key);
+struct mb_cache_entry *mb_cache_entry_find_next(struct mb_cache *cache,
+						struct mb_cache_entry *entry);
+void mb_cache_entry_touch(struct mb_cache *cache,
+			  struct mb_cache_entry *entry);
+
+#endif	/* _LINUX_MBCACHE_H */

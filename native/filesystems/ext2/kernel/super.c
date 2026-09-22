@@ -36,8 +36,6 @@
 #include <linux/dax.h>
 #include <linux/iversion.h>
 #include "ext2.h"
-#include "xattr.h"
-#include "acl.h"
 
 static void ext2_write_super(struct super_block *sb);
 static int ext2_remount (struct super_block * sb, int * flags, char * data);

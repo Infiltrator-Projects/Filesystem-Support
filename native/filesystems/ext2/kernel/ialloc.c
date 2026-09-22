@@ -19,8 +19,6 @@
 #include <linux/buffer_head.h>
 #include <linux/random.h>
 #include "ext2.h"
-#include "xattr.h"
-#include "acl.h"
 
 /*
  * ialloc.c contains the inodes allocation and deallocation routines

@@ -1,18 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
-#
-# Makefile for the linux ext2-filesystem routines.
-#
+# Self-contained Infiltrator EXT2 kernel module.
 
 obj-m += ext2.o
 
-ext2-y := balloc.o dir.o file.o ialloc.o inode.o \
-	  ioctl.o namei.o super.o symlink.o
+ext2-y := balloc.o dir.o file.o ialloc.o inode.o namei.o super.o
+ext2-$(CONFIG_EXT2_FS_XATTR) += xattr.o
 
-
-ext2-$(CONFIG_EXT2_FS_XATTR)	 += xattr.o xattr_user.o xattr_trusted.o
-ext2-$(CONFIG_EXT2_FS_POSIX_ACL) += acl.o
-ext2-$(CONFIG_EXT2_FS_SECURITY)	 += xattr_security.o
-
-# Infiltrator: mbcache is part of ext2.ko only when EXT2 xattrs are enabled.
-ext2-$(CONFIG_EXT2_FS_XATTR) += mbcache.o
-ccflags-y += -I$(src)/include
+ccflags-y += -I$(src)
