@@ -1,1 +1,1 @@
-embed support into ext2 ext3 ext4 modules
+embed support into one ext module per filesystem retry
