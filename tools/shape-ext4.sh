@@ -158,7 +158,7 @@ ccflags-y += -DCONFIG_EXT4_FS_SECURITY=1
 EOF
 
 # Forensic invariants.
-test "$(find "$root" -type f | wc -l)" -eq 45
+test "$(find "$root" -type f | wc -l)" -eq 46
 test "$(grep -R -h -o 'module_init[[:space:]]*(' "$root" | wc -l)" -eq 1
 test "$(grep -R -h -o 'module_exit[[:space:]]*(' "$root" | wc -l)" -eq 1
 grep -Fq 'MODULE_ALIAS_FS("ext4")' "$root/super.c"
