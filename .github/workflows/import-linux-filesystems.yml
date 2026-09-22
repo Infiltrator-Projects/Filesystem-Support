@@ -34,6 +34,15 @@ jobs:
             fs/nfs fs/ceph fs/9p fs/orangefs
           git -C /tmp/linux checkout
 
+          # EXT3 was removed as a standalone Linux driver after v4.2.  Keep the
+          # last standalone implementation as the semantic source for our EXT3
+          # driver instead of deriving EXT3 from EXT4.
+          git clone --filter=blob:none --no-checkout --depth 1 --branch v4.2 \
+            https://github.com/gregkh/linux.git /tmp/linux-ext3
+          git -C /tmp/linux-ext3 sparse-checkout init --cone
+          git -C /tmp/linux-ext3 sparse-checkout set fs/ext3 fs/jbd
+          git -C /tmp/linux-ext3 checkout
+
       - name: Copy working driver sources into active native trees
         shell: bash
         run: |
@@ -180,34 +189,27 @@ jobs:
           add_ext2_embedded_support native/filesystems/ext2/kernel
           bash tools/shape-ext2.sh native/filesystems/ext2/kernel
 
-          copy_tree fs/ext4 native/filesystems/ext3/kernel
-          # Remove EXT2 registration from the EXT3 copy and remove the EXT4
-          # filesystem type entirely. Internal ext4_* names are intentionally
-          # retained until later refactoring.
-          perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\n/#define IS_EXT2_SB(sb) (0)\n\n/s' native/filesystems/ext3/kernel/super.c
-          perl -0pi -e 's/static struct file_system_type ext4_fs_type = \{.*?MODULE_ALIAS_FS\("ext4"\);\n//s' native/filesystems/ext3/kernel/super.c
-          perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\nstatic inline void register_as_ext3\(void\).*?static inline int ext3_feature_set_ok\(struct super_block \*sb\)/static inline int ext2_feature_set_ok(struct super_block *sb) { return 0; }\n\nstatic inline int ext3_feature_set_ok(struct super_block *sb)/s' native/filesystems/ext3/kernel/super.c
-          sed -i \
-            -e 's/obj-$(CONFIG_EXT4_FS) += ext4.o/obj-m += ext3.o/' \
-            -e 's/^ext4-y[[:space:]]*:=/ext3-y :=/' \
-            -e 's/^ext4-$(CONFIG_EXT4_FS_POSIX_ACL)/ext3-$(CONFIG_EXT4_FS_POSIX_ACL)/' \
-            -e 's/^ext4-$(CONFIG_EXT4_FS_SECURITY)/ext3-$(CONFIG_EXT4_FS_SECURITY)/' \
-            -e 's/^ext4-$(CONFIG_FS_VERITY)/ext3-$(CONFIG_FS_VERITY)/' \
-            -e 's/^ext4-$(CONFIG_FS_ENCRYPTION)/ext3-$(CONFIG_FS_ENCRYPTION)/' \
-            native/filesystems/ext3/kernel/Makefile
-          perl -0pi -e 's/\tregister_as_ext3\(\);\n\tregister_as_ext2\(\);\n\terr = register_filesystem\(&ext4_fs_type\);/\terr = register_filesystem\(&ext3_fs_type\);/g' native/filesystems/ext3/kernel/super.c
-          perl -0pi -e 's/out:\n\tunregister_as_ext2\(\);\n\tunregister_as_ext3\(\);/out:/g' native/filesystems/ext3/kernel/super.c
-          perl -0pi -e 's/\tunregister_as_ext2\(\);\n\tunregister_as_ext3\(\);\n\tunregister_filesystem\(&ext4_fs_type\);/\tunregister_filesystem\(&ext3_fs_type\);/g' native/filesystems/ext3/kernel/super.c
-          sed -i '/MODULE_ALIAS_FS("ext4");/d' native/filesystems/ext3/kernel/super.c
-          sed -i 's/MODULE_DESCRIPTION("Fourth Extended Filesystem")/MODULE_DESCRIPTION("Third Extended Filesystem")/' native/filesystems/ext3/kernel/super.c
-          sed -i '/ext4-inode-test-objs/d; /CONFIG_EXT4_KUNIT_TESTS/d' native/filesystems/ext3/kernel/Makefile
-          # EXT3 is a copied implementation, so do not export duplicate ext4_*
-          # symbols into the global kernel symbol namespace.
-          find native/filesystems/ext3/kernel -maxdepth 1 -type f -name '*.c' -exec sed -i '/^[[:space:]]*EXPORT_SYMBOL/d' {} +
-          add_ext34_embedded_support native/filesystems/ext3/kernel ext3
+          # EXT3: use the last standalone EXT3 driver, not an EXT4 compatibility
+          # registration.  Embed its historical JBD and mbcache implementation
+          # into the one ext3.ko and then shape it into our owned layout.
+          rm -rf native/filesystems/ext3/kernel
+          mkdir -p native/filesystems/ext3/kernel/include/linux
+          cp -a /tmp/linux-ext3/fs/ext3/. native/filesystems/ext3/kernel/
+          for source in checkpoint commit journal recovery revoke transaction; do
+            cp "/tmp/linux-ext3/fs/jbd/${source}.c" \
+              "native/filesystems/ext3/kernel/jbd_${source}.c"
+          done
+          git -C /tmp/linux-ext3 show HEAD:fs/mbcache.c \
+            > native/filesystems/ext3/kernel/mbcache.c
+          git -C /tmp/linux-ext3 show HEAD:include/linux/mbcache.h \
+            > native/filesystems/ext3/kernel/include/linux/mbcache.h
+          git -C /tmp/linux-ext3 show HEAD:include/linux/jbd.h \
+            > native/filesystems/ext3/kernel/include/linux/jbd.h
+          bash tools/shape-ext3.sh native/filesystems/ext3/kernel
 
+          # EXT4: current Linux EXT4 is the semantic source, but our tree
+          # registers only EXT4 and carries every genuine EXT4 feature engine.
           copy_tree fs/ext4 native/filesystems/ext4/kernel
-          # EXT4 must register only EXT4. Strip compatibility registrations.
           perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\n\nstatic struct file_system_type ext3_fs_type = \{.*?#define IS_EXT3_SB\(sb\) \(\(sb\)->s_type == &ext3_fs_type\)\n/#define IS_EXT2_SB(sb) (0)\n#define IS_EXT3_SB(sb) (0)\n/s' native/filesystems/ext4/kernel/super.c
           perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\nstatic inline void register_as_ext3\(void\).*?static inline int ext3_feature_set_ok\(struct super_block \*sb\)\n\{.*?\n\}/static inline int ext2_feature_set_ok(struct super_block *sb) { return 0; }\nstatic inline int ext3_feature_set_ok(struct super_block *sb) { return 0; }/s' native/filesystems/ext4/kernel/super.c
           sed -i '/^[[:space:]]*register_as_ext3();$/d; /^[[:space:]]*register_as_ext2();$/d; /^[[:space:]]*unregister_as_ext3();$/d; /^[[:space:]]*unregister_as_ext2();$/d' native/filesystems/ext4/kernel/super.c
@@ -215,6 +217,7 @@ jobs:
           sed -i 's/obj-$(CONFIG_EXT4_FS) += ext4.o/obj-m += ext4.o/' native/filesystems/ext4/kernel/Makefile
           sed -i '/ext4-inode-test-objs/d; /CONFIG_EXT4_KUNIT_TESTS/d' native/filesystems/ext4/kernel/Makefile
           add_ext34_embedded_support native/filesystems/ext4/kernel ext4
+          bash tools/shape-ext4.sh native/filesystems/ext4/kernel
 
           copy_tree fs/xfs native/filesystems/xfs/kernel
           copy_tree fs/btrfs native/filesystems/btrfs/kernel
