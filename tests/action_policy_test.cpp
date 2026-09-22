@@ -41,29 +41,29 @@ int main()
     }
 
     bool install_callback = false;
+    bool install_success = true;
     install_packages_async(
         {"definitely-not-catalogued"},
-        [&install_callback](const bool success, const std::string&) {
+        [&install_callback, &install_success](
+            const bool success, const std::string&) {
             install_callback = true;
-            if (success) {
-                std::abort();
-            }
+            install_success = success;
         });
-    if (!install_callback) {
-        return fail("invalid install did not fail synchronously");
+    if (!install_callback || install_success) {
+        return fail("invalid install was not denied synchronously");
     }
 
     bool module_callback = false;
+    bool module_success = true;
     load_module_async(
         "definitely-not-catalogued",
-        [&module_callback](const bool success, const std::string&) {
+        [&module_callback, &module_success](
+            const bool success, const std::string&) {
             module_callback = true;
-            if (success) {
-                std::abort();
-            }
+            module_success = success;
         });
-    if (!module_callback) {
-        return fail("invalid module action did not fail synchronously");
+    if (!module_callback || module_success) {
+        return fail("invalid module action was not denied synchronously");
     }
 
     const auto hfs_users = catalogue_entries_using_package("hfsprogs");
