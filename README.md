@@ -18,6 +18,9 @@ The complete, enumerated support contract is maintained in
 The long-term native implementation strategy is defined in
 [`docs/NATIVE_FILESYSTEM_VISION.md`](docs/NATIVE_FILESYSTEM_VISION.md). The target is a coherent suite of Infiltrator-owned filesystem implementations: native out-of-tree VFS modules for conventional local filesystems, without requiring a custom kernel, and a shared userspace storage service only for targets that are fundamentally high-level network/device protocols.
 
+The greenfield source architecture is defined in
+[`docs/NATIVE_CODE_ARCHITECTURE.md`](docs/NATIVE_CODE_ARCHITECTURE.md). The repository now contains the first compilable kernel/userspace-neutral native core, a Common-backed userspace I/O adapter, the `fsinspect` development harness and the Kbuild/module layout that future native filesystems will use.
+
 ## Safety and package policy
 
 - The GUI itself remains unprivileged.

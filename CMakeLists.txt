@@ -71,6 +71,34 @@ function(filesystem_support_configure target)
     endif()
 endfunction()
 
+# Greenfield native filesystem engine. These sources deliberately contain no
+# GTK/APT/FUSE policy and are suitable for later Kbuild compilation.
+add_library(infiltratr-fs-native-core STATIC
+    native/core/status.c
+    native/core/io.c
+    native/core/byte_reader.c
+    native/core/filesystem.c)
+target_include_directories(infiltratr-fs-native-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/include")
+target_link_libraries(infiltratr-fs-native-core
+    PUBLIC InfiltratrCommon::Portable)
+filesystem_support_configure(infiltratr-fs-native-core)
+
+add_library(infiltratr-fs-userspace STATIC
+    native/platform/userspace/file_io.c)
+target_include_directories(infiltratr-fs-userspace
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/native/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/native/platform/userspace")
+target_link_libraries(infiltratr-fs-userspace
+    PUBLIC infiltratr-fs-native-core InfiltratrCommon::Portable)
+filesystem_support_configure(infiltratr-fs-userspace)
+
+add_executable(fsinspect
+    tools/fsinspect/main.c)
+target_link_libraries(fsinspect PRIVATE infiltratr-fs-userspace)
+filesystem_support_configure(fsinspect)
+
 add_library(filesystem-support-core STATIC
     src/catalog.cpp
     src/probe.cpp)
@@ -110,6 +138,15 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-action-policy
         COMMAND filesystem-support-action-policy-test)
+
+    add_executable(filesystem-support-native-core-test
+        tests/native_core_test.c)
+    target_link_libraries(filesystem-support-native-core-test PRIVATE
+        infiltratr-fs-native-core)
+    filesystem_support_configure(filesystem-support-native-core-test)
+    add_test(
+        NAME filesystem-support-native-core
+        COMMAND filesystem-support-native-core-test)
 endif()
 
 set(CPACK_GENERATOR "DEB")

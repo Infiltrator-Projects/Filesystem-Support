@@ -486,3 +486,13 @@ attach media
 For high-level remote/device targets, success means the same coherent user experience through the shared Infiltrator storage service rather than a collection of unrelated tools.
 
 That is the architectural destination for the entire 104-target programme.
+
+
+## Source architecture
+
+The concrete greenfield source layout and dependency boundaries are defined in
+[`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md).
+
+That document is authoritative for how Common, the platform-neutral native
+engine, Linux VFS adapters, Defragmenter-derived engineering lessons and
+per-filesystem implementations are separated in code.
