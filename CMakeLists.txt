@@ -78,7 +78,7 @@ target_link_libraries(filesystem-support-core PUBLIC InfiltratrCommon::Portable 
 target_compile_definitions(filesystem-support-core PUBLIC FILESYSTEM_SUPPORT_VERSION="${PROJECT_VERSION}")
 filesystem_support_configure(filesystem-support-core)
 
-add_executable(filesystem-support src/main.cpp)
+add_executable(filesystem-support\n    src/main.cpp\n    src/installer.cpp)
 target_link_libraries(filesystem-support PRIVATE filesystem-support-core InfiltratrCommon::Portable PkgConfig::GTK3)
 filesystem_support_configure(filesystem-support)
 
