@@ -26,8 +26,8 @@ int main(int argc, char** argv)
         return fail("catalogue validation failed");
     }
 
-    if (catalog().size() < 100U) {
-        return fail("expanded Debian catalogue contains fewer than 100 entries");
+    if (catalog().size() != 106U) {
+        return fail("catalogue size is not the documented 106 entries");
     }
 
     bool found_affs = false;
@@ -139,7 +139,7 @@ int main(int argc, char** argv)
     if (hfs_uses_removed_package) {
         return fail("HFS still references hfsutils, which is not in Debian trixie stable");
     }
-    if (kernel_only != 17U || kernel_with_userspace != 27U ||
+    if (kernel_only != 17U || kernel_with_userspace != 29U ||
         dkms != 3U || userspace != 53U || tools_only != 4U) {
         return fail("support-provider classification counts changed unexpectedly");
     }
