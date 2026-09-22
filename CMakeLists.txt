@@ -57,6 +57,7 @@ add_subdirectory("${INFILTRATR_COMMON_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/infiltr
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLIB2 REQUIRED IMPORTED_TARGET glib-2.0)
+pkg_check_modules(GIO2 REQUIRED IMPORTED_TARGET gio-2.0)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0>=3.22)
 
 set(FILESYSTEM_SUPPORT_WARNING_FLAGS -Wall -Wextra -Wpedantic -Wshadow)
@@ -78,10 +79,15 @@ target_link_libraries(filesystem-support-core PUBLIC InfiltratrCommon::Portable 
 target_compile_definitions(filesystem-support-core PUBLIC FILESYSTEM_SUPPORT_VERSION="${PROJECT_VERSION}")
 filesystem_support_configure(filesystem-support-core)
 
-add_executable(filesystem-support
-    src/main.cpp
+add_library(filesystem-support-actions STATIC
     src/installer.cpp)
-target_link_libraries(filesystem-support PRIVATE filesystem-support-core InfiltratrCommon::Portable PkgConfig::GTK3)
+target_include_directories(filesystem-support-actions PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(filesystem-support-actions PUBLIC filesystem-support-core PkgConfig::GIO2)
+filesystem_support_configure(filesystem-support-actions)
+
+add_executable(filesystem-support
+    src/main.cpp)
+target_link_libraries(filesystem-support PRIVATE filesystem-support-actions InfiltratrCommon::Portable PkgConfig::GTK3)
 filesystem_support_configure(filesystem-support)
 
 install(TARGETS filesystem-support RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
@@ -95,6 +101,15 @@ if(BUILD_TESTING)
         NAME filesystem-support-catalog
         COMMAND filesystem-support-catalog-test
                 "${CMAKE_CURRENT_SOURCE_DIR}/docs/FILESYSTEM_SUPPORT_MATRIX.md")
+
+    add_executable(filesystem-support-action-policy-test
+        tests/action_policy_test.cpp)
+    target_link_libraries(filesystem-support-action-policy-test PRIVATE
+        filesystem-support-actions)
+    filesystem_support_configure(filesystem-support-action-policy-test)
+    add_test(
+        NAME filesystem-support-action-policy
+        COMMAND filesystem-support-action-policy-test)
 endif()
 
 set(CPACK_GENERATOR "DEB")
