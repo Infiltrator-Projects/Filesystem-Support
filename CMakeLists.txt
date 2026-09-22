@@ -91,7 +91,7 @@ target_include_directories(infiltratr-fs-userspace
         "${CMAKE_CURRENT_SOURCE_DIR}/native/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/native/platform/userspace")
 target_link_libraries(infiltratr-fs-userspace
-    PUBLIC infiltratr-fs-native-core InfiltratrCommon::Portable)
+    PUBLIC infiltratr-fs-native-core InfiltratrCommon::Common)
 filesystem_support_configure(infiltratr-fs-userspace)
 
 add_executable(fsinspect
