@@ -59,6 +59,7 @@ jobs:
           copy_jbd2() {
             local destination="$1"
             copy_tree fs/jbd2 "$destination"
+            sed -i 's/obj-$(CONFIG_JBD2) += jbd2.o/obj-m += jbd2.o/' "$destination/Makefile"
             mkdir -p "$destination/include/linux" "$destination/include/trace/events"
             git -C /tmp/linux show HEAD:include/linux/jbd2.h > "$destination/include/linux/jbd2.h"
             git -C /tmp/linux show HEAD:include/trace/events/jbd2.h > "$destination/include/trace/events/jbd2.h"
@@ -70,6 +71,7 @@ jobs:
           rm -rf native/filesystems/ext
 
           copy_tree fs/ext2 native/filesystems/ext2/kernel
+          sed -i 's/obj-$(CONFIG_EXT2_FS) += ext2.o/obj-m += ext2.o/' native/filesystems/ext2/kernel/Makefile
           copy_mbcache native/filesystems/ext2/support/mbcache
 
           copy_tree fs/ext4 native/filesystems/ext3/kernel
@@ -94,6 +96,7 @@ jobs:
           perl -0pi -e 's/\tunregister_as_ext2\(\);\n\tunregister_as_ext3\(\);\n\tunregister_filesystem\(&ext4_fs_type\);/\tunregister_filesystem\(&ext3_fs_type\);/g' native/filesystems/ext3/kernel/super.c
           sed -i '/MODULE_ALIAS_FS("ext4");/d' native/filesystems/ext3/kernel/super.c
           sed -i 's/MODULE_DESCRIPTION("Fourth Extended Filesystem")/MODULE_DESCRIPTION("Third Extended Filesystem")/' native/filesystems/ext3/kernel/super.c
+          sed -i '/ext4-inode-test-objs/d; /CONFIG_EXT4_KUNIT_TESTS/d' native/filesystems/ext3/kernel/Makefile
 
           copy_tree fs/ext4 native/filesystems/ext4/kernel
           copy_jbd2 native/filesystems/ext4/support/jbd2
@@ -104,6 +107,8 @@ jobs:
           perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\nstatic inline void register_as_ext3\(void\).*?static inline int ext3_feature_set_ok\(struct super_block \*sb\)\n\{.*?\n\}/static inline int ext2_feature_set_ok(struct super_block *sb) { return 0; }\nstatic inline int ext3_feature_set_ok(struct super_block *sb) { return 0; }/s' native/filesystems/ext4/kernel/super.c
           sed -i '/^[[:space:]]*register_as_ext3();$/d; /^[[:space:]]*register_as_ext2();$/d; /^[[:space:]]*unregister_as_ext3();$/d; /^[[:space:]]*unregister_as_ext2();$/d' native/filesystems/ext4/kernel/super.c
           sed -i '/MODULE_ALIAS_FS("ext3");/d; /MODULE_ALIAS("ext3");/d' native/filesystems/ext4/kernel/super.c
+          sed -i 's/obj-$(CONFIG_EXT4_FS) += ext4.o/obj-m += ext4.o/' native/filesystems/ext4/kernel/Makefile
+          sed -i '/ext4-inode-test-objs/d; /CONFIG_EXT4_KUNIT_TESTS/d' native/filesystems/ext4/kernel/Makefile
           copy_tree fs/xfs native/filesystems/xfs/kernel
           copy_tree fs/btrfs native/filesystems/btrfs/kernel
           copy_tree fs/f2fs native/filesystems/f2fs/kernel
