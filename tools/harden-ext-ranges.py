@@ -21,6 +21,16 @@ def replace_once(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new), encoding="utf-8")
 
 
+def replace_exact(path: Path, old: str, new: str, expected: int) -> None:
+    text = path.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count != expected:
+        raise RuntimeError(
+            f"{path}: expected {expected} matches, found {count}"
+        )
+    path.write_text(text.replace(old, new), encoding="utf-8")
+
+
 # EXT2: validate the half-open block range before constructing its inclusive
 # endpoint.  This is the same subtraction-first contract Common uses for
 # bounded positioned I/O.
@@ -271,21 +281,14 @@ replace_once(
 # overflow before allocation. Kernel code expresses the same contract through
 # the Linux array-allocation and overflow helpers instead of linking the
 # userspace Common library into a .ko.
-replace_once(
+replace_exact(
     ROOT / "ext3/kernel/jbd_journal.c",
     """\tjournal->j_wbuf = kmalloc(n * sizeof(struct buffer_head*), GFP_KERNEL);
 """,
     """\tjournal->j_wbuf = kmalloc_array(n, sizeof(struct buffer_head *),
 \t\t\t\t\t GFP_KERNEL);
 """,
-)
-replace_once(
-    ROOT / "ext3/kernel/jbd_journal.c",
-    """\tjournal->j_wbuf = kmalloc(n * sizeof(struct buffer_head*), GFP_KERNEL);
-""",
-    """\tjournal->j_wbuf = kmalloc_array(n, sizeof(struct buffer_head *),
-\t\t\t\t\t GFP_KERNEL);
-""",
+    2,
 )
 
 replace_once(
@@ -347,7 +350,7 @@ replace_once(
 """,
 )
 
-replace_once(
+replace_exact(
     ROOT / "ext4/kernel/resize.c",
     """\tn_group_desc = kvmalloc((gdb_num + 1) * sizeof(struct buffer_head *),
 \t\t\t\tGFP_KERNEL);
@@ -355,15 +358,7 @@ replace_once(
     """\tn_group_desc = kvmalloc_array(gdb_num + 1,
 \t\t\t\t      sizeof(struct buffer_head *), GFP_KERNEL);
 """,
-)
-replace_once(
-    ROOT / "ext4/kernel/resize.c",
-    """\tn_group_desc = kvmalloc((gdb_num + 1) * sizeof(struct buffer_head *),
-\t\t\t\tGFP_KERNEL);
-""",
-    """\tn_group_desc = kvmalloc_array(gdb_num + 1,
-\t\t\t\t      sizeof(struct buffer_head *), GFP_KERNEL);
-""",
+    2,
 )
 
 replace_once(
