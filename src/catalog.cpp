@@ -49,9 +49,15 @@ const std::vector<FilesystemDescriptor>& catalog()
 {
     static const std::vector<FilesystemDescriptor> entries = {
         // Native and mainstream Linux filesystems.
-        {"ext", "EXT2 / EXT3 / EXT4", "Linux",
-         "Linux extended filesystem family.",
-         {"ext4"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"The ext4 driver handles the modern family; e2fsprogs supplies creation, checking and administration tools."},
+        {"ext2", "EXT2", "Linux",
+         "Second Extended Filesystem.",
+         {"ext2"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"Independent EXT2 source tree and module target."},
+        {"ext3", "EXT3", "Linux",
+         "Third Extended Filesystem.",
+         {"ext3"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"Independent EXT3 source tree derived from the modern Linux EXT implementation and kept separate from EXT4."},
+        {"ext4", "EXT4", "Linux",
+         "Fourth Extended Filesystem.",
+         {"ext4"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"Independent EXT4 source tree and module target."},
         {"xfs", "SGI XFS", "Unix / Linux",
          "High-performance journaling filesystem originally developed by Silicon Graphics.",
          {"xfs"}, {"xfsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,""},
