@@ -1,0 +1,108 @@
+name: Import Linux filesystem drivers
+
+on:
+  push:
+    paths:
+      - .github/import-linux-drivers.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Filesystem Support
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch pinned Linux filesystem sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout --depth 1 --branch v6.12.107 \
+            https://github.com/gregkh/linux.git /tmp/linux
+          git -C /tmp/linux sparse-checkout init --cone
+          git -C /tmp/linux sparse-checkout set \
+            fs/ext4 fs/xfs fs/btrfs fs/f2fs fs/jfs fs/nilfs2 fs/reiserfs \
+            fs/erofs fs/minix fs/romfs fs/cramfs fs/squashfs fs/bcachefs \
+            fs/overlayfs fs/ecryptfs fs/jffs2 fs/ubifs fs/zonefs fs/gfs2 \
+            fs/ocfs2 fs/adfs fs/affs fs/befs fs/bfs fs/efs fs/hpfs fs/qnx4 \
+            fs/qnx6 fs/sysv fs/ufs fs/omfs fs/fat fs/exfat fs/ntfs3 fs/hfs \
+            fs/hfsplus fs/isofs fs/udf fs/fuse fs/smb/client fs/smb/common \
+            fs/nfs fs/ceph fs/9p fs/orangefs
+          git -C /tmp/linux checkout
+
+      - name: Copy working driver sources into active native trees
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          copy_tree() {
+            local source_path="$1"
+            local destination="$2"
+            rm -rf "$destination"
+            mkdir -p "$destination"
+            cp -a "/tmp/linux/$source_path/." "$destination/"
+          }
+
+          copy_tree fs/ext4 native/filesystems/ext/kernel
+          copy_tree fs/xfs native/filesystems/xfs/kernel
+          copy_tree fs/btrfs native/filesystems/btrfs/kernel
+          copy_tree fs/f2fs native/filesystems/f2fs/kernel
+          copy_tree fs/jfs native/filesystems/jfs/kernel
+          copy_tree fs/nilfs2 native/filesystems/nilfs2/kernel
+          copy_tree fs/reiserfs native/filesystems/reiserfs/kernel
+          copy_tree fs/erofs native/filesystems/erofs/kernel
+          copy_tree fs/minix native/filesystems/minix/kernel
+          copy_tree fs/romfs native/filesystems/romfs/kernel
+          copy_tree fs/cramfs native/filesystems/cramfs/kernel
+          copy_tree fs/squashfs native/filesystems/squashfs/kernel
+          copy_tree fs/bcachefs native/filesystems/bcachefs/kernel
+          copy_tree fs/overlayfs native/filesystems/overlayfs/kernel
+          copy_tree fs/ecryptfs native/filesystems/ecryptfs/kernel
+          copy_tree fs/jffs2 native/filesystems/jffs2/kernel
+          copy_tree fs/ubifs native/filesystems/ubifs/kernel
+          copy_tree fs/zonefs native/filesystems/zonefs/kernel
+          copy_tree fs/gfs2 native/filesystems/gfs2/kernel
+          copy_tree fs/ocfs2 native/filesystems/ocfs2/kernel
+          copy_tree fs/adfs native/filesystems/adfs/kernel
+          copy_tree fs/affs native/filesystems/affs/kernel
+          copy_tree fs/befs native/filesystems/befs/kernel
+          copy_tree fs/bfs native/filesystems/bfs/kernel
+          copy_tree fs/efs native/filesystems/efs/kernel
+          copy_tree fs/hpfs native/filesystems/hpfs/kernel
+          copy_tree fs/qnx4 native/filesystems/qnx4/kernel
+          copy_tree fs/qnx6 native/filesystems/qnx6/kernel
+          copy_tree fs/sysv native/filesystems/sysv/kernel
+          copy_tree fs/ufs native/filesystems/ufs/kernel
+          copy_tree fs/omfs native/filesystems/omfs/kernel
+          copy_tree fs/fat native/filesystems/fat/kernel
+          copy_tree fs/exfat native/filesystems/exfat/kernel
+          copy_tree fs/ntfs3 native/filesystems/ntfs3/kernel
+          copy_tree fs/hfs native/filesystems/hfs/kernel
+          copy_tree fs/hfsplus native/filesystems/hfsplus/kernel
+          copy_tree fs/isofs native/filesystems/iso9660/kernel
+          copy_tree fs/udf native/filesystems/udf/kernel
+          copy_tree fs/fuse native/filesystems/virtiofs/kernel
+          rm -rf native/filesystems/cifs/kernel
+          mkdir -p native/filesystems/cifs/kernel
+          cp -a /tmp/linux/fs/smb/client native/filesystems/cifs/kernel/client
+          cp -a /tmp/linux/fs/smb/common native/filesystems/cifs/kernel/common
+          copy_tree fs/nfs native/filesystems/nfs/kernel
+          copy_tree fs/ceph native/filesystems/cephfs/kernel
+          copy_tree fs/9p native/filesystems/9p/kernel
+          copy_tree fs/orangefs native/filesystems/orangefs/kernel
+
+      - name: Commit imported sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/import-linux-drivers.trigger
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "Import working Linux filesystem driver sources"
+          git push origin HEAD:main
