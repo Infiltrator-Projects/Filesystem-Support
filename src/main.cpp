@@ -91,7 +91,7 @@ const char* install_label(const fs::FilesystemDescriptor& descriptor)
     case fs::SupportProvider::Dkms:
         return "Install support";
     case fs::SupportProvider::KernelWithUserspace:
-        return "Install tools";
+        return "Install userspace";
     case fs::SupportProvider::ToolsOnly:
         return "Install tools";
     case fs::SupportProvider::Kernel:
@@ -107,7 +107,7 @@ const char* remove_label(const fs::FilesystemDescriptor& descriptor)
     case fs::SupportProvider::Dkms:
         return "Remove support";
     case fs::SupportProvider::KernelWithUserspace:
-        return "Remove tools";
+        return "Remove userspace";
     case fs::SupportProvider::ToolsOnly:
         return "Remove tools";
     case fs::SupportProvider::Kernel:
@@ -296,6 +296,17 @@ void package_clicked(GtkButton*, gpointer user_data)
                         message);
                 }
             });
+        return;
+    }
+
+    if (row->descriptor->provider == fs::SupportProvider::Dkms &&
+        row->probe.kernel_state == fs::KernelState::LoadableLoaded) {
+        show_message(
+            GTK_WINDOW(row->app->window),
+            GTK_MESSAGE_WARNING,
+            "Unload module first",
+            "The DKMS driver is currently loaded. Unload the kernel module "
+            "before removing its Debian driver package.");
         return;
     }
 
