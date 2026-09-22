@@ -34,3 +34,12 @@ The application separates its filesystem catalogue, read-only support probing, i
 ## Licence
 
 GPL-3.0-or-later.
+
+## Releases
+
+A successful release commit publishes a GitHub release with:
+
+- `Filesystem-Support-<version>-amd64.deb`
+- `Filesystem-Support-<version>-amd64.run`
+- `RELEASE_SHA256SUMS.txt`
+- GitHub's immutable source ZIP and TAR.GZ archives for the release tag.

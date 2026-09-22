@@ -1,0 +1,145 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Publish release
+
+on:
+  workflow_run:
+    workflows: ["build"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      startsWith(github.event.workflow_run.head_commit.message, 'Release ')
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Check out exact tested release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install release build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             build-essential cmake ninja-build pkg-config libgtk-3-dev             dpkg-dev policykit-1
+
+      - name: Verify release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          head_commit=$(git rev-parse HEAD)
+          main_commit=$(git rev-parse origin/main)
+          test "$head_commit" = "$EXPECTED_SHA"
+          test "$main_commit" = "$EXPECTED_SHA"
+
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ "$version" =~ ^[0-9]+.[0-9]+.[0-9]+$ ]]
+
+          subject=$(git log -1 --format=%s "$head_commit")
+          if [[ "$subject" != "Release $version" && "$subject" != "Release $version:"* ]]; then
+            echo "Release commit subject must begin with Release $version." >&2
+            exit 1
+          fi
+
+      - name: Configure, build and test
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-release -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build build-release
+          ctest --test-dir build-release --output-on-failure
+
+      - name: Build Debian package
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          cpack --config build-release/CPackConfig.cmake -G DEB -B dist
+          deb="dist/Filesystem-Support-$version-amd64.deb"
+          test -f "$deb"
+          test "$(dpkg-deb -f "$deb" Package)" = "infiltrator-filesystem-support"
+          test "$(dpkg-deb -f "$deb" Version)" = "$version"
+          cp "$deb" .
+
+      - name: Build native run installer
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          ./packaging/build-run.sh             build-release/filesystem-support             "Filesystem-Support-$version-amd64.run"
+          test -x "Filesystem-Support-$version-amd64.run"
+          "./Filesystem-Support-$version-amd64.run" --help >/dev/null
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          sha256sum             "Filesystem-Support-$version-amd64.deb"             "Filesystem-Support-$version-amd64.run"             > RELEASE_SHA256SUMS.txt
+
+      - name: Publish immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          tag="v$version"
+          deb="Filesystem-Support-$version-amd64.deb"
+          run="Filesystem-Support-$version-amd64.run"
+
+          git fetch origin main --tags
+          head_commit=$(git rev-parse HEAD)
+          main_commit=$(git rev-parse origin/main)
+          test "$head_commit" = "$EXPECTED_SHA"
+          test "$main_commit" = "$EXPECTED_SHA"
+
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            tag_commit=$(git rev-list -n 1 "$tag")
+            test "$tag_commit" = "$EXPECTED_SHA" || {
+              echo "Tag $tag does not point at the tested release commit." >&2
+              exit 1
+            }
+          else
+            git tag "$tag" "$EXPECTED_SHA"
+            git push origin "$tag"
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; published releases are immutable." >&2
+            exit 1
+          fi
+
+          cat > release-notes.md <<EOF
+Filesystem Support $version.
+
+Debian-first filesystem support manager with 104 filesystem and storage-namespace implementations catalogued.
+
+Release assets:
+- Generic AMD64 Debian package
+- Native self-extracting .run installer
+- SHA-256 checksum manifest
+
+GitHub also provides immutable source code ZIP and TAR.GZ archives for this tag.
+EOF
+
+          gh release create "$tag"             "$deb"             "$run"             RELEASE_SHA256SUMS.txt             --verify-tag             --target "$EXPECTED_SHA"             --title "Filesystem Support $version"             --notes-file release-notes.md             --latest
+
+          expected=$(printf '%s\n%s\n%s\n' "$deb" "$run" RELEASE_SHA256SUMS.txt | sort)
+          actual=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
+          test "$actual" = "$expected"
