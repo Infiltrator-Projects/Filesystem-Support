@@ -48,6 +48,21 @@ def replace_once_or_accept(
     )
 
 
+def ensure_after_once(path: Path, anchor: str, insertion: str) -> None:
+    """Ensure one invariant fragment follows a unique stable anchor."""
+    text = path.read_text(encoding="utf-8")
+    if insertion in text:
+        return
+    count = text.count(anchor)
+    if count != 1:
+        raise RuntimeError(
+            f"{path}: expected one insertion anchor, found {count}"
+        )
+    path.write_text(
+        text.replace(anchor, anchor + insertion), encoding="utf-8"
+    )
+
+
 # EXT2: validate the half-open block range before constructing its inclusive
 # endpoint.  This is the same subtraction-first contract Common uses for
 # bounded positioned I/O.
@@ -383,17 +398,11 @@ replace_exact(
     2,
 )
 
-replace_once(
+ensure_after_once(
     ROOT / "ext4/kernel/fast_commit.c",
     """#include "mballoc.h"
-
-
-#include <trace/events/ext4.h>
 """,
-    """#include "mballoc.h"
-
-#include <linux/overflow.h>
-#include <trace/events/ext4.h>
+    """#include <linux/overflow.h>
 """,
 )
 
