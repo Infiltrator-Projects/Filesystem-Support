@@ -126,17 +126,17 @@ jobs:
           fi
 
           cat > release-notes.md <<EOF
-Filesystem Support $version.
+          Filesystem Support $version.
 
-Debian-first filesystem support manager with 104 filesystem and storage-namespace implementations catalogued.
+          Debian-first filesystem support manager with 104 filesystem and storage-namespace implementations catalogued.
 
-Release assets:
-- Generic AMD64 Debian package
-- Native self-extracting .run installer
-- SHA-256 checksum manifest
+          Release assets:
+          - Generic AMD64 Debian package
+          - Native self-extracting .run installer
+          - SHA-256 checksum manifest
 
-GitHub also provides immutable source code ZIP and TAR.GZ archives for this tag.
-EOF
+          GitHub also provides immutable source code ZIP and TAR.GZ archives for this tag.
+          EOF
 
           gh release create "$tag"             "$deb"             "$run"             RELEASE_SHA256SUMS.txt             --verify-tag             --target "$EXPECTED_SHA"             --title "Filesystem Support $version"             --notes-file release-notes.md             --latest
 
