@@ -44,6 +44,11 @@ int main(int argc, char** argv)
     bool found_fosfat = false;
     bool found_moosefs = false;
     bool hfs_uses_removed_package = false;
+    std::size_t kernel_only = 0U;
+    std::size_t kernel_with_userspace = 0U;
+    std::size_t dkms = 0U;
+    std::size_t userspace = 0U;
+    std::size_t tools_only = 0U;
 
     for (const auto& entry : catalog()) {
         if (entry.id == std::string_view("affs")) {
@@ -74,6 +79,39 @@ int main(int argc, char** argv)
             found_moosefs = true;
         }
 
+        switch (entry.provider) {
+        case filesystem_support::SupportProvider::Kernel:
+            ++kernel_only;
+            if (entry.modules.empty() || !entry.packages.empty()) {
+                return fail("kernel-only provider classification is inconsistent");
+            }
+            break;
+        case filesystem_support::SupportProvider::KernelWithUserspace:
+            ++kernel_with_userspace;
+            if (entry.modules.empty() || entry.packages.empty()) {
+                return fail("kernel/userspace provider classification is inconsistent");
+            }
+            break;
+        case filesystem_support::SupportProvider::Dkms:
+            ++dkms;
+            if (entry.modules.empty() || entry.packages.empty()) {
+                return fail("DKMS provider classification is inconsistent");
+            }
+            break;
+        case filesystem_support::SupportProvider::Userspace:
+            ++userspace;
+            if (!entry.modules.empty() || entry.packages.empty()) {
+                return fail("userspace provider classification is inconsistent");
+            }
+            break;
+        case filesystem_support::SupportProvider::ToolsOnly:
+            ++tools_only;
+            if (!entry.modules.empty() || entry.packages.empty()) {
+                return fail("tools-only provider classification is inconsistent");
+            }
+            break;
+        }
+
         if (entry.id == std::string_view("hfs")) {
             for (const auto package : entry.packages) {
                 if (package == std::string_view("hfsutils")) {
@@ -100,6 +138,18 @@ int main(int argc, char** argv)
     }
     if (hfs_uses_removed_package) {
         return fail("HFS still references hfsutils, which is not in Debian trixie stable");
+    }
+    if (kernel_only != 17U || kernel_with_userspace != 27U ||
+        dkms != 3U || userspace != 53U || tools_only != 4U) {
+        return fail("support-provider classification counts changed unexpectedly");
+    }
+    if (!filesystem_support::package_is_catalogued("zfs-dkms") ||
+        filesystem_support::package_is_catalogued("definitely-not-a-package")) {
+        return fail("catalogue package allowlist is inconsistent");
+    }
+    if (!filesystem_support::module_is_catalogued("affs") ||
+        filesystem_support::module_is_catalogued("definitely-not-a-module")) {
+        return fail("catalogue module allowlist is inconsistent");
     }
 
     if (argc != 2) {
