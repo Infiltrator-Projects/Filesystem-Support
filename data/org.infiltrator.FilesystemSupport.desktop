@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Filesystem Support
+Comment=Discover and install filesystem support
+Exec=filesystem-support
+Icon=drive-harddisk
+Terminal=false
+Categories=System;Settings;
+Keywords=filesystem;disk;format;mount;xfs;btrfs;zfs;amiga;hfs;
+StartupNotify=true
