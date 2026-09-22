@@ -15,6 +15,14 @@ enum class AccessMode {
     Experimental
 };
 
+enum class SupportProvider {
+    Kernel,
+    KernelWithUserspace,
+    Dkms,
+    Userspace,
+    ToolsOnly
+};
+
 struct FilesystemDescriptor {
     std::string_view id;
     std::string_view name;
@@ -23,11 +31,17 @@ struct FilesystemDescriptor {
     std::vector<std::string_view> modules;
     std::vector<std::string_view> packages;
     AccessMode access;
+    SupportProvider provider;
     std::string_view note;
 };
 
 const std::vector<FilesystemDescriptor>& catalog();
 const char* access_mode_label(AccessMode mode);
+const char* support_provider_label(SupportProvider provider);
+bool package_is_catalogued(std::string_view package);
+bool module_is_catalogued(std::string_view module);
+std::vector<std::string_view> catalogue_entries_using_package(
+    std::string_view package);
 bool catalog_is_valid();
 
 } // namespace filesystem_support
