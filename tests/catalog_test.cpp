@@ -23,8 +23,8 @@ int main()
         return fail("catalogue validation failed");
     }
 
-    if (catalog().size() < 70U) {
-        return fail("expanded Debian catalogue contains fewer than 70 entries");
+    if (catalog().size() < 85U) {
+        return fail("expanded Debian catalogue contains fewer than 85 entries");
     }
 
     bool found_affs = false;
