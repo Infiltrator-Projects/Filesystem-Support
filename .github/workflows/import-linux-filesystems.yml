@@ -100,14 +100,14 @@ jobs:
             embed_mbcache "$destination"
             printf '%s\n' \
               '' \
-              '# Infiltrator: mbcache is linked into ext2.ko; no mbcache.ko is produced.' \
-              'ext2-y += mbcache.o' \
+              '# Infiltrator: mbcache is part of ext2.ko only when EXT2 xattrs are enabled.' \
+              'ext2-$(CONFIG_EXT2_FS_XATTR) += mbcache.o' \
               'ccflags-y += -I$(src)/include' \
               >> "$destination/Makefile"
 
             perl -0pi -e 's/static int __init init_ext2_fs\(void\)/static int __init ext2_core_init_fs(void)/' "$destination/super.c"
             perl -0pi -e 's/static void __exit exit_ext2_fs\(void\)/static void __exit ext2_core_exit_fs(void)/' "$destination/super.c"
-            perl -0pi -e 's/module_init\(init_ext2_fs\)\nmodule_exit\(exit_ext2_fs\)/int infiltratr_mbcache_init(void);\nvoid infiltratr_mbcache_exit(void);\n\nstatic int __init init_ext2_fs(void)\n{\n\tint err = infiltratr_mbcache_init();\n\tif (err)\n\t\treturn err;\n\terr = ext2_core_init_fs();\n\tif (err)\n\t\tinfiltratr_mbcache_exit();\n\treturn err;\n}\n\nstatic void __exit exit_ext2_fs(void)\n{\n\text2_core_exit_fs();\n\tinfiltratr_mbcache_exit();\n}\n\nmodule_init(init_ext2_fs)\nmodule_exit(exit_ext2_fs)/s' "$destination/super.c"
+            perl -0pi -e 's/module_init\(init_ext2_fs\)\nmodule_exit\(exit_ext2_fs\)/#ifdef CONFIG_EXT2_FS_XATTR\nint infiltratr_mbcache_init(void);\nvoid infiltratr_mbcache_exit(void);\nstatic int ext2_mbcache_init(void) { return infiltratr_mbcache_init(); }\nstatic void ext2_mbcache_exit(void) { infiltratr_mbcache_exit(); }\n#else\nstatic int ext2_mbcache_init(void) { return 0; }\nstatic void ext2_mbcache_exit(void) { }\n#endif\n\nstatic int __init init_ext2_fs(void)\n{\n\tint err = ext2_mbcache_init();\n\tif (err)\n\t\treturn err;\n\terr = ext2_core_init_fs();\n\tif (err)\n\t\text2_mbcache_exit();\n\treturn err;\n}\n\nstatic void __exit exit_ext2_fs(void)\n{\n\text2_core_exit_fs();\n\text2_mbcache_exit();\n}\n\nmodule_init(init_ext2_fs)\nmodule_exit(exit_ext2_fs)/s' "$destination/super.c"
           }
 
           add_ext34_embedded_support() {
@@ -148,8 +148,46 @@ jobs:
           rm -rf native/filesystems/ext2/support native/filesystems/ext3/support native/filesystems/ext4/support
 
           copy_tree fs/ext2 native/filesystems/ext2/kernel
-          sed -i 's/obj-$(CONFIG_EXT2_FS) += ext2.o/obj-m += ext2.o/' native/filesystems/ext2/kernel/Makefile
+
+          # EXT2 is intentionally strict and self-contained. Remove upstream
+          # integration/debug material that is not part of the filesystem
+          # implementation we are carrying.
+          rm -f \
+            native/filesystems/ext2/kernel/Kconfig \
+            native/filesystems/ext2/kernel/trace.c \
+            native/filesystems/ext2/kernel/trace.h
+
+          sed -i \
+            -e 's/ symlink.o trace.o/ symlink.o/' \
+            -e '/For tracepoints to include our trace.h/d' \
+            -e '/^CFLAGS_trace.o/d' \
+            -e 's/obj-$(CONFIG_EXT2_FS) += ext2.o/obj-m += ext2.o/' \
+            native/filesystems/ext2/kernel/Makefile
+
+          sed -i \
+            -e '/#include "trace.h"/d' \
+            -e '/trace_ext2_dio_/d' \
+            native/filesystems/ext2/kernel/file.c
+
+          perl -0pi -e 's/\n    \/\* Not used by ext2, but reserved for use by ext3 \*\/\n#define EXT3_DEFM_JMODE\s+0x0060\s*\n#define EXT3_DEFM_JMODE_DATA\s+0x0020\s*\n#define EXT3_DEFM_JMODE_ORDERED\s+0x0040\s*\n#define EXT3_DEFM_JMODE_WBACK\s+0x0060\s*\n/\n/s' \
+            native/filesystems/ext2/kernel/ext2.h
+
+          perl -0pi -e 's/(features = EXT2_HAS_INCOMPAT_FEATURE\(sb, ~EXT2_FEATURE_INCOMPAT_SUPP\);\n\tif \(features\) \{.*?\n\t\}\n)/$1\tif (EXT2_HAS_COMPAT_FEATURE(sb, EXT3_FEATURE_COMPAT_HAS_JOURNAL)) {\n\t\text2_msg(sb, KERN_ERR, "error: journalled filesystem is not EXT2");\n\t\tgoto failed_mount;\n\t}\n/s' \
+            native/filesystems/ext2/kernel/super.c
+          perl -0pi -e 's/\n\tif \(EXT2_HAS_COMPAT_FEATURE\(sb, EXT3_FEATURE_COMPAT_HAS_JOURNAL\)\)\n\t\text2_msg\(sb, KERN_WARNING,\n\t\t\t"warning: mounting ext3 filesystem as ext2"\);//s' \
+            native/filesystems/ext2/kernel/super.c
+
           add_ext2_embedded_support native/filesystems/ext2/kernel
+
+          # Forensic invariants: EXT2 must remain only EXT2.
+          test ! -e native/filesystems/ext2/kernel/Kconfig
+          test ! -e native/filesystems/ext2/kernel/trace.c
+          test ! -e native/filesystems/ext2/kernel/trace.h
+          ! grep -R -n 'trace_ext2_dio_' native/filesystems/ext2/kernel
+          ! grep -R -n 'EXT3_DEFM_JMODE' native/filesystems/ext2/kernel
+          grep -Fq 'error: journalled filesystem is not EXT2' native/filesystems/ext2/kernel/super.c
+          grep -Fq 'ext2-$(CONFIG_EXT2_FS_XATTR) += mbcache.o' native/filesystems/ext2/kernel/Makefile
+          ! grep -Fq 'ext2-y += mbcache.o' native/filesystems/ext2/kernel/Makefile
 
           copy_tree fs/ext4 native/filesystems/ext3/kernel
           # Remove EXT2 registration from the EXT3 copy and remove the EXT4
