@@ -130,32 +130,8 @@ static const struct fs_context_operations ext4_context_ops = {
 };
 
 
-#if !defined(CONFIG_EXT2_FS) && !defined(CONFIG_EXT2_FS_MODULE) && defined(CONFIG_EXT4_USE_FOR_EXT2)
-static struct file_system_type ext2_fs_type = {
-	.owner			= THIS_MODULE,
-	.name			= "ext2",
-	.init_fs_context	= ext4_init_fs_context,
-	.parameters		= ext4_param_specs,
-	.kill_sb		= ext4_kill_sb,
-	.fs_flags		= FS_REQUIRES_DEV,
-};
-MODULE_ALIAS_FS("ext2");
-MODULE_ALIAS("ext2");
-#define IS_EXT2_SB(sb) ((sb)->s_type == &ext2_fs_type)
-#else
 #define IS_EXT2_SB(sb) (0)
-#endif
-
-
-static struct file_system_type ext3_fs_type = {
-	.owner			= THIS_MODULE,
-	.name			= "ext3",
-	.init_fs_context	= ext4_init_fs_context,
-	.parameters		= ext4_param_specs,
-	.kill_sb		= ext4_kill_sb,
-	.fs_flags		= FS_REQUIRES_DEV,
-};
-#define IS_EXT3_SB(sb) ((sb)->s_type == &ext3_fs_type)
+#define IS_EXT3_SB(sb) (0)
 
 
 static inline void __ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
@@ -7309,61 +7285,8 @@ out:
 }
 #endif
 
-#if !defined(CONFIG_EXT2_FS) && !defined(CONFIG_EXT2_FS_MODULE) && defined(CONFIG_EXT4_USE_FOR_EXT2)
-static inline void register_as_ext2(void)
-{
-	int err = register_filesystem(&ext2_fs_type);
-	if (err)
-		printk(KERN_WARNING
-		       "EXT4-fs: Unable to register as ext2 (%d)\n", err);
-}
-
-static inline void unregister_as_ext2(void)
-{
-	unregister_filesystem(&ext2_fs_type);
-}
-
-static inline int ext2_feature_set_ok(struct super_block *sb)
-{
-	if (ext4_has_unknown_ext2_incompat_features(sb))
-		return 0;
-	if (sb_rdonly(sb))
-		return 1;
-	if (ext4_has_unknown_ext2_ro_compat_features(sb))
-		return 0;
-	return 1;
-}
-#else
-static inline void register_as_ext2(void) { }
-static inline void unregister_as_ext2(void) { }
 static inline int ext2_feature_set_ok(struct super_block *sb) { return 0; }
-#endif
-
-static inline void register_as_ext3(void)
-{
-	int err = register_filesystem(&ext3_fs_type);
-	if (err)
-		printk(KERN_WARNING
-		       "EXT4-fs: Unable to register as ext3 (%d)\n", err);
-}
-
-static inline void unregister_as_ext3(void)
-{
-	unregister_filesystem(&ext3_fs_type);
-}
-
-static inline int ext3_feature_set_ok(struct super_block *sb)
-{
-	if (ext4_has_unknown_ext3_incompat_features(sb))
-		return 0;
-	if (!ext4_has_feature_journal(sb))
-		return 0;
-	if (sb_rdonly(sb))
-		return 1;
-	if (ext4_has_unknown_ext3_ro_compat_features(sb))
-		return 0;
-	return 1;
-}
+static inline int ext3_feature_set_ok(struct super_block *sb) { return 0; }
 
 static void ext4_kill_sb(struct super_block *sb)
 {
