@@ -266,6 +266,204 @@ replace_once(
 """,
 )
 
+
+# Checked allocation sizing. Common's generic contract is to reject arithmetic
+# overflow before allocation. Kernel code expresses the same contract through
+# the Linux array-allocation and overflow helpers instead of linking the
+# userspace Common library into a .ko.
+replace_once(
+    ROOT / "ext3/kernel/jbd_journal.c",
+    """\tjournal->j_wbuf = kmalloc(n * sizeof(struct buffer_head*), GFP_KERNEL);
+""",
+    """\tjournal->j_wbuf = kmalloc_array(n, sizeof(struct buffer_head *),
+\t\t\t\t\t GFP_KERNEL);
+""",
+)
+replace_once(
+    ROOT / "ext3/kernel/jbd_journal.c",
+    """\tjournal->j_wbuf = kmalloc(n * sizeof(struct buffer_head*), GFP_KERNEL);
+""",
+    """\tjournal->j_wbuf = kmalloc_array(n, sizeof(struct buffer_head *),
+\t\t\t\t\t GFP_KERNEL);
+""",
+)
+
+replace_once(
+    ROOT / "ext3/kernel/jbd_revoke.c",
+    """\ttable->hash_table =
+\t\tkmalloc(hash_size * sizeof(struct list_head), GFP_KERNEL);
+""",
+    """\ttable->hash_table =
+\t\tkmalloc_array(hash_size, sizeof(struct list_head), GFP_KERNEL);
+""",
+)
+
+replace_once(
+    ROOT / "ext3/kernel/super.c",
+    """\tsbi->s_group_desc = kmalloc(db_count * sizeof (struct buffer_head *),
+\t\t\t\t    GFP_KERNEL);
+""",
+    """\tsbi->s_group_desc = kmalloc_array(db_count,
+\t\t\t\t\t sizeof(struct buffer_head *), GFP_KERNEL);
+""",
+)
+
+replace_once(
+    ROOT / "ext3/kernel/resize.c",
+    """\tn_group_desc = kmalloc((gdb_num + 1) * sizeof(struct buffer_head *),
+\t\t\tGFP_NOFS);
+""",
+    """\tn_group_desc = kmalloc_array(gdb_num + 1,
+\t\t\t\t     sizeof(struct buffer_head *), GFP_NOFS);
+""",
+)
+
+replace_once(
+    ROOT / "ext3/kernel/resize.c",
+    """\tprimary = kmalloc(reserved_gdb * sizeof(*primary), GFP_NOFS);
+""",
+    """\tprimary = kmalloc_array(reserved_gdb, sizeof(*primary), GFP_NOFS);
+""",
+)
+
+# Once shrink has been rejected, n_blocks_count - o_blocks_count is the exact
+# remaining capacity. Clamp to that value before constructing the new endpoint.
+replace_once(
+    ROOT / "ext3/kernel/resize.c",
+    """\tif (o_blocks_count + add < o_blocks_count) {
+\t\text3_warning(sb, __func__, "blocks_count overflow");
+\t\treturn -EINVAL;
+\t}
+
+\tif (o_blocks_count + add > n_blocks_count)
+\t\tadd = n_blocks_count - o_blocks_count;
+
+\tif (o_blocks_count + add < n_blocks_count)
+""",
+    """\tif (add > n_blocks_count - o_blocks_count)
+\t\tadd = n_blocks_count - o_blocks_count;
+
+\tif (add < n_blocks_count - o_blocks_count)
+""",
+)
+
+replace_once(
+    ROOT / "ext4/kernel/resize.c",
+    """\tn_group_desc = kvmalloc((gdb_num + 1) * sizeof(struct buffer_head *),
+\t\t\t\tGFP_KERNEL);
+""",
+    """\tn_group_desc = kvmalloc_array(gdb_num + 1,
+\t\t\t\t      sizeof(struct buffer_head *), GFP_KERNEL);
+""",
+)
+replace_once(
+    ROOT / "ext4/kernel/resize.c",
+    """\tn_group_desc = kvmalloc((gdb_num + 1) * sizeof(struct buffer_head *),
+\t\t\t\tGFP_KERNEL);
+""",
+    """\tn_group_desc = kvmalloc_array(gdb_num + 1,
+\t\t\t\t      sizeof(struct buffer_head *), GFP_KERNEL);
+""",
+)
+
+replace_once(
+    ROOT / "ext4/kernel/fast_commit.c",
+    """#include "mballoc.h"
+
+
+#include <trace/events/ext4.h>
+""",
+    """#include "mballoc.h"
+
+#include <linux/overflow.h>
+#include <trace/events/ext4.h>
+""",
+)
+
+replace_once(
+    ROOT / "ext4/kernel/fast_commit.c",
+    """\tif (state->fc_modified_inodes_used == state->fc_modified_inodes_size) {
+\t\tint *fc_modified_inodes;
+
+\t\tfc_modified_inodes = krealloc(state->fc_modified_inodes,
+\t\t\t\tsizeof(int) * (state->fc_modified_inodes_size +
+\t\t\t\tEXT4_FC_REPLAY_REALLOC_INCREMENT),
+\t\t\t\tGFP_KERNEL);
+\t\tif (!fc_modified_inodes)
+\t\t\treturn -ENOMEM;
+\t\tstate->fc_modified_inodes = fc_modified_inodes;
+\t\tstate->fc_modified_inodes_size +=
+\t\t\tEXT4_FC_REPLAY_REALLOC_INCREMENT;
+\t}
+""",
+    """\tif (state->fc_modified_inodes_used == state->fc_modified_inodes_size) {
+\t\ttypeof(state->fc_modified_inodes_size) new_size;
+\t\tint *fc_modified_inodes;
+
+\t\tif (check_add_overflow(state->fc_modified_inodes_size,
+\t\t\t\t       EXT4_FC_REPLAY_REALLOC_INCREMENT,
+\t\t\t\t       &new_size))
+\t\t\treturn -EOVERFLOW;
+\t\tfc_modified_inodes = krealloc_array(state->fc_modified_inodes,
+\t\t\t\t\t\t    new_size,
+\t\t\t\t\t\t    sizeof(*fc_modified_inodes),
+\t\t\t\t\t\t    GFP_KERNEL);
+\t\tif (!fc_modified_inodes)
+\t\t\treturn -ENOMEM;
+\t\tstate->fc_modified_inodes = fc_modified_inodes;
+\t\tstate->fc_modified_inodes_size = new_size;
+\t}
+""",
+)
+
+replace_once(
+    ROOT / "ext4/kernel/fast_commit.c",
+    """\tif (state->fc_regions_used == state->fc_regions_size) {
+\t\tstruct ext4_fc_alloc_region *fc_regions;
+
+\t\tfc_regions = krealloc(state->fc_regions,
+\t\t\t\t      sizeof(struct ext4_fc_alloc_region) *
+\t\t\t\t      (state->fc_regions_size +
+\t\t\t\t       EXT4_FC_REPLAY_REALLOC_INCREMENT),
+\t\t\t\t      GFP_KERNEL);
+\t\tif (!fc_regions)
+\t\t\treturn -ENOMEM;
+\t\tstate->fc_regions_size +=
+\t\t\tEXT4_FC_REPLAY_REALLOC_INCREMENT;
+\t\tstate->fc_regions = fc_regions;
+\t}
+""",
+    """\tif (state->fc_regions_used == state->fc_regions_size) {
+\t\ttypeof(state->fc_regions_size) new_size;
+\t\tstruct ext4_fc_alloc_region *fc_regions;
+
+\t\tif (check_add_overflow(state->fc_regions_size,
+\t\t\t\t       EXT4_FC_REPLAY_REALLOC_INCREMENT,
+\t\t\t\t       &new_size))
+\t\t\treturn -EOVERFLOW;
+\t\tfc_regions = krealloc_array(state->fc_regions, new_size,
+\t\t\t\t\t    sizeof(*fc_regions), GFP_KERNEL);
+\t\tif (!fc_regions)
+\t\t\treturn -ENOMEM;
+\t\tstate->fc_regions_size = new_size;
+\t\tstate->fc_regions = fc_regions;
+\t}
+""",
+)
+
+# All three ACL serializers have already computed their exact encoded size.
+# Allocate that proven value rather than rebuilding a second multiplication.
+for fs, gfp in (("ext2", "GFP_KERNEL"), ("ext3", "GFP_NOFS"),
+                ("ext4", "GFP_NOFS")):
+    replace_once(
+        ROOT / f"{fs}/kernel/xattr.c",
+        f"""\text_acl = kmalloc(sizeof({fs}_acl_header) + acl->a_count *
+\t\t\tsizeof({fs}_acl_entry), {gfp});
+""",
+        f"""\text_acl = kmalloc(*size, {gfp});
+""",
+    )
+
 # Structural invariants: the exact unsafe forms this pass exists to remove must
 # not silently return after a future upstream refresh.
 checks = {
@@ -295,6 +493,38 @@ checks = {
     ROOT / "ext4/kernel/resize.c": (
         "ext4_blocks_count(es) + input->blocks_count <",
         "le32_to_cpu(es->s_inodes_count) + EXT4_INODES_PER_GROUP(sb) <",
+        "kvmalloc((gdb_num + 1) * sizeof(struct buffer_head *)",
+    ),
+    ROOT / "ext3/kernel/jbd_journal.c": (
+        "kmalloc(n * sizeof(struct buffer_head*)",
+    ),
+    ROOT / "ext3/kernel/jbd_revoke.c": (
+        "kmalloc(hash_size * sizeof(struct list_head)",
+    ),
+    ROOT / "ext3/kernel/super.c": (
+        "kmalloc(db_count * sizeof (struct buffer_head *)",
+    ),
+    ROOT / "ext3/kernel/resize.c": (
+        "le32_to_cpu(es->s_blocks_count) + input->blocks_count <",
+        "le32_to_cpu(es->s_inodes_count) + EXT3_INODES_PER_GROUP(sb) <",
+        "o_blocks_count + add < o_blocks_count",
+        "kmalloc((gdb_num + 1) * sizeof(struct buffer_head *)",
+        "kmalloc(reserved_gdb * sizeof(*primary)",
+    ),
+    ROOT / "ext4/kernel/fast_commit.c": (
+        "sizeof(int) * (state->fc_modified_inodes_size +",
+        "sizeof(struct ext4_fc_alloc_region) *",
+    ),
+    ROOT / "ext2/kernel/xattr.c": (
+        "le16_to_cpu(entry->e_value_offs) + size > end_offs",
+        "kmalloc(sizeof(ext2_acl_header) + acl->a_count *",
+    ),
+    ROOT / "ext3/kernel/xattr.c": (
+        "le16_to_cpu(entry->e_value_offs) + value_size > size",
+        "kmalloc(sizeof(ext3_acl_header) + acl->a_count *",
+    ),
+    ROOT / "ext4/kernel/xattr.c": (
+        "kmalloc(sizeof(ext4_acl_header) + acl->a_count *",
     ),
 }
 
