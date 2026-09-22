@@ -937,6 +937,10 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 			le32_to_cpu(features));
 		goto failed_mount;
 	}
+	if (EXT2_HAS_COMPAT_FEATURE(sb, EXT3_FEATURE_COMPAT_HAS_JOURNAL)) {
+		ext2_msg(sb, KERN_ERR, "error: journalled filesystem is not EXT2");
+		goto failed_mount;
+	}
 	if (!sb_rdonly(sb) && (features = EXT2_HAS_RO_COMPAT_FEATURE(sb, ~EXT2_FEATURE_RO_COMPAT_SUPP))){
 		ext2_msg(sb, KERN_ERR, "error: couldn't mount RDWR because of "
 		       "unsupported optional features (%x)",
@@ -1187,9 +1191,6 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 		ret = -ENOMEM;
 		goto failed_mount3;
 	}
-	if (EXT2_HAS_COMPAT_FEATURE(sb, EXT3_FEATURE_COMPAT_HAS_JOURNAL))
-		ext2_msg(sb, KERN_WARNING,
-			"warning: mounting ext3 filesystem as ext2");
 	if (ext2_setup_super (sb, es, sb_rdonly(sb)))
 		sb->s_flags |= SB_RDONLY;
 	ext2_write_super(sb);
@@ -1658,24 +1659,31 @@ static void __exit ext2_core_exit_fs(void)
 MODULE_AUTHOR("Remy Card and others");
 MODULE_DESCRIPTION("Second Extended Filesystem");
 MODULE_LICENSE("GPL");
+#ifdef CONFIG_EXT2_FS_XATTR
 int infiltratr_mbcache_init(void);
 void infiltratr_mbcache_exit(void);
+static int ext2_mbcache_init(void) { return infiltratr_mbcache_init(); }
+static void ext2_mbcache_exit(void) { infiltratr_mbcache_exit(); }
+#else
+static int ext2_mbcache_init(void) { return 0; }
+static void ext2_mbcache_exit(void) { }
+#endif
 
 static int __init init_ext2_fs(void)
 {
-	int err = infiltratr_mbcache_init();
+	int err = ext2_mbcache_init();
 	if (err)
 		return err;
 	err = ext2_core_init_fs();
 	if (err)
-		infiltratr_mbcache_exit();
+		ext2_mbcache_exit();
 	return err;
 }
 
 static void __exit exit_ext2_fs(void)
 {
 	ext2_core_exit_fs();
-	infiltratr_mbcache_exit();
+	ext2_mbcache_exit();
 }
 
 module_init(init_ext2_fs)

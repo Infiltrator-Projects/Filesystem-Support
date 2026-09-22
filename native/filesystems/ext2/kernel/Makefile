@@ -6,15 +6,13 @@
 obj-m += ext2.o
 
 ext2-y := balloc.o dir.o file.o ialloc.o inode.o \
-	  ioctl.o namei.o super.o symlink.o trace.o
+	  ioctl.o namei.o super.o symlink.o
 
-# For tracepoints to include our trace.h from tracepoint infrastructure
-CFLAGS_trace.o := -I$(src)
 
 ext2-$(CONFIG_EXT2_FS_XATTR)	 += xattr.o xattr_user.o xattr_trusted.o
 ext2-$(CONFIG_EXT2_FS_POSIX_ACL) += acl.o
 ext2-$(CONFIG_EXT2_FS_SECURITY)	 += xattr_security.o
 
-# Infiltrator: mbcache is linked into ext2.ko; no mbcache.ko is produced.
-ext2-y += mbcache.o
+# Infiltrator: mbcache is part of ext2.ko only when EXT2 xattrs are enabled.
+ext2-$(CONFIG_EXT2_FS_XATTR) += mbcache.o
 ccflags-y += -I$(src)/include
