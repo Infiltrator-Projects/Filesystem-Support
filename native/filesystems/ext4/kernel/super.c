@@ -53,7 +53,6 @@
 #include "ext4_extents.h"	/* Needed for trace points definition */
 #include "ext4_jbd2.h"
 #include "xattr.h"
-#include "acl.h"
 #include "mballoc.h"
 #include "fsmap.h"
 
@@ -77,8 +76,6 @@ static int ext4_sync_fs(struct super_block *sb, int wait);
 static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf);
 static int ext4_unfreeze(struct super_block *sb);
 static int ext4_freeze(struct super_block *sb);
-static inline int ext2_feature_set_ok(struct super_block *sb);
-static inline int ext3_feature_set_ok(struct super_block *sb);
 static void ext4_destroy_lazyinit_thread(void);
 static void ext4_unregister_li_request(struct super_block *sb);
 static void ext4_clear_request_list(void);
@@ -130,8 +127,6 @@ static const struct fs_context_operations ext4_context_ops = {
 };
 
 
-#define IS_EXT2_SB(sb) (0)
-#define IS_EXT3_SB(sb) (0)
 
 
 static inline void __ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
@@ -1800,11 +1795,6 @@ static const struct fs_parameter_spec ext4_param_specs[] = {
 	fsparam_flag	("no_prefetch_block_bitmaps",
 						Opt_no_prefetch_block_bitmaps),
 	fsparam_s32	("mb_optimize_scan",	Opt_mb_optimize_scan),
-	fsparam_string	("check",		Opt_removed),	/* mount option from ext2/3 */
-	fsparam_flag	("nocheck",		Opt_removed),	/* mount option from ext2/3 */
-	fsparam_flag	("reservation",		Opt_removed),	/* mount option from ext2/3 */
-	fsparam_flag	("noreservation",	Opt_removed),	/* mount option from ext2/3 */
-	fsparam_u32	("journal",		Opt_removed),	/* mount option from ext2/3 */
 	{}
 };
 
@@ -1821,9 +1811,6 @@ static const struct fs_parameter_spec ext4_param_specs[] = {
 #define MOPT_Q		MOPT_NOSUPPORT
 #define MOPT_QFMT	MOPT_NOSUPPORT
 #endif
-#define MOPT_NO_EXT2	0x0020
-#define MOPT_NO_EXT3	0x0040
-#define MOPT_EXT4_ONLY	(MOPT_NO_EXT2 | MOPT_NO_EXT3)
 #define MOPT_SKIP	0x0080
 #define	MOPT_2		0x0100
 
@@ -1839,37 +1826,37 @@ static const struct mount_opts {
 	{Opt_block_validity, EXT4_MOUNT_BLOCK_VALIDITY, MOPT_SET},
 	{Opt_noblock_validity, EXT4_MOUNT_BLOCK_VALIDITY, MOPT_CLEAR},
 	{Opt_dioread_nolock, EXT4_MOUNT_DIOREAD_NOLOCK,
-	 MOPT_EXT4_ONLY | MOPT_SET},
+	 0 | MOPT_SET},
 	{Opt_dioread_lock, EXT4_MOUNT_DIOREAD_NOLOCK,
-	 MOPT_EXT4_ONLY | MOPT_CLEAR},
+	 0 | MOPT_CLEAR},
 	{Opt_discard, EXT4_MOUNT_DISCARD, MOPT_SET},
 	{Opt_nodiscard, EXT4_MOUNT_DISCARD, MOPT_CLEAR},
 	{Opt_delalloc, EXT4_MOUNT_DELALLOC,
-	 MOPT_EXT4_ONLY | MOPT_SET | MOPT_EXPLICIT},
+	 0 | MOPT_SET | MOPT_EXPLICIT},
 	{Opt_nodelalloc, EXT4_MOUNT_DELALLOC,
-	 MOPT_EXT4_ONLY | MOPT_CLEAR},
+	 0 | MOPT_CLEAR},
 	{Opt_warn_on_error, EXT4_MOUNT_WARN_ON_ERROR, MOPT_SET},
 	{Opt_nowarn_on_error, EXT4_MOUNT_WARN_ON_ERROR, MOPT_CLEAR},
-	{Opt_commit, 0, MOPT_NO_EXT2},
+	{Opt_commit, 0, 0},
 	{Opt_nojournal_checksum, EXT4_MOUNT_JOURNAL_CHECKSUM,
-	 MOPT_EXT4_ONLY | MOPT_CLEAR},
+	 0 | MOPT_CLEAR},
 	{Opt_journal_checksum, EXT4_MOUNT_JOURNAL_CHECKSUM,
-	 MOPT_EXT4_ONLY | MOPT_SET | MOPT_EXPLICIT},
+	 0 | MOPT_SET | MOPT_EXPLICIT},
 	{Opt_journal_async_commit, (EXT4_MOUNT_JOURNAL_ASYNC_COMMIT |
 				    EXT4_MOUNT_JOURNAL_CHECKSUM),
-	 MOPT_EXT4_ONLY | MOPT_SET | MOPT_EXPLICIT},
-	{Opt_noload, EXT4_MOUNT_NOLOAD, MOPT_NO_EXT2 | MOPT_SET},
-	{Opt_data_err, EXT4_MOUNT_DATA_ERR_ABORT, MOPT_NO_EXT2},
+	 0 | MOPT_SET | MOPT_EXPLICIT},
+	{Opt_noload, EXT4_MOUNT_NOLOAD, 0 | MOPT_SET},
+	{Opt_data_err, EXT4_MOUNT_DATA_ERR_ABORT, 0},
 	{Opt_barrier, EXT4_MOUNT_BARRIER, MOPT_SET},
 	{Opt_nobarrier, EXT4_MOUNT_BARRIER, MOPT_CLEAR},
 	{Opt_noauto_da_alloc, EXT4_MOUNT_NO_AUTO_DA_ALLOC, MOPT_SET},
 	{Opt_auto_da_alloc, EXT4_MOUNT_NO_AUTO_DA_ALLOC, MOPT_CLEAR},
 	{Opt_noinit_itable, EXT4_MOUNT_INIT_INODE_TABLE, MOPT_CLEAR},
-	{Opt_dax_type, 0, MOPT_EXT4_ONLY},
-	{Opt_journal_dev, 0, MOPT_NO_EXT2},
-	{Opt_journal_path, 0, MOPT_NO_EXT2},
-	{Opt_journal_ioprio, 0, MOPT_NO_EXT2},
-	{Opt_data, 0, MOPT_NO_EXT2},
+	{Opt_dax_type, 0, 0},
+	{Opt_journal_dev, 0, 0},
+	{Opt_journal_path, 0, 0},
+	{Opt_journal_ioprio, 0, 0},
+	{Opt_data, 0, 0},
 	{Opt_user_xattr, EXT4_MOUNT_XATTR_USER, MOPT_SET},
 #ifdef CONFIG_EXT4_FS_POSIX_ACL
 	{Opt_acl, EXT4_MOUNT_POSIX_ACL, MOPT_SET},
@@ -1896,7 +1883,7 @@ static const struct mount_opts {
 	 MOPT_SET},
 #ifdef CONFIG_EXT4_DEBUG
 	{Opt_fc_debug_force, EXT4_MOUNT2_JOURNAL_FAST_COMMIT,
-	 MOPT_SET | MOPT_2 | MOPT_EXT4_ONLY},
+	 MOPT_SET | MOPT_2 | 0},
 #endif
 	{Opt_abort, EXT4_MOUNT2_ABORT, MOPT_SET | MOPT_2},
 	{Opt_err, 0, 0}
@@ -2729,16 +2716,6 @@ static int ext4_check_opt_consistency(struct fs_context *fc,
 	int is_remount = fc->purpose == FS_CONTEXT_FOR_RECONFIGURE;
 	int err;
 
-	if ((ctx->opt_flags & MOPT_NO_EXT2) && IS_EXT2_SB(sb)) {
-		ext4_msg(NULL, KERN_ERR,
-			 "Mount option(s) incompatible with ext2");
-		return -EINVAL;
-	}
-	if ((ctx->opt_flags & MOPT_NO_EXT3) && IS_EXT3_SB(sb)) {
-		ext4_msg(NULL, KERN_ERR,
-			 "Mount option(s) incompatible with ext3");
-		return -EINVAL;
-	}
 
 	if (ctx->s_want_extra_isize >
 	    (sbi->s_inode_size - EXT4_GOOD_OLD_INODE_SIZE)) {
@@ -3006,10 +2983,7 @@ static int _ext4_show_options(struct seq_file *seq, struct super_block *sb,
 		SEQ_OPTS_PUTS("inlinecrypt");
 
 	if (test_opt(sb, DAX_ALWAYS)) {
-		if (IS_EXT2_SB(sb))
-			SEQ_OPTS_PUTS("dax");
-		else
-			SEQ_OPTS_PUTS("dax=always");
+		SEQ_OPTS_PUTS("dax=always");
 	} else if (test_opt2(sb, DAX_NEVER)) {
 		SEQ_OPTS_PUTS("dax=never");
 	} else if (test_opt2(sb, DAX_INODE)) {
@@ -4364,8 +4338,7 @@ static void ext4_set_def_opts(struct super_block *sb,
 	 * enable delayed allocation by default
 	 * Use -o nodelalloc to turn it off
 	 */
-	if (!IS_EXT3_SB(sb) && !IS_EXT2_SB(sb) &&
-	    ((def_mount_opts & EXT4_DEFM_NODELALLOC) == 0))
+	if ((def_mount_opts & EXT4_DEFM_NODELALLOC) == 0)
 		set_opt(sb, DELALLOC);
 
 	if (sb->s_blocksize <= PAGE_SIZE)
@@ -4647,39 +4620,6 @@ static int ext4_check_feature_compatibility(struct super_block *sb,
 		}
 	}
 
-	if (IS_EXT2_SB(sb)) {
-		if (ext2_feature_set_ok(sb))
-			ext4_msg(sb, KERN_INFO, "mounting ext2 file system "
-				 "using the ext4 subsystem");
-		else {
-			/*
-			 * If we're probing be silent, if this looks like
-			 * it's actually an ext[34] filesystem.
-			 */
-			if (silent && ext4_feature_set_ok(sb, sb_rdonly(sb)))
-				return -EINVAL;
-			ext4_msg(sb, KERN_ERR, "couldn't mount as ext2 due "
-				 "to feature incompatibilities");
-			return -EINVAL;
-		}
-	}
-
-	if (IS_EXT3_SB(sb)) {
-		if (ext3_feature_set_ok(sb))
-			ext4_msg(sb, KERN_INFO, "mounting ext3 file system "
-				 "using the ext4 subsystem");
-		else {
-			/*
-			 * If we're probing be silent, if this looks like
-			 * it's actually an ext4 filesystem.
-			 */
-			if (silent && ext4_feature_set_ok(sb, sb_rdonly(sb)))
-				return -EINVAL;
-			ext4_msg(sb, KERN_ERR, "couldn't mount as ext3 due "
-				 "to feature incompatibilities");
-			return -EINVAL;
-		}
-	}
 
 	/*
 	 * Check feature flags regardless of the revision level, since we
@@ -5109,18 +5049,18 @@ static int ext4_hash_info_init(struct super_block *sb)
 
 	if (ext4_has_feature_dir_index(sb)) {
 		i = le32_to_cpu(es->s_flags);
-		if (i & EXT2_FLAGS_UNSIGNED_HASH)
+		if (i & EXT4_FLAGS_UNSIGNED_HASH)
 			sbi->s_hash_unsigned = 3;
-		else if ((i & EXT2_FLAGS_SIGNED_HASH) == 0) {
+		else if ((i & EXT4_FLAGS_SIGNED_HASH) == 0) {
 #ifdef __CHAR_UNSIGNED__
 			if (!sb_rdonly(sb))
 				es->s_flags |=
-					cpu_to_le32(EXT2_FLAGS_UNSIGNED_HASH);
+					cpu_to_le32(EXT4_FLAGS_UNSIGNED_HASH);
 			sbi->s_hash_unsigned = 3;
 #else
 			if (!sb_rdonly(sb))
 				es->s_flags |=
-					cpu_to_le32(EXT2_FLAGS_SIGNED_HASH);
+					cpu_to_le32(EXT4_FLAGS_SIGNED_HASH);
 #endif
 		}
 	}
@@ -7285,8 +7225,6 @@ out:
 }
 #endif
 
-static inline int ext2_feature_set_ok(struct super_block *sb) { return 0; }
-static inline int ext3_feature_set_ok(struct super_block *sb) { return 0; }
 
 static void ext4_kill_sb(struct super_block *sb)
 {
