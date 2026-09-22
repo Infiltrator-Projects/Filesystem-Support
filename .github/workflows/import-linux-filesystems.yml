@@ -98,12 +98,12 @@ jobs:
           add_ext2_embedded_support() {
             local destination="$1"
             embed_mbcache "$destination"
-            cat >> "$destination/Makefile" <<'EOF'
-
-# Infiltrator: mbcache is linked into ext2.ko; no mbcache.ko is produced.
-ext2-y += mbcache.o
-ccflags-y += -I$(src)/include
-EOF
+            printf '%s\n' \
+              '' \
+              '# Infiltrator: mbcache is linked into ext2.ko; no mbcache.ko is produced.' \
+              'ext2-y += mbcache.o' \
+              'ccflags-y += -I$(src)/include' \
+              >> "$destination/Makefile"
 
             perl -0pi -e 's/static int __init init_ext2_fs\(void\)/static int __init ext2_core_init_fs(void)/' "$destination/super.c"
             perl -0pi -e 's/static void __exit exit_ext2_fs\(void\)/static void __exit ext2_core_exit_fs(void)/' "$destination/super.c"
