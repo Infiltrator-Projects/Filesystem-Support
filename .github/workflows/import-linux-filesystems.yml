@@ -75,6 +75,12 @@ jobs:
           copy_tree fs/ext4 native/filesystems/ext3/kernel
           copy_jbd2 native/filesystems/ext3/support/jbd2
           copy_mbcache native/filesystems/ext3/support/mbcache
+          # Remove EXT2 registration from the EXT3 copy and remove the EXT4
+          # filesystem type entirely. Internal ext4_* symbol names remain
+          # temporarily; this is an intentionally duplicated starting point.
+          perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\n/#define IS_EXT2_SB(sb) (0)\n\n/s' native/filesystems/ext3/kernel/super.c
+          perl -0pi -e 's/static struct file_system_type ext4_fs_type = \{.*?MODULE_ALIAS_FS\("ext4"\);\n//s' native/filesystems/ext3/kernel/super.c
+          perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\nstatic inline void register_as_ext3\(void\).*?static inline int ext3_feature_set_ok\(struct super_block \*sb\)/static inline int ext2_feature_set_ok(struct super_block *sb) { return 0; }\n\nstatic inline int ext3_feature_set_ok(struct super_block *sb)/s' native/filesystems/ext3/kernel/super.c
           sed -i \
             -e 's/obj-$(CONFIG_EXT4_FS) += ext4.o/obj-m += ext3.o/' \
             -e 's/^ext4-y[[:space:]]*:=/ext3-y :=/' \
@@ -92,6 +98,10 @@ jobs:
           copy_tree fs/ext4 native/filesystems/ext4/kernel
           copy_jbd2 native/filesystems/ext4/support/jbd2
           copy_mbcache native/filesystems/ext4/support/mbcache
+          # EXT4 must register only EXT4. Strip the compatibility filesystem
+          # types and registration helpers from this independent copy.
+          perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\n\nstatic struct file_system_type ext3_fs_type = \{.*?#define IS_EXT3_SB\(sb\) \(\(sb\)->s_type == &ext3_fs_type\)\n/#define IS_EXT2_SB(sb) (0)\n#define IS_EXT3_SB(sb) (0)\n/s' native/filesystems/ext4/kernel/super.c
+          perl -0pi -e 's/#if !defined\(CONFIG_EXT2_FS\).*?#endif\n\nstatic inline void register_as_ext3\(void\).*?static inline int ext3_feature_set_ok\(struct super_block \*sb\)\n\{.*?\n\}/static inline int ext2_feature_set_ok(struct super_block *sb) { return 0; }\nstatic inline int ext3_feature_set_ok(struct super_block *sb) { return 0; }/s' native/filesystems/ext4/kernel/super.c
           sed -i '/^[[:space:]]*register_as_ext3();$/d; /^[[:space:]]*register_as_ext2();$/d; /^[[:space:]]*unregister_as_ext3();$/d; /^[[:space:]]*unregister_as_ext2();$/d' native/filesystems/ext4/kernel/super.c
           sed -i '/MODULE_ALIAS_FS("ext3");/d; /MODULE_ALIAS("ext3");/d' native/filesystems/ext4/kernel/super.c
           copy_tree fs/xfs native/filesystems/xfs/kernel
