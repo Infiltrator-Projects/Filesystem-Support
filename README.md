@@ -4,7 +4,7 @@ Filesystem Support is a native Debian desktop utility for discovering and enabli
 
 The baseline is **Debian stable**. As of September 2026 that is Debian 13 "trixie". Derivatives can benefit where they retain Debian-compatible package names and APT behaviour, but the catalogue is deliberately authored against Debian first.
 
-The program presents filesystem and filesystem-like mount implementations by human name, detects support already present on the running system, checks whether missing packages are actually available from the user's configured Debian repositories, and provides an explicit install action only when the package set is installable.
+The program presents filesystem and filesystem-like mount implementations by human name, detects support already present on the running system, checks whether missing packages are actually available from the user's configured Debian repositories, and exposes safe Install/Remove package actions plus Load/Unload actions for loadable kernel modules. Drivers compiled directly into the running kernel are reported as built-in rather than pretending they can be uninstalled.
 
 ## Scope
 
@@ -23,6 +23,9 @@ The complete, enumerated support contract is maintained in
 - Package names come only from the built-in catalogue.
 - The application does not add repositories, enable Debian components, or silently pull packages from testing/unstable/experimental.
 - A package missing from the configured repositories is reported as unavailable rather than pretending it can be installed.
+- Package removal is simulated first and is blocked if Debian would remove an unrelated or protected system package.
+- The application never performs automatic `apt autoremove`.
+- Loadable kernel modules may be loaded/unloaded; built-in drivers are never presented as removable.
 - Experimental implementations are labelled explicitly.
 
 ## Shared library pin
