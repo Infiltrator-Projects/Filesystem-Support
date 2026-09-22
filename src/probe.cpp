@@ -140,29 +140,47 @@ bool package_available(const std::string_view package)
     return result.exit_status == 0 && !result.output.empty();
 }
 
-bool module_available(const std::string_view module)
+KernelState module_state(const std::string_view module)
 {
     if (module.empty()) {
-        return false;
+        return KernelState::Missing;
     }
 
-    if (filesystem_registered(module)) {
-        return true;
+    const auto filename = run_command({
+        "modinfo",
+        "-F",
+        "filename",
+        std::string(module)
+    });
+
+    if (filename.exit_status == 0 && !filename.output.empty()) {
+        if (filename.output.find("builtin") != std::string::npos) {
+            return KernelState::BuiltIn;
+        }
+
+        const std::string sys_module =
+            "/sys/module/" + std::string(module);
+        if (filesystem_registered(module) ||
+            g_file_test(sys_module.c_str(), G_FILE_TEST_IS_DIR)) {
+            return KernelState::LoadableLoaded;
+        }
+
+        return KernelState::LoadableUnloaded;
     }
 
     const std::string sys_module =
         "/sys/module/" + std::string(module);
-    if (g_file_test(sys_module.c_str(), G_FILE_TEST_IS_DIR)) {
-        return true;
+    if (filesystem_registered(module) ||
+        g_file_test(sys_module.c_str(), G_FILE_TEST_IS_DIR)) {
+        return KernelState::BuiltIn;
     }
 
-    const auto result = run_command({
-        "modinfo",
-        "-n",
-        std::string(module)
-    });
+    return KernelState::Missing;
+}
 
-    return result.exit_status == 0 && !result.output.empty();
+bool module_available(const std::string_view module)
+{
+    return module_state(module) != KernelState::Missing;
 }
 
 ProbeResult probe(const FilesystemDescriptor& descriptor)
@@ -170,12 +188,31 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
     ProbeResult result;
 
     result.module_requirement_met = descriptor.modules.empty();
+    result.kernel_state = descriptor.modules.empty()
+        ? KernelState::NotApplicable
+        : KernelState::Missing;
+
     for (const auto module : descriptor.modules) {
-        if (module_available(module)) {
-            result.module_requirement_met = true;
-            break;
+        const KernelState state = module_state(module);
+
+        const bool better =
+            state == KernelState::BuiltIn ||
+            (state == KernelState::LoadableLoaded &&
+             result.kernel_state != KernelState::BuiltIn) ||
+            (state == KernelState::LoadableUnloaded &&
+             result.kernel_state == KernelState::Missing);
+
+        if (better) {
+            result.kernel_state = state;
+            result.module_name = std::string(module);
         }
     }
+
+    result.module_requirement_met =
+        result.kernel_state == KernelState::NotApplicable ||
+        result.kernel_state == KernelState::BuiltIn ||
+        result.kernel_state == KernelState::LoadableLoaded ||
+        result.kernel_state == KernelState::LoadableUnloaded;
 
     result.package_requirement_met = true;
     for (const auto package : descriptor.packages) {
@@ -229,6 +266,23 @@ const char* support_state_label(const SupportState state)
         return "Incomplete";
     case SupportState::Unavailable:
         return "Unavailable";
+    }
+    return "Unknown";
+}
+
+const char* kernel_state_label(const KernelState state)
+{
+    switch (state) {
+    case KernelState::NotApplicable:
+        return "Not applicable";
+    case KernelState::BuiltIn:
+        return "Built into kernel";
+    case KernelState::LoadableUnloaded:
+        return "Kernel module available";
+    case KernelState::LoadableLoaded:
+        return "Kernel module loaded";
+    case KernelState::Missing:
+        return "Requires different kernel";
     }
     return "Unknown";
 }
