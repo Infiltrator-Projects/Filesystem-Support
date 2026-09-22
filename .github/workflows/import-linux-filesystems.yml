@@ -205,7 +205,7 @@ jobs:
             > native/filesystems/ext3/kernel/include/linux/mbcache.h
           git -C /tmp/linux-ext3 show HEAD:include/linux/jbd.h \
             > native/filesystems/ext3/kernel/include/linux/jbd.h
-          bash -x tools/shape-ext3.sh native/filesystems/ext3/kernel
+          bash tools/shape-ext3.sh native/filesystems/ext3/kernel
 
           # EXT4: current Linux EXT4 is the semantic source, but our tree
           # registers only EXT4 and carries every genuine EXT4 feature engine.
@@ -217,7 +217,7 @@ jobs:
           sed -i 's/obj-$(CONFIG_EXT4_FS) += ext4.o/obj-m += ext4.o/' native/filesystems/ext4/kernel/Makefile
           sed -i '/ext4-inode-test-objs/d; /CONFIG_EXT4_KUNIT_TESTS/d' native/filesystems/ext4/kernel/Makefile
           add_ext34_embedded_support native/filesystems/ext4/kernel ext4
-          bash -x tools/shape-ext4.sh native/filesystems/ext4/kernel
+          bash tools/shape-ext4.sh native/filesystems/ext4/kernel
 
           copy_tree fs/xfs native/filesystems/xfs/kernel
           copy_tree fs/btrfs native/filesystems/btrfs/kernel
