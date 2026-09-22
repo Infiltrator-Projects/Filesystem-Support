@@ -31,6 +31,23 @@ def replace_exact(path: Path, old: str, new: str, expected: int) -> None:
     path.write_text(text.replace(old, new), encoding="utf-8")
 
 
+def replace_once_or_accept(
+    path: Path, old: str, new: str, accepted: str
+) -> None:
+    """Replace one legacy form or accept an equivalent stronger form."""
+    text = path.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count == 1:
+        path.write_text(text.replace(old, new), encoding="utf-8")
+        return
+    if count == 0 and accepted in text:
+        return
+    raise RuntimeError(
+        f"{path}: expected one legacy match or the accepted safe form, "
+        f"found {count} legacy matches"
+    )
+
+
 # EXT2: validate the half-open block range before constructing its inclusive
 # endpoint.  This is the same subtraction-first contract Common uses for
 # bounded positioned I/O.
@@ -330,8 +347,10 @@ replace_once(
 )
 
 # Once shrink has been rejected, n_blocks_count - o_blocks_count is the exact
-# remaining capacity. Clamp to that value before constructing the new endpoint.
-replace_once(
+# remaining capacity. Older EXT3 formed the endpoint first; newer source uses
+# check_add_overflow() and carries the checked endpoint in new_blocks_count.
+# Keep whichever safe form the imported source already provides.
+replace_once_or_accept(
     ROOT / "ext3/kernel/resize.c",
     """\tif (o_blocks_count + add < o_blocks_count) {
 \t\text3_warning(sb, __func__, "blocks_count overflow");
@@ -347,6 +366,9 @@ replace_once(
 \t\tadd = n_blocks_count - o_blocks_count;
 
 \tif (add < n_blocks_count - o_blocks_count)
+""",
+    """\tif (check_add_overflow(o_blocks_count, (ext3_fsblk_t)add,
+\t\t\t       &new_blocks_count)) {
 """,
 )
 
