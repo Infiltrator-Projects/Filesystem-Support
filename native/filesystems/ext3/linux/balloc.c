@@ -39,9 +39,6 @@
 #include <linux/overflow.h>
 
 
-#define in_range(b, first, len) \
-	((len) != 0 && (b) >= (first) && (b) - (first) < (len))
-
 
 /**
  * ext3_get_group_no_and_offset - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
@@ -189,10 +186,7 @@ read_block_bitmap(struct super_block *sb, unsigned int block_group)
 			    block_group, le32_to_cpu(desc->bg_block_bitmap));
 		return NULL;
 	}
-	if (likely(bh_uptodate_or_lock(bh)))
-		return bh;
-
-	if (bh_submit_read(bh) < 0) {
+	if (bh_read(bh, 0) < 0) {
 		brelse(bh);
 		ext3_error(sb, __func__,
 			    "Cannot read block bitmap - "
