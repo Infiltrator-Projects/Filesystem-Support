@@ -132,6 +132,6 @@ IfsExt4LayoutStatus ifs_ext4_validate_layout(
     ifs_ext4_u32 descriptors_per_block,
     ifs_ext4_u32 inodes_per_group,
     ifs_ext4_u32 inodes_count,
-    ifs_ext4_u32 *group_count);
+    ifs_ext4_u64 *group_count);
 
 #endif
