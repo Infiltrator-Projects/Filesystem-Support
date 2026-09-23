@@ -100,6 +100,49 @@ int main(void)
             return fail("AmigaDOS bitmap bit mask is wrong");
         if (ifs_amiga_bitmap_scan_mask(4U) != 0xfffffff0U)
             return fail("AmigaDOS bitmap scan mask is wrong");
+
+        {
+            ifs_amiga_u32 bitmap_index = 0U;
+            ifs_amiga_u32 bit_index = 0U;
+            ifs_amiga_u32 first = 0U;
+            ifs_amiga_u32 run_mask = 0U;
+            ifs_amiga_u32 run_length = 0U;
+
+            if (ifs_amiga_bitmap_location(
+                    4098U, 2U, 9000U, 4064U,
+                    &bitmap_index, &bit_index) != 0 ||
+                bitmap_index != 1U || bit_index != 32U)
+                return fail("bitmap location calculation is wrong");
+
+            if (ifs_amiga_bitmap_location(
+                    1U, 2U, 9000U, 4064U,
+                    &bitmap_index, &bit_index) == 0)
+                return fail("reserved block accepted by bitmap locator");
+
+            if (ifs_amiga_bitmap_valid_word_mask(0U) != 0U ||
+                ifs_amiga_bitmap_valid_word_mask(5U) != 0x1fU ||
+                ifs_amiga_bitmap_valid_word_mask(32U) != 0xffffffffU)
+                return fail("bitmap valid-word mask is wrong");
+
+            if (ifs_amiga_bitmap_select_free_run(
+                    0x000000f4U, 1U, 8U,
+                    &first, &run_mask, &run_length) != 0 ||
+                first != 2U || run_mask != 0x00000004U ||
+                run_length != 1U)
+                return fail("bitmap free-run selection is wrong");
+
+            if (ifs_amiga_bitmap_select_free_run(
+                    0x000000f0U, 0U, 8U,
+                    &first, &run_mask, &run_length) != 0 ||
+                first != 4U || run_mask != 0x000000f0U ||
+                run_length != 4U)
+                return fail("bitmap contiguous run selection is wrong");
+
+            if (ifs_amiga_bitmap_select_free_run(
+                    0xffffffffU, 0U, 0U,
+                    &first, &run_mask, &run_length) == 0)
+                return fail("zero-width bitmap word accepted");
+        }
     }
 
     return 0;
