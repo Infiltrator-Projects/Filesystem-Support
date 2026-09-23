@@ -30,6 +30,16 @@ jobs:
           grep -Fq 'Copyright (C) 2026 Shannon Smith' "$file"
           ! grep -Eiq 'linux/fs/ext2|Remy Card|Linus Torvalds|Stephen Tweedie|Red Hat' "$file"
 
+      - name: Enforce single EXT2 engine on Windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e windows/driver/ext2/ext2_compat.h
+          ! grep -R -E 'archive/extfs-for-windows|core/extfs(_classic_resize|_resize_dispatch)?\.c'               windows/driver windows/build CMakeLists.txt
+          grep -Fq '../../../native/filesystems/ext2/core/ext2_core.c'               windows/driver/ext2/filesystem_support_ext2.vcxproj
+          grep -Fq '../../../native/filesystems/ext2/core/ext2_engine.c'               windows/driver/ext2/filesystem_support_ext2.vcxproj
+          grep -Fq '#include "../../../native/filesystems/ext2/core/ext2_engine.h"'               windows/driver/ext2/ext2_driver.h
+
   linux:
     runs-on: ubuntu-24.04
     steps:
