@@ -187,6 +187,11 @@ int ifs_ext2_directory_record_can_insert(
     ifs_ext2_u32 requested_name_length,
     ifs_ext2_u32 *occupied_length);
 
+IfsExt2Status ifs_ext2_directory_initial_layout(
+    ifs_ext2_u32 block_size,
+    ifs_ext2_u32 *dot_record_length,
+    ifs_ext2_u32 *dotdot_record_length);
+
 ifs_ext2_u32 ifs_ext2_directory_record_length_from_disk(
     ifs_ext2_u16 encoded_length,
     ifs_ext2_u32 maximum_record_length);
