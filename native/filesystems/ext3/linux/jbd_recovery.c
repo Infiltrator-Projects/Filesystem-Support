@@ -79,19 +79,6 @@ static int scan_revoke_records(journal_t *, struct buffer_head *,
 
 
 /**
- * journal_brelse_array - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-
-
-#define MAXBUF 8
-
-
-/**
  * do_readahead - Implements the do readahead operation within the journal recovery subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
