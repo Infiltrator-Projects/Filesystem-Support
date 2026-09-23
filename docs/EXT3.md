@@ -164,36 +164,33 @@ ext3.ko
 
 There is one `module_init()` and one `module_exit()` in the complete tree.
 
-## Why Linux v4.2 is used as the EXT3 semantic source
 
-Linux v4.2 is the last release containing a standalone `fs/ext3` driver. Later kernels route EXT3 through EXT4.
+## Source-rewrite policy
 
-That later arrangement is not the architecture of this project. Filesystem Support wants independent EXT2, EXT3 and EXT4 implementations, so importing the final standalone EXT3 implementation is a cleaner starting point than carving EXT4-specific mechanisms out of a modern EXT4 driver.
+EXT3 is an Infiltrator filesystem implementation, not a repackaged Linux EXT3
+driver.  The historical EXT3 behaviour and on-disk format may be studied from
+specifications, test media and existing implementations, but production source
+must be written for this repository's independent one-module architecture.
 
-The code will continue to be modernised as our own implementation, but EXT3 semantics must remain EXT3 semantics.
+The former workflow that imported Linux v4.2 `fs/ext3`, JBD and mbcache and
+then shaped those sources into `ext3.ko` has been retired.  No replacement
+workflow may copy or transform an external implementation into the active
+source tree.
 
-## Import and shaping
+The current kernel directory still contains migration-era implementation that
+predates this rule.  Those units must retain their existing legal provenance
+until each implementation is genuinely replaced.  The migration is complete
+only when the active EXT3 tree is project-authored implementation throughout,
+with behaviour validated against EXT3 media and compatibility tests rather than
+against source-text identity.
 
-The import workflow fetches:
+The target architecture remains unchanged:
 
-```text
-Linux v4.2 fs/ext3
-Linux v4.2 fs/jbd
-Linux v4.2 mbcache
-```
-
-Then `tools/shape-ext3.sh`:
-
-1. embeds JBD and mbcache into EXT3;
-2. removes their separate module/export surfaces;
-3. removes JBD tracing that is not filesystem functionality;
-4. merges tiny organisational source files into their owning subsystem;
-5. keeps every substantive EXT3 feature path;
-6. produces the fixed 18-file tree;
-7. verifies a single module lifecycle;
-8. verifies all three EXT3 data-journaling modes remain;
-9. verifies EXT3 journal feature handling remains;
-10. rejects accidental EXT2/EXT4 registration or EXT4 implementation code.
+- one `ext3.ko`;
+- EXT3 registration only;
+- journal semantics owned inside the EXT3 module;
+- no separately deployed JBD or metadata-cache module;
+- no EXT4 compatibility registration used as an EXT3 implementation.
 
 ## Development rule
 
