@@ -590,7 +590,8 @@ int ext2_add_link (struct dentry *dentry, struct inode *inode)
 	int namelen = dentry->d_name.len;
 	unsigned chunk_size = ext2_chunk_size(dir);
 	unsigned reclen = EXT2_DIR_REC_LEN(namelen);
-	unsigned short rec_len, name_len;
+	unsigned rec_len;
+	ifs_ext2_u32 name_len;
 	struct folio *folio = NULL;
 	ext2_dirent * de;
 	unsigned long npages = dir_pages(dir);
@@ -631,7 +632,7 @@ int ext2_add_link (struct dentry *dentry, struct inode *inode)
 			if (ifs_ext2_directory_record_can_insert(
 				    rec_len, de->name_len, le32_to_cpu(de->inode),
 				    (ifs_ext2_u32)namelen,
-				    (ifs_ext2_u32 *)&name_len))
+				    &name_len))
 				goto got_it;
 			de = (ext2_dirent *) ((char *) de + rec_len);
 		}
