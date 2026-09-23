@@ -192,6 +192,15 @@ IfsExt2Status ifs_ext2_directory_initial_layout(
     ifs_ext2_u32 *dot_record_length,
     ifs_ext2_u32 *dotdot_record_length);
 
+IfsExt2Status ifs_ext2_directory_delete_span(
+    ifs_ext2_u32 target_offset,
+    ifs_ext2_u32 target_record_length,
+    int has_previous,
+    ifs_ext2_u32 previous_offset,
+    ifs_ext2_u32 block_size,
+    ifs_ext2_u32 *span_offset,
+    ifs_ext2_u32 *span_length);
+
 ifs_ext2_u32 ifs_ext2_directory_record_length_from_disk(
     ifs_ext2_u16 encoded_length,
     ifs_ext2_u32 maximum_record_length);
