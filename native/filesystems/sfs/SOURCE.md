@@ -9,10 +9,11 @@ The Linux migration baseline is Marek Szyprowski's real ASFS Linux driver:
 - imported upstream path: `src/`
 - source licence: GPL-2.0-or-later, retained in the imported source
 
-The exact upstream source is preserved under `linux/reference/`. It targets an
-older Linux kernel and is therefore migration input rather than a claim of
-current-kernel qualification.
+The pinned source has been promoted into the active `linux/` module tree and
+is ported there. A second live reference copy is deliberately not retained:
+source headers, this provenance record and Git history preserve the imported
+baseline without maintaining duplicate implementation trees.
 
-Filesystem semantics will be moved into `core/` while Linux VFS and kernel
-lifecycle code is modernised into the Linux adapter. SFS2 structures or rules
-must not be folded into this filesystem.
+Filesystem semantics move into `core/` as the rewrite proceeds while Linux
+VFS and kernel lifecycle code remains in the Linux adapter. SFS2 structures or
+rules must not be folded into this filesystem.

@@ -1,8 +1,12 @@
 # Linux SFS adapter
 
-The real ASFS Linux source is preserved unchanged in `reference/` as the
-migration base. Its Linux 2.6-era VFS interfaces must be modernised before a
-current-kernel module is claimed.
+This directory is the active Linux port of Marek Szyprowski's real ASFS
+implementation pinned in `../SOURCE.md`.
 
-The final adapter will contain Linux-specific integration only; filesystem
-semantics belong in `../core/`.
+The imported filesystem algorithms are retained while the obsolete Linux 2.6
+VFS interfaces are replaced with current Linux interfaces.  The Linux product
+identity is `sfs.ko` and the filesystem registration name is `sfs`.
+
+A duplicate live `reference/` tree is intentionally not retained after this
+promotion.  The pinned upstream commit, the preserved copyright/licence headers,
+`../SOURCE.md`, and Git history provide the immutable source baseline.
