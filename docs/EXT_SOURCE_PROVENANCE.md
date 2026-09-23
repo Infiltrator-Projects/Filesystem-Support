@@ -57,6 +57,26 @@ legal provenance until their implementation is genuinely replaced:
 - `super.c`
 - `xattr.c`
 
+Migration is tracked by implementation ownership rather than by file count.
+Several format rules formerly embedded in the inherited Linux units are already
+owned by the canonical core even though the containing Linux files have not yet
+crossed the full provenance boundary.
+
+Current EXT2 semantic extractions include:
+
+- superblock decoding, feature policy and geometry validation;
+- group-descriptor decoding, group bounds and descriptor validation;
+- logical-file-block to direct/indirect path mapping;
+- directory record length encoding/decoding and corruption validation;
+- directory insertion sizing and split eligibility;
+- initial `.` / `..` directory record layout;
+- directory deletion/coalescing span validation; and
+- absolute block to block-group/offset mapping used by allocator paths.
+
+Those extractions reduce inherited filesystem semantics in `dir.c` and
+`balloc.c`, but neither file is classified as project-authored until its
+remaining implementation body is genuinely replaced.
+
 ## EXT3 migration state
 
 EXT3 now has a project-authored canonical core for feature compatibility policy:
