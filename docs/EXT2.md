@@ -14,30 +14,39 @@ There are no separate EXT2 helper applications and there are no separate support
 
 EXT2 is intentionally independent from EXT3 and EXT4. It must not register, mount or impersonate either filesystem.
 
-## Source ownership
+## Source ownership and migration layout
 
-The active implementation lives under:
+EXT2 is in active rewrite state.  The currently inherited Linux-style
+translation-unit names under `native/filesystems/ext2/kernel/` are migration
+boundaries, not the final Filesystem Support architecture.
+
+Files such as `file.c`, `inode.c`, `super.c`, `dir.c` and `namei.c`
+remain useful temporary boundaries while each subsystem is replaced and
+qualified.  Their names and locations do not constrain the final implementation.
+
+The target source ownership is:
 
 ```text
-native/filesystems/ext2/kernel/
+native/filesystems/ext2/
+  core/       canonical EXT2 format and filesystem semantics
+  linux/      Linux VFS/module/block-device adapter
+  windows/    Windows IFS/WDK adapter
 ```
 
-The tree is intentionally compact. The current structural contract is ten files:
+The final directory need not contain one file corresponding to every Linux
+source file.  Rewritten code is grouped by the responsibilities that make sense
+for this project.  A migration unit may therefore be split when it contains
+both portable filesystem semantics and Linux-specific VFS glue, or consolidated
+when several tiny boundaries do not improve cohesion.
 
-```text
-Makefile
-ext2.h
-balloc.c
-dir.c
-file.c
-ialloc.c
-inode.c
-namei.c
-super.c
-xattr.c
-```
+The required architectural result is one canonical EXT2 implementation consumed
+by both operating-system adapters.  Linux still produces exactly one
+`ext2.ko`; changing source-file boundaries does not imply additional kernel
+modules.
 
-The file count is not a goal by itself. These boundaries exist because each remaining translation unit owns a substantial EXT2 responsibility. Tiny upstream organisational files are merged into their owning subsystem instead of being preserved merely because Linux kept them separate.
+The existing `kernel/` directory remains a staging area only until its
+migration-era units have been replaced or moved to their permanent
+`core/`/`linux/` homes.
 
 ## Module boundary
 
