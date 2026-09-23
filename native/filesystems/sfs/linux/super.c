@@ -194,6 +194,59 @@ no_arg:
 	return 1;
 }
 
+static IfsSfsRootStatus asfs_root_layout_status(
+	const struct fsRootBlock *rootblock)
+{
+	return ifs_sfs_validate_root_layout(
+		be32_to_cpu(rootblock->bheader.id),
+		be16_to_cpu(rootblock->version),
+		be32_to_cpu(rootblock->blocksize),
+		be32_to_cpu(rootblock->totalblocks),
+		be32_to_cpu(rootblock->bitmapbase),
+		be32_to_cpu(rootblock->adminspacecontainer),
+		be32_to_cpu(rootblock->rootobjectcontainer),
+		be32_to_cpu(rootblock->extentbnoderoot),
+		be32_to_cpu(rootblock->objectnoderoot));
+}
+
+static int asfs_apply_root_layout(
+	struct super_block *sb,
+	const struct fsRootBlock *rootblock,
+	int silent)
+{
+	const IfsSfsRootStatus status = asfs_root_layout_status(rootblock);
+	u32 blocks_inbitmap;
+	u32 blocks_bitmap;
+
+	if (status != IFS_SFS_ROOT_OK) {
+		if (!silent)
+			printk(KERN_ERR
+			       "ASFS: invalid SFS root layout on dev %s: %s\n",
+			       sb->s_id, ifs_sfs_root_status_string(status));
+		return -EINVAL;
+	}
+
+	if (ifs_sfs_compute_bitmap_layout(
+			be32_to_cpu(rootblock->blocksize),
+			be32_to_cpu(rootblock->totalblocks),
+			&blocks_inbitmap, &blocks_bitmap) != 0)
+		return -EINVAL;
+
+	ASFS_SB(sb)->totalblocks = be32_to_cpu(rootblock->totalblocks);
+	ASFS_SB(sb)->rootobjectcontainer =
+		be32_to_cpu(rootblock->rootobjectcontainer);
+	ASFS_SB(sb)->extentbnoderoot = be32_to_cpu(rootblock->extentbnoderoot);
+	ASFS_SB(sb)->objectnoderoot = be32_to_cpu(rootblock->objectnoderoot);
+	ASFS_SB(sb)->flags |= 0xff & rootblock->bits;
+	ASFS_SB(sb)->adminspacecontainer =
+		be32_to_cpu(rootblock->adminspacecontainer);
+	ASFS_SB(sb)->bitmapbase = be32_to_cpu(rootblock->bitmapbase);
+	ASFS_SB(sb)->blocks_inbitmap = blocks_inbitmap;
+	ASFS_SB(sb)->blocks_bitmap = blocks_bitmap;
+	ASFS_SB(sb)->block_rovingblockptr = 0;
+	return 0;
+}
+
 static int asfs_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct asfs_sb_info *sbi;
@@ -233,118 +286,133 @@ static int asfs_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	rootblock = (struct fsRootBlock *)bh->b_data;
-
-	if (be32_to_cpu(rootblock->bheader.id) == ASFS_ROOTID &&
-		be16_to_cpu(rootblock->version) == ASFS_STRUCTURE_VERISON) {
+	{
 		const u32 blocksize = be32_to_cpu(rootblock->blocksize);
 		const u32 totalblocks = be32_to_cpu(rootblock->totalblocks);
-		const u32 bitmapbase = be32_to_cpu(rootblock->bitmapbase);
-		const u32 adminspacecontainer =
-			be32_to_cpu(rootblock->adminspacecontainer);
-		const u32 rootobjectcontainer =
-			be32_to_cpu(rootblock->rootobjectcontainer);
-		const u32 extentbnoderoot =
-			be32_to_cpu(rootblock->extentbnoderoot);
-		const u32 objectnoderoot =
-			be32_to_cpu(rootblock->objectnoderoot);
-		const u8 root_bits = rootblock->bits;
-		const IfsSfsRootStatus root_status =
-			ifs_sfs_validate_root_layout(
+		const IfsSfsRootStatus probe_status =
+			ifs_sfs_validate_root_probe(
 				be32_to_cpu(rootblock->bheader.id),
 				be16_to_cpu(rootblock->version),
-				blocksize, totalblocks, bitmapbase,
-				adminspacecontainer, rootobjectcontainer,
-				extentbnoderoot, objectnoderoot);
-		u32 blocks_inbitmap;
-		u32 blocks_bitmap;
-
-		if (root_status != IFS_SFS_ROOT_OK) {
-			if (!silent)
-				printk(KERN_ERR
-				       "ASFS: invalid SFS root layout on dev %s: %s\n",
-				       sb->s_id,
-				       ifs_sfs_root_status_string(root_status));
-			asfs_brelse(bh);
-			return -EINVAL;
-		}
+				blocksize, totalblocks);
+		struct buffer_head *primary_bh;
+		struct buffer_head *backup_bh;
+		struct fsRootBlock *primary_root;
+		struct fsRootBlock *backup_root;
+		int primary_valid;
+		int backup_valid;
+		int selected_copy;
 
 		asfs_brelse(bh);
+		bh = NULL;
+
+		if (probe_status != IFS_SFS_ROOT_OK) {
+			if (!silent)
+				printk(KERN_ERR
+				       "ASFS: invalid SFS root probe on dev %s: %s\n",
+				       sb->s_id,
+				       ifs_sfs_root_status_string(probe_status));
+			return -EINVAL;
+		}
+
 		if (!sb_set_blocksize(sb, blocksize)) {
 			printk(KERN_ERR
-			       "ASFS: Found Amiga SFS RootBlock on dev %s, but blocksize %u is not supported!\n",
-			       sb->s_id, blocksize);
-			return -EINVAL;
-		}
-		if (ifs_sfs_compute_bitmap_layout(
-				blocksize, totalblocks,
-				&blocks_inbitmap, &blocks_bitmap) != 0) {
-			printk(KERN_ERR "ASFS: invalid bitmap geometry on dev %s\n",
-			       sb->s_id);
+			       "ASFS: SFS blocksize %u is not supported on dev %s\n",
+			       blocksize, sb->s_id);
 			return -EINVAL;
 		}
 
-		ASFS_SB(sb)->totalblocks = totalblocks;
-		ASFS_SB(sb)->rootobjectcontainer = rootobjectcontainer;
-		ASFS_SB(sb)->extentbnoderoot = extentbnoderoot;
-		ASFS_SB(sb)->objectnoderoot = objectnoderoot;
-		ASFS_SB(sb)->flags |= 0xff & root_bits;
-		ASFS_SB(sb)->adminspacecontainer = adminspacecontainer;
-		ASFS_SB(sb)->bitmapbase = bitmapbase;
-		ASFS_SB(sb)->blocks_inbitmap = blocks_inbitmap;
-		ASFS_SB(sb)->blocks_bitmap = blocks_bitmap;
-		ASFS_SB(sb)->block_rovingblockptr = 0;
-		bh = sb_bread(sb, 0);
-		if (!bh) {
-			printk(KERN_ERR "ASFS: unable to read superblock\n");
-			goto out;
-		}
-		rootblock = (struct fsRootBlock *)bh->b_data;
+		primary_bh = sb_bread(sb, 0);
+		backup_bh = sb_bread(sb, totalblocks - 1U);
+		primary_root = primary_bh ?
+			(struct fsRootBlock *)primary_bh->b_data : NULL;
+		backup_root = backup_bh ?
+			(struct fsRootBlock *)backup_bh->b_data : NULL;
 
-		if (asfs_check_block((void *)rootblock, sb->s_blocksize, 0, ASFS_ROOTID)) {
-#ifdef CONFIG_ASFS_RW
-			struct buffer_head *tmpbh;
-			if ((tmpbh = asfs_breadcheck(sb, ASFS_SB(sb)->rootobjectcontainer, ASFS_OBJECTCONTAINER_ID))) {
-				struct fsRootInfo *ri = (struct fsRootInfo *)((u8 *)tmpbh->b_data + sb->s_blocksize - sizeof(struct fsRootInfo));
-				ASFS_SB(sb)->freeblocks = be32_to_cpu(ri->freeblocks);
-				asfs_brelse(tmpbh);
-			} else
-				ASFS_SB(sb)->freeblocks = 0;
+		primary_valid = primary_root != NULL &&
+			asfs_check_block((void *)primary_root, blocksize,
+					 0, ASFS_ROOTID) &&
+			asfs_root_layout_status(primary_root) == IFS_SFS_ROOT_OK;
+		backup_valid = backup_root != NULL &&
+			asfs_check_block((void *)backup_root, blocksize,
+					 totalblocks - 1U, ASFS_ROOTID) &&
+			asfs_root_layout_status(backup_root) == IFS_SFS_ROOT_OK;
 
-			if ((tmpbh = asfs_breadcheck(sb, ASFS_SB(sb)->rootobjectcontainer+2, ASFS_TRANSACTIONFAILURE_ID))) {
-				printk(KERN_NOTICE "VFS: Found Amiga SFS RootBlock on dev %s, but it has unfinished transaction. Mounting read-only.\n", sb->s_id);
-				ASFS_SB(sb)->flags |= ASFS_READONLY;
-				asfs_brelse(tmpbh);
-			}
-
-			tmpbh = asfs_breadcheck(sb, ASFS_SB(sb)->totalblocks - 1,
-						 ASFS_ROOTID);
-			if (!tmpbh) {
-				printk(KERN_NOTICE "VFS: Found Amiga SFS RootBlock on dev %s, but there is no second RootBlock! Mounting read-only.\n", sb->s_id);
-				ASFS_SB(sb)->flags |= ASFS_READONLY;
-			} else {
-				asfs_brelse(tmpbh);
-			}
-			if (!(ASFS_SB(sb)->flags & ASFS_READONLY))
-				printk(KERN_NOTICE "VFS: Found Amiga SFS RootBlock on dev %s.\n", sb->s_id);
-#else
-			ASFS_SB(sb)->freeblocks = 0;
-			ASFS_SB(sb)->flags |= ASFS_READONLY;
-			printk(KERN_NOTICE "VFS: Found Amiga SFS RootBlock on dev %s.\n", sb->s_id);
-#endif
-		} else {
+		selected_copy = ifs_sfs_select_root_copy(
+			primary_valid,
+			primary_valid ? be16_to_cpu(primary_root->sequencenumber) : 0U,
+			backup_valid,
+			backup_valid ? be16_to_cpu(backup_root->sequencenumber) : 0U);
+		if (selected_copy < 0) {
 			if (!silent)
-				printk(KERN_ERR "VFS: Found Amiga SFS RootBlock on dev %s, but it has checksum error!\n", \
+				printk(KERN_ERR
+				       "ASFS: neither SFS root copy is valid on dev %s\n",
 				       sb->s_id);
-			goto out;
+			asfs_brelse(primary_bh);
+			asfs_brelse(backup_bh);
+			return -EINVAL;
 		}
-	} else {
-		if (!silent)
-			printk(KERN_ERR "VFS: Can't find a valid Amiga SFS filesystem on dev %s.\n", \
+
+		rootblock = selected_copy == 0 ? primary_root : backup_root;
+		if (asfs_apply_root_layout(sb, rootblock, silent) != 0) {
+			asfs_brelse(primary_bh);
+			asfs_brelse(backup_bh);
+			return -EINVAL;
+		}
+
+		/*
+		 * Losing either redundant root copy is recoverable for reads, but it
+		 * is not safe to continue writable until repair has restored the pair.
+		 */
+		if (!primary_valid || !backup_valid) {
+			printk(KERN_NOTICE
+			       "ASFS: one SFS root copy is invalid on dev %s; mounting read-only\n",
 			       sb->s_id);
-		goto out;
+			ASFS_SB(sb)->flags |= ASFS_READONLY;
+		}
+
+		asfs_brelse(primary_bh);
+		asfs_brelse(backup_bh);
 	}
 
-	asfs_brelse(bh);
+#ifdef CONFIG_ASFS_RW
+	{
+		struct buffer_head *tmpbh;
+
+		tmpbh = asfs_breadcheck(
+			sb, ASFS_SB(sb)->rootobjectcontainer,
+			ASFS_OBJECTCONTAINER_ID);
+		if (tmpbh) {
+			struct fsRootInfo *ri =
+				(struct fsRootInfo *)((u8 *)tmpbh->b_data +
+					sb->s_blocksize - sizeof(struct fsRootInfo));
+			ASFS_SB(sb)->freeblocks = be32_to_cpu(ri->freeblocks);
+			asfs_brelse(tmpbh);
+		} else {
+			ASFS_SB(sb)->freeblocks = 0;
+			ASFS_SB(sb)->flags |= ASFS_READONLY;
+		}
+
+		tmpbh = asfs_breadcheck(
+			sb, ASFS_SB(sb)->rootobjectcontainer + 2U,
+			ASFS_TRANSACTIONFAILURE_ID);
+		if (tmpbh) {
+			printk(KERN_NOTICE
+			       "VFS: Found unfinished SFS transaction on dev %s; mounting read-only.\n",
+			       sb->s_id);
+			ASFS_SB(sb)->flags |= ASFS_READONLY;
+			asfs_brelse(tmpbh);
+		}
+
+		if (!(ASFS_SB(sb)->flags & ASFS_READONLY))
+			printk(KERN_NOTICE "VFS: Found Amiga SFS RootBlock on dev %s.\n",
+			       sb->s_id);
+	}
+#else
+	ASFS_SB(sb)->freeblocks = 0;
+	ASFS_SB(sb)->flags |= ASFS_READONLY;
+	printk(KERN_NOTICE "VFS: Found Amiga SFS RootBlock on dev %s.\n",
+	       sb->s_id);
+#endif
 
 	sb->s_magic = ASFS_MAGIC;
 	sb->s_flags |= SB_NODEV | SB_NOSUID;
@@ -381,9 +449,6 @@ out2:
 	unload_nls(ASFS_SB(sb)->nls_disk);
 	return -EINVAL;
 
-out:
-	asfs_brelse(bh);
-	return -EINVAL;
 }
 
 #ifdef CONFIG_ASFS_RW
