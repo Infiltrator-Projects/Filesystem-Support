@@ -312,6 +312,41 @@ IfsExt2Status ifs_ext2_block_to_path(
     return IFS_EXT2_OK;
 }
 
+ifs_ext2_u32 ifs_ext2_directory_record_required_length(
+    const ifs_ext2_u32 name_length)
+{
+    if (name_length > 255U)
+        return 0U;
+
+    return (name_length + 8U + 3U) & ~3U;
+}
+
+int ifs_ext2_directory_record_can_insert(
+    const ifs_ext2_u32 record_length,
+    const ifs_ext2_u32 existing_name_length,
+    const ifs_ext2_u32 existing_inode_number,
+    const ifs_ext2_u32 requested_name_length,
+    ifs_ext2_u32 *const occupied_length)
+{
+    const ifs_ext2_u32 requested =
+        ifs_ext2_directory_record_required_length(requested_name_length);
+    const ifs_ext2_u32 occupied =
+        ifs_ext2_directory_record_required_length(existing_name_length);
+
+    if (occupied_length == IFS_EXT2_NULL || requested == 0U)
+        return 0;
+
+    *occupied_length = existing_inode_number == 0U ? 0U : occupied;
+
+    if (existing_inode_number == 0U)
+        return record_length >= requested;
+
+    if (occupied == 0U || occupied > record_length)
+        return 0;
+
+    return record_length - occupied >= requested;
+}
+
 ifs_ext2_u32 ifs_ext2_directory_record_length_from_disk(
     const ifs_ext2_u16 encoded_length,
     const ifs_ext2_u32 maximum_record_length)
