@@ -312,6 +312,91 @@ IfsExt2Status ifs_ext2_block_to_path(
     return IFS_EXT2_OK;
 }
 
+ifs_ext2_u32 ifs_ext2_directory_record_length_from_disk(
+    const ifs_ext2_u16 encoded_length,
+    const ifs_ext2_u32 maximum_record_length)
+{
+    if (encoded_length == 0xFFFFU &&
+        maximum_record_length >= IFS_EXT2_MAX_BLOCK_SIZE)
+        return IFS_EXT2_MAX_BLOCK_SIZE;
+    return encoded_length;
+}
+
+IfsExt2Status ifs_ext2_directory_record_length_to_disk(
+    const ifs_ext2_u32 record_length,
+    const ifs_ext2_u32 maximum_record_length,
+    ifs_ext2_u16 *encoded_length)
+{
+    if (encoded_length == IFS_EXT2_NULL)
+        return IFS_EXT2_ERROR_ARGUMENT;
+    if (record_length == IFS_EXT2_MAX_BLOCK_SIZE &&
+        maximum_record_length >= IFS_EXT2_MAX_BLOCK_SIZE) {
+        *encoded_length = 0xFFFFU;
+        return IFS_EXT2_OK;
+    }
+    if (record_length > 0xFFFFU)
+        return IFS_EXT2_ERROR_RANGE;
+    *encoded_length = (ifs_ext2_u16)record_length;
+    return IFS_EXT2_OK;
+}
+
+IfsExt2DirectoryRecordStatus ifs_ext2_validate_directory_record(
+    const ifs_ext2_u32 record_offset,
+    const ifs_ext2_u32 record_length,
+    const ifs_ext2_u32 name_length,
+    const ifs_ext2_u32 inode_number,
+    const ifs_ext2_u32 block_size,
+    const ifs_ext2_u32 maximum_inode)
+{
+    ifs_ext2_u32 minimum_length;
+    ifs_ext2_u32 offset_in_block;
+
+    /*
+     * EXT2 directory entries have an eight-byte fixed header. A live entry
+     * needs at least one name byte, rounded to a four-byte record boundary;
+     * Linux has historically treated shorter records as corruption as well.
+     */
+    if (record_length < 12U)
+        return IFS_EXT2_DIRECTORY_RECORD_TOO_SHORT;
+    if ((record_length & 3U) != 0U)
+        return IFS_EXT2_DIRECTORY_RECORD_UNALIGNED;
+
+    minimum_length = (name_length + 8U + 3U) & ~3U;
+    if (record_length < minimum_length)
+        return IFS_EXT2_DIRECTORY_RECORD_NAME_TOO_LONG;
+
+    if (block_size == 0U)
+        return IFS_EXT2_DIRECTORY_RECORD_CROSSES_BLOCK;
+    offset_in_block = record_offset % block_size;
+    if (record_length > block_size - offset_in_block)
+        return IFS_EXT2_DIRECTORY_RECORD_CROSSES_BLOCK;
+
+    if (inode_number > maximum_inode)
+        return IFS_EXT2_DIRECTORY_RECORD_INODE_RANGE;
+
+    return IFS_EXT2_DIRECTORY_RECORD_OK;
+}
+
+const char *ifs_ext2_directory_record_status_string(
+    const IfsExt2DirectoryRecordStatus status)
+{
+    switch (status) {
+    case IFS_EXT2_DIRECTORY_RECORD_OK:
+        return "ok";
+    case IFS_EXT2_DIRECTORY_RECORD_TOO_SHORT:
+        return "rec_len is smaller than minimal";
+    case IFS_EXT2_DIRECTORY_RECORD_UNALIGNED:
+        return "unaligned directory entry";
+    case IFS_EXT2_DIRECTORY_RECORD_NAME_TOO_LONG:
+        return "rec_len is too small for name_len";
+    case IFS_EXT2_DIRECTORY_RECORD_CROSSES_BLOCK:
+        return "directory entry across blocks";
+    case IFS_EXT2_DIRECTORY_RECORD_INODE_RANGE:
+        return "inode out of bounds";
+    }
+    return "invalid EXT2 directory record";
+}
+
 const char *ifs_ext2_status_string(const IfsExt2Status status)
 {
     switch (status) {
