@@ -114,6 +114,28 @@ int main(void)
             return fail("initial directory layout is wrong");
     }
 
+    {
+        ifs_ext2_u32 span_offset = 0U;
+        ifs_ext2_u32 span_length = 0U;
+
+        if (ifs_ext2_directory_delete_span(
+                20U, 12U, 1, 8U, 1024U,
+                &span_offset, &span_length) != IFS_EXT2_OK ||
+            span_offset != 8U || span_length != 24U)
+            return fail("directory deletion merge span is wrong");
+
+        if (ifs_ext2_directory_delete_span(
+                20U, 12U, 0, 0U, 1024U,
+                &span_offset, &span_length) != IFS_EXT2_OK ||
+            span_offset != 20U || span_length != 12U)
+            return fail("first-entry deletion span is wrong");
+
+        if (ifs_ext2_directory_delete_span(
+                1020U, 12U, 0, 0U, 1024U,
+                &span_offset, &span_length) != IFS_EXT2_ERROR_CORRUPT)
+            return fail("cross-block deletion span was accepted");
+    }
+
     if (ifs_ext2_validate_directory_record(
             0U, 12U, 1U, 2U, 1024U, 8192U) !=
         IFS_EXT2_DIRECTORY_RECORD_OK)
