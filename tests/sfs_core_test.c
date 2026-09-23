@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "sfs_core.h"
 #include <stdio.h>
 static int fail(const char *m){ fprintf(stderr,"sfs core test: %s\n",m); return 1; }
@@ -26,6 +25,29 @@ int main(void)
         return fail("bad transaction block accepted");
     if (ifs_sfs_compute_bitmap_layout(512U,100000U,&cap,&count)!=0 || cap!=4000U || count!=25U)
         return fail("bitmap geometry wrong");
+
+    {
+        static const ifs_sfs_u8 valid_name[] = "ReadMe";
+        static const ifs_sfs_u8 invalid_name[] = "bad:name";
+
+        if (ifs_sfs_validate_name(valid_name, 6U) != IFS_SFS_NAME_OK ||
+            ifs_sfs_validate_name(invalid_name, 8U) !=
+                IFS_SFS_NAME_INVALID_CHARACTER)
+            return fail("SFS name validation is wrong");
+        if (ifs_sfs_fold_character((ifs_sfs_u8)'z') !=
+                (ifs_sfs_u8)'Z' ||
+            ifs_sfs_lower_character((ifs_sfs_u8)'Z') !=
+                (ifs_sfs_u8)'z')
+            return fail("SFS case conversion is wrong");
+        if (ifs_sfs_component_hash(valid_name, 0) !=
+            ifs_sfs_component_hash(
+                (const ifs_sfs_u8 *)"README", 0))
+            return fail("SFS case-insensitive hash is wrong");
+        if (ifs_sfs_component_hash(valid_name, 1) ==
+            ifs_sfs_component_hash(
+                (const ifs_sfs_u8 *)"README", 1))
+            return fail("SFS case-sensitive hash is wrong");
+    }
     {
         static const unsigned char valid_tail[] = {
             'n', 'a', 'm', 'e', 0, 'c', 'o', 'm', 'm', 'e', 'n', 't', 0, 0
