@@ -759,6 +759,8 @@ static int sfs_publish_hash_link(
     u32 old_head;
 
     if (hash_block == 0U) {
+        node->next = 0U;
+        node->hash16 = 0U;
         asfs_bstore(sb, node_bh);
         return 0;
     }
