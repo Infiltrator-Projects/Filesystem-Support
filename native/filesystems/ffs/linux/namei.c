@@ -4,6 +4,8 @@
  * live in the FFS core.
  */
 
+#include "affs.h"
+
 #include <linux/exportfs.h>
 
 static int ifs_amiga_name_hash(

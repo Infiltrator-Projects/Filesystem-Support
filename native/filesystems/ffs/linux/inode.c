@@ -2,6 +2,8 @@
  * Project-authored Linux inode adapter for Amiga FFS.
  */
 
+#include "affs.h"
+
 #include <linux/sched.h>
 #include <linux/cred.h>
 #include <linux/gfp.h>

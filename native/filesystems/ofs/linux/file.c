@@ -5,6 +5,8 @@
  * owns Linux page-cache, buffer-head and VFS integration only.
  */
 
+#include "affs.h"
+
 #include <linux/uio.h>
 #include <linux/blkdev.h>
 #include <linux/mpage.h>

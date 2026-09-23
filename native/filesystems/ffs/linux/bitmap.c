@@ -4,6 +4,8 @@
  * locking and dirty-state handling.
  */
 
+#include "affs.h"
+
 #include <linux/slab.h>
 
 static void ifs_amiga_bitmap_drop_cache(struct affs_sb_info *sbi)

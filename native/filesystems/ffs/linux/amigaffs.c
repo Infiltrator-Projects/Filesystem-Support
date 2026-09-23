@@ -3,6 +3,8 @@
  * canonical FFS core.
  */
 
+#include "affs.h"
+
 #include <linux/math64.h>
 #include <linux/iversion.h>
 
