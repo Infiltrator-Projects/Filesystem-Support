@@ -177,6 +177,16 @@ IfsExt2Status ifs_ext2_block_to_path(
     ifs_ext2_u64 logical_block,
     IfsExt2BlockPath *path);
 
+ifs_ext2_u32 ifs_ext2_directory_record_required_length(
+    ifs_ext2_u32 name_length);
+
+int ifs_ext2_directory_record_can_insert(
+    ifs_ext2_u32 record_length,
+    ifs_ext2_u32 existing_name_length,
+    ifs_ext2_u32 existing_inode_number,
+    ifs_ext2_u32 requested_name_length,
+    ifs_ext2_u32 *occupied_length);
+
 ifs_ext2_u32 ifs_ext2_directory_record_length_from_disk(
     ifs_ext2_u16 encoded_length,
     ifs_ext2_u32 maximum_record_length);
