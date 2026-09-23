@@ -7,6 +7,7 @@
 #include <linux/mutex.h>
 #include <asm/byteorder.h>
 #include "amigasfs.h"
+#include "../core/sfs_core.h"
 
 #define asfs_debug(fmt,arg...) /* no debug at all */
 //#define asfs_debug(fmt,arg...) printk(fmt,##arg)  /* general debug infos */
@@ -197,8 +198,23 @@ int asfs_createnode(struct super_block *sb, struct buffer_head **returned_cb,
 	       struct fsNode **returned_node, u32 * returned_nodeno);
 int asfs_deletenode(struct super_block *sb, u32 objectnode);
 
+static inline bool asfs_object_slot_fits(
+    struct super_block *sb,
+    struct fsObjectContainer *container,
+    struct fsObject *object)
+{
+    const u8 *const start = (const u8 *)container;
+    const u8 *const end = start + sb->s_blocksize;
+    const u8 *const current = (const u8 *)object;
+
+    if (current < start || current > end)
+        return false;
+    return (size_t)(end - current) >= sizeof(struct fsObject) + 2U;
+}
+
 /* objects */
-struct fsObject *asfs_nextobject(struct fsObject *obj);
+struct fsObject *asfs_nextobject(struct super_block *sb,
+		struct fsObjectContainer *container, struct fsObject *obj);
 struct fsObject *asfs_find_obj_by_name(struct super_block *sb,
 		struct fsObjectContainer *objcont, u8 * name);
 int asfs_readobject(struct super_block *sb, u32 objectnode,

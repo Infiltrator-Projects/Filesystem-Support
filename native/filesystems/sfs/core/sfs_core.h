@@ -32,4 +32,25 @@ int ifs_sfs_compute_bitmap_layout(
     ifs_sfs_u32 block_size, ifs_sfs_u32 total_blocks,
     ifs_sfs_u32 *blocks_per_bitmap, ifs_sfs_u32 *bitmap_block_count);
 const char *ifs_sfs_root_status_string(IfsSfsRootStatus status);
+
+#define IFS_SFS_MAX_FILENAME 105U
+
+typedef enum IfsSfsObjectRecordStatus {
+    IFS_SFS_OBJECT_RECORD_OK = 0,
+    IFS_SFS_OBJECT_RECORD_INVALID_ARGUMENT,
+    IFS_SFS_OBJECT_RECORD_NAME_UNTERMINATED,
+    IFS_SFS_OBJECT_RECORD_NAME_TOO_LONG,
+    IFS_SFS_OBJECT_RECORD_COMMENT_UNTERMINATED,
+    IFS_SFS_OBJECT_RECORD_SIZE_OVERFLOW
+} IfsSfsObjectRecordStatus;
+
+IfsSfsObjectRecordStatus ifs_sfs_object_record_layout(
+    const unsigned char *name_and_comment,
+    ifs_sfs_u32 available_tail_bytes,
+    ifs_sfs_u32 fixed_prefix_bytes,
+    ifs_sfs_u32 *record_bytes,
+    ifs_sfs_u32 *name_bytes);
+
+const char *ifs_sfs_object_record_status_string(
+    IfsSfsObjectRecordStatus status);
 #endif

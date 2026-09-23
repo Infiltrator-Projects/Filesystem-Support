@@ -57,3 +57,68 @@ const char *ifs_sfs_root_status_string(const IfsSfsRootStatus status)
     }
     return "invalid SFS root layout";
 }
+
+IfsSfsObjectRecordStatus ifs_sfs_object_record_layout(
+    const unsigned char *const name_and_comment,
+    const ifs_sfs_u32 available_tail_bytes,
+    const ifs_sfs_u32 fixed_prefix_bytes,
+    ifs_sfs_u32 *const record_bytes,
+    ifs_sfs_u32 *const name_bytes)
+{
+    ifs_sfs_u32 name_end = 0U;
+    ifs_sfs_u32 comment_end;
+    ifs_sfs_u64 raw_size;
+    ifs_sfs_u64 aligned_size;
+
+    if (name_and_comment == 0 || record_bytes == 0 || name_bytes == 0)
+        return IFS_SFS_OBJECT_RECORD_INVALID_ARGUMENT;
+
+    while (name_end < available_tail_bytes &&
+           name_and_comment[name_end] != 0U)
+        name_end++;
+
+    if (name_end == available_tail_bytes)
+        return IFS_SFS_OBJECT_RECORD_NAME_UNTERMINATED;
+    if (name_end > IFS_SFS_MAX_FILENAME)
+        return IFS_SFS_OBJECT_RECORD_NAME_TOO_LONG;
+
+    comment_end = name_end + 1U;
+    while (comment_end < available_tail_bytes &&
+           name_and_comment[comment_end] != 0U)
+        comment_end++;
+
+    if (comment_end == available_tail_bytes)
+        return IFS_SFS_OBJECT_RECORD_COMMENT_UNTERMINATED;
+
+    raw_size =
+        (ifs_sfs_u64)fixed_prefix_bytes + (ifs_sfs_u64)comment_end + 1U;
+    aligned_size = (raw_size + 1U) & ~1ULL;
+    if (aligned_size > 0xffffffffULL ||
+        aligned_size >
+            (ifs_sfs_u64)fixed_prefix_bytes + available_tail_bytes)
+        return IFS_SFS_OBJECT_RECORD_SIZE_OVERFLOW;
+
+    *record_bytes = (ifs_sfs_u32)aligned_size;
+    *name_bytes = name_end;
+    return IFS_SFS_OBJECT_RECORD_OK;
+}
+
+const char *ifs_sfs_object_record_status_string(
+    const IfsSfsObjectRecordStatus status)
+{
+    switch (status) {
+    case IFS_SFS_OBJECT_RECORD_OK:
+        return "ok";
+    case IFS_SFS_OBJECT_RECORD_INVALID_ARGUMENT:
+        return "invalid object-record argument";
+    case IFS_SFS_OBJECT_RECORD_NAME_UNTERMINATED:
+        return "unterminated object name";
+    case IFS_SFS_OBJECT_RECORD_NAME_TOO_LONG:
+        return "object name exceeds SFS limit";
+    case IFS_SFS_OBJECT_RECORD_COMMENT_UNTERMINATED:
+        return "unterminated object comment";
+    case IFS_SFS_OBJECT_RECORD_SIZE_OVERFLOW:
+        return "object record exceeds its containing block";
+    }
+    return "invalid SFS object record";
+}

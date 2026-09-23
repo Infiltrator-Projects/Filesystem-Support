@@ -15,6 +15,7 @@
 
 #include <linux/types.h>
 #include <linux/errno.h>
+#include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
@@ -71,11 +72,16 @@ int asfs_readdir(struct file *filp, struct dir_context *ctx)
 		objcont = (struct fsObjectContainer *)bh->b_data;
 		obj = &objcont->object[0];
 
-		while (be32_to_cpu(obj->objectnode) > 0 &&
-		       ((char *)obj - (char *)objcont) +
-		       sizeof(struct fsObject) + 2 < sb->s_blocksize) {
+		while (asfs_object_slot_fits(sb, objcont, obj) &&
+		       be32_to_cpu(obj->objectnode) > 0) {
+			struct fsObject *next = asfs_nextobject(sb, objcont, obj);
 			u32 objectnode = be32_to_cpu(obj->objectnode);
 			unsigned int type;
+
+			if (!next) {
+				asfs_brelse(bh);
+				return -EFSCORRUPTED;
+			}
 
 			if (!add && objectnode == startnode)
 				add = true;
@@ -102,7 +108,7 @@ int asfs_readdir(struct file *filp, struct dir_context *ctx)
 				}
 			}
 
-			obj = asfs_nextobject(obj);
+			obj = next;
 		}
 
 		block = be32_to_cpu(objcont->next);
@@ -121,13 +127,21 @@ static struct fsObject *asfs_find_obj_by_name_nls(struct super_block *sb, struct
 	u8 buf[512];
 
 	obj = &(objcont->object[0]);
-	while (be32_to_cpu(obj->objectnode) > 0 && ((char *) obj - (char *) objcont) + sizeof(struct fsObject) + 2 < sb->s_blocksize) {
-		asfs_translate(buf, obj->name, ASFS_SB(sb)->nls_io, ASFS_SB(sb)->nls_disk, 512);
-		if (asfs_namecmp(buf, name, ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE, ASFS_SB(sb)->nls_io) == 0) {
+	while (asfs_object_slot_fits(sb, objcont, obj) &&
+	       be32_to_cpu(obj->objectnode) > 0) {
+		struct fsObject *next = asfs_nextobject(sb, objcont, obj);
+
+		if (!next)
+			return ERR_PTR(-EFSCORRUPTED);
+		asfs_translate(buf, obj->name, ASFS_SB(sb)->nls_io,
+			       ASFS_SB(sb)->nls_disk, sizeof(buf));
+		if (asfs_namecmp(buf, name,
+				 ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE,
+				 ASFS_SB(sb)->nls_io) == 0) {
 			asfs_debug("Object found! Node %u, Name %s, Type %x, inCont %u\n", be32_to_cpu(obj->objectnode), obj->name, obj->bits, be32_to_cpu(objcont->bheader.ownblock));
 			return obj;
 		}
-		obj = asfs_nextobject(obj);
+		obj = next;
 	}
 	return NULL;
 }
@@ -175,7 +189,17 @@ struct dentry *asfs_lookup(struct inode *dir, struct dentry *dentry,
 					mutex_unlock(&ASFS_SB(sb)->lock);
 					return ERR_PTR(res);
 				}
-				if ((obj = asfs_find_obj_by_name(sb, (struct fsObjectContainer *) bh->b_data, bufname)) != NULL) {
+				obj = asfs_find_obj_by_name(
+					sb, (struct fsObjectContainer *)bh->b_data,
+					bufname);
+				if (IS_ERR(obj)) {
+					res = PTR_ERR(obj);
+					asfs_brelse(node_bh);
+					asfs_brelse(bh);
+					mutex_unlock(&ASFS_SB(sb)->lock);
+					return ERR_PTR(res);
+				}
+				if (obj != NULL) {
 					asfs_brelse(node_bh);
 					goto found_inode;
 				}
@@ -195,8 +219,15 @@ struct dentry *asfs_lookup(struct inode *dir, struct dentry *dentry,
 				mutex_unlock(&ASFS_SB(sb)->lock);
 				return ERR_PTR(res);
 			}
-			objcont = (struct fsObjectContainer *) bh->b_data;
-			if ((obj = asfs_find_obj_by_name_nls(sb, objcont, name)) != NULL)
+			objcont = (struct fsObjectContainer *)bh->b_data;
+			obj = asfs_find_obj_by_name_nls(sb, objcont, name);
+			if (IS_ERR(obj)) {
+				res = PTR_ERR(obj);
+				asfs_brelse(bh);
+				mutex_unlock(&ASFS_SB(sb)->lock);
+				return ERR_PTR(res);
+			}
+			if (obj != NULL)
 				goto found_inode;
 			block = be32_to_cpu(objcont->next);
 			asfs_brelse(bh);

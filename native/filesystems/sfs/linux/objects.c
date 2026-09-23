@@ -15,6 +15,8 @@
 
 #include <linux/types.h>
 #include <linux/errno.h>
+#include <linux/err.h>
+#include <linux/string.h>
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
@@ -23,18 +25,35 @@
 
 #include <asm/byteorder.h>
 
-struct fsObject *asfs_nextobject(struct fsObject *obj)
+struct fsObject *asfs_nextobject(
+	struct super_block *sb,
+	struct fsObjectContainer *container,
+	struct fsObject *obj)
 {
-	int i;
-	u8 *p = obj->name;
+	u8 *const block_end = (u8 *)container + sb->s_blocksize;
+	u8 *const object_start = (u8 *)obj;
+	u8 *const tail = obj->name;
+	ifs_sfs_u32 record_bytes = 0U;
+	ifs_sfs_u32 name_bytes = 0U;
+	ifs_sfs_u32 fixed_prefix_bytes;
+	IfsSfsObjectRecordStatus status;
 
-	for (i = 2; i > 0; p++)
-		if (*p == '\0')
-			i--;
-	if ((p - (u8 *) obj) & 0x01)
-		p++;
+	if (!asfs_object_slot_fits(sb, container, obj))
+		return NULL;
 
-	return ((struct fsObject *) p);
+	fixed_prefix_bytes = (ifs_sfs_u32)(tail - object_start);
+	status = ifs_sfs_object_record_layout(
+		tail, (ifs_sfs_u32)(block_end - tail), fixed_prefix_bytes,
+		&record_bytes, &name_bytes);
+	if (status != IFS_SFS_OBJECT_RECORD_OK) {
+		pr_err_ratelimited("ASFS: corrupt object record: %s\n",
+				   ifs_sfs_object_record_status_string(status));
+		return NULL;
+	}
+	if (record_bytes > (ifs_sfs_u32)(block_end - object_start))
+		return NULL;
+
+	return (struct fsObject *)(object_start + record_bytes);
 }
 
 struct fsObject *asfs_find_obj_by_name(struct super_block *sb, struct fsObjectContainer *objcont, u8 * name)
@@ -42,12 +61,19 @@ struct fsObject *asfs_find_obj_by_name(struct super_block *sb, struct fsObjectCo
 	struct fsObject *obj;
 
 	obj = &(objcont->object[0]);
-	while (be32_to_cpu(obj->objectnode) > 0 && ((char *) obj - (char *) objcont) + sizeof(struct fsObject) + 2 < sb->s_blocksize) {
-		if (asfs_namecmp(obj->name, name, ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE, NULL) == 0) {
+	while (asfs_object_slot_fits(sb, objcont, obj) &&
+	       be32_to_cpu(obj->objectnode) > 0) {
+		struct fsObject *next = asfs_nextobject(sb, objcont, obj);
+
+		if (!next)
+			return ERR_PTR(-EFSCORRUPTED);
+		if (asfs_namecmp(obj->name, name,
+				 ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE,
+				 NULL) == 0) {
 			asfs_debug("Object found! Node %u, Name %s, Type %x, inCont %u\n", be32_to_cpu(obj->objectnode), obj->name, obj->bits, be32_to_cpu(objcont->bheader.ownblock));
 			return obj;
 		}
-		obj = asfs_nextobject(obj);
+		obj = next;
 	}
 	return NULL;
 }
@@ -59,11 +85,15 @@ static struct fsObject *find_obj_by_node(struct super_block *sb, struct fsObject
 	struct fsObject *obj;
 
 	obj = &(objcont->object[0]);
-	while (be32_to_cpu(obj->objectnode) > 0 && ((char *) obj - (char *) objcont) + sizeof(struct fsObject) + 2 < sb->s_blocksize) {
-		if (be32_to_cpu(obj->objectnode) == objnode) {
+	while (asfs_object_slot_fits(sb, objcont, obj) &&
+	       be32_to_cpu(obj->objectnode) > 0) {
+		struct fsObject *next = asfs_nextobject(sb, objcont, obj);
+
+		if (!next)
+			return ERR_PTR(-EFSCORRUPTED);
+		if (be32_to_cpu(obj->objectnode) == objnode)
 			return obj;
-		}
-		obj = asfs_nextobject(obj);
+		obj = next;
 	}
 	return NULL;
 }
@@ -82,7 +112,15 @@ int asfs_readobject(struct super_block *sb, u32 objectnode, struct buffer_head *
 	asfs_brelse(*bh);
 
 	if (contblock > 0 && (*bh = asfs_breadcheck(sb, contblock, ASFS_OBJECTCONTAINER_ID))) {
-		*returned_object = find_obj_by_node(sb, (void *) (*bh)->b_data, objectnode);
+		*returned_object = find_obj_by_node(
+			sb, (void *)(*bh)->b_data, objectnode);
+		if (IS_ERR(*returned_object)) {
+			errorcode = PTR_ERR(*returned_object);
+			brelse(*bh);
+			*bh = NULL;
+			*returned_object = NULL;
+			return errorcode;
+		}
 		if (*returned_object == NULL) {
 			brelse(*bh);
 			*bh = NULL;
@@ -178,14 +216,23 @@ static int simpleremoveobject(struct super_block *sb, struct buffer_head *bh, st
 			return errorcode;
 	}
 
-	if ((asfs_nextobject(oc->object))->name[0] == '\0')
-		errorcode = removeobjectcontainer(sb, bh);
-	else {
+	{
+		struct fsObject *first_next =
+			asfs_nextobject(sb, oc, oc->object);
+
+		if (!first_next || !asfs_object_slot_fits(sb, oc, first_next))
+			return -EFSCORRUPTED;
+		if (first_next->name[0] == '\0')
+			return removeobjectcontainer(sb, bh);
+	}
+	{
 		struct fsObject *nexto;
 		int objlen;
 
-		nexto = asfs_nextobject(o);
-		objlen = (u8 *) nexto - (u8 *) o;
+		nexto = asfs_nextobject(sb, oc, o);
+		if (!nexto)
+			return -EFSCORRUPTED;
+		objlen = (u8 *)nexto - (u8 *)o;
 
 		memmove(o, nexto, sb->s_blocksize - ((u8 *) nexto - (u8 *) oc));
 		memset((u8 *) oc + sb->s_blocksize - objlen, 0, objlen);
@@ -370,8 +417,13 @@ static u8 *emptyspaceinobjectcontainer(struct super_block *sb, struct fsObjectCo
 
 	endadr = (u8 *) oc + sb->s_blocksize - sizeof(struct fsObject) - 2;
 
-	while ((u8 *) o < endadr && o->name[0] != 0)
-		o = asfs_nextobject(o);
+	while ((u8 *)o < endadr && o->name[0] != 0) {
+		struct fsObject *next = asfs_nextobject(sb, oc, o);
+
+		if (!next)
+			return NULL;
+		o = next;
+	}
 
 	return (u8 *) o;
 }
@@ -399,6 +451,10 @@ static int findobjectspace(struct super_block *sb, struct buffer_head **io_bh, s
 		/* We need to find out how much free space this ObjectContainer has */
 
 		emptyspace = emptyspaceinobjectcontainer(sb, oc);
+		if (!emptyspace) {
+			asfs_brelse(bh);
+			return -EFSCORRUPTED;
+		}
 
 		if ((u8 *) oc + sb->s_blocksize - emptyspace >= bytesneeded) {
 			/* We found enough space in one of the ObjectContainer blocks!!
@@ -642,7 +698,8 @@ int asfs_renameobject(struct super_block *sb, struct buffer_head *bh1, struct fs
 	asfs_debug("renameobject: Renaming '%s' to '%s' in dir '%s'\n", o1->name, newname, oparent->name);
 
 	object = *o1;
-	strcpy(oldname, o1->name);
+	if (strscpy(oldname, o1->name, sizeof(oldname)) < 0)
+		return -EFSCORRUPTED;
 
 	if ((errorcode = dehashobjectquick(sb, be32_to_cpu(o1->objectnode), o1->name, oldparentnode)) == 0) {
 		u32 parentobjectnode = be32_to_cpu(oparent->objectnode);
