@@ -415,7 +415,7 @@ static VOID ExtfsReleaseFcbReference(PEXTFS_FCB Fcb)
     PEXTFS_VCB vcb;
     LIST_ENTRY reapList;
 
-    if (INFILTRATR_UNLIKELY(Fcb == NULL || Fcb->Vcb == NULL)) return;
+    if (Fcb == NULL || Fcb->Vcb == NULL) return;
     InitializeListHead(&reapList);
     vcb = Fcb->Vcb;
     ExtfsAcquireFcbList(vcb);
