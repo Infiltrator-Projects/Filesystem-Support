@@ -201,45 +201,32 @@ static inline int verify_chain(Indirect *from, Indirect *to)
 static int ext2_block_to_path(struct inode *inode,
 			long i_block, int offsets[4], int *boundary)
 {
-	int ptrs = EXT2_ADDR_PER_BLOCK(inode->i_sb);
-	int ptrs_bits = EXT2_ADDR_PER_BLOCK_BITS(inode->i_sb);
-	const long direct_blocks = EXT2_NDIR_BLOCKS,
-		indirect_blocks = ptrs,
-		double_blocks = (1 << (ptrs_bits * 2));
-	int n = 0;
-	int final = 0;
+	IfsExt2BlockPath path;
+	IfsExt2Status status;
+	unsigned int i;
 
 	if (i_block < 0) {
 		ext2_msg(inode->i_sb, KERN_WARNING,
 			"warning: %s: block < 0", __func__);
-	} else if (i_block < direct_blocks) {
-		offsets[n++] = i_block;
-		final = direct_blocks;
-	} else if ( (i_block -= direct_blocks) < indirect_blocks) {
-		offsets[n++] = EXT2_IND_BLOCK;
-		offsets[n++] = i_block;
-		final = ptrs;
-	} else if ((i_block -= indirect_blocks) < double_blocks) {
-		offsets[n++] = EXT2_DIND_BLOCK;
-		offsets[n++] = i_block >> ptrs_bits;
-		offsets[n++] = i_block & (ptrs - 1);
-		final = ptrs;
-	} else if (((i_block -= double_blocks) >> (ptrs_bits * 2)) < ptrs) {
-		offsets[n++] = EXT2_TIND_BLOCK;
-		offsets[n++] = i_block >> (ptrs_bits * 2);
-		offsets[n++] = (i_block >> ptrs_bits) & (ptrs - 1);
-		offsets[n++] = i_block & (ptrs - 1);
-		final = ptrs;
-	} else {
-		ext2_msg(inode->i_sb, KERN_WARNING,
-			"warning: %s: block is too big", __func__);
+		return 0;
 	}
+
+	status = ifs_ext2_block_to_path(inode->i_sb->s_blocksize,
+				       (ifs_ext2_u64)i_block, &path);
+	if (status != IFS_EXT2_OK) {
+		ext2_msg(inode->i_sb, KERN_WARNING,
+			"warning: %s: %s", __func__,
+			ifs_ext2_status_string(status));
+		return 0;
+	}
+
+	for (i = 0; i < path.depth; ++i)
+		offsets[i] = (int)path.offsets[i];
 	if (boundary)
-		*boundary = final - 1 - (i_block & (ptrs - 1));
+		*boundary = (int)path.boundary;
 
-	return n;
+	return (int)path.depth;
 }
-
 
 /**
  * ext2_get_branch - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
