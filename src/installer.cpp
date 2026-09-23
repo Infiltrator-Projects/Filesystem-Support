@@ -184,7 +184,18 @@ void run_privileged_async(const std::vector<std::string>& arguments,
     }
 
     gchar* pkexec = g_find_program_in_path("pkexec");
-    gchar* executable = g_find_program_in_path(arguments.front().c_str());
+    gchar* executable = nullptr;
+    if (g_path_is_absolute(arguments.front().c_str())) {
+        if (g_file_test(
+                arguments.front().c_str(),
+                static_cast<GFileTest>(G_FILE_TEST_IS_REGULAR |
+                                       G_FILE_TEST_IS_EXECUTABLE))) {
+            executable = g_strdup(arguments.front().c_str());
+        }
+    } else {
+        executable = g_find_program_in_path(arguments.front().c_str());
+    }
+
     if (pkexec == nullptr || executable == nullptr) {
         g_free(pkexec);
         g_free(executable);
@@ -254,6 +265,25 @@ bool packages_are_catalogued(const std::vector<std::string>& packages,
     }
 
     return true;
+}
+
+std::string native_module_helper_path()
+{
+    static const char* const candidates[] = {
+        "/usr/lib/infiltrator-filesystem-support/native-module-helper",
+        "/usr/local/lib/infiltrator-filesystem-support/native-module-helper"
+    };
+
+    for (const char* const path : candidates) {
+        if (g_file_test(
+                path,
+                static_cast<GFileTest>(G_FILE_TEST_IS_REGULAR |
+                                       G_FILE_TEST_IS_EXECUTABLE))) {
+            return path;
+        }
+    }
+
+    return {};
 }
 
 } // namespace
@@ -395,6 +425,54 @@ void unload_module_async(const std::string& module,
     run_privileged_async(
         {"modprobe", "-r", module},
         "Kernel module unloaded successfully.",
+        std::move(completion));
+}
+
+void install_native_module_async(const std::string& filesystem_id,
+                                 const std::string& module,
+                                 ActionCompletion completion)
+{
+    if (!linux_native_module_is_managed(filesystem_id, module)) {
+        completion(false, "Refusing unmanaged native filesystem module.");
+        return;
+    }
+
+    const std::string helper = native_module_helper_path();
+    if (helper.empty()) {
+        completion(
+            false,
+            "The Filesystem Support native-module helper is not installed. "
+            "Reinstall Filesystem Support from the current package.");
+        return;
+    }
+
+    run_privileged_async(
+        {helper, "install", filesystem_id, module},
+        "Native kernel module installed and loaded successfully.",
+        std::move(completion));
+}
+
+void remove_native_module_async(const std::string& filesystem_id,
+                                const std::string& module,
+                                ActionCompletion completion)
+{
+    if (!linux_native_module_is_managed(filesystem_id, module)) {
+        completion(false, "Refusing unmanaged native filesystem module.");
+        return;
+    }
+
+    const std::string helper = native_module_helper_path();
+    if (helper.empty()) {
+        completion(
+            false,
+            "The Filesystem Support native-module helper is not installed. "
+            "Reinstall Filesystem Support from the current package.");
+        return;
+    }
+
+    run_privileged_async(
+        {helper, "remove", filesystem_id, module},
+        "Native kernel module removed successfully.",
         std::move(completion));
 }
 
