@@ -64,6 +64,37 @@ jobs:
           grep -Fq 'Copyright (C) 2026 Shannon Smith' "$file"
           ! grep -Eiq 'linux/fs/ext2|Remy Card|Linus Torvalds|Stephen Tweedie|Red Hat' "$file"
 
+      - name: Verify rewritten Amiga adapter provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          rewritten=(
+            native/filesystems/ofs/linux/amigaffs.c
+            native/filesystems/ofs/linux/bitmap.c
+            native/filesystems/ofs/linux/dir.c
+            native/filesystems/ofs/linux/inode.c
+            native/filesystems/ofs/linux/namei.c
+            native/filesystems/ofs/linux/super.c
+            native/filesystems/ofs/linux/symlink.c
+            native/filesystems/ffs/linux/amigaffs.c
+            native/filesystems/ffs/linux/bitmap.c
+            native/filesystems/ffs/linux/dir.c
+            native/filesystems/ffs/linux/inode.c
+            native/filesystems/ffs/linux/namei.c
+            native/filesystems/ffs/linux/super.c
+            native/filesystems/ffs/linux/symlink.c
+            native/filesystems/amiga_common/core/amiga_dos_core.c
+            native/filesystems/amiga_common/linux/amigados_adapter.c
+            native/filesystems/amiga_common/linux/bitmap_adapter.c
+            native/filesystems/amiga_common/linux/inode_adapter.c
+            native/filesystems/amiga_common/linux/namei_adapter.c
+            native/filesystems/amiga_common/linux/super_adapter.c
+          )
+          for file in "${rewritten[@]}"; do
+            test -s "$file"
+            ! grep -Eiq 'linux/fs/affs|Hans-Joachim Widmaier|Ray Burr|Eric Youngdale|Linus Torvalds' "$file"
+          done
+
       - name: Enforce single EXT2 engine on Windows
         shell: bash
         run: |
