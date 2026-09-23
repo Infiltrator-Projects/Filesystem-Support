@@ -182,23 +182,23 @@ static struct ext2_reserve_window_node *ext2_reservation_at_or_before(
 	struct rb_root *root, ext2_fsblk_t block)
 {
 	struct rb_node *node = root->rb_node;
-	struct ext2_reserve_window_node *candidate = NULL;
+	struct ext2_reserve_window_node *found = NULL;
 
 	while (node) {
-		struct ext2_reserve_window_node *candidate =
+		struct ext2_reserve_window_node *entry =
 			rb_entry(node, struct ext2_reserve_window_node, rsv_node);
 
-		if (block < candidate->rsv_start) {
+		if (block < entry->rsv_start) {
 			node = node->rb_left;
 		} else {
-			candidate = candidate;
-			if (block <= candidate->rsv_end)
+			found = entry;
+			if (block <= entry->rsv_end)
 				break;
 			node = node->rb_right;
 		}
 	}
 
-	return candidate;
+	return found;
 }
 
 void ext2_rsv_window_add(
@@ -209,13 +209,13 @@ void ext2_rsv_window_add(
 	struct rb_node *parent = NULL;
 
 	while (*link) {
-		struct ext2_reserve_window_node *candidate =
+		struct ext2_reserve_window_node *entry =
 			rb_entry(*link, struct ext2_reserve_window_node, rsv_node);
 
 		parent = *link;
-		if (window->rsv_end < existing->rsv_start)
+		if (window->rsv_end < entry->rsv_start)
 			link = &(*link)->rb_left;
-		else if (window->rsv_start > existing->rsv_end)
+		else if (window->rsv_start > entry->rsv_end)
 			link = &(*link)->rb_right;
 		else
 			BUG();
