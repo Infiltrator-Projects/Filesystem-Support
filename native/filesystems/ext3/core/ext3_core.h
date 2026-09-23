@@ -33,4 +33,22 @@ ifs_ext3_u32 ifs_ext3_unsupported_incompat_features(
 ifs_ext3_u32 ifs_ext3_unsupported_ro_compat_features(
     ifs_ext3_u32 feature_ro_compat);
 
+typedef enum IfsExt3GeometryStatus {
+    IFS_EXT3_GEOMETRY_OK = 0,
+    IFS_EXT3_GEOMETRY_INVALID_INODE_SIZE,
+    IFS_EXT3_GEOMETRY_FRAGMENT_SIZE_MISMATCH,
+    IFS_EXT3_GEOMETRY_ZERO_GROUP_VALUE,
+    IFS_EXT3_GEOMETRY_BLOCKS_PER_GROUP_TOO_LARGE,
+    IFS_EXT3_GEOMETRY_FRAGMENTS_PER_GROUP_TOO_LARGE,
+    IFS_EXT3_GEOMETRY_INODES_PER_GROUP_TOO_LARGE
+} IfsExt3GeometryStatus;
+
+IfsExt3GeometryStatus ifs_ext3_validate_geometry(
+    ifs_ext3_u32 block_size,
+    ifs_ext3_u32 inode_size,
+    ifs_ext3_u32 fragment_size,
+    ifs_ext3_u32 blocks_per_group,
+    ifs_ext3_u32 fragments_per_group,
+    ifs_ext3_u32 inodes_per_group);
+
 #endif
