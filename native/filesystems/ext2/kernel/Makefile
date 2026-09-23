@@ -13,7 +13,7 @@
 
 obj-m += ext2.o
 
-ext2-y := balloc.o dir.o file.o ialloc.o inode.o namei.o super.o
+ext2-y := canonical.o balloc.o dir.o file.o ialloc.o inode.o namei.o super.o
 ext2-$(CONFIG_EXT2_FS_XATTR) += xattr.o
 
 ccflags-y += -I$(src)
