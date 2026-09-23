@@ -303,3 +303,89 @@ IfsAmigaSymlinkStatus ifs_amiga_translate_symlink(
     *output_length = output_index;
     return IFS_AMIGA_SYMLINK_OK;
 }
+
+IfsAmigaSymlinkStatus ifs_amiga_encode_symlink(
+    const ifs_amiga_u8 *const source,
+    const ifs_amiga_u32 source_capacity,
+    const ifs_amiga_u8 *const volume_name,
+    const ifs_amiga_u32 volume_name_length,
+    ifs_amiga_u8 *const output,
+    const ifs_amiga_u32 output_capacity,
+    ifs_amiga_u32 *const output_length)
+{
+    ifs_amiga_u32 source_length = 0U;
+    ifs_amiga_u32 input = 0U;
+    ifs_amiga_u32 output_index = 0U;
+    ifs_amiga_u8 previous = (ifs_amiga_u8)'/';
+    ifs_amiga_u32 index;
+
+    if (source == 0 || output == 0 || output_length == 0 ||
+        output_capacity == 0U ||
+        (volume_name == 0 && volume_name_length != 0U))
+        return IFS_AMIGA_SYMLINK_INVALID_ARGUMENT;
+
+    while (source_length < source_capacity &&
+           source[source_length] != 0U)
+        source_length++;
+
+    if (source_length == source_capacity) {
+        output[0] = 0U;
+        *output_length = 0U;
+        return IFS_AMIGA_SYMLINK_SOURCE_UNTERMINATED;
+    }
+
+#define IFS_AMIGA_ENCODE_APPEND(ch)                                      \
+    do {                                                                 \
+        if (output_index + 1U >= output_capacity) {                      \
+            output[0] = 0U;                                              \
+            *output_length = 0U;                                         \
+            return IFS_AMIGA_SYMLINK_OUTPUT_TOO_SMALL;                   \
+        }                                                                \
+        output[output_index++] = (ifs_amiga_u8)(ch);                     \
+    } while (0)
+
+    if (source_length != 0U && source[0] == (ifs_amiga_u8)'/') {
+        while (input < source_length &&
+               source[input] == (ifs_amiga_u8)'/')
+            input++;
+
+        for (index = 0U; index < volume_name_length; ++index)
+            IFS_AMIGA_ENCODE_APPEND(volume_name[index]);
+    }
+
+    while (input < source_length) {
+        const ifs_amiga_u8 character = source[input++];
+
+        if (character == (ifs_amiga_u8)'.' &&
+            previous == (ifs_amiga_u8)'/' &&
+            input < source_length &&
+            source[input] == (ifs_amiga_u8)'.' &&
+            input + 1U < source_length &&
+            source[input + 1U] == (ifs_amiga_u8)'/') {
+            IFS_AMIGA_ENCODE_APPEND('/');
+            input += 2U;
+            previous = (ifs_amiga_u8)'/';
+        } else if (character == (ifs_amiga_u8)'.' &&
+                   previous == (ifs_amiga_u8)'/' &&
+                   input < source_length &&
+                   source[input] == (ifs_amiga_u8)'/') {
+            input++;
+            previous = (ifs_amiga_u8)'/';
+        } else {
+            IFS_AMIGA_ENCODE_APPEND(character);
+            previous = character;
+        }
+
+        if (previous == (ifs_amiga_u8)'/') {
+            while (input < source_length &&
+                   source[input] == (ifs_amiga_u8)'/')
+                input++;
+        }
+    }
+
+#undef IFS_AMIGA_ENCODE_APPEND
+
+    output[output_index] = 0U;
+    *output_length = output_index;
+    return IFS_AMIGA_SYMLINK_OK;
+}
