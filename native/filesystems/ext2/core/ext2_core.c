@@ -207,6 +207,30 @@ IfsExt2Status ifs_ext2_group_bounds(
     return IFS_EXT2_OK;
 }
 
+IfsExt2Status ifs_ext2_block_group_position(
+    const ifs_ext2_u32 first_data_block,
+    const ifs_ext2_u32 blocks_per_group,
+    const ifs_ext2_u32 blocks_count,
+    const ifs_ext2_u32 block,
+    ifs_ext2_u32 *const group,
+    ifs_ext2_u32 *const offset)
+{
+    ifs_ext2_u32 relative;
+
+    if (group == IFS_EXT2_NULL || offset == IFS_EXT2_NULL)
+        return IFS_EXT2_ERROR_ARGUMENT;
+    if (blocks_per_group == 0U ||
+        first_data_block >= blocks_count ||
+        block < first_data_block ||
+        block >= blocks_count)
+        return IFS_EXT2_ERROR_RANGE;
+
+    relative = block - first_data_block;
+    *group = relative / blocks_per_group;
+    *offset = relative % blocks_per_group;
+    return IFS_EXT2_OK;
+}
+
 IfsExt2Status ifs_ext2_validate_group_descriptor(
     const IfsExt2Superblock *superblock,
     const ifs_ext2_u32 group,
