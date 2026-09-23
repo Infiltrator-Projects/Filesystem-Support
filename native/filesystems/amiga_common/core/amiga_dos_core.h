@@ -93,4 +93,13 @@ IfsAmigaSymlinkStatus ifs_amiga_translate_symlink(
     ifs_amiga_u32 output_capacity,
     ifs_amiga_u32 *output_length);
 
+IfsAmigaSymlinkStatus ifs_amiga_encode_symlink(
+    const ifs_amiga_u8 *source,
+    ifs_amiga_u32 source_capacity,
+    const ifs_amiga_u8 *volume_name,
+    ifs_amiga_u32 volume_name_length,
+    ifs_amiga_u8 *output,
+    ifs_amiga_u32 output_capacity,
+    ifs_amiga_u32 *output_length);
+
 #endif
