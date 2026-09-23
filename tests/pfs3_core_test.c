@@ -279,5 +279,48 @@ int main(void)
             return fail("bad PFS directory block id accepted");
     }
 
+
+    {
+        unsigned char raw[IFS_PFS3_ANODE_BYTES] = {0};
+        IfsPfs3AnodeRecord anode;
+
+        raw[3] = 4U;
+        raw[7] = 100U;
+        raw[11] = 9U;
+        if (ifs_pfs3_decode_anode(raw, sizeof(raw), &anode) != 0)
+            return fail("PFS anode decoder failed");
+        if (anode.cluster_size != 4U ||
+            anode.block_number != 100U ||
+            anode.next_anode != 9U)
+            return fail("PFS anode decoded incorrectly");
+        if (ifs_pfs3_validate_anode_extent(&anode, 1000U) != 0)
+            return fail("valid PFS anode rejected");
+
+        anode.block_number = 999U;
+        anode.cluster_size = 2U;
+        if (ifs_pfs3_validate_anode_extent(&anode, 1000U) == 0)
+            return fail("overrunning PFS anode extent accepted");
+
+        anode.block_number = 0xffffffffU;
+        anode.cluster_size = 0U;
+        if (ifs_pfs3_validate_anode_extent(&anode, 1000U) != 0)
+            return fail("empty PFS anode sentinel rejected");
+    }
+
+    {
+        unsigned char raw[64] = {0};
+        IfsPfs3AnodeBlockView block;
+
+        raw[0] = 0x41U; raw[1] = 0x42U;
+        raw[7] = 5U;
+        raw[11] = 3U;
+        if (ifs_pfs3_decode_anode_block(raw, 64U, &block) != 0)
+            return fail("valid PFS anode block rejected");
+        if (block.datestamp != 5U ||
+            block.sequence != 3U ||
+            block.node_count != 4U)
+            return fail("PFS anode block decoded incorrectly");
+    }
+
     return 0;
 }

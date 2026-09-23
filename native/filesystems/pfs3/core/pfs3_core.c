@@ -20,6 +20,64 @@ static ifs_pfs3_u32 ifs_pfs3_read_be32(const unsigned char *data)
            (ifs_pfs3_u32)data[3];
 }
 
+int ifs_pfs3_decode_anode(
+    const unsigned char *const bytes,
+    const ifs_pfs3_u32 byte_count,
+    IfsPfs3AnodeRecord *const anode)
+{
+    if (bytes == 0 || anode == 0 || byte_count < IFS_PFS3_ANODE_BYTES)
+        return -1;
+
+    anode->cluster_size = ifs_pfs3_read_be32(bytes + 0U);
+    anode->block_number = ifs_pfs3_read_be32(bytes + 4U);
+    anode->next_anode = ifs_pfs3_read_be32(bytes + 8U);
+    return 0;
+}
+
+int ifs_pfs3_validate_anode_extent(
+    const IfsPfs3AnodeRecord *const anode,
+    const ifs_pfs3_u32 media_block_count)
+{
+    if (anode == 0 || media_block_count == 0U)
+        return -1;
+
+    /*
+     * A zero-sized anode is legal. PFS3 uses an empty anode while a newly
+     * created file has no allocated data blocks yet; its block number may be
+     * a sentinel and must not be interpreted as an extent.
+     */
+    if (anode->cluster_size == 0U)
+        return 0;
+
+    if (anode->block_number >= media_block_count ||
+        anode->cluster_size > media_block_count - anode->block_number)
+        return -1;
+
+    return 0;
+}
+
+int ifs_pfs3_decode_anode_block(
+    const unsigned char *const bytes,
+    const ifs_pfs3_u32 block_bytes,
+    IfsPfs3AnodeBlockView *const block)
+{
+    ifs_pfs3_u32 payload_bytes;
+
+    if (bytes == 0 || block == 0 ||
+        block_bytes < IFS_PFS3_ANODEBLOCK_HEADER_BYTES ||
+        ifs_pfs3_read_be16(bytes) != IFS_PFS3_ANODEBLOCK_ID)
+        return -1;
+
+    payload_bytes = block_bytes - IFS_PFS3_ANODEBLOCK_HEADER_BYTES;
+    if (payload_bytes % IFS_PFS3_ANODE_BYTES != 0U)
+        return -1;
+
+    block->datestamp = ifs_pfs3_read_be32(bytes + 4U);
+    block->sequence = ifs_pfs3_read_be32(bytes + 8U);
+    block->node_count = payload_bytes / IFS_PFS3_ANODE_BYTES;
+    return 0;
+}
+
 int ifs_pfs3_decode_directory_block(
     const unsigned char *const bytes,
     const ifs_pfs3_u32 block_bytes,
