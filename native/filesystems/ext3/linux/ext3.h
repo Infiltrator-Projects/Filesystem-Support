@@ -42,6 +42,7 @@
  */
 
 #include <linux/fs.h>
+#include "../core/ext3_core.h"
 #include "journal.h"
 #include <linux/magic.h>
 #include <linux/bug.h>
