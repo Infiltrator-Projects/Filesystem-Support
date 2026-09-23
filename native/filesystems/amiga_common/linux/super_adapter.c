@@ -16,6 +16,8 @@
 #include <linux/blkdev.h>
 #include <linux/seq_file.h>
 #include <linux/iversion.h>
+#include <linux/math64.h>
+#include <linux/limits.h>
 
 struct ifs_amiga_mount_config {
     kuid_t uid;
@@ -437,7 +439,7 @@ static int ifs_amiga_find_root(
                 sbi->s_hashsize = blocksize / 4 - 56;
                 if (sbi->s_hashsize <= 0) {
                     affs_brelse(candidate);
-                    return -EFSCORRUPTED;
+                    return -EUCLEAN;
                 }
 
                 *root_out = candidate;
@@ -592,7 +594,7 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
     sbi->s_data_blksize = (u32)sb->s_blocksize;
 #if IFS_AMIGA_IS_OFS
     if (sbi->s_data_blksize <= sizeof(struct affs_data_head)) {
-        result = -EFSCORRUPTED;
+        result = -EUCLEAN;
         goto fail;
     }
     sbi->s_data_blksize -= sizeof(struct affs_data_head);
