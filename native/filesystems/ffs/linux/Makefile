@@ -6,4 +6,4 @@
 #
 
 obj-m += ffs.o
-ffs-y := super.o namei.o inode.o file.o dir.o amigaffs.o bitmap.o symlink.o
+ffs-y := canonical.o super.o namei.o inode.o file.o dir.o amigaffs.o bitmap.o symlink.o

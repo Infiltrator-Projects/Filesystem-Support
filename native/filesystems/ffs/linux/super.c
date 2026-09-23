@@ -24,6 +24,7 @@
 #include <linux/seq_file.h>
 #include <linux/iversion.h>
 #include "affs.h"
+#include "../core/ffs_core.h"
 
 static int affs_statfs(struct dentry *dentry, struct kstatfs *buf);
 static int affs_show_options(struct seq_file *m, struct dentry *root);
@@ -459,33 +460,24 @@ got_root:
 	brelse(boot_bh);
 	chksum = be32_to_cpu(*(__be32 *)sig);
 
-	/* Dircache filesystems are compatible with non-dircache ones
-	 * when reading. As long as they aren't supported, writing is
-	 * not recommended.
-	 */
-	if ((chksum == FS_DCFFS || chksum == MUFS_DCFFS) && !sb_rdonly(sb)) {
-		pr_notice("Dircache FS - mounting %s read only\n", sb->s_id);
-		sb->s_flags |= SB_RDONLY;
-	}
-	switch (chksum) {
-	case MUFS_FS:
-	case MUFS_INTLFFS:
-	case MUFS_DCFFS:
-		affs_set_opt(sbi->s_flags, SF_MUFS);
-		fallthrough;
-	case FS_INTLFFS:
-	case FS_DCFFS:
-		affs_set_opt(sbi->s_flags, SF_INTL);
-		break;
-	case MUFS_FFS:
-		affs_set_opt(sbi->s_flags, SF_MUFS);
-		break;
-	case FS_FFS:
-		break;
-	default:
-		pr_err("Not an FFS filesystem on device %s: %08X\n",
-		       sb->s_id, chksum);
-		return -EINVAL;
+	{
+		ifs_ffs_u32 variant_flags = 0U;
+
+		if (ifs_ffs_classify_dostype(chksum, &variant_flags) != 0) {
+			pr_err("Not an FFS filesystem on device %s: %08X\n",
+			       sb->s_id, chksum);
+			return -EINVAL;
+		}
+
+		if ((variant_flags & IFS_FFS_VARIANT_DIRCACHE) &&
+		    !sb_rdonly(sb)) {
+			pr_notice("Dircache FS - mounting %s read only\n", sb->s_id);
+			sb->s_flags |= SB_RDONLY;
+		}
+		if (variant_flags & IFS_FFS_VARIANT_MUFS)
+			affs_set_opt(sbi->s_flags, SF_MUFS);
+		if (variant_flags & IFS_FFS_VARIANT_INTL)
+			affs_set_opt(sbi->s_flags, SF_INTL);
 	}
 
 	if (affs_test_opt(mount_flags, SF_VERBOSE)) {
