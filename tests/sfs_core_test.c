@@ -82,5 +82,17 @@ int main(void)
             return fail("out-of-range admin-space block accepted");
     }
 
+
+    if (ifs_sfs_bitmap_word_find_set(0x40000000U, 0U) != 1 ||
+        ifs_sfs_bitmap_word_find_set(0x40000000U, 2U) != -1)
+        return fail("bitmap word MSB ordering is wrong");
+    if (ifs_sfs_bitmap_word_find_zero(0xbfffffffU, 0U) != 1)
+        return fail("bitmap zero-bit search is wrong");
+    if (ifs_sfs_bitmap_word_set(0U, 1U, 3U) != 0x70000000U)
+        return fail("bitmap range set is wrong");
+    if (ifs_sfs_bitmap_word_clear(0xffffffffU, 30U, 8U) !=
+        0xfffffffcU)
+        return fail("bitmap range clear/clamp is wrong");
+
     return 0;
 }

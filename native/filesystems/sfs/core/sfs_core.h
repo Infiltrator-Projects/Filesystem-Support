@@ -63,4 +63,22 @@ int ifs_sfs_adminspace_block_mask(
     ifs_sfs_u32 area_start,
     ifs_sfs_u32 block,
     ifs_sfs_u32 *mask);
+
+int ifs_sfs_bitmap_word_find_set(
+    ifs_sfs_u32 word,
+    ifs_sfs_u32 start_bit);
+
+int ifs_sfs_bitmap_word_find_zero(
+    ifs_sfs_u32 word,
+    ifs_sfs_u32 start_bit);
+
+ifs_sfs_u32 ifs_sfs_bitmap_word_set(
+    ifs_sfs_u32 word,
+    ifs_sfs_u32 start_bit,
+    ifs_sfs_u32 bit_count);
+
+ifs_sfs_u32 ifs_sfs_bitmap_word_clear(
+    ifs_sfs_u32 word,
+    ifs_sfs_u32 start_bit,
+    ifs_sfs_u32 bit_count);
 #endif

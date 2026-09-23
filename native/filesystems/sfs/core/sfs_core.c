@@ -151,3 +151,63 @@ int ifs_sfs_adminspace_block_mask(
     *mask = 1U << (31U - offset);
     return 0;
 }
+
+int ifs_sfs_bitmap_word_find_set(
+    const ifs_sfs_u32 word,
+    const ifs_sfs_u32 start_bit)
+{
+    ifs_sfs_u32 bit;
+
+    if (start_bit >= 32U)
+        return -1;
+
+    for (bit = start_bit; bit < 32U; ++bit) {
+        if ((word & (1U << (31U - bit))) != 0U)
+            return (int)bit;
+    }
+
+    return -1;
+}
+
+int ifs_sfs_bitmap_word_find_zero(
+    const ifs_sfs_u32 word,
+    const ifs_sfs_u32 start_bit)
+{
+    return ifs_sfs_bitmap_word_find_set(~word, start_bit);
+}
+
+ifs_sfs_u32 ifs_sfs_bitmap_word_set(
+    ifs_sfs_u32 word,
+    const ifs_sfs_u32 start_bit,
+    ifs_sfs_u32 bit_count)
+{
+    ifs_sfs_u32 bit;
+
+    if (start_bit >= 32U || bit_count == 0U)
+        return word;
+    if (bit_count > 32U - start_bit)
+        bit_count = 32U - start_bit;
+
+    for (bit = 0U; bit < bit_count; ++bit)
+        word |= 1U << (31U - start_bit - bit);
+
+    return word;
+}
+
+ifs_sfs_u32 ifs_sfs_bitmap_word_clear(
+    ifs_sfs_u32 word,
+    const ifs_sfs_u32 start_bit,
+    ifs_sfs_u32 bit_count)
+{
+    ifs_sfs_u32 bit;
+
+    if (start_bit >= 32U || bit_count == 0U)
+        return word;
+    if (bit_count > 32U - start_bit)
+        bit_count = 32U - start_bit;
+
+    for (bit = 0U; bit < bit_count; ++bit)
+        word &= ~(1U << (31U - start_bit - bit));
+
+    return word;
+}

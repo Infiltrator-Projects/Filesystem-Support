@@ -11,43 +11,39 @@
 #define __BITFUNCS_H
 
 #include <linux/types.h>
+#include "../core/sfs_core.h"
 #include <asm/byteorder.h>
 
 #include <asm/bitops.h>
 #include <linux/bitops.h>
 
-/* Finds first set bit in /data/ starting at /bitoffset/.  This function
-   considers the MSB to be the first bit. */
+/* Portable SFS bitmap semantics live in the canonical core. */
 static inline int bfffo(u32 data, int bitoffset)
 {
-	u32 mask = 0xffffffff >> bitoffset;
-	data &= mask;
-	return data == 0 ? -1 : 32-fls(data);
+	return ifs_sfs_bitmap_word_find_set(
+		data, bitoffset < 0 ? 32U : (ifs_sfs_u32)bitoffset);
 }
 
-/* Finds first zero bit in /data/ starting at /bitoffset/.  This function
-   considers the MSB to be the first bit. */
 static inline int bfffz(u32 data, int bitoffset)
 {
-	return bfffo(~data, bitoffset);
+	return ifs_sfs_bitmap_word_find_zero(
+		data, bitoffset < 0 ? 32U : (ifs_sfs_u32)bitoffset);
 }
 
-/* Sets /bits/ bits starting from /bitoffset/ in /data/.
-   /bits/ must be between 1 and 32. */
 static inline u32 bfset(u32 data, int bitoffset, int bits)
 {
-	u32 mask = ~((1U << (32 - bits)) - 1);
-	mask >>= bitoffset;
-	return data | mask;
+	return ifs_sfs_bitmap_word_set(
+		data,
+		bitoffset < 0 ? 32U : (ifs_sfs_u32)bitoffset,
+		bits < 0 ? 0U : (ifs_sfs_u32)bits);
 }
 
-/* Clears /bits/ bits starting from /bitoffset/ in /data/.
-   /bits/ must be between 1 and 32. */
 static inline u32 bfclr(u32 data, int bitoffset, int bits)
 {
-	u32 mask = ~((1U << (32 - bits)) - 1);
-	mask >>= bitoffset;
-	return data & ~mask;
+	return ifs_sfs_bitmap_word_clear(
+		data,
+		bitoffset < 0 ? 32U : (ifs_sfs_u32)bitoffset,
+		bits < 0 ? 0U : (ifs_sfs_u32)bits);
 }
 
 /* bm??? functions assumes that in-memory bitmap is in bigendian byte order */
