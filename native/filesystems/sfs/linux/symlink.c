@@ -45,6 +45,8 @@ const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
 	char *p;
 	char c;
 	char lc = 0;
+	size_t link_bytes;
+	size_t lf_len;
 	int i = 0, j = 0;
 	wchar_t uni;
 	int clen;
@@ -67,10 +69,25 @@ const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
 	}
 
 	slinkcont = (struct fsSoftLink *)bh->b_data;
-	lf = slinkcont->string;
-	prefix = ASFS_SB(sb)->prefix ? ASFS_SB(sb)->prefix : "/";
+	if (sb->s_blocksize <= sizeof(*slinkcont)) {
+		asfs_brelse(bh);
+		kfree(link);
+		return ERR_PTR(-EFSCORRUPTED);
+	}
 
-	if ((p = strchr(lf, ':'))) {
+	lf = (char *)slinkcont->string;
+	link_bytes = sb->s_blocksize - sizeof(*slinkcont);
+	lf_len = strnlen(lf, link_bytes);
+	if (lf_len == link_bytes) {
+		asfs_brelse(bh);
+		kfree(link);
+		return ERR_PTR(-EFSCORRUPTED);
+	}
+
+	prefix = ASFS_SB(sb)->prefix ? ASFS_SB(sb)->prefix : "/";
+	p = memchr(lf, ':', lf_len);
+
+	if (p) {
 		if (ASFS_SB(sb)->root_volume &&
 		    strncmp(lf, ASFS_SB(sb)->root_volume,
 			    strlen(ASFS_SB(sb)->root_volume)) == 0) {
@@ -80,7 +97,7 @@ const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
 			while (i < 1023 && (c = prefix[i]))
 				link[i++] = c;
 
-			while (i < 1023 && lf[j] != ':') {
+			while (i < 1023 && (size_t)j < lf_len && lf[j] != ':') {
 				c = lf[j++];
 				if (ASFS_SB(sb)->flags & ASFS_VOL_LOWERCASE)
 					c = asfs_lowerchar(c);
@@ -108,7 +125,7 @@ const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
 		lc = '/';
 	}
 
-	while (i < 1023 && (c = lf[j])) {
+	while (i < 1023 && (size_t)j < lf_len && (c = lf[j])) {
 		if (c == '/' && lc == '/' && i < 1020) {
 			link[i++] = '.';
 			link[i++] = '.';
