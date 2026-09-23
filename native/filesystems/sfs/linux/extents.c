@@ -399,11 +399,13 @@ int asfs_deletebnode(struct super_block *sb, struct buffer_head *bh, u32 key)
 								errorcode = asfs_deletebnode(sb, bhparent, be32_to_cpu(btcparent->bnode[n + 1].key));
 						}
 						asfs_brelse(bhsec);
+					} else {
+						errorcode = -EIO;
 					}
 				} else if (n > 0) {	/* Check if we have a previous neighbour. */
 					asfs_debug("deletebnode: using prev container.\n");
 
-					if ((bhsec = asfs_breadcheck(sb, be32_to_cpu(btcparent->bnode[n - 1].data), ASFS_BNODECONTAINER_ID)) == 0) {
+					if ((bhsec = asfs_breadcheck(sb, be32_to_cpu(btcparent->bnode[n - 1].data), ASFS_BNODECONTAINER_ID)) != NULL) {
 						struct fsBNodeContainer *bnc2 = (void *) bhsec->b_data;
 						struct BTreeContainer *btc2 = &bnc2->btc;
 
@@ -427,10 +429,15 @@ int asfs_deletebnode(struct super_block *sb, struct buffer_head *bh, u32 key)
 							btc2->nodecount = cpu_to_be16(be16_to_cpu(btc2->nodecount) + be16_to_cpu(btc->nodecount));
 							asfs_bstore(sb, bhsec);
 
-							if ((errorcode = asfs_freeadminspace(sb, be32_to_cpu(((struct fsBlockHeader *) bhsec->b_data)->ownblock))) == 0)
-								errorcode = asfs_deletebnode(sb, bhparent, be32_to_cpu(btcparent->bnode[n].key));
+							if ((errorcode = asfs_freeadminspace(
+									 sb, be32_to_cpu(bnc1->bheader.ownblock))) == 0)
+								errorcode = asfs_deletebnode(
+									sb, bhparent,
+									be32_to_cpu(btcparent->bnode[n].key));
 						}
 						asfs_brelse(bhsec);
+					} else {
+						errorcode = -EIO;
 					}
 				}
 				/*      else    
