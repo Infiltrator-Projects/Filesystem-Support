@@ -24,7 +24,9 @@ int main()
         return fail("package allowlist is not deny-by-default");
     }
 
-    if (!module_is_catalogued("affs") ||
+    if (!module_is_catalogued("ofs") ||
+        !module_is_catalogued("ffs") ||
+        module_is_catalogued("affs") ||
         module_is_catalogued("definitely-not-catalogued")) {
         return fail("module allowlist is not deny-by-default");
     }
@@ -69,8 +71,8 @@ int main()
     bool native_callback = false;
     bool native_success = true;
     install_native_module_async(
-        "affs",
-        "affs",
+        "not-managed",
+        "not-managed",
         [&native_callback, &native_success](
             const bool success, const std::string&) {
             native_callback = true;

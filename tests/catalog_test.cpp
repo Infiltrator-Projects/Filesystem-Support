@@ -26,11 +26,10 @@ int main(int argc, char** argv)
         return fail("catalogue validation failed");
     }
 
-    if (catalog().size() != 108U) {
-        return fail("catalogue size is not the documented 108 entries");
+    if (catalog().size() != 107U) {
+        return fail("catalogue size is not the documented 107 entries");
     }
 
-    bool found_affs = false;
     bool found_ofs = false;
     bool found_ffs = false;
     bool found_adfs = false;
@@ -53,9 +52,7 @@ int main(int argc, char** argv)
     std::size_t tools_only = 0U;
 
     for (const auto& entry : catalog()) {
-        if (entry.id == std::string_view("affs")) {
-            found_affs = true;
-        } else if (entry.id == std::string_view("ofs")) {
+        if (entry.id == std::string_view("ofs")) {
             found_ofs = true;
         } else if (entry.id == std::string_view("ffs")) {
             found_ffs = true;
@@ -127,8 +124,8 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!found_affs || !found_ofs || !found_ffs || !found_adfs) {
-        return fail("native/legacy Amiga or Acorn filesystem coverage is missing");
+    if (!found_ofs || !found_ffs || !found_adfs) {
+        return fail("native Amiga or Acorn filesystem coverage is missing");
     }
     if (!found_apfs_fuse || !found_apfs_dkms) {
         return fail("both conservative and experimental APFS paths are required");
@@ -145,7 +142,7 @@ int main(int argc, char** argv)
     if (hfs_uses_removed_package) {
         return fail("HFS still references hfsutils, which is not in Debian trixie stable");
     }
-    if (kernel_only != 19U || kernel_with_userspace != 29U ||
+    if (kernel_only != 18U || kernel_with_userspace != 29U ||
         dkms != 3U || userspace != 53U || tools_only != 4U) {
         return fail("support-provider classification counts changed unexpectedly");
     }
@@ -153,8 +150,7 @@ int main(int argc, char** argv)
         filesystem_support::package_is_catalogued("definitely-not-a-package")) {
         return fail("catalogue package allowlist is inconsistent");
     }
-    if (!filesystem_support::module_is_catalogued("affs") ||
-        !filesystem_support::module_is_catalogued("ofs") ||
+    if (!filesystem_support::module_is_catalogued("ofs") ||
         !filesystem_support::module_is_catalogued("ffs") ||
         filesystem_support::module_is_catalogued("definitely-not-a-module")) {
         return fail("catalogue module allowlist is inconsistent");
@@ -163,6 +159,7 @@ int main(int argc, char** argv)
     if (!filesystem_support::linux_native_module_is_managed("ext3", "ext3") ||
         !filesystem_support::linux_native_module_is_managed("ofs", "ofs") ||
         !filesystem_support::linux_native_module_is_managed("ffs", "ffs") ||
+        filesystem_support::module_is_catalogued("affs") ||
         filesystem_support::linux_native_module_is_managed("affs", "affs") ||
         filesystem_support::linux_native_module_is_managed(
             "definitely-not-a-filesystem", "ext3")) {
