@@ -26,5 +26,11 @@ void load_module_async(const std::string& module,
                        ActionCompletion completion);
 void unload_module_async(const std::string& module,
                          ActionCompletion completion);
+void install_native_module_async(const std::string& filesystem_id,
+                                 const std::string& module,
+                                 ActionCompletion completion);
+void remove_native_module_async(const std::string& filesystem_id,
+                                const std::string& module,
+                                ActionCompletion completion);
 
 } // namespace filesystem_support
