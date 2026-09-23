@@ -4,6 +4,7 @@
 #include <linux/types.h>
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
+#include <linux/mutex.h>
 #include <asm/byteorder.h>
 #include "amigasfs.h"
 
@@ -50,6 +51,8 @@ static inline struct asfs_inode_info *ASFS_I(struct inode *inode)
 /* Amiga SFS superblock in-core data */
 
 struct asfs_sb_info {
+	/* Serialises filesystem-wide metadata mutations formerly guarded by lock_super(). */
+	struct mutex lock;
 	u32 totalblocks;
 	u32 rootobjectcontainer;
 	u32 extentbnoderoot;
@@ -136,7 +139,7 @@ static inline void asfs_brelse(struct buffer_head *bh)
 
 static inline void dec_count(struct inode *inode)
 {
-	inode->i_nlink--;
+	drop_nlink(inode);
 	mark_inode_dirty(inode);
 }
 
@@ -151,8 +154,9 @@ int asfs_findspace(struct super_block *sb, u32 maxneeded, u32 start, u32 end,
 	      u32 * returned_block, u32 * returned_blocks);
 
 /* dir.c */
-int asfs_readdir(struct file *filp, void *dirent, filldir_t filldir);
-struct dentry *asfs_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *nd);
+int asfs_readdir(struct file *filp, struct dir_context *ctx);
+struct dentry *asfs_lookup(struct inode *dir, struct dentry *dentry,
+                           unsigned int flags);
 
 /* extents.c */
 int asfs_getextent(struct super_block *sb, u32 key, struct buffer_head **ret_bh,
@@ -163,11 +167,15 @@ int asfs_addblocks(struct super_block *sb, u16 blocks, u32 newspace,
 	      u32 objectnode, u32 * io_lastextentbnode);
 
 /* file.c */
-int asfs_readpage(struct file *file, struct page *page);
+int asfs_read_folio(struct file *file, struct folio *folio);
+void asfs_readahead(struct readahead_control *rac);
 sector_t asfs_bmap(struct address_space *mapping, sector_t block);
-int asfs_writepage(struct page *page, struct writeback_control *wbc);
-int asfs_write_begin(struct file *file, struct address_space *mapping, loff_t pos, unsigned len, unsigned flags, struct page **pagep, void **fsdata);
-void asfs_truncate(struct inode *inode);
+int asfs_writepages(struct address_space *mapping,
+                    struct writeback_control *wbc);
+int asfs_write_begin(struct file *file, struct address_space *mapping,
+                     loff_t pos, unsigned len, struct folio **foliop,
+                     void **fsdata);
+int asfs_truncate(struct inode *inode);
 int asfs_file_open(struct inode *inode, struct file *filp);
 int asfs_file_release(struct inode *inode, struct file *filp);
 
@@ -211,7 +219,8 @@ int asfs_truncateblocksinfile(struct super_block *sb, struct buffer_head *bh,
 			 struct fsObject *o, u32 newsize);
 
 /* symlink.c */
-int asfs_symlink_readpage(struct file *file, struct page *page);
+const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
+                          struct delayed_call *done);
 int asfs_write_symlink(struct inode *symfile, const char *symname);
 
 #endif
