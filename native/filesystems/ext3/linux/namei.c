@@ -2428,7 +2428,8 @@ static int ext3_rmdir (struct inode * dir, struct dentry *dentry)
 
 	inode->i_size = 0;
 	ext3_orphan_add(handle, inode);
-	inode->i_ctime = inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
+	inode_set_ctime_current(inode);
+	inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
 	ext3_mark_inode_dirty(handle, inode);
 	drop_nlink(dir);
 	ext3_update_dx_flag(dir);
@@ -2746,7 +2747,7 @@ static int ext3_rename(struct mnt_idmap *idmap,
 		if (EXT3_HAS_INCOMPAT_FEATURE(new_dir->i_sb,
 					      EXT3_FEATURE_INCOMPAT_FILETYPE))
 			new_de->file_type = old_de->file_type;
-		new_inode_inc_iversion(dir);
+		inode_inc_iversion(new_dir);
 		inode_set_mtime_to_ts(new_dir, inode_set_ctime_current(new_dir));
 		ext3_mark_inode_dirty(handle, new_dir);
 		BUFFER_TRACE(new_bh, "call ext3_journal_dirty_metadata");
@@ -2758,7 +2759,7 @@ static int ext3_rename(struct mnt_idmap *idmap,
 	}
 
 
-	old_inode_set_ctime_current(inode);
+	inode_set_ctime_current(old_inode);
 	ext3_mark_inode_dirty(handle, old_inode);
 
 
@@ -2788,7 +2789,7 @@ static int ext3_rename(struct mnt_idmap *idmap,
 
 	if (new_inode) {
 		drop_nlink(new_inode);
-		new_inode_set_ctime_current(inode);
+		inode_set_ctime_current(new_inode);
 	}
 	inode_set_mtime_to_ts(old_dir, inode_set_ctime_current(old_dir));
 	ext3_update_dx_flag(old_dir);
