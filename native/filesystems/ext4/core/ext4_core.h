@@ -177,4 +177,16 @@ IfsExt4DirectoryRecordStatus ifs_ext4_validate_directory_record(
 const char *ifs_ext4_directory_record_status_string(
     IfsExt4DirectoryRecordStatus status);
 
+#define IFS_EXT4_NDIR_BLOCKS 12U
+#define IFS_EXT4_IND_BLOCK   12U
+#define IFS_EXT4_DIND_BLOCK  13U
+#define IFS_EXT4_TIND_BLOCK  14U
+
+int ifs_ext4_indirect_block_path(
+    ifs_ext4_u64 logical_block,
+    ifs_ext4_u32 pointers_per_block,
+    ifs_ext4_u32 pointer_bits,
+    ifs_ext4_u32 offsets[4],
+    ifs_ext4_u32 *boundary);
+
 #endif

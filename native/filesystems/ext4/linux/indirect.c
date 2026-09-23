@@ -84,40 +84,27 @@ static int ext4_block_to_path(struct inode *inode,
 			      ext4_lblk_t i_block,
 			      ext4_lblk_t offsets[4], int *boundary)
 {
-	int ptrs = EXT4_ADDR_PER_BLOCK(inode->i_sb);
-	int ptrs_bits = EXT4_ADDR_PER_BLOCK_BITS(inode->i_sb);
-	const long direct_blocks = EXT4_NDIR_BLOCKS,
-		indirect_blocks = ptrs,
-		double_blocks = (1 << (ptrs_bits * 2));
-	int n = 0;
-	int final = 0;
+	ifs_ext4_u32 core_offsets[4] = { 0U, 0U, 0U, 0U };
+	ifs_ext4_u32 core_boundary = 0U;
+	const ifs_ext4_u32 ptrs = EXT4_ADDR_PER_BLOCK(inode->i_sb);
+	const ifs_ext4_u32 ptrs_bits = EXT4_ADDR_PER_BLOCK_BITS(inode->i_sb);
+	int depth;
+	int index;
 
-	if (i_block < direct_blocks) {
-		offsets[n++] = i_block;
-		final = direct_blocks;
-	} else if ((i_block -= direct_blocks) < indirect_blocks) {
-		offsets[n++] = EXT4_IND_BLOCK;
-		offsets[n++] = i_block;
-		final = ptrs;
-	} else if ((i_block -= indirect_blocks) < double_blocks) {
-		offsets[n++] = EXT4_DIND_BLOCK;
-		offsets[n++] = i_block >> ptrs_bits;
-		offsets[n++] = i_block & (ptrs - 1);
-		final = ptrs;
-	} else if (((i_block -= double_blocks) >> (ptrs_bits * 2)) < ptrs) {
-		offsets[n++] = EXT4_TIND_BLOCK;
-		offsets[n++] = i_block >> (ptrs_bits * 2);
-		offsets[n++] = (i_block >> ptrs_bits) & (ptrs - 1);
-		offsets[n++] = i_block & (ptrs - 1);
-		final = ptrs;
-	} else {
-		ext4_warning(inode->i_sb, "block %lu > max in inode %lu",
-			     i_block + direct_blocks +
-			     indirect_blocks + double_blocks, inode->i_ino);
+	depth = ifs_ext4_indirect_block_path(
+		(ifs_ext4_u64)i_block, ptrs, ptrs_bits,
+		core_offsets, boundary ? &core_boundary : NULL);
+	if (depth == 0) {
+		ext4_warning(inode->i_sb, "block %u is beyond the indirect map",
+			     i_block);
+		return 0;
 	}
+
+	for (index = 0; index < depth; index++)
+		offsets[index] = core_offsets[index];
 	if (boundary)
-		*boundary = final - 1 - (i_block & (ptrs - 1));
-	return n;
+		*boundary = (int)core_boundary;
+	return depth;
 }
 
 

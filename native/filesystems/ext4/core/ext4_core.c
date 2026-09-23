@@ -271,3 +271,68 @@ const char *ifs_ext4_directory_record_status_string(
     }
     return "invalid EXT4 directory record";
 }
+
+int ifs_ext4_indirect_block_path(
+    ifs_ext4_u64 logical_block,
+    const ifs_ext4_u32 pointers_per_block,
+    const ifs_ext4_u32 pointer_bits,
+    ifs_ext4_u32 offsets[4],
+    ifs_ext4_u32 *const boundary)
+{
+    ifs_ext4_u64 remaining = logical_block;
+    const ifs_ext4_u64 indirect_blocks = pointers_per_block;
+    ifs_ext4_u64 double_blocks;
+    ifs_ext4_u64 triple_blocks;
+    ifs_ext4_u32 final = 0U;
+    int depth = 0;
+
+    if (offsets == 0 || pointers_per_block == 0U ||
+        pointer_bits >= 32U ||
+        ((ifs_ext4_u64)1U << pointer_bits) != pointers_per_block) {
+        if (boundary != 0)
+            *boundary = 0U;
+        return 0;
+    }
+
+    double_blocks = indirect_blocks * indirect_blocks;
+    triple_blocks = double_blocks * indirect_blocks;
+
+    if (remaining < IFS_EXT4_NDIR_BLOCKS) {
+        offsets[depth++] = (ifs_ext4_u32)remaining;
+        final = IFS_EXT4_NDIR_BLOCKS;
+    } else {
+        remaining -= IFS_EXT4_NDIR_BLOCKS;
+        if (remaining < indirect_blocks) {
+            offsets[depth++] = IFS_EXT4_IND_BLOCK;
+            offsets[depth++] = (ifs_ext4_u32)remaining;
+            final = pointers_per_block;
+        } else {
+            remaining -= indirect_blocks;
+            if (remaining < double_blocks) {
+                offsets[depth++] = IFS_EXT4_DIND_BLOCK;
+                offsets[depth++] = (ifs_ext4_u32)(remaining >> pointer_bits);
+                offsets[depth++] = (ifs_ext4_u32)(remaining & (pointers_per_block - 1U));
+                final = pointers_per_block;
+            } else {
+                remaining -= double_blocks;
+                if (remaining < triple_blocks) {
+                    offsets[depth++] = IFS_EXT4_TIND_BLOCK;
+                    offsets[depth++] = (ifs_ext4_u32)(remaining >> (pointer_bits * 2U));
+                    offsets[depth++] = (ifs_ext4_u32)((remaining >> pointer_bits) &
+                                                      (pointers_per_block - 1U));
+                    offsets[depth++] = (ifs_ext4_u32)(remaining & (pointers_per_block - 1U));
+                    final = pointers_per_block;
+                }
+            }
+        }
+    }
+
+    if (boundary != 0) {
+        if (depth == 0)
+            *boundary = 0U;
+        else
+            *boundary = final - 1U -
+                ((ifs_ext4_u32)remaining & (pointers_per_block - 1U));
+    }
+    return depth;
+}
