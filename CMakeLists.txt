@@ -183,6 +183,15 @@ if(BUILD_TESTING)
         NAME filesystem-support-native-core
         COMMAND filesystem-support-native-core-test)
 
+    add_executable(filesystem-support-windows-catalog-test
+        tests/windows_catalog_test.cpp)
+    target_link_libraries(filesystem-support-windows-catalog-test
+        PRIVATE filesystem-support-catalog)
+    filesystem_support_configure(filesystem-support-windows-catalog-test)
+    add_test(
+        NAME filesystem-support-windows-catalog
+        COMMAND filesystem-support-windows-catalog-test)
+
     if(UNIX)
         add_executable(filesystem-support-action-policy-test
             tests/action_policy_test.cpp)
