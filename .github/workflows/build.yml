@@ -16,6 +16,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Enforce immutable source version identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "VERSION must contain major.minor.patch." >&2
+            exit 1
+          }
+
+          tag_refs=$(git ls-remote --tags origin \
+            "refs/tags/v${version}" "refs/tags/v${version}^{}")
+          if [[ -n "$tag_refs" ]]; then
+            tag_commit=$(awk '$2 ~ /\^\{\}$/ { print $1 }' <<<"$tag_refs" | tail -n1)
+            if [[ -z "$tag_commit" ]]; then
+              tag_commit=$(awk 'NR == 1 { print $1 }' <<<"$tag_refs")
+            fi
+            head_commit=$(git rev-parse HEAD)
+            if [[ "$tag_commit" != "$head_commit" ]]; then
+              printf 'Source version %s is already tagged at %s; current main is %s. Advance VERSION before further development.\n' \
+                "$version" "$tag_commit" "$head_commit" >&2
+              exit 1
+            fi
+          fi
+
       - name: Enforce rewrite boundaries
         shell: bash
         run: |

@@ -135,8 +135,10 @@ jobs:
           - Common 1.19.24-backed exact userspace I/O, endian decoding and shared portable primitives
           - bounds-checked byte-reader and filesystem descriptor ABI
           - generic fsinspect development harness
-          - Linux kernel/Kbuild module layout without a fake placeholder driver
-          - ROMFS reserved as the first native VFS implementation target
+          - one canonical filesystem implementation with Linux and Windows adapters
+          - EXT2, EXT3 and EXT4 in active rewrite state under that shared-engine architecture
+          - OFS, FFS, SFS, SFS2 and PFS3 tracked as independent Amiga rewrite targets
+          - unqualified reference/import trees retained as development evidence rather than advertised native providers
           - documented reuse boundaries for Common, Defragmenter and InfiltratorFS
 
           Release assets:
