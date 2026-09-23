@@ -16,6 +16,19 @@ EXT2 is intentionally independent from EXT3 and EXT4. It must not register, moun
 
 ## Source ownership and migration layout
 
+The architectural rule is **one EXT2 filesystem implementation**. The
+portable filesystem implementation belongs in `core/`; `linux/` and
+`windows/` are OS wrappers around that same core, not separate EXT2
+implementations. Most filesystem logic should therefore converge into
+`core/`. Only host-specific VFS/KO or IFS/WDK integration remains in the
+wrappers.
+
+The current amount of code under `linux/` reflects migration history, not the
+target split. Moving a file into `linux/` does not classify its filesystem
+semantics as Linux-owned; those semantics must still be extracted or rewritten
+into `core/` as the migration proceeds.
+
+
 EXT2 is in active rewrite state.  The currently inherited Linux-style
 translation-unit names under `native/filesystems/ext2/linux/` are migration
 boundaries, not the final Filesystem Support architecture.
