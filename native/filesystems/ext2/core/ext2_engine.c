@@ -650,43 +650,49 @@ IfsExt2Status ifs_ext2_iterate_directory(
 
         while (within < volume->block_size &&
                position < directory->size) {
-            const ifs_ext2_u8 *entry =
-                (const ifs_ext2_u8 *)scratch + within;
-            const ifs_ext2_u32 inode_number = load_le32(entry);
-            const ifs_ext2_u16 rec_len = load_le16(entry + 4U);
+            const ifs_ext2_u8 *entry;
+            ifs_ext2_u32 inode_number;
+            ifs_ext2_u32 rec_len;
+            ifs_ext2_u32 decoded_name_len;
             ifs_ext2_u8 name_len;
             ifs_ext2_u8 file_type = 0U;
             IfsExt2NodeType type = IFS_EXT2_NODE_UNKNOWN;
+            IfsExt2DirectoryRecordStatus record_status;
 
-            if (rec_len < 8U || (rec_len & 3U) != 0U ||
-                rec_len > volume->block_size - within ||
-                (ifs_ext2_u64)rec_len > directory->size - position)
+            if (volume->block_size - within < 8U ||
+                directory->size - position < 8U)
                 return IFS_EXT2_ERROR_CORRUPT;
+
+            entry = (const ifs_ext2_u8 *)scratch + within;
+            inode_number = load_le32(entry);
+            rec_len = ifs_ext2_directory_record_length_from_disk(
+                load_le16(entry + 4U), volume->block_size);
 
             if ((volume->feature_incompat &
                  IFS_EXT2_FEATURE_INCOMPAT_FILETYPE) != 0U) {
-                name_len = entry[6U];
+                decoded_name_len = entry[6U];
                 file_type = entry[7U];
                 type = dir_type(file_type);
             } else {
-                const ifs_ext2_u16 legacy_name_len =
-                    load_le16(entry + 6U);
-                if (legacy_name_len > IFS_EXT2_MAX_NAME_LENGTH)
-                    return IFS_EXT2_ERROR_CORRUPT;
-                name_len = (ifs_ext2_u8)legacy_name_len;
+                decoded_name_len = load_le16(entry + 6U);
             }
 
-            if ((ifs_ext2_u32)name_len > rec_len - 8U)
+            if (decoded_name_len > IFS_EXT2_MAX_NAME_LENGTH)
                 return IFS_EXT2_ERROR_CORRUPT;
 
-            if (inode_number != 0U) {
-                if (inode_number > volume->total_inodes)
-                    return IFS_EXT2_ERROR_CORRUPT;
-                if (callback(
-                        callback_user, inode_number, type,
-                        (const char *)(entry + 8U), name_len) != 0)
-                    return IFS_EXT2_STOP;
-            }
+            record_status = ifs_ext2_validate_directory_record(
+                within, rec_len, decoded_name_len, inode_number,
+                volume->block_size, volume->total_inodes);
+            if (record_status != IFS_EXT2_DIRECTORY_RECORD_OK ||
+                (ifs_ext2_u64)rec_len > directory->size - position)
+                return IFS_EXT2_ERROR_CORRUPT;
+
+            name_len = (ifs_ext2_u8)decoded_name_len;
+            if (inode_number != 0U &&
+                callback(
+                    callback_user, inode_number, type,
+                    (const char *)(entry + 8U), name_len) != 0)
+                return IFS_EXT2_STOP;
 
             within += rec_len;
             position += rec_len;
