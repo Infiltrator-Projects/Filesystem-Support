@@ -30,3 +30,30 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  windows-manager:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        shell: powershell
+        run: cmake -S . -B build-windows -A x64 -DBUILD_TESTING=OFF
+
+      - name: Build
+        shell: powershell
+        run: cmake --build build-windows --config Release
+
+      - name: Verify manager
+        shell: powershell
+        run: |
+          $manager = Get-ChildItem -LiteralPath build-windows -Filter filesystem-support.exe -File -Recurse |
+              Select-Object -First 1
+          if (-not $manager) {
+              throw 'Windows Filesystem Support manager was not produced.'
+          }
+          Write-Host "Manager: $($manager.FullName)"
+
