@@ -70,7 +70,7 @@
 
 static int journal_convert_superblock_v1(journal_t *, journal_superblock_t *);
 static void __journal_abort_soft (journal_t *journal, int errno);
-static const char *journal_dev_name(journal_t *journal, char *buffer);
+static struct block_device *journal_bdev(journal_t *journal);
 
 #ifdef CONFIG_JBD_DEBUG
 
@@ -108,11 +108,11 @@ void __jbd_debug(int level, const char *file, const char *func,
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void commit_timeout(unsigned long __data)
+static void commit_timeout(struct timer_list *timer)
 {
-	struct task_struct * p = (struct task_struct *) __data;
+	journal_t *journal = from_timer(journal, timer, j_commit_timer);
 
-	wake_up_process(p);
+	wake_up_process(journal->j_task);
 }
 
 
@@ -130,8 +130,7 @@ static int kjournald(void *arg)
 	transaction_t *transaction;
 
 
-	setup_timer(&journal->j_commit_timer, commit_timeout,
-			(unsigned long)current);
+	timer_setup(&journal->j_commit_timer, commit_timeout, 0);
 
 	set_freezable();
 
@@ -341,7 +340,7 @@ repeat:
 		kunmap_atomic(mapped_data);
 	}
 
-	set_bh_page(new_bh, new_page, new_offset);
+	folio_set_bh(new_bh, page_folio(new_page), new_offset);
 	new_jh->b_transaction = NULL;
 	new_bh->b_size = jh2bh(jh_in)->b_size;
 	new_bh->b_bdev = transaction->t_journal->j_dev;
@@ -629,21 +628,18 @@ int journal_bmap(journal_t *journal, unsigned int blocknr,
 		 unsigned int *retp)
 {
 	int err = 0;
-	unsigned int ret;
+	sector_t mapped = blocknr;
 
 	if (journal->j_inode) {
-		ret = bmap(journal->j_inode, blocknr);
-		if (ret)
-			*retp = ret;
-		else {
-			char b[BDEVNAME_SIZE];
-
+		err = bmap(journal->j_inode, &mapped);
+		if (!err && mapped) {
+			*retp = mapped;
+		} else {
 			printk(KERN_ALERT "%s: journal block not found "
-					"at offset %u on %s\n",
-				__func__,
-				blocknr,
-				bdevname(journal->j_dev, b));
-			err = -EIO;
+					"at offset %u on %pg\n",
+				__func__, blocknr, journal->j_dev);
+			if (!err)
+				err = -EIO;
 			__journal_abort_soft(journal, err);
 		}
 	} else {
@@ -1007,36 +1003,31 @@ static void journal_write_superblock(journal_t *journal, blk_opf_t write_flags)
 	struct buffer_head *bh = journal->j_sb_buffer;
 	int ret;
 
-	trace_journal_write_superblock(journal, write_flags);
 	if (!(journal->j_flags & JFS_BARRIER))
 		write_flags &= ~(REQ_FUA | REQ_PREFLUSH);
 	lock_buffer(bh);
 	if (buffer_write_io_error(bh)) {
-		char b[BDEVNAME_SIZE];
-
-
 		printk(KERN_ERR "JBD: previous I/O error detected "
-		       "for journal superblock update for %s.\n",
-		       journal_dev_name(journal, b));
+		       "for journal superblock update for %pg.\n",
+		       journal_bdev(journal));
 		clear_buffer_write_io_error(bh);
 		set_buffer_uptodate(bh);
 	}
 
 	get_bh(bh);
 	bh->b_end_io = end_buffer_write_sync;
-	ret = submit_bh(REQ_OP_WRITE | write_flags, bh);
+	ret = 0;
+	submit_bh(REQ_OP_WRITE | write_flags, bh);
 	wait_on_buffer(bh);
 	if (buffer_write_io_error(bh)) {
 		clear_buffer_write_io_error(bh);
 		set_buffer_uptodate(bh);
 		ret = -EIO;
 	}
-	if (ret) {
-		char b[BDEVNAME_SIZE];
+	if (ret)
 		printk(KERN_ERR "JBD: Error %d detected "
-		       "when updating journal superblock for %s.\n",
-		       ret, journal_dev_name(journal, b));
-	}
+		       "when updating journal superblock for %pg.\n",
+		       ret, journal_bdev(journal));
 }
 
 
@@ -1145,9 +1136,7 @@ static int journal_get_superblock(journal_t *journal)
 
 	J_ASSERT(bh != NULL);
 	if (!buffer_uptodate(bh)) {
-		ll_rw_block(READ, 1, &bh);
-		wait_on_buffer(bh);
-		if (!buffer_uptodate(bh)) {
+		if (bh_read(bh, 0) < 0) {
 			printk (KERN_ERR
 				"JBD: IO error reading journal superblock\n");
 			goto out;
@@ -1593,16 +1582,11 @@ int journal_wipe(journal_t *journal, int write)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static const char *journal_dev_name(journal_t *journal, char *buffer)
+static struct block_device *journal_bdev(journal_t *journal)
 {
-	struct block_device *bdev;
-
 	if (journal->j_inode)
-		bdev = journal->j_inode->i_sb->s_bdev;
-	else
-		bdev = journal->j_dev;
-
-	return bdevname(bdev, buffer);
+		return journal->j_inode->i_sb->s_bdev;
+	return journal->j_dev;
 }
 
 
@@ -1617,13 +1601,12 @@ static const char *journal_dev_name(journal_t *journal, char *buffer)
 static void __journal_abort_hard(journal_t *journal)
 {
 	transaction_t *transaction;
-	char b[BDEVNAME_SIZE];
 
 	if (journal->j_flags & JFS_ABORT)
 		return;
 
-	printk(KERN_ERR "Aborting journal on device %s.\n",
-		journal_dev_name(journal, b));
+	printk(KERN_ERR "Aborting journal on device %pg.\n",
+		journal_bdev(journal));
 
 	spin_lock(&journal->j_state_lock);
 	journal->j_flags |= JFS_ABORT;
