@@ -235,8 +235,7 @@ waiting its turn for independent redesign.
 Copied trees must retain their original licence, copyright and provenance
 notices.  They must not be represented as project-authored source.
 
-At the current development stage this reference/import state applies to the
-non-EXT filesystem implementations under `native/filesystems/`.
+At the current development stage this reference/import state applies to filesystem implementations under `native/filesystems/` that have not been explicitly promoted. EXT2/3/4 and the five Amiga targets documented in `AMIGA_FILESYSTEMS.md` are excluded.
 
 ### Rewrite state
 
@@ -247,14 +246,17 @@ canonical engine and OS-adapter architecture.
 
 EXT2, EXT3 and EXT4 are currently in this rewrite state.
 
+OFS, FFS, SFS, SFS2 and PFS3 are also in rewrite state. Their source bases,
+provenance and five-way separation are defined in
+[`AMIGA_FILESYSTEMS.md`](AMIGA_FILESYSTEMS.md). OFS and FFS begin from the
+combined Linux AFFS implementation but are independent canonical filesystems;
+SFS2 is likewise not an SFS compatibility mode.
+
 For a rewritten unit, changing comments, names, file boundaries or Kbuild
 layout is not sufficient.  The implementation itself must be replaced and
 validated before inherited provenance can be removed from that unit.
 
-The EXT trees must not be refreshed from upstream while this rewrite is in
-progress, because doing so would overwrite completed project-authored work.
-Other filesystem reference trees may continue to be refreshed from their
-upstream source until that filesystem is explicitly promoted to rewrite state.
+Rewrite-state trees must not be refreshed automatically from upstream, because doing so could overwrite migration or project-authored work. Other reference trees may continue to be refreshed until that filesystem is explicitly promoted to rewrite state.
 
 ### Promotion rule
 

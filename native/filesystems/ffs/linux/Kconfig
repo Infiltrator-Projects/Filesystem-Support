@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config FFS_FS
+	tristate "Amiga FFS filesystem support"
+	depends on BLOCK
+	select BUFFER_HEAD
+	select LEGACY_DIRECT_IO
+	help
+	  Native Amiga FFS support maintained as an independent
+	  Filesystem Support module. This driver accepts only FFS
+	  on-disk variants; related Amiga filesystems are separate modules.

@@ -28,7 +28,7 @@ jobs:
             fs/xfs fs/btrfs fs/f2fs fs/jfs fs/nilfs2 fs/reiserfs \
             fs/erofs fs/minix fs/romfs fs/cramfs fs/squashfs fs/bcachefs \
             fs/overlayfs fs/ecryptfs fs/jffs2 fs/ubifs fs/zonefs fs/gfs2 \
-            fs/ocfs2 fs/adfs fs/affs fs/befs fs/bfs fs/efs fs/hpfs fs/qnx4 \
+            fs/ocfs2 fs/adfs fs/befs fs/bfs fs/efs fs/hpfs fs/qnx4 \
             fs/qnx6 fs/sysv fs/ufs fs/omfs fs/fat fs/exfat fs/ntfs3 fs/hfs \
             fs/hfsplus fs/isofs fs/udf fs/fuse fs/smb/client fs/smb/common \
             fs/nfs fs/ceph fs/9p fs/orangefs
@@ -47,8 +47,8 @@ jobs:
             cp -a "/tmp/linux/$source_path/." "$destination/"
           }
 
-          # EXT2, EXT3 and EXT4 are deliberately excluded. They are in active
-          # rewrite state and must never be overwritten by an upstream refresh.
+          # Rewrite-state filesystems are deliberately excluded. EXT2/3/4 and
+          # OFS/FFS are actively being migrated and must not be overwritten.
           copy_tree fs/xfs native/filesystems/xfs/kernel
           copy_tree fs/btrfs native/filesystems/btrfs/kernel
           copy_tree fs/f2fs native/filesystems/f2fs/kernel
@@ -69,7 +69,6 @@ jobs:
           copy_tree fs/gfs2 native/filesystems/gfs2/kernel
           copy_tree fs/ocfs2 native/filesystems/ocfs2/kernel
           copy_tree fs/adfs native/filesystems/adfs/kernel
-          copy_tree fs/affs native/filesystems/affs/kernel
           copy_tree fs/befs native/filesystems/befs/kernel
           copy_tree fs/bfs native/filesystems/bfs/kernel
           copy_tree fs/efs native/filesystems/efs/kernel
