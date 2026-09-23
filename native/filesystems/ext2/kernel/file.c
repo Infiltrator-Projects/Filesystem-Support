@@ -10,6 +10,7 @@
  * mapping/allocation semantics remain in the EXT2 inode/allocation units.
  */
 
+#include <linux/buffer_head.h>
 #include <linux/capability.h>
 #include <linux/compat.h>
 #include <linux/dax.h>
