@@ -630,70 +630,115 @@ int asfs_createobject(struct super_block *sb, struct buffer_head **io_bh, struct
 		ExtentBNode. It returns the number of added blocks through 
 		addedblocks pointer */
 
-int asfs_addblockstofile(struct super_block *sb, struct buffer_head *objbh, struct fsObject *o, u32 blocks, u32 * newspace, u32 * addedblocks)
+int asfs_addblockstofile(struct super_block *sb, struct buffer_head *objbh,
+			 struct fsObject *o, u32 blocks, u32 *newspace,
+			 u32 *addedblocks)
 {
-	u32 lastextentbnode;
-	int errorcode = 0;
-	struct fsExtentBNode *ebnp;
+	u32 last_extent = be32_to_cpu(o->object.file.data);
+	u32 searchstart = 0U;
+	u32 found_block = 0U;
+	u32 found_blocks = 0U;
+	struct fsExtentBNode *ebnp = NULL;
 	struct buffer_head *block = NULL;
+	int errorcode;
 
+	if (!newspace || !addedblocks || blocks == 0U)
+		return -EINVAL;
 
-	asfs_debug("extendblocksinfile: Trying to increasing number of blocks by %d.\n", blocks);
+	*addedblocks = 0U;
+	*newspace = 0U;
+	asfs_debug("extendblocksinfile: Trying to increase number of blocks by %u.\n",
+		   blocks);
 
-	lastextentbnode = be32_to_cpu(o->object.file.data);
+	if (last_extent != 0U) {
+		for (;;) {
+			u32 next_extent;
 
-	if (lastextentbnode != 0) {
-		while (lastextentbnode != 0 && errorcode == 0) {
-			if (block != NULL)
+			if (block) {
 				asfs_brelse(block);
-			errorcode = asfs_getextent(sb, lastextentbnode, &block, &ebnp);
-			lastextentbnode = be32_to_cpu(ebnp->next);
+				block = NULL;
+			}
+			errorcode = asfs_getextent(
+				sb, last_extent, &block, &ebnp);
+			if (errorcode != 0)
+				goto out;
+
+			next_extent = be32_to_cpu(ebnp->next);
+			if (next_extent == 0U) {
+				last_extent = be32_to_cpu(ebnp->key);
+				searchstart =
+					last_extent + be16_to_cpu(ebnp->blocks);
+				break;
+			}
+			last_extent = next_extent;
 		}
-		lastextentbnode = be32_to_cpu(ebnp->key);
+
+		asfs_brelse(block);
+		block = NULL;
+		ebnp = NULL;
 	}
 
-	if (errorcode == 0) {
-		u32 searchstart;
+	errorcode = asfs_findspace(
+		sb, blocks, searchstart, searchstart,
+		&found_block, &found_blocks);
+	if (errorcode != 0)
+		goto out;
 
-		u32 found_block;
-		u32 found_blocks;
+	errorcode = asfs_markspace(sb, found_block, found_blocks);
+	if (errorcode != 0)
+		goto out;
 
-		*addedblocks = 0;
-		*newspace = 0;
+	{
+		u32 new_last_extent = last_extent;
 
-		if (lastextentbnode != 0)
-			searchstart = be32_to_cpu(ebnp->key) + be16_to_cpu(ebnp->blocks);
-		else
-			searchstart = 0; //ASFS_SB(sb)->block_rovingblockptr;
+		errorcode = asfs_addblocks(
+			sb, (u16)found_blocks, found_block,
+			be32_to_cpu(o->objectnode), &new_last_extent);
+		if (errorcode != 0) {
+			struct buffer_head *rollback_bh = NULL;
+			struct fsExtentBNode *rollback_extent = NULL;
+			int cleanup = asfs_getextent(
+				sb, found_block, &rollback_bh, &rollback_extent);
 
-		if ((errorcode = asfs_findspace(sb, blocks, searchstart, searchstart, &found_block, &found_blocks)) != 0) {
-			asfs_brelse(block);
-			asfs_debug("extendblocksinfile: findspace returned %s\n", errorcode == -ENOSPC ? "ENOSPC" : "error");
-			return errorcode;
+			/*
+			 * The add operation never publishes the previous->next link
+			 * until the new extent exists.  On failure an extent at the
+			 * new key can therefore only be an orphan and is safe to remove.
+			 */
+			if (cleanup == 0) {
+				cleanup = asfs_deletebnode(
+					sb, rollback_bh, found_block);
+				asfs_brelse(rollback_bh);
+			} else if (cleanup == -ENOENT) {
+				cleanup = 0;
+			}
+
+			if (cleanup == 0) {
+				int free_error = asfs_freespace(
+					sb, found_block, found_blocks);
+
+				if (free_error != 0)
+					errorcode = free_error;
+			} else {
+				errorcode = -EUCLEAN;
+			}
+			goto out;
 		}
 
-		blocks = found_blocks;
-		errorcode = asfs_markspace(sb, found_block, found_blocks);
-		*addedblocks = found_blocks;
-		*newspace = found_block;
-
-		asfs_debug("extendblocksinfile: block = %u, lastextentbnode = %u, extentblocks = %d\n", found_block, lastextentbnode, blocks);
-
-		if ((errorcode = asfs_addblocks(sb, blocks, found_block, be32_to_cpu(o->objectnode), &lastextentbnode)) != 0) {
-			asfs_debug("extendblocksinfile: addblocks returned errorcode %d\n", errorcode);
-			return errorcode;
-		}
-
-		if (o->object.file.data == 0)
-			o->object.file.data = cpu_to_be32(lastextentbnode);
+		last_extent = new_last_extent;
 	}
 
+	if (o->object.file.data == 0)
+		o->object.file.data = cpu_to_be32(last_extent);
+
+	*addedblocks = found_blocks;
+	*newspace = found_block;
+	asfs_bstore(sb, objbh);
+	errorcode = 0;
+
+out:
 	if (block)
 		asfs_brelse(block);
-	asfs_bstore(sb, objbh);
-
-	asfs_debug("addblockstofile: done. added %d blocks\n", *addedblocks);
-
 	return errorcode;
 }
 

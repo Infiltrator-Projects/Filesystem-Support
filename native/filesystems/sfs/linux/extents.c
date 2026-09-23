@@ -603,77 +603,89 @@ int asfs_deleteextents(struct super_block *sb, u32 key)
 
 int asfs_addblocks(struct super_block *sb, u16 blocks, u32 newspace, u32 objectnode, u32 *io_lastextentbnode)
 {
-	struct buffer_head *bh;
-	struct fsExtentBNode *ebn;
-	int errorcode = 0;
+	struct buffer_head *bh = NULL;
+	struct fsExtentBNode *ebn = NULL;
+	int errorcode;
+
+	if (!io_lastextentbnode || blocks == 0 ||
+	    ifs_sfs_validate_extent(newspace, 0U, blocks,
+				    ASFS_SB(sb)->totalblocks) != 0)
+		return -EINVAL;
 
 	if (*io_lastextentbnode != 0) {
-		/* There was already a ExtentBNode chain for this file.  Extending it. */
+		u32 previous_key = *io_lastextentbnode;
+		u32 previous_end;
+		u32 previous_blocks;
 
 		asfs_debug("  addblocks: Extending existing ExtentBNode chain.\n");
 
-		if ((errorcode = asfs_getextent(sb, *io_lastextentbnode, &bh, &ebn)) == 0) {
-			if (be32_to_cpu(ebn->key) + be16_to_cpu(ebn->blocks) == newspace && be16_to_cpu(ebn->blocks) + blocks < 65536) {
-				/* It is possible to extent the last ExtentBNode! */
-				asfs_debug("  addblocks: Extending last ExtentBNode.\n");
+		errorcode = asfs_getextent(sb, previous_key, &bh, &ebn);
+		if (errorcode != 0)
+			return errorcode;
 
-				ebn->blocks = cpu_to_be16(be16_to_cpu(ebn->blocks) + blocks);
-
-				asfs_bstore(sb, bh);
-				asfs_brelse(bh);
-			} else {
-				/* It isn't possible to extent the last ExtentBNode so we create
-				   a new one and link it to the last ExtentBNode. */
-
-				ebn->next = cpu_to_be32(newspace);
-				asfs_bstore(sb, bh);
-				asfs_brelse(bh);
-
-				if ((errorcode = createextentbnode(sb, newspace, &bh, (struct BNode **) &ebn)) == 0) {
-					asfs_debug("  addblocks: Created new ExtentBNode.\n");
-
-					ebn->key = cpu_to_be32(newspace);
-					ebn->prev = cpu_to_be32(*io_lastextentbnode);
-					ebn->next = 0;
-					ebn->blocks = cpu_to_be16(blocks);
-
-					*io_lastextentbnode = newspace;
-
-					asfs_bstore(sb, bh);
-					asfs_brelse(bh);
-
-					ASFS_SB(sb)->block_rovingblockptr = newspace + blocks;
-
-	/* to be changed in the future */
-/*					if (ASFS_SB(sb)->block_rovingblockptr >= ASFS_SB(sb)->totalblocks)
-						ASFS_SB(sb)->block_rovingblockptr = 0;*/
-				}
-			}
-		}
-	} else {
-		/* There is no ExtentBNode chain yet for this file.  Attaching one! */
-		if ((errorcode = createextentbnode(sb, newspace, &bh, (struct BNode **) &ebn)) == 0) {
-			asfs_debug("  addblocks: Created new ExtentBNode chain.\n");
-
-			ebn->key = cpu_to_be32(newspace);
-			ebn->prev = cpu_to_be32(objectnode + 0x80000000);
-			ebn->next = 0;
-			ebn->blocks = cpu_to_be16(blocks);
-
-			*io_lastextentbnode = newspace;
-
+		previous_blocks = be16_to_cpu(ebn->blocks);
+		previous_end = be32_to_cpu(ebn->key) + previous_blocks;
+		if (previous_end == newspace &&
+		    (u32)previous_blocks + blocks <= 0xffffU) {
+			asfs_debug("  addblocks: Extending last ExtentBNode.\n");
+			ebn->blocks = cpu_to_be16(previous_blocks + blocks);
 			asfs_bstore(sb, bh);
 			asfs_brelse(bh);
-
 			ASFS_SB(sb)->block_rovingblockptr = newspace + blocks;
-
-/*			if (ASFS_SB(sb)->block_rovingblockptr >= ASFS_SB(sb)->totalblocks)
-				ASFS_SB(sb)->block_rovingblockptr = 0;*/
+			return 0;
 		}
+		asfs_brelse(bh);
+		bh = NULL;
+		ebn = NULL;
+
+		/*
+		 * Insert and fully initialise the new node before publishing a link
+		 * to it from the previous extent.  A failed insertion therefore
+		 * cannot leave the live file chain pointing at a nonexistent node.
+		 */
+		errorcode = createextentbnode(
+			sb, newspace, &bh, (struct BNode **)&ebn);
+		if (errorcode != 0)
+			return errorcode;
+
+		ebn->key = cpu_to_be32(newspace);
+		ebn->prev = cpu_to_be32(previous_key);
+		ebn->next = 0;
+		ebn->blocks = cpu_to_be16(blocks);
+		asfs_bstore(sb, bh);
+		asfs_brelse(bh);
+		bh = NULL;
+		ebn = NULL;
+
+		errorcode = asfs_getextent(sb, previous_key, &bh, &ebn);
+		if (errorcode != 0)
+			return errorcode;
+
+		ebn->next = cpu_to_be32(newspace);
+		asfs_bstore(sb, bh);
+		asfs_brelse(bh);
+
+		*io_lastextentbnode = newspace;
+		ASFS_SB(sb)->block_rovingblockptr = newspace + blocks;
+		return 0;
 	}
 
-	asfs_debug("  addblocks: done.\n");
+	/* There is no extent chain yet. */
+	errorcode = createextentbnode(
+		sb, newspace, &bh, (struct BNode **)&ebn);
+	if (errorcode != 0)
+		return errorcode;
 
-	return errorcode;
+	ebn->key = cpu_to_be32(newspace);
+	ebn->prev = cpu_to_be32(objectnode | MSB_MASK);
+	ebn->next = 0;
+	ebn->blocks = cpu_to_be16(blocks);
+	asfs_bstore(sb, bh);
+	asfs_brelse(bh);
+
+	*io_lastextentbnode = newspace;
+	ASFS_SB(sb)->block_rovingblockptr = newspace + blocks;
+	asfs_debug("  addblocks: done.\n");
+	return 0;
 }
 #endif
