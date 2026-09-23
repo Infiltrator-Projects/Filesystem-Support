@@ -113,9 +113,9 @@ filesystem_support_configure(infiltratr-fs-ext4-core)
 
 # Shared AmigaDOS primitives used by the independent OFS and FFS cores.
 add_library(infiltratr-fs-amiga-dos-core STATIC
-    native/filesystems/amiga_common/core/amiga_dos_core.c)
+    native/primitives/amiga_dos/amiga_dos_core.c)
 target_include_directories(infiltratr-fs-amiga-dos-core
-    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/amiga_common/core")
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/primitives/amiga_dos")
 filesystem_support_configure(infiltratr-fs-amiga-dos-core)
 
 # Canonical Amiga OFS and FFS format classification.
