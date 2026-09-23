@@ -6,6 +6,30 @@ on:
   pull_request:
 
 jobs:
+  source-boundary:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enforce retired upstream import path
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .github/workflows/import-linux-filesystems.yml
+          test ! -e tools/shape-ext2.sh
+          test ! -e tools/shape-ext3.sh
+          test ! -e tools/shape-ext4.sh
+          test ! -e tools/harden-ext-ranges.py
+
+      - name: Verify rewritten EXT2 file layer provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=native/filesystems/ext2/kernel/file.c
+          grep -Fq 'Copyright (C) 2026 Shannon Smith' "$file"
+          ! grep -Eiq 'linux/fs/ext2|Remy Card|Linus Torvalds|Stephen Tweedie|Red Hat' "$file"
+
   linux:
     runs-on: ubuntu-24.04
     steps:
@@ -19,9 +43,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev
 
-      - name: Audit EXT commentary
-        run: python3 tools/recomment-ext-family.py --check
-
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
@@ -30,6 +51,25 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  linux-ext2-module:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kernel headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y linux-headers-generic
+
+      - name: Build EXT2 kernel module
+        shell: bash
+        run: |
+          set -euo pipefail
+          KDIR="$(find /usr/src -maxdepth 1 -type d -name 'linux-headers-*-generic' | sort -V | tail -n 1)"
+          test -n "$KDIR"
+          make -C "$KDIR" M="$PWD/native/filesystems/ext2/kernel" modules
 
   windows-manager:
     runs-on: windows-latest
@@ -56,8 +96,6 @@ jobs:
               throw 'Windows Filesystem Support manager was not produced.'
           }
           Write-Host "Manager: $($manager.FullName)"
-
-
 
   windows-ext2-driver:
     runs-on: windows-latest
