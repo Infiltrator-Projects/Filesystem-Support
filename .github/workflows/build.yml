@@ -96,6 +96,31 @@ jobs:
             KBUILD_MODPOST_WARN=1 modules
           test -s native/filesystems/ext2/linux/ext2.ko
 
+  linux-ext3-module:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Linux 6.12.107 build API
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
+          git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
+          make -C /tmp/linux-6.12.107 defconfig
+          make -C /tmp/linux-6.12.107 modules_prepare
+
+      - name: Build EXT3 kernel module
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C /tmp/linux-6.12.107 \
+            M="$PWD/native/filesystems/ext3/linux" \
+            KBUILD_MODPOST_WARN=1 modules
+          test -s native/filesystems/ext3/linux/ext3.ko
+
   linux-ext4-module:
     runs-on: ubuntu-24.04
     steps:
