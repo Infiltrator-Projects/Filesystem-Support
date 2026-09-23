@@ -468,8 +468,6 @@ got_root:
 		sb->s_flags |= SB_RDONLY;
 	}
 	switch (chksum) {
-	case MUFS_FS:
-	case MUFS_INTLFFS	switch (chksum) {
 	case MUFS_OFS:
 		affs_set_opt(sbi->s_flags, SF_MUFS);
 		fallthrough;
@@ -492,7 +490,10 @@ got_root:
 		       sb->s_id, chksum);
 		return -EINVAL;
 	}
- len = AFFS_ROOT_TAIL(sb, root_bh)->disk_name[0];
+
+	if (affs_test_opt(mount_flags, SF_VERBOSE)) {
+		u8 len = AFFS_ROOT_TAIL(sb, root_bh)->disk_name[0];
+
 		pr_notice("Mounting volume \"%.*s\": Type=%.3s\\%c, Blocksize=%d\n",
 			len > 31 ? 31 : len,
 			AFFS_ROOT_TAIL(sb, root_bh)->disk_name + 1,
