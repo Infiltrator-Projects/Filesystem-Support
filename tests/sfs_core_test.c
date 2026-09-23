@@ -59,5 +59,28 @@ int main(void)
             return fail("oversized object name was accepted");
     }
 
+
+    if (ifs_sfs_has_allocation_headroom(8U, 1U, 16U) != 0)
+        return fail("allocation reserve underflow was accepted");
+    if (ifs_sfs_has_allocation_headroom(17U, 1U, 16U) == 0)
+        return fail("valid allocation headroom was rejected");
+    if (ifs_sfs_has_allocation_headroom(20U, 5U, 16U) != 0)
+        return fail("allocation consumed always-free reserve");
+
+    {
+        ifs_sfs_u32 mask = 0U;
+
+        if (ifs_sfs_adminspace_block_mask(100U, 100U, &mask) != 0 ||
+            mask != 0x80000000U)
+            return fail("first admin-space bit mapping is wrong");
+        if (ifs_sfs_adminspace_block_mask(100U, 131U, &mask) != 0 ||
+            mask != 0x00000001U)
+            return fail("last admin-space bit mapping is wrong");
+        if (ifs_sfs_adminspace_block_mask(0U, 4U, &mask) == 0)
+            return fail("unused admin-space descriptor accepted");
+        if (ifs_sfs_adminspace_block_mask(100U, 132U, &mask) == 0)
+            return fail("out-of-range admin-space block accepted");
+    }
+
     return 0;
 }

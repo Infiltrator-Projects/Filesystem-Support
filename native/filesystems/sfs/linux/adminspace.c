@@ -42,10 +42,9 @@ static int setfreeblocks(struct super_block *sb, u32 freeblocks)
 
 static inline int enoughspace(struct super_block *sb, u32 blocks)
 {
-	if (ASFS_SB(sb)->freeblocks - ASFS_ALWAYSFREE < blocks)
-		return FALSE;
-
-	return TRUE;
+	return ifs_sfs_has_allocation_headroom(
+		ASFS_SB(sb)->freeblocks, blocks, ASFS_ALWAYSFREE) ?
+		TRUE : FALSE;
 }
 
 	/* Determines the amount of free blocks starting from block /block/.
@@ -417,10 +416,12 @@ int asfs_freeadminspace(struct super_block *sb, u32 block)
 		int adminspaces = (sb->s_blocksize - sizeof(struct fsAdminSpaceContainer)) / sizeof(struct fsAdminSpace);
 
 		while (adminspaces-- > 0) {
-			if (block >= be32_to_cpu(as->space) && block < be32_to_cpu(as->space) + 32) {
-				s16 bitoffset = block - be32_to_cpu(as->space);
+			u32 mask;
+
+			if (ifs_sfs_adminspace_block_mask(
+					be32_to_cpu(as->space), block, &mask) == 0) {
 				asfs_debug("freeadminspace: Block to be freed is located in AdminSpaceContainer block at %d\n", adminspaceblock);
-				as->bits &= cpu_to_be32(~(1U << (31 - bitoffset)));
+				as->bits &= cpu_to_be32(~mask);
 				asfs_bstore(sb, bh);
 				asfs_brelse(bh);
 				return 0;

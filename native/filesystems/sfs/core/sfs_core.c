@@ -122,3 +122,32 @@ const char *ifs_sfs_object_record_status_string(
     }
     return "invalid SFS object record";
 }
+
+int ifs_sfs_has_allocation_headroom(
+    const ifs_sfs_u32 free_blocks,
+    const ifs_sfs_u32 requested_blocks,
+    const ifs_sfs_u32 always_free_blocks)
+{
+    if (free_blocks <= always_free_blocks)
+        return 0;
+
+    return requested_blocks <= free_blocks - always_free_blocks;
+}
+
+int ifs_sfs_adminspace_block_mask(
+    const ifs_sfs_u32 area_start,
+    const ifs_sfs_u32 block,
+    ifs_sfs_u32 *const mask)
+{
+    ifs_sfs_u32 offset;
+
+    if (mask == 0 || area_start == 0U || block < area_start)
+        return -1;
+
+    offset = block - area_start;
+    if (offset >= 32U)
+        return -1;
+
+    *mask = 1U << (31U - offset);
+    return 0;
+}

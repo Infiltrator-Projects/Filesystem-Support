@@ -53,4 +53,14 @@ IfsSfsObjectRecordStatus ifs_sfs_object_record_layout(
 
 const char *ifs_sfs_object_record_status_string(
     IfsSfsObjectRecordStatus status);
+
+int ifs_sfs_has_allocation_headroom(
+    ifs_sfs_u32 free_blocks,
+    ifs_sfs_u32 requested_blocks,
+    ifs_sfs_u32 always_free_blocks);
+
+int ifs_sfs_adminspace_block_mask(
+    ifs_sfs_u32 area_start,
+    ifs_sfs_u32 block,
+    ifs_sfs_u32 *mask);
 #endif
