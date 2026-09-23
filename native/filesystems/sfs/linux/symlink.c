@@ -20,69 +20,87 @@
 #include <linux/buffer_head.h>
 #include <linux/vfs.h>
 #include <linux/pagemap.h>
+#include <linux/namei.h>
 #include <linux/nls.h>
 #include "asfs_fs.h"
 
 #include <asm/byteorder.h>
-#include <asm/uaccess.h>
 
-int asfs_symlink_readpage(struct file *file, struct page *page)
+static void asfs_free_link(void *link)
+{
+	kfree(link);
+}
+
+const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
+			  struct delayed_call *done)
 {
 	struct buffer_head *bh;
 	struct fsSoftLink *slinkcont;
-	struct inode *inode = page->mapping->host;
-	struct super_block *sb = inode->i_sb;
-	struct nls_table *nls_io = ASFS_SB(sb)->nls_io;
-	struct nls_table *nls_disk = ASFS_SB(sb)->nls_disk;
-	char *link = kmap(page);
+	struct super_block *sb;
+	struct nls_table *nls_io;
+	struct nls_table *nls_disk;
+	char *link;
+	char *lf;
+	char *prefix;
+	char *p;
+	char c;
+	char lc = 0;
 	int i = 0, j = 0;
-	char c, lc = 0, *prefix, *lf, *p;
 	wchar_t uni;
 	int clen;
 
-	asfs_debug("asfs_read_symlink from node %d\n", (int)inode->i_ino);
+	if (!dentry)
+		return ERR_PTR(-ECHILD);
 
-	if (!(bh = asfs_breadcheck(sb, ASFS_I(inode)->firstblock, ASFS_SOFTLINK_ID))) {
-		SetPageError(page);
-		kunmap(page);
-		unlock_page(page);
-		return -EIO;
+	sb = inode->i_sb;
+	nls_io = ASFS_SB(sb)->nls_io;
+	nls_disk = ASFS_SB(sb)->nls_disk;
+
+	bh = asfs_breadcheck(sb, ASFS_I(inode)->firstblock, ASFS_SOFTLINK_ID);
+	if (!bh)
+		return ERR_PTR(-EIO);
+
+	link = kmalloc(1024, GFP_KERNEL);
+	if (!link) {
+		asfs_brelse(bh);
+		return ERR_PTR(-ENOMEM);
 	}
-	slinkcont = (struct fsSoftLink *) bh->b_data;
 
+	slinkcont = (struct fsSoftLink *)bh->b_data;
 	lf = slinkcont->string;
 	prefix = ASFS_SB(sb)->prefix ? ASFS_SB(sb)->prefix : "/";
 
-	asfs_debug("asfs_read_symlink: link target %s\n", lf);
-
-	if ((p = strchr(lf,':'))) {	/* Handle assign or volume name */
+	if ((p = strchr(lf, ':'))) {
 		if (ASFS_SB(sb)->root_volume &&
-		    strncmp(lf, ASFS_SB(sb)->root_volume, strlen(ASFS_SB(sb)->root_volume)) == 0) {
-			/* global root volume name found */
+		    strncmp(lf, ASFS_SB(sb)->root_volume,
+			    strlen(ASFS_SB(sb)->root_volume)) == 0) {
 			link[i++] = '/';
-			lf = p+1;
+			lf = p + 1;
 		} else {
-			/* adding volume prefix */ 
 			while (i < 1023 && (c = prefix[i]))
 				link[i++] = c;
-			while (i < 1023 && lf[j] != ':')
-			{
+
+			while (i < 1023 && lf[j] != ':') {
 				c = lf[j++];
 				if (ASFS_SB(sb)->flags & ASFS_VOL_LOWERCASE)
 					c = asfs_lowerchar(c);
-				if (nls_io)
-				{
+
+				if (nls_io) {
 					clen = nls_disk->char2uni(&c, 1, &uni);
-					if (clen>0) {
-						clen = nls_io->uni2char(uni, &link[i], NLS_MAX_CHARSET_SIZE);
-						if (clen>0)
+					if (clen > 0) {
+						clen = nls_io->uni2char(
+							uni, &link[i],
+							NLS_MAX_CHARSET_SIZE);
+						if (clen > 0)
 							i += clen;
 					}
-					if (clen<0)
+					if (clen < 0)
 						link[i++] = '?';
-				} else
+				} else {
 					link[i++] = c;
+				}
 			}
+
 			if (i < 1023)
 				link[i++] = '/';
 			j++;
@@ -91,32 +109,32 @@ int asfs_symlink_readpage(struct file *file, struct page *page)
 	}
 
 	while (i < 1023 && (c = lf[j])) {
-		if (c == '/' && lc == '/' && i < 1020) {	/* parent dir */
+		if (c == '/' && lc == '/' && i < 1020) {
 			link[i++] = '.';
 			link[i++] = '.';
 		}
+
 		lc = c;
-		if (nls_io)
-		{
+		if (nls_io) {
 			clen = nls_disk->char2uni(&c, 1, &uni);
-			if (clen>0) {
-				clen = nls_io->uni2char(uni, &link[i], NLS_MAX_CHARSET_SIZE);
-				if (clen>0)
+			if (clen > 0) {
+				clen = nls_io->uni2char(
+					uni, &link[i], NLS_MAX_CHARSET_SIZE);
+				if (clen > 0)
 					i += clen;
 			}
-			if (clen<0)
+			if (clen < 0)
 				link[i++] = '?';
-		} else
+		} else {
 			link[i++] = c;
+		}
 		j++;
 	}
 	link[i] = '\0';
 
-	SetPageUptodate(page);
-	kunmap(page);
-	unlock_page(page);
 	asfs_brelse(bh);
-	return 0;
+	set_delayed_call(done, asfs_free_link, link);
+	return link;
 }
 
 #ifdef CONFIG_ASFS_RW
