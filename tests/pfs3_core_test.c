@@ -38,7 +38,7 @@ int main(void)
     if (ifs_pfs3_validate_root_geometry(
             IFS_PFS3_DISK_PFS2,
             IFS_PFS3_MODE_HARDDISK | IFS_PFS3_MODE_LARGEFILE,
-            512U, 4096U, 2U, 2U, 257U, 20U) != IFS_PFS3_ROOT_OK)
+            512U, 4096U, 8U, 2U, 257U, 20U) != IFS_PFS3_ROOT_OK)
         return fail("valid PFS2 geometry rejected");
 
     if (ifs_pfs3_validate_root_geometry(
