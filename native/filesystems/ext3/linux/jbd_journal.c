@@ -915,7 +915,7 @@ static int journal_reset(journal_t *journal)
 		journal_update_sb_log_tail(journal,
 					   journal->j_tail_sequence,
 					   journal->j_tail,
-					   WRITE_FUA);
+					   REQ_FUA);
 		mutex_unlock(&journal->j_checkpoint_mutex);
 	}
 	return journal_start_thread(journal);
@@ -1002,14 +1002,14 @@ int journal_create(journal_t *journal)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_write_superblock(journal_t *journal, int write_op)
+static void journal_write_superblock(journal_t *journal, blk_opf_t write_flags)
 {
 	struct buffer_head *bh = journal->j_sb_buffer;
 	int ret;
 
-	trace_journal_write_superblock(journal, write_op);
+	trace_journal_write_superblock(journal, write_flags);
 	if (!(journal->j_flags & JFS_BARRIER))
-		write_op &= ~(REQ_FUA | REQ_FLUSH);
+		write_flags &= ~(REQ_FUA | REQ_PREFLUSH);
 	lock_buffer(bh);
 	if (buffer_write_io_error(bh)) {
 		char b[BDEVNAME_SIZE];
@@ -1024,7 +1024,7 @@ static void journal_write_superblock(journal_t *journal, int write_op)
 
 	get_bh(bh);
 	bh->b_end_io = end_buffer_write_sync;
-	ret = submit_bh(write_op, bh);
+	ret = submit_bh(REQ_OP_WRITE | write_flags, bh);
 	wait_on_buffer(bh);
 	if (buffer_write_io_error(bh)) {
 		clear_buffer_write_io_error(bh);
@@ -1049,7 +1049,7 @@ static void journal_write_superblock(journal_t *journal, int write_op)
  * rollback, abort or retry policy.
  */
 void journal_update_sb_log_tail(journal_t *journal, tid_t tail_tid,
-				unsigned int tail_block, int write_op)
+				unsigned int tail_block, blk_opf_t write_flags)
 {
 	journal_superblock_t *sb = journal->j_superblock;
 
@@ -1060,7 +1060,7 @@ void journal_update_sb_log_tail(journal_t *journal, tid_t tail_tid,
 	sb->s_sequence = cpu_to_be32(tail_tid);
 	sb->s_start    = cpu_to_be32(tail_block);
 
-	journal_write_superblock(journal, write_op);
+	journal_write_superblock(journal, write_flags);
 
 
 	spin_lock(&journal->j_state_lock);
@@ -1096,7 +1096,7 @@ static void mark_journal_empty(journal_t *journal)
 	sb->s_start    = cpu_to_be32(0);
 	spin_unlock(&journal->j_state_lock);
 
-	journal_write_superblock(journal, WRITE_FUA);
+	journal_write_superblock(journal, REQ_FUA);
 
 	spin_lock(&journal->j_state_lock);
 
@@ -1123,7 +1123,7 @@ static void journal_update_sb_errno(journal_t *journal)
 	sb->s_errno = cpu_to_be32(journal->j_errno);
 	spin_unlock(&journal->j_state_lock);
 
-	journal_write_superblock(journal, WRITE_SYNC);
+	journal_write_superblock(journal, REQ_SYNC);
 }
 
 
