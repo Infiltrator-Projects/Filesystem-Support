@@ -159,3 +159,115 @@ IfsExt4LayoutStatus ifs_ext4_validate_layout(
     return IFS_EXT4_LAYOUT_OK;
 }
 
+
+
+ifs_ext4_u32 ifs_ext4_directory_record_min_length(
+    const ifs_ext4_u32 name_length,
+    const int has_hash)
+{
+    ifs_ext4_u32 length = name_length + 11U;
+
+    if (has_hash != 0)
+        length += 8U;
+    return length & ~3U;
+}
+
+ifs_ext4_u32 ifs_ext4_directory_record_length_from_disk(
+    const ifs_ext4_u16 encoded_length,
+    const ifs_ext4_u32 block_size)
+{
+    const ifs_ext4_u32 length = encoded_length;
+
+    if (block_size >= 65536U) {
+        if (length == 0xFFFFU || length == 0U)
+            return block_size;
+        return (length & 65532U) | ((length & 3U) << 16);
+    }
+    return length;
+}
+
+int ifs_ext4_directory_record_length_to_disk(
+    const ifs_ext4_u32 record_length,
+    const ifs_ext4_u32 block_size,
+    ifs_ext4_u16 *const encoded_length)
+{
+    if (encoded_length == 0)
+        return -1;
+    if (record_length == 0U || record_length > block_size ||
+        block_size > (1U << 18) || (record_length & 3U) != 0U)
+        return -1;
+
+    if (block_size >= 65536U) {
+        if (record_length < 65536U) {
+            *encoded_length = (ifs_ext4_u16)record_length;
+            return 0;
+        }
+        if (record_length == block_size) {
+            *encoded_length = block_size == 65536U ? 0xFFFFU : 0U;
+            return 0;
+        }
+        *encoded_length = (ifs_ext4_u16)(
+            (record_length & 65532U) | ((record_length >> 16) & 3U));
+        return 0;
+    }
+
+    if (record_length > 0xFFFFU)
+        return -1;
+    *encoded_length = (ifs_ext4_u16)record_length;
+    return 0;
+}
+
+IfsExt4DirectoryRecordStatus ifs_ext4_validate_directory_record(
+    const ifs_ext4_u32 record_offset,
+    const ifs_ext4_u32 record_length,
+    const ifs_ext4_u32 name_length,
+    const ifs_ext4_u32 inode_number,
+    const ifs_ext4_u32 buffer_size,
+    const ifs_ext4_u32 maximum_inode,
+    const int entry_has_hash,
+    const int trailing_entry_has_hash,
+    const int dot_entry)
+{
+    const ifs_ext4_u32 minimum =
+        ifs_ext4_directory_record_min_length(1U, entry_has_hash);
+    const ifs_ext4_u32 minimum_for_name =
+        ifs_ext4_directory_record_min_length(name_length, entry_has_hash);
+    const ifs_ext4_u32 trailing_minimum =
+        ifs_ext4_directory_record_min_length(1U, trailing_entry_has_hash);
+    ifs_ext4_u64 next_offset;
+
+    if (record_length < minimum)
+        return IFS_EXT4_DIRECTORY_RECORD_TOO_SHORT;
+    if ((record_length & 3U) != 0U)
+        return IFS_EXT4_DIRECTORY_RECORD_UNALIGNED;
+    if (record_length < minimum_for_name)
+        return IFS_EXT4_DIRECTORY_RECORD_NAME_TOO_LONG;
+
+    next_offset = (ifs_ext4_u64)record_offset + record_length;
+    if (next_offset > buffer_size)
+        return IFS_EXT4_DIRECTORY_RECORD_OVERRUN;
+    if (next_offset != buffer_size &&
+        (ifs_ext4_u64)buffer_size - next_offset < trailing_minimum)
+        return IFS_EXT4_DIRECTORY_RECORD_TOO_CLOSE_TO_END;
+    if (inode_number > maximum_inode)
+        return IFS_EXT4_DIRECTORY_RECORD_INODE_RANGE;
+    if (next_offset == buffer_size && dot_entry != 0)
+        return IFS_EXT4_DIRECTORY_RECORD_DOT_LAST;
+    return IFS_EXT4_DIRECTORY_RECORD_OK;
+}
+
+const char *ifs_ext4_directory_record_status_string(
+    const IfsExt4DirectoryRecordStatus status)
+{
+    switch (status) {
+    case IFS_EXT4_DIRECTORY_RECORD_OK: return "ok";
+    case IFS_EXT4_DIRECTORY_RECORD_TOO_SHORT: return "rec_len is smaller than minimal";
+    case IFS_EXT4_DIRECTORY_RECORD_UNALIGNED: return "rec_len % 4 != 0";
+    case IFS_EXT4_DIRECTORY_RECORD_NAME_TOO_LONG: return "rec_len is too small for name_len";
+    case IFS_EXT4_DIRECTORY_RECORD_OVERRUN: return "directory entry overrun";
+    case IFS_EXT4_DIRECTORY_RECORD_TOO_CLOSE_TO_END: return "directory entry too close to block end";
+    case IFS_EXT4_DIRECTORY_RECORD_INODE_RANGE: return "inode out of bounds";
+    case IFS_EXT4_DIRECTORY_RECORD_DOT_LAST: return "'.' directory cannot be the last in data block";
+    }
+    return "invalid EXT4 directory record";
+}

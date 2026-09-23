@@ -126,5 +126,29 @@ int main(void)
         group_count != 4U)
         return fail("inconsistent inode total did not preserve group count");
 
+    {
+        ifs_ext4_u16 encoded = 0U;
+
+        if (ifs_ext4_directory_record_length_from_disk(0xFFFFU, 65536U) != 65536U)
+            return fail("64K EXT4 directory record was not decoded");
+        if (ifs_ext4_directory_record_length_to_disk(65536U, 65536U, &encoded) != 0 ||
+            encoded != 0xFFFFU)
+            return fail("64K EXT4 directory record was not encoded");
+        if (ifs_ext4_directory_record_length_to_disk(131072U, 131072U, &encoded) != 0 ||
+            encoded != 0U)
+            return fail("full 128K EXT4 directory record was not encoded");
+        if (ifs_ext4_directory_record_min_length(1U, 0) != 12U ||
+            ifs_ext4_directory_record_min_length(1U, 1) != 20U)
+            return fail("EXT4 directory hash extension length is wrong");
+        if (ifs_ext4_validate_directory_record(0U, 12U, 1U, 2U, 4096U, 100U,
+                                               0, 0, 0) !=
+            IFS_EXT4_DIRECTORY_RECORD_OK)
+            return fail("valid EXT4 directory record was rejected");
+        if (ifs_ext4_validate_directory_record(4084U, 12U, 1U, 2U, 4096U, 100U,
+                                               0, 0, 1) !=
+            IFS_EXT4_DIRECTORY_RECORD_DOT_LAST)
+            return fail("last-dot EXT4 directory record was accepted");
+    }
+
     return 0;
 }

@@ -112,34 +112,27 @@ int __ext4_check_dir_entry(const char *function, unsigned int line,
 			   struct buffer_head *bh, char *buf, int size,
 			   unsigned int offset)
 {
-	const char *error_msg = NULL;
 	const int rlen = ext4_rec_len_from_disk(de->rec_len,
 						dir->i_sb->s_blocksize);
-	const int next_offset = ((char *) de - buf) + rlen;
-	bool fake = is_fake_dir_entry(de);
-	bool has_csum = ext4_has_metadata_csum(dir->i_sb);
+	const bool fake = is_fake_dir_entry(de);
+	const bool has_csum = ext4_has_metadata_csum(dir->i_sb);
+	const bool has_hash = ext4_hash_in_dirent(dir);
+	const IfsExt4DirectoryRecordStatus record_status =
+		ifs_ext4_validate_directory_record(
+			(ifs_ext4_u32)((char *)de - buf),
+			(ifs_ext4_u32)rlen,
+			de->name_len,
+			le32_to_cpu(de->inode),
+			(ifs_ext4_u32)size,
+			le32_to_cpu(EXT4_SB(dir->i_sb)->s_es->s_inodes_count),
+			!fake && has_hash,
+			!has_csum && has_hash,
+			de->name_len == 1 && de->name[0] == '.');
+	const char *error_msg;
 
-	if (unlikely(rlen < ext4_dir_rec_len(1, fake ? NULL : dir)))
-		error_msg = "rec_len is smaller than minimal";
-	else if (unlikely(rlen % 4 != 0))
-		error_msg = "rec_len % 4 != 0";
-	else if (unlikely(rlen < ext4_dir_rec_len(de->name_len,
-							fake ? NULL : dir)))
-		error_msg = "rec_len is too small for name_len";
-	else if (unlikely(next_offset > size))
-		error_msg = "directory entry overrun";
-	else if (unlikely(next_offset > size - ext4_dir_rec_len(1,
-						  has_csum ? NULL : dir) &&
-			  next_offset != size))
-		error_msg = "directory entry too close to block end";
-	else if (unlikely(le32_to_cpu(de->inode) >
-			le32_to_cpu(EXT4_SB(dir->i_sb)->s_es->s_inodes_count)))
-		error_msg = "inode out of bounds";
-	else if (unlikely(next_offset == size && de->name_len == 1 &&
-			  de->name[0] == '.'))
-		error_msg = "'.' directory cannot be the last in data block";
-	else
+	if (likely(record_status == IFS_EXT4_DIRECTORY_RECORD_OK))
 		return 0;
+	error_msg = ifs_ext4_directory_record_status_string(record_status);
 
 	if (filp)
 		ext4_error_file(filp, function, line, bh->b_blocknr,

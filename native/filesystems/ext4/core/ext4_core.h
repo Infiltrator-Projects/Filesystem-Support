@@ -9,15 +9,56 @@
 
 #if defined(__KERNEL__)
 #include <linux/types.h>
+typedef u16 ifs_ext4_u16;
 typedef u32 ifs_ext4_u32;
 typedef u64 ifs_ext4_u64;
 #elif defined(IFS_EXT4_WINDOWS_KERNEL)
+typedef unsigned short ifs_ext4_u16;
 typedef unsigned int ifs_ext4_u32;
 typedef unsigned long long ifs_ext4_u64;
 #else
 #include <stdint.h>
+typedef uint16_t ifs_ext4_u16;
 typedef uint32_t ifs_ext4_u32;
 typedef uint64_t ifs_ext4_u64;
+typedef enum IfsExt4DirectoryRecordStatus {
+    IFS_EXT4_DIRECTORY_RECORD_OK = 0,
+    IFS_EXT4_DIRECTORY_RECORD_TOO_SHORT,
+    IFS_EXT4_DIRECTORY_RECORD_UNALIGNED,
+    IFS_EXT4_DIRECTORY_RECORD_NAME_TOO_LONG,
+    IFS_EXT4_DIRECTORY_RECORD_OVERRUN,
+    IFS_EXT4_DIRECTORY_RECORD_TOO_CLOSE_TO_END,
+    IFS_EXT4_DIRECTORY_RECORD_INODE_RANGE,
+    IFS_EXT4_DIRECTORY_RECORD_DOT_LAST
+} IfsExt4DirectoryRecordStatus;
+
+ifs_ext4_u32 ifs_ext4_directory_record_min_length(
+    ifs_ext4_u32 name_length,
+    int has_hash);
+
+ifs_ext4_u32 ifs_ext4_directory_record_length_from_disk(
+    ifs_ext4_u16 encoded_length,
+    ifs_ext4_u32 block_size);
+
+int ifs_ext4_directory_record_length_to_disk(
+    ifs_ext4_u32 record_length,
+    ifs_ext4_u32 block_size,
+    ifs_ext4_u16 *encoded_length);
+
+IfsExt4DirectoryRecordStatus ifs_ext4_validate_directory_record(
+    ifs_ext4_u32 record_offset,
+    ifs_ext4_u32 record_length,
+    ifs_ext4_u32 name_length,
+    ifs_ext4_u32 inode_number,
+    ifs_ext4_u32 buffer_size,
+    ifs_ext4_u32 maximum_inode,
+    int entry_has_hash,
+    int trailing_entry_has_hash,
+    int dot_entry);
+
+const char *ifs_ext4_directory_record_status_string(
+    IfsExt4DirectoryRecordStatus status);
+
 #endif
 
 #define IFS_EXT4_FEATURE_INCOMPAT_FILETYPE    0x0002U

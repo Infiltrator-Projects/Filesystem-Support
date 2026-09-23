@@ -39,6 +39,8 @@
 #ifndef _EXT4_H
 #define _EXT4_H
 
+#include "../core/ext4_core.h"
+
 #include <linux/refcount.h>
 #include <linux/types.h>
 #include <linux/blkdev.h>
@@ -2417,15 +2419,8 @@ static inline unsigned int ext4_dir_rec_len(__u8 name_len,
 static inline unsigned int
 ext4_rec_len_from_disk(__le16 dlen, unsigned blocksize)
 {
-	unsigned len = le16_to_cpu(dlen);
-
-#if (PAGE_SIZE >= 65536)
-	if (len == EXT4_MAX_REC_LEN || len == 0)
-		return blocksize;
-	return (len & 65532) | ((len & 3) << 16);
-#else
-	return len;
-#endif
+	return ifs_ext4_directory_record_length_from_disk(
+		le16_to_cpu(dlen), blocksize);
 }
 
 
@@ -2439,20 +2434,11 @@ ext4_rec_len_from_disk(__le16 dlen, unsigned blocksize)
  */
 static inline __le16 ext4_rec_len_to_disk(unsigned len, unsigned blocksize)
 {
-	BUG_ON((len > blocksize) || (blocksize > (1 << 18)) || (len & 3));
-#if (PAGE_SIZE >= 65536)
-	if (len < 65536)
-		return cpu_to_le16(len);
-	if (len == blocksize) {
-		if (blocksize == 65536)
-			return cpu_to_le16(EXT4_MAX_REC_LEN);
-		else
-			return cpu_to_le16(0);
-	}
-	return cpu_to_le16((len & 65532) | ((len >> 16) & 3));
-#else
-	return cpu_to_le16(len);
-#endif
+	ifs_ext4_u16 encoded = 0U;
+
+	BUG_ON(ifs_ext4_directory_record_length_to_disk(
+		len, blocksize, &encoded) != 0);
+	return cpu_to_le16(encoded);
 }
 
 
