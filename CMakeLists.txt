@@ -89,7 +89,8 @@ filesystem_support_configure(infiltratr-fs-native-core)
 # Canonical EXT2 on-disk semantics. This exact source is also compiled into
 # the Linux and Windows adapters; OS-specific code must not reimplement it.
 add_library(infiltratr-fs-ext2-core STATIC
-    native/filesystems/ext2/core/ext2_core.c)
+    native/filesystems/ext2/core/ext2_core.c
+    native/filesystems/ext2/core/ext2_engine.c)
 target_include_directories(infiltratr-fs-ext2-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext2/core")
 filesystem_support_configure(infiltratr-fs-ext2-core)
@@ -199,6 +200,15 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-ext2-core
         COMMAND filesystem-support-ext2-core-test)
+
+    add_executable(filesystem-support-ext2-engine-test
+        tests/ext2_engine_test.c)
+    target_link_libraries(filesystem-support-ext2-engine-test
+        PRIVATE infiltratr-fs-ext2-core)
+    filesystem_support_configure(filesystem-support-ext2-engine-test)
+    add_test(
+        NAME filesystem-support-ext2-engine
+        COMMAND filesystem-support-ext2-engine-test)
 
     add_executable(filesystem-support-windows-catalog-test
         tests/windows_catalog_test.cpp)
