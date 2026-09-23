@@ -144,21 +144,29 @@ then remove the duplicate. Do not create families of near-equivalent helpers.
 Kernel builds must use only code proven safe for their kernel environment.
 Userspace Common is not automatically kernel-safe.
 
-## Imported Linux source
+## Source ownership boundary
 
-The current `native/filesystems/*/kernel` trees are valuable, mature semantic
-references and, where licensing and build constraints permit, implementation
-sources. They are not the final cross-platform boundary by themselves because
-Linux VFS types and helpers are embedded throughout them.
+Production filesystem implementations in `native/filesystems/*` must be
+project-authored source. External filesystem implementations may be studied to
+understand observable behaviour, on-disk compatibility, failure cases and test
+vectors, but their implementation source must not be copied, transformed,
+re-commented or regenerated into the active production tree.
 
-For a filesystem promoted to the canonical cross-platform architecture, split
-format semantics from Linux integration deliberately. Do not mechanically
-translate Linux APIs into fake portability wrappers or maintain a second
-Windows rewrite.
+The retired Linux-import/shaping workflow must not be recreated. A different
+file layout, renamed symbols, merged translation units or a different Kbuild
+shape is not sufficient to make imported implementation source project-owned.
 
-The strongest implementation wins at the semantic level regardless of whether
-a particular check or algorithm originated in the imported Linux code, the
-former ExtFS portable core, a specification or later project work.
+Filesystem promotion to the canonical cross-platform architecture therefore
+requires an implementation rewrite around the repository's own contracts.
+Linux and Windows adapters consume that canonical behaviour where practical;
+platform-specific code exists only where the operating system genuinely
+requires it.
+
+Legacy migration-era source that still carries third-party provenance is
+treated as temporary replacement work. Its provenance remains intact until the
+underlying implementation has actually been replaced and validated. Removing
+an attribution without replacing the inherited implementation is expressly
+forbidden.
 
 ## ExtFS-for-Windows migration rule
 
