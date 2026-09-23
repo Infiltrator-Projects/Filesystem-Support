@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "sfs_core.h"
 static int ifs_sfs_is_power_of_two(const ifs_sfs_u32 value)
 {
@@ -73,6 +72,78 @@ const char *ifs_sfs_root_status_string(const IfsSfsRootStatus status)
     case IFS_SFS_ROOT_TRANSACTION_BLOCK_OUT_OF_RANGE: return "SFS transaction-failure block is out of range";
     }
     return "invalid SFS root layout";
+}
+
+IfsSfsNameStatus ifs_sfs_validate_name(
+    const ifs_sfs_u8 *const name,
+    const ifs_sfs_u32 length)
+{
+    ifs_sfs_u32 index;
+
+    if (name == 0 && length != 0U)
+        return IFS_SFS_NAME_INVALID_CHARACTER;
+    if (length > IFS_SFS_MAX_FILENAME)
+        return IFS_SFS_NAME_TOO_LONG;
+
+    for (index = 0U; index < length; ++index) {
+        const ifs_sfs_u8 character = name[index];
+
+        if (character < 0x20U || character == (ifs_sfs_u8)':' ||
+            (character > 0x7eU && character < 0xa0U))
+            return IFS_SFS_NAME_INVALID_CHARACTER;
+    }
+
+    return IFS_SFS_NAME_OK;
+}
+
+ifs_sfs_u8 ifs_sfs_fold_character(const ifs_sfs_u8 character)
+{
+    if ((character >= (ifs_sfs_u8)'a' &&
+         character <= (ifs_sfs_u8)'z') ||
+        (character >= 0xe0U && character <= 0xfeU &&
+         character != 0xf7U))
+        return (ifs_sfs_u8)(character - 0x20U);
+
+    return character;
+}
+
+ifs_sfs_u8 ifs_sfs_lower_character(const ifs_sfs_u8 character)
+{
+    if ((character >= (ifs_sfs_u8)'A' &&
+         character <= (ifs_sfs_u8)'Z') ||
+        (character >= 0xc0U && character <= 0xdeU &&
+         character != 0xd7U))
+        return (ifs_sfs_u8)(character + 0x20U);
+
+    return character;
+}
+
+ifs_sfs_u16 ifs_sfs_component_hash(
+    const ifs_sfs_u8 *const name,
+    const int case_sensitive)
+{
+    ifs_sfs_u16 hash = 0U;
+    ifs_sfs_u16 length = 0U;
+    const ifs_sfs_u8 *cursor = name;
+
+    if (name == 0)
+        return 0U;
+
+    while (cursor[length] != 0U &&
+           cursor[length] != (ifs_sfs_u8)'/' &&
+           length < IFS_SFS_MAX_FILENAME)
+        length++;
+
+    hash = length;
+    while (*cursor != 0U && *cursor != (ifs_sfs_u8)'/') {
+        const ifs_sfs_u8 character =
+            case_sensitive != 0 ? *cursor : ifs_sfs_fold_character(*cursor);
+
+        hash = (ifs_sfs_u16)(hash * 13U + character);
+        cursor++;
+    }
+
+    return hash;
 }
 
 IfsSfsObjectRecordStatus ifs_sfs_object_record_layout(
