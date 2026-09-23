@@ -144,29 +144,57 @@ then remove the duplicate. Do not create families of near-equivalent helpers.
 Kernel builds must use only code proven safe for their kernel environment.
 Userspace Common is not automatically kernel-safe.
 
-## Source ownership boundary
+## Source provenance and promotion model
 
-Production filesystem implementations in `native/filesystems/*` must be
-project-authored source. External filesystem implementations may be studied to
-understand observable behaviour, on-disk compatibility, failure cases and test
-vectors, but their implementation source must not be copied, transformed,
-re-commented or regenerated into the active production tree.
+Filesystem Support deliberately uses two source states.
 
-The retired Linux-import/shaping workflow must not be recreated. A different
-file layout, renamed symbols, merged translation units or a different Kbuild
-shape is not sufficient to make imported implementation source project-owned.
+### Reference/import state
 
-Filesystem promotion to the canonical cross-platform architecture therefore
-requires an implementation rewrite around the repository's own contracts.
-Linux and Windows adapters consume that canonical behaviour where practical;
-platform-specific code exists only where the operating system genuinely
-requires it.
+Filesystems that have not yet entered an Infiltrator rewrite may use copied
+upstream implementation source as their working baseline.  Those trees exist so
+the project has a complete, working semantic reference while each filesystem is
+waiting its turn for independent redesign.
 
-Legacy migration-era source that still carries third-party provenance is
-treated as temporary replacement work. Its provenance remains intact until the
-underlying implementation has actually been replaced and validated. Removing
-an attribution without replacing the inherited implementation is expressly
-forbidden.
+Copied trees must retain their original licence, copyright and provenance
+notices.  They must not be represented as project-authored source.
+
+At the current development stage this reference/import state applies to the
+non-EXT filesystem implementations under `native/filesystems/`.
+
+### Rewrite state
+
+When a filesystem is selected for active Infiltrator development, its imported
+implementation becomes temporary migration material.  The implementation is
+then replaced subsystem by subsystem with code designed for the project's
+canonical engine and OS-adapter architecture.
+
+EXT2, EXT3 and EXT4 are currently in this rewrite state.
+
+For a rewritten unit, changing comments, names, file boundaries or Kbuild
+layout is not sufficient.  The implementation itself must be replaced and
+validated before inherited provenance can be removed from that unit.
+
+The EXT trees must not be refreshed from upstream while this rewrite is in
+progress, because doing so would overwrite completed project-authored work.
+Other filesystem reference trees may continue to be refreshed from their
+upstream source until that filesystem is explicitly promoted to rewrite state.
+
+### Promotion rule
+
+Promotion is deliberate and per filesystem:
+
+1. preserve the copied reference tree and its legal provenance until the
+   rewrite starts;
+2. record the filesystem as being in rewrite state;
+3. define the required format semantics and compatibility behaviour;
+4. replace implementation units with project-authored code;
+5. validate media compatibility, failure handling and platform integration;
+6. remove inherited provenance only from units whose inherited implementation
+   has actually been replaced; and
+7. stop upstream refreshes for that filesystem once rewrite work has begun.
+
+This gives the project working implementations now without confusing copied
+reference source with the final Infiltrator codebase.
 
 ## ExtFS-for-Windows migration rule
 
