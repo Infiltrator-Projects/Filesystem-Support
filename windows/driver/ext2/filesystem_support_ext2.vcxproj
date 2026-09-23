@@ -60,7 +60,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ext2_driver.h" />
-    <ClInclude Include="ext2_compat.h" />
     <ClInclude Include="..\..\..\native\filesystems\ext2\core\ext2_core.h" />
     <ClInclude Include="..\..\..\native\filesystems\ext2\core\ext2_engine.h" />
   </ItemGroup>
