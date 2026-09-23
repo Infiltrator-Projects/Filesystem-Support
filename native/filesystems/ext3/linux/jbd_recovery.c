@@ -107,54 +107,30 @@ static void journal_brelse_array(struct buffer_head *b[], int n)
 static int do_readahead(journal_t *journal, unsigned int start)
 {
 	int err;
-	unsigned int max, nbufs, next;
+	unsigned int max, next;
 	unsigned int blocknr;
 	struct buffer_head *bh;
-
-	struct buffer_head * bufs[MAXBUF];
-
 
 	max = start + (128 * 1024 / journal->j_blocksize);
 	if (max > journal->j_maxlen)
 		max = journal->j_maxlen;
 
-
-	nbufs = 0;
-
 	for (next = start; next < max; next++) {
 		err = journal_bmap(journal, next, &blocknr);
-
 		if (err) {
-			printk (KERN_ERR "JBD: bad block at offset %u\n",
-				next);
-			goto failed;
+			printk(KERN_ERR "JBD: bad block at offset %u\n", next);
+			return err;
 		}
 
 		bh = __getblk(journal->j_dev, blocknr, journal->j_blocksize);
-		if (!bh) {
-			err = -ENOMEM;
-			goto failed;
-		}
+		if (!bh)
+			return -ENOMEM;
 
-		if (!buffer_uptodate(bh) && !buffer_locked(bh)) {
-			bufs[nbufs++] = bh;
-			if (nbufs == MAXBUF) {
-				ll_rw_block(READ, nbufs, bufs);
-				journal_brelse_array(bufs, nbufs);
-				nbufs = 0;
-			}
-		} else
-			brelse(bh);
+		bh_readahead(bh, REQ_RAHEAD);
+		brelse(bh);
 	}
 
-	if (nbufs)
-		ll_rw_block(READ, nbufs, bufs);
-	err = 0;
-
-failed:
-	if (nbufs)
-		journal_brelse_array(bufs, nbufs);
-	return err;
+	return 0;
 }
 
 #endif
@@ -300,7 +276,7 @@ int journal_recover(journal_t *journal)
 		err = err2;
 
 	if (journal->j_flags & JFS_BARRIER) {
-		err2 = blkdev_issue_flush(journal->j_fs_dev, GFP_KERNEL, NULL);
+		err2 = blkdev_issue_flush(journal->j_fs_dev);
 		if (!err)
 			err = err2;
 	}
