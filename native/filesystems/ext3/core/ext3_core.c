@@ -72,3 +72,77 @@ IfsExt3LayoutStatus ifs_ext3_compute_group_count(
     return IFS_EXT3_LAYOUT_OK;
 }
 
+
+
+ifs_ext3_u32 ifs_ext3_directory_record_length_from_disk(
+    const ifs_ext3_u16 encoded_length,
+    const ifs_ext3_u32 maximum_record_length)
+{
+    if (encoded_length == 0xFFFFU &&
+        maximum_record_length >= IFS_EXT3_MAX_DIRECTORY_RECORD_LENGTH)
+        return IFS_EXT3_MAX_DIRECTORY_RECORD_LENGTH;
+    return encoded_length;
+}
+
+int ifs_ext3_directory_record_length_to_disk(
+    const ifs_ext3_u32 record_length,
+    const ifs_ext3_u32 maximum_record_length,
+    ifs_ext3_u16 *const encoded_length)
+{
+    if (encoded_length == 0)
+        return -1;
+    if (record_length == 0U ||
+        record_length > maximum_record_length ||
+        (record_length & 3U) != 0U)
+        return -1;
+
+    if (record_length == IFS_EXT3_MAX_DIRECTORY_RECORD_LENGTH &&
+        maximum_record_length >= IFS_EXT3_MAX_DIRECTORY_RECORD_LENGTH) {
+        *encoded_length = 0xFFFFU;
+        return 0;
+    }
+    if (record_length > 0xFFFFU)
+        return -1;
+
+    *encoded_length = (ifs_ext3_u16)record_length;
+    return 0;
+}
+
+IfsExt3DirectoryRecordStatus ifs_ext3_validate_directory_record(
+    const ifs_ext3_u32 record_offset,
+    const ifs_ext3_u32 record_length,
+    const ifs_ext3_u32 name_length,
+    const ifs_ext3_u32 inode_number,
+    const ifs_ext3_u32 block_size,
+    const ifs_ext3_u32 maximum_inode)
+{
+    const ifs_ext3_u32 minimum_length = (name_length + 11U) & ~3U;
+
+    if (record_length < 12U)
+        return IFS_EXT3_DIRECTORY_RECORD_TOO_SHORT;
+    if ((record_length & 3U) != 0U)
+        return IFS_EXT3_DIRECTORY_RECORD_UNALIGNED;
+    if (record_length < minimum_length)
+        return IFS_EXT3_DIRECTORY_RECORD_NAME_TOO_LONG;
+    if (block_size == 0U ||
+        record_offset >= block_size ||
+        record_length > block_size - record_offset)
+        return IFS_EXT3_DIRECTORY_RECORD_CROSSES_BLOCK;
+    if (inode_number > maximum_inode)
+        return IFS_EXT3_DIRECTORY_RECORD_INODE_RANGE;
+    return IFS_EXT3_DIRECTORY_RECORD_OK;
+}
+
+const char *ifs_ext3_directory_record_status_string(
+    const IfsExt3DirectoryRecordStatus status)
+{
+    switch (status) {
+    case IFS_EXT3_DIRECTORY_RECORD_OK: return "ok";
+    case IFS_EXT3_DIRECTORY_RECORD_TOO_SHORT: return "rec_len is smaller than minimal";
+    case IFS_EXT3_DIRECTORY_RECORD_UNALIGNED: return "rec_len % 4 != 0";
+    case IFS_EXT3_DIRECTORY_RECORD_NAME_TOO_LONG: return "rec_len is too small for name_len";
+    case IFS_EXT3_DIRECTORY_RECORD_CROSSES_BLOCK: return "directory entry across blocks";
+    case IFS_EXT3_DIRECTORY_RECORD_INODE_RANGE: return "inode out of bounds";
+    }
+    return "invalid EXT3 directory record";
+}

@@ -86,5 +86,24 @@ int main(void)
         IFS_EXT3_LAYOUT_INVALID_BLOCKS_PER_GROUP)
         return fail("zero blocks per group was accepted by layout arithmetic");
 
+    {
+        ifs_ext3_u16 encoded = 0U;
+
+        if (ifs_ext3_directory_record_length_from_disk(0xFFFFU, 65536U) != 65536U)
+            return fail("64K directory record was not decoded");
+        if (ifs_ext3_directory_record_length_to_disk(65536U, 65536U, &encoded) != 0 ||
+            encoded != 0xFFFFU)
+            return fail("64K directory record was not encoded");
+        if (ifs_ext3_validate_directory_record(0U, 12U, 1U, 2U, 4096U, 100U) !=
+            IFS_EXT3_DIRECTORY_RECORD_OK)
+            return fail("valid directory record was rejected");
+        if (ifs_ext3_validate_directory_record(4090U, 12U, 1U, 2U, 4096U, 100U) !=
+            IFS_EXT3_DIRECTORY_RECORD_CROSSES_BLOCK)
+            return fail("cross-block directory record was accepted");
+        if (ifs_ext3_validate_directory_record(0U, 12U, 1U, 101U, 4096U, 100U) !=
+            IFS_EXT3_DIRECTORY_RECORD_INODE_RANGE)
+            return fail("out-of-range directory inode was accepted");
+    }
+
     return 0;
 }

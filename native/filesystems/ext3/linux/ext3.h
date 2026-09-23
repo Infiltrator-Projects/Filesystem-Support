@@ -894,13 +894,8 @@ struct ext3_dir_entry_2 {
  */
 static inline unsigned ext3_rec_len_from_disk(__le16 dlen)
 {
-	unsigned len = le16_to_cpu(dlen);
-
-#if (PAGE_SIZE >= 65536)
-	if (len == EXT3_MAX_REC_LEN)
-		return 1 << 16;
-#endif
-	return len;
+	return ifs_ext3_directory_record_length_from_disk(
+		le16_to_cpu(dlen), PAGE_SIZE);
 }
 
 
@@ -914,13 +909,11 @@ static inline unsigned ext3_rec_len_from_disk(__le16 dlen)
  */
 static inline __le16 ext3_rec_len_to_disk(unsigned len)
 {
-#if (PAGE_SIZE >= 65536)
-	if (len == (1 << 16))
-		return cpu_to_le16(EXT3_MAX_REC_LEN);
-	else if (len > (1 << 16))
-		BUG();
-#endif
-	return cpu_to_le16(len);
+	ifs_ext3_u16 encoded = 0U;
+
+	BUG_ON(ifs_ext3_directory_record_length_to_disk(
+		len, PAGE_SIZE, &encoded) != 0);
+	return cpu_to_le16(encoded);
 }
 
 
