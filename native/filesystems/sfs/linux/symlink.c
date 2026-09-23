@@ -41,6 +41,7 @@ const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
 	struct nls_table *nls_disk;
 	char *link;
 	char *lf;
+	char *lf_end;
 	char *prefix;
 	char *p;
 	char c;
@@ -77,12 +78,13 @@ const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
 
 	lf = (char *)slinkcont->string;
 	link_bytes = sb->s_blocksize - sizeof(*slinkcont);
-	lf_len = strnlen(lf, link_bytes);
-	if (lf_len == link_bytes) {
+	lf_end = memchr(lf, '\0', link_bytes);
+	if (!lf_end) {
 		asfs_brelse(bh);
 		kfree(link);
 		return ERR_PTR(-EUCLEAN);
 	}
+	lf_len = (size_t)(lf_end - lf);
 
 	prefix = ASFS_SB(sb)->prefix ? ASFS_SB(sb)->prefix : "/";
 	p = memchr(lf, ':', lf_len);
