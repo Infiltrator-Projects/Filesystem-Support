@@ -36,6 +36,8 @@
  */
 
 #include "ext3.h"
+#include <linux/security.h>
+#include <linux/shrinker.h>
 #include <linux/quotaops.h>
 
 #define BHDR(bh) ((struct ext3_xattr_header *)((bh)->b_data))
@@ -84,8 +86,8 @@ static struct mb_cache *ext3_xattr_cache;
 static const struct xattr_handler *ext3_xattr_handler_map[] = {
 	[EXT3_XATTR_INDEX_USER]		     = &ext3_xattr_user_handler,
 #ifdef CONFIG_EXT3_FS_POSIX_ACL
-	[EXT3_XATTR_INDEX_POSIX_ACL_ACCESS]  = &posix_acl_access_xattr_handler,
-	[EXT3_XATTR_INDEX_POSIX_ACL_DEFAULT] = &posix_acl_default_xattr_handler,
+	[EXT3_XATTR_INDEX_POSIX_ACL_ACCESS]  = &nop_posix_acl_access,
+	[EXT3_XATTR_INDEX_POSIX_ACL_DEFAULT] = &nop_posix_acl_default,
 #endif
 	[EXT3_XATTR_INDEX_TRUSTED]	     = &ext3_xattr_trusted_handler,
 #ifdef CONFIG_EXT3_FS_SECURITY
@@ -96,10 +98,6 @@ static const struct xattr_handler *ext3_xattr_handler_map[] = {
 const struct xattr_handler *ext3_xattr_handlers[] = {
 	&ext3_xattr_user_handler,
 	&ext3_xattr_trusted_handler,
-#ifdef CONFIG_EXT3_FS_POSIX_ACL
-	&posix_acl_access_xattr_handler,
-	&posix_acl_default_xattr_handler,
-#endif
 #ifdef CONFIG_EXT3_FS_SECURITY
 	&ext3_xattr_security_handler,
 #endif
@@ -392,19 +390,27 @@ ext3_xattr_list_entries(struct dentry *dentry, struct ext3_xattr_entry *entry,
 	for (; !IS_LAST_ENTRY(entry); entry = EXT3_XATTR_NEXT(entry)) {
 		const struct xattr_handler *handler =
 			ext3_xattr_handler(entry->e_name_index);
+		const char *prefix;
+		size_t prefix_len;
+		size_t size;
 
-		if (handler) {
-			size_t size = handler->list(dentry, buffer, rest,
-						    entry->e_name,
-						    entry->e_name_len,
-						    handler->flags);
-			if (buffer) {
-				if (size > rest)
-					return -ERANGE;
-				buffer += size;
-			}
-			rest -= size;
+		if (!xattr_handler_can_list(handler, dentry))
+			continue;
+
+		prefix = xattr_prefix(handler);
+		prefix_len = strlen(prefix);
+		size = prefix_len + entry->e_name_len + 1;
+
+		if (buffer) {
+			if (size > rest)
+				return -ERANGE;
+			memcpy(buffer, prefix, prefix_len);
+			buffer += prefix_len;
+			memcpy(buffer, entry->e_name, entry->e_name_len);
+			buffer += entry->e_name_len;
+			*buffer++ = '\0';
 		}
+		rest -= size;
 	}
 	return buffer_size - rest;
 }
@@ -1172,7 +1178,7 @@ ext3_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 	}
 	if (!error) {
 		ext3_xattr_update_super_block(handle, inode->i_sb);
-		inode->i_ctime = CURRENT_TIME_SEC;
+		inode_set_ctime_current(inode);
 		error = ext3_mark_iloc_dirty(handle, inode, &is.iloc);
 
 
@@ -1522,63 +1528,33 @@ exit_ext3_xattr(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static size_t
-ext3_xattr_user_list(struct dentry *dentry, char *list, size_t list_size,
-		const char *name, size_t name_len, int type)
+static bool
+ext3_xattr_user_list(struct dentry *dentry)
 {
-	const size_t prefix_len = XATTR_USER_PREFIX_LEN;
-	const size_t total_len = prefix_len + name_len + 1;
-
-	if (!test_opt(dentry->d_sb, XATTR_USER))
-		return 0;
-
-	if (list && total_len <= list_size) {
-		memcpy(list, XATTR_USER_PREFIX, prefix_len);
-		memcpy(list+prefix_len, name, name_len);
-		list[prefix_len + name_len] = '\0';
-	}
-	return total_len;
+	return test_opt(dentry->d_sb, XATTR_USER);
 }
 
-
-/**
- * ext3_xattr_user_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 static int
-ext3_xattr_user_get(struct dentry *dentry, const char *name, void *buffer,
-		size_t size, int type)
+ext3_xattr_user_get(const struct xattr_handler *handler,
+		    struct dentry *unused, struct inode *inode,
+		    const char *name, void *buffer, size_t size)
 {
-	if (strcmp(name, "") == 0)
-		return -EINVAL;
-	if (!test_opt(dentry->d_sb, XATTR_USER))
+	if (!test_opt(inode->i_sb, XATTR_USER))
 		return -EOPNOTSUPP;
-	return ext3_xattr_get(d_inode(dentry), EXT3_XATTR_INDEX_USER,
+	return ext3_xattr_get(inode, EXT3_XATTR_INDEX_USER,
 			      name, buffer, size);
 }
 
-
-/**
- * ext3_xattr_user_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 static int
-ext3_xattr_user_set(struct dentry *dentry, const char *name,
-		const void *value, size_t size, int flags, int type)
+ext3_xattr_user_set(const struct xattr_handler *handler,
+		    struct mnt_idmap *idmap,
+		    struct dentry *unused, struct inode *inode,
+		    const char *name, const void *value,
+		    size_t size, int flags)
 {
-	if (strcmp(name, "") == 0)
-		return -EINVAL;
-	if (!test_opt(dentry->d_sb, XATTR_USER))
+	if (!test_opt(inode->i_sb, XATTR_USER))
 		return -EOPNOTSUPP;
-	return ext3_xattr_set(d_inode(dentry), EXT3_XATTR_INDEX_USER,
+	return ext3_xattr_set(inode, EXT3_XATTR_INDEX_USER,
 			      name, value, size, flags);
 }
 
@@ -1589,68 +1565,29 @@ const struct xattr_handler ext3_xattr_user_handler = {
 	.set	= ext3_xattr_user_set,
 };
 
-
-/**
- * ext3_xattr_trusted_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static size_t
-ext3_xattr_trusted_list(struct dentry *dentry, char *list, size_t list_size,
-		const char *name, size_t name_len, int type)
+static bool
+ext3_xattr_trusted_list(struct dentry *dentry)
 {
-	const size_t prefix_len = XATTR_TRUSTED_PREFIX_LEN;
-	const size_t total_len = prefix_len + name_len + 1;
-
-	if (!capable(CAP_SYS_ADMIN))
-		return 0;
-
-	if (list && total_len <= list_size) {
-		memcpy(list, XATTR_TRUSTED_PREFIX, prefix_len);
-		memcpy(list+prefix_len, name, name_len);
-		list[prefix_len + name_len] = '\0';
-	}
-	return total_len;
+	return capable(CAP_SYS_ADMIN);
 }
 
-
-/**
- * ext3_xattr_trusted_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 static int
-ext3_xattr_trusted_get(struct dentry *dentry, const char *name,
-		       void *buffer, size_t size, int type)
+ext3_xattr_trusted_get(const struct xattr_handler *handler,
+		       struct dentry *unused, struct inode *inode,
+		       const char *name, void *buffer, size_t size)
 {
-	if (strcmp(name, "") == 0)
-		return -EINVAL;
-	return ext3_xattr_get(d_inode(dentry), EXT3_XATTR_INDEX_TRUSTED,
+	return ext3_xattr_get(inode, EXT3_XATTR_INDEX_TRUSTED,
 			      name, buffer, size);
 }
 
-
-/**
- * ext3_xattr_trusted_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 static int
-ext3_xattr_trusted_set(struct dentry *dentry, const char *name,
-		const void *value, size_t size, int flags, int type)
+ext3_xattr_trusted_set(const struct xattr_handler *handler,
+		       struct mnt_idmap *idmap,
+		       struct dentry *unused, struct inode *inode,
+		       const char *name, const void *value,
+		       size_t size, int flags)
 {
-	if (strcmp(name, "") == 0)
-		return -EINVAL;
-	return ext3_xattr_set(d_inode(dentry), EXT3_XATTR_INDEX_TRUSTED, name,
+	return ext3_xattr_set(inode, EXT3_XATTR_INDEX_TRUSTED, name,
 			      value, size, flags);
 }
 
@@ -1661,66 +1598,24 @@ const struct xattr_handler ext3_xattr_trusted_handler = {
 	.set	= ext3_xattr_trusted_set,
 };
 
-
-/**
- * ext3_xattr_security_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static size_t
-ext3_xattr_security_list(struct dentry *dentry, char *list, size_t list_size,
-			 const char *name, size_t name_len, int type)
-{
-	const size_t prefix_len = XATTR_SECURITY_PREFIX_LEN;
-	const size_t total_len = prefix_len + name_len + 1;
-
-
-	if (list && total_len <= list_size) {
-		memcpy(list, XATTR_SECURITY_PREFIX, prefix_len);
-		memcpy(list+prefix_len, name, name_len);
-		list[prefix_len + name_len] = '\0';
-	}
-	return total_len;
-}
-
-
-/**
- * ext3_xattr_security_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
+#ifdef CONFIG_EXT3_FS_SECURITY
 static int
-ext3_xattr_security_get(struct dentry *dentry, const char *name,
-		void *buffer, size_t size, int type)
+ext3_xattr_security_get(const struct xattr_handler *handler,
+			struct dentry *unused, struct inode *inode,
+			const char *name, void *buffer, size_t size)
 {
-	if (strcmp(name, "") == 0)
-		return -EINVAL;
-	return ext3_xattr_get(d_inode(dentry), EXT3_XATTR_INDEX_SECURITY,
+	return ext3_xattr_get(inode, EXT3_XATTR_INDEX_SECURITY,
 			      name, buffer, size);
 }
 
-
-/**
- * ext3_xattr_security_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 static int
-ext3_xattr_security_set(struct dentry *dentry, const char *name,
-		const void *value, size_t size, int flags, int type)
+ext3_xattr_security_set(const struct xattr_handler *handler,
+			struct mnt_idmap *idmap,
+			struct dentry *unused, struct inode *inode,
+			const char *name, const void *value,
+			size_t size, int flags)
 {
-	if (strcmp(name, "") == 0)
-		return -EINVAL;
-	return ext3_xattr_set(d_inode(dentry), EXT3_XATTR_INDEX_SECURITY,
+	return ext3_xattr_set(inode, EXT3_XATTR_INDEX_SECURITY,
 			      name, value, size, flags);
 }
 
@@ -1771,10 +1666,10 @@ ext3_init_security(handle_t *handle, struct inode *inode, struct inode *dir,
 
 const struct xattr_handler ext3_xattr_security_handler = {
 	.prefix	= XATTR_SECURITY_PREFIX,
-	.list	= ext3_xattr_security_list,
 	.get	= ext3_xattr_security_get,
 	.set	= ext3_xattr_security_set,
 };
+#endif
 
 
 /**
@@ -1986,7 +1881,7 @@ __ext3_set_acl(handle_t *handle, struct inode *inode, int type,
 				if (error < 0)
 					return error;
 				else {
-					inode->i_ctime = CURRENT_TIME_SEC;
+					inode_set_ctime_current(inode);
 					ext3_mark_inode_dirty(handle, inode);
 					if (error == 0)
 						acl = NULL;
@@ -2369,11 +2264,7 @@ mb_cache_shrink_count(struct shrinker *shrink, struct shrink_control *sc)
 	return vfs_pressure_ratio(count);
 }
 
-static struct shrinker mb_cache_shrinker = {
-	.count_objects = mb_cache_shrink_count,
-	.scan_objects = mb_cache_shrink_scan,
-	.seeks = DEFAULT_SEEKS,
-};
+static struct shrinker *mb_cache_shrinker;
 
 
 /**
@@ -2419,7 +2310,7 @@ mb_cache_create(const char *name, int bucket_bits)
 	if (!mb_cache_kmem_cache) {
 		mb_cache_kmem_cache = kmem_cache_create(name,
 			sizeof(struct mb_cache_entry), 0,
-			SLAB_RECLAIM_ACCOUNT|SLAB_MEM_SPREAD, NULL);
+			SLAB_RECLAIM_ACCOUNT, NULL);
 		if (!mb_cache_kmem_cache)
 			goto fail2;
 	}
@@ -2902,7 +2793,14 @@ mb_cache_entry_find_next(struct mb_cache_entry *prev,
  */
 int __init infiltratr_ext3_mbcache_init(void)
 {
-	register_shrinker(&mb_cache_shrinker);
+	mb_cache_shrinker = shrinker_alloc(0, "ext3-mbcache");
+	if (!mb_cache_shrinker)
+		return -ENOMEM;
+
+	mb_cache_shrinker->count_objects = mb_cache_shrink_count;
+	mb_cache_shrinker->scan_objects = mb_cache_shrink_scan;
+	mb_cache_shrinker->seeks = DEFAULT_SEEKS;
+	shrinker_register(mb_cache_shrinker);
 	return 0;
 }
 
@@ -2917,5 +2815,6 @@ int __init infiltratr_ext3_mbcache_init(void)
  */
 void __exit infiltratr_ext3_mbcache_exit(void)
 {
-	unregister_shrinker(&mb_cache_shrinker);
+	shrinker_free(mb_cache_shrinker);
+	mb_cache_shrinker = NULL;
 }
