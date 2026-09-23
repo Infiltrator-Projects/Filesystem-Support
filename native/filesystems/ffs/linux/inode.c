@@ -144,10 +144,10 @@ struct inode *affs_iget(struct super_block *sb, unsigned long inode_number)
         inode->i_size = size;
         AFFS_I(inode)->mmu_private = size;
 
-        if (ifs_amiga_file_block_count(
+        if (ifs_ffs_file_block_count(
                 size, sbi->s_data_blksize,
                 &AFFS_I(inode)->i_blkcnt) != 0 ||
-            ifs_amiga_file_extension_count(
+            ifs_ffs_file_extension_count(
                 AFFS_I(inode)->i_blkcnt, (u32)sbi->s_hashsize,
                 &AFFS_I(inode)->i_extcnt) != 0)
             goto bad_inode;
