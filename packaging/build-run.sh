@@ -20,8 +20,23 @@ trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/payload/usr/local/bin"
 mkdir -p "$tmp/payload/usr/local/share/applications"
+mkdir -p "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems"
 install -m 0755 "$binary" "$tmp/payload/usr/local/bin/filesystem-support"
 install -m 0644 "$desktop" "$tmp/payload/usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop"
+install -m 0755 "$root/packaging/linux/native-module-helper.sh" \
+    "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native-module-helper"
+
+for native_fs in ext2 ext3 ext4 ofs ffs; do
+    mkdir -p "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems/$native_fs"
+    cp -a "$root/native/filesystems/$native_fs/core" \
+        "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems/$native_fs/core"
+    cp -a "$root/native/filesystems/$native_fs/linux" \
+        "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems/$native_fs/linux"
+done
+
+find "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems" \
+    -type f \( -name '*.o' -o -name '*.ko' -o -name '*.mod' -o -name '*.mod.c' \
+    -o -name 'Module.symvers' -o -name 'modules.order' \) -delete
 
 tar -C "$tmp/payload" -czf "$tmp/payload.tar.gz" .
 
@@ -36,6 +51,8 @@ Filesystem Support native installer
 Installs:
   /usr/local/bin/filesystem-support
   /usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop
+  /usr/local/lib/infiltrator-filesystem-support/native-module-helper
+  native module source for EXT2/EXT3/EXT4/OFS/FFS
 
 Run the file normally. PolicyKit will request administrator authentication if needed.
 HELP
@@ -69,7 +86,17 @@ trap 'rm -rf "$tmp"' EXIT
 tail -n +"$archive_line" "$self" | tar -xz -C "$tmp"
 
 install -m 0755 "$tmp/usr/local/bin/filesystem-support" /usr/local/bin/filesystem-support
-install -m 0644     "$tmp/usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop"     /usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop
+install -m 0644 \
+    "$tmp/usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop" \
+    /usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop
+
+install -d -m 0755 /usr/local/lib/infiltrator-filesystem-support
+install -m 0755 \
+    "$tmp/usr/local/lib/infiltrator-filesystem-support/native-module-helper" \
+    /usr/local/lib/infiltrator-filesystem-support/native-module-helper
+rm -rf /usr/local/lib/infiltrator-filesystem-support/native
+cp -a "$tmp/usr/local/lib/infiltrator-filesystem-support/native" \
+    /usr/local/lib/infiltrator-filesystem-support/native
 
 echo "Filesystem Support installed successfully."
 exit 0
