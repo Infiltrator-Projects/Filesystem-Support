@@ -71,7 +71,8 @@ Current EXT2 semantic extractions include:
 - directory insertion sizing and split eligibility;
 - initial `.` / `..` directory record layout;
 - directory deletion/coalescing span validation; and
-- absolute block to block-group/offset mapping used by allocator paths.
+- absolute block to block-group/offset mapping used by allocator paths; and
+- sparse-superblock group placement and feature policy.
 
 Those extractions reduce inherited filesystem semantics in `dir.c` and
 `balloc.c`, but neither file is classified as project-authored until its
