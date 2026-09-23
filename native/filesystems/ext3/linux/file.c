@@ -118,7 +118,7 @@ int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	int ret, needs_barrier = 0;
 	tid_t commit_tid;
 
-	trace_ext3_sync_file_enter(file, datasync);
+
 
 	if (inode->i_sb->s_flags & MS_RDONLY) {
 
@@ -159,7 +159,7 @@ int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 			ret = err;
 	}
 out:
-	trace_ext3_sync_file_exit(inode, ret);
+
 	return ret;
 }
 
