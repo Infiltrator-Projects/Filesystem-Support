@@ -69,6 +69,7 @@
 
 #include <linux/uaccess.h>
 #include <asm/page.h>
+#include "embedded_jbd2.h"
 
 #ifdef CONFIG_JBD2_DEBUG
 static ushort jbd2_journal_enable_debug __read_mostly;
