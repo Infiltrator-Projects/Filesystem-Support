@@ -4,6 +4,25 @@ static int ifs_sfs_is_power_of_two(const ifs_sfs_u32 value)
 {
     return value != 0U && (value & (value - 1U)) == 0U;
 }
+IfsSfsRootStatus ifs_sfs_validate_root_probe(
+    const ifs_sfs_u32 id,
+    const ifs_sfs_u32 version,
+    const ifs_sfs_u32 block_size,
+    const ifs_sfs_u32 total_blocks)
+{
+    if (id != IFS_SFS_ROOT_ID)
+        return IFS_SFS_ROOT_BAD_ID;
+    if (version != IFS_SFS_STRUCTURE_VERSION)
+        return IFS_SFS_ROOT_BAD_VERSION;
+    if (block_size < IFS_SFS_MIN_BLOCK_SIZE ||
+        !ifs_sfs_is_power_of_two(block_size) ||
+        block_size <= IFS_SFS_BLOCK_HEADER_SIZE)
+        return IFS_SFS_ROOT_INVALID_BLOCK_SIZE;
+    if (total_blocks < 3U)
+        return IFS_SFS_ROOT_INVALID_TOTAL_BLOCKS;
+    return IFS_SFS_ROOT_OK;
+}
+
 IfsSfsRootStatus ifs_sfs_validate_root_layout(
     const ifs_sfs_u32 id, const ifs_sfs_u32 version,
     const ifs_sfs_u32 block_size, const ifs_sfs_u32 total_blocks,
@@ -11,13 +30,11 @@ IfsSfsRootStatus ifs_sfs_validate_root_layout(
     const ifs_sfs_u32 root_object_container, const ifs_sfs_u32 extent_bnode_root,
     const ifs_sfs_u32 object_node_root)
 {
-    if (id != IFS_SFS_ROOT_ID) return IFS_SFS_ROOT_BAD_ID;
-    if (version != IFS_SFS_STRUCTURE_VERSION) return IFS_SFS_ROOT_BAD_VERSION;
-    if (block_size < IFS_SFS_MIN_BLOCK_SIZE ||
-        !ifs_sfs_is_power_of_two(block_size) ||
-        block_size <= IFS_SFS_BLOCK_HEADER_SIZE)
-        return IFS_SFS_ROOT_INVALID_BLOCK_SIZE;
-    if (total_blocks < 3U) return IFS_SFS_ROOT_INVALID_TOTAL_BLOCKS;
+    const IfsSfsRootStatus probe_status =
+        ifs_sfs_validate_root_probe(id, version, block_size, total_blocks);
+
+    if (probe_status != IFS_SFS_ROOT_OK)
+        return probe_status;
     if (bitmap_base == 0U || bitmap_base >= total_blocks ||
         adminspace_container == 0U || adminspace_container >= total_blocks ||
         root_object_container == 0U || root_object_container >= total_blocks ||

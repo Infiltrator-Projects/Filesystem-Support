@@ -27,6 +27,12 @@ typedef enum IfsSfsRootStatus {
     IFS_SFS_ROOT_BLOCK_REFERENCE_OUT_OF_RANGE,
     IFS_SFS_ROOT_TRANSACTION_BLOCK_OUT_OF_RANGE
 } IfsSfsRootStatus;
+IfsSfsRootStatus ifs_sfs_validate_root_probe(
+    ifs_sfs_u32 id,
+    ifs_sfs_u32 version,
+    ifs_sfs_u32 block_size,
+    ifs_sfs_u32 total_blocks);
+
 IfsSfsRootStatus ifs_sfs_validate_root_layout(
     ifs_sfs_u32 id, ifs_sfs_u32 version, ifs_sfs_u32 block_size,
     ifs_sfs_u32 total_blocks, ifs_sfs_u32 bitmap_base,

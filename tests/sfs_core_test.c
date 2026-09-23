@@ -5,6 +5,13 @@ static int fail(const char *m){ fprintf(stderr,"sfs core test: %s\n",m); return 
 int main(void)
 {
     ifs_sfs_u32 cap=0U,count=0U;
+    if (ifs_sfs_validate_root_probe(
+            IFS_SFS_ROOT_ID, 3U, 512U, 100000U) != IFS_SFS_ROOT_OK)
+        return fail("valid root probe was rejected");
+    if (ifs_sfs_validate_root_probe(
+            IFS_SFS_ROOT_ID, 3U, 768U, 100000U) !=
+        IFS_SFS_ROOT_INVALID_BLOCK_SIZE)
+        return fail("invalid root probe block size was accepted");
     if (ifs_sfs_validate_root_layout(IFS_SFS_ROOT_ID,3U,512U,100000U,3U,4U,10U,5U,6U)!=IFS_SFS_ROOT_OK)
         return fail("valid root rejected");
     if (ifs_sfs_validate_root_layout(0U,3U,512U,100000U,3U,4U,10U,5U,6U)!=IFS_SFS_ROOT_BAD_ID)
