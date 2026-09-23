@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "ext2_core.h"
 
 static ifs_ext2_u16 load_le16(const ifs_ext2_u8 *p)
