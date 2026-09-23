@@ -69,5 +69,10 @@ The intended Linux result is one independently deployable module per
 filesystem: `ofs.ko`, `ffs.ko`, `sfs.ko`, `sfs2.ko`, and
 `pfs3.ko` as each implementation reaches qualification.
 
-A genuinely identical primitive may be shared through common infrastructure.
+A genuinely identical primitive may be shared through neutral infrastructure.
+The small AmigaDOS primitive layer lives at `native/primitives/amiga_dos/`,
+outside the filesystem tree. It is not a filesystem implementation and owns no
+mount, inode, namespace, allocation-policy or recovery behaviour. OFS and FFS
+own those behaviours independently in their own directories.
+
 Sharing a primitive never merges the five filesystem identities.
