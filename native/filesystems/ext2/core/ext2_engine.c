@@ -16,13 +16,13 @@
 #define EXT2_IMMUTABLE_FL 0x00000010U
 #define EXT2_APPEND_FL 0x00000020U
 
-static ifs_ext2_u16 load_le16(const ifs_ext2_u8 *p)
+static ifs_ext2_u16 ifs_ext2_engine_load_le16(const ifs_ext2_u8 *p)
 {
     return (ifs_ext2_u16)((ifs_ext2_u16)p[0] |
                           ((ifs_ext2_u16)p[1] << 8));
 }
 
-static ifs_ext2_u32 load_le32(const ifs_ext2_u8 *p)
+static ifs_ext2_u32 ifs_ext2_engine_load_le32(const ifs_ext2_u8 *p)
 {
     return (ifs_ext2_u32)p[0] |
            ((ifs_ext2_u32)p[1] << 8) |
@@ -367,27 +367,27 @@ IfsExt2Status ifs_ext2_read_inode(
     raw = (const ifs_ext2_u8 *)scratch;
     zero_bytes(inode, sizeof(*inode));
     inode->number = inode_number;
-    inode->mode = load_le16(raw + 0x00U);
-    inode->uid = load_le16(raw + 0x02U);
-    inode->size = load_le32(raw + 0x04U);
-    inode->access_time = load_le32(raw + 0x08U);
-    inode->change_time = load_le32(raw + 0x0CU);
-    inode->modification_time = load_le32(raw + 0x10U);
-    inode->gid = load_le16(raw + 0x18U);
-    inode->links_count = load_le16(raw + 0x1AU);
-    inode->flags = load_le32(raw + 0x20U);
+    inode->mode = ifs_ext2_engine_load_le16(raw + 0x00U);
+    inode->uid = ifs_ext2_engine_load_le16(raw + 0x02U);
+    inode->size = ifs_ext2_engine_load_le32(raw + 0x04U);
+    inode->access_time = ifs_ext2_engine_load_le32(raw + 0x08U);
+    inode->change_time = ifs_ext2_engine_load_le32(raw + 0x0CU);
+    inode->modification_time = ifs_ext2_engine_load_le32(raw + 0x10U);
+    inode->gid = ifs_ext2_engine_load_le16(raw + 0x18U);
+    inode->links_count = ifs_ext2_engine_load_le16(raw + 0x1AU);
+    inode->flags = ifs_ext2_engine_load_le32(raw + 0x20U);
     copy_bytes(inode->block_map, raw + 0x28U, sizeof(inode->block_map));
-    inode->generation = load_le32(raw + 0x64U);
+    inode->generation = ifs_ext2_engine_load_le32(raw + 0x64U);
 
     if (volume->inode_size >= 128U) {
-        inode->uid |= (ifs_ext2_u32)load_le16(raw + 0x78U) << 16;
-        inode->gid |= (ifs_ext2_u32)load_le16(raw + 0x7AU) << 16;
+        inode->uid |= (ifs_ext2_u32)ifs_ext2_engine_load_le16(raw + 0x78U) << 16;
+        inode->gid |= (ifs_ext2_u32)ifs_ext2_engine_load_le16(raw + 0x7AU) << 16;
     }
 
     if (ifs_ext2_inode_type(inode) == IFS_EXT2_NODE_REGULAR &&
         (volume->feature_ro_compat &
          IFS_EXT2_FEATURE_RO_COMPAT_LARGE_FILE) != 0U) {
-        size_high = load_le32(raw + 0x6CU);
+        size_high = ifs_ext2_engine_load_le32(raw + 0x6CU);
         inode->size |= (ifs_ext2_u64)size_high << 32;
     }
 
@@ -420,7 +420,7 @@ IfsExt2Status ifs_ext2_map_file_block(
     if (status != IFS_EXT2_OK)
         return status;
 
-    block = load_le32(inode->block_map + path.offsets[0] * 4U);
+    block = ifs_ext2_engine_load_le32(inode->block_map + path.offsets[0] * 4U);
     if (block == 0U) {
         *physical_block = 0U;
         *is_hole = 1;
@@ -439,7 +439,7 @@ IfsExt2Status ifs_ext2_map_file_block(
             return status;
         if (path.offsets[level] >= volume->block_size / 4U)
             return IFS_EXT2_ERROR_CORRUPT;
-        block = load_le32(
+        block = ifs_ext2_engine_load_le32(
             (const ifs_ext2_u8 *)scratch +
             path.offsets[level] * 4U);
         if (block == 0U) {
@@ -664,9 +664,9 @@ IfsExt2Status ifs_ext2_iterate_directory(
                 return IFS_EXT2_ERROR_CORRUPT;
 
             entry = (const ifs_ext2_u8 *)scratch + within;
-            inode_number = load_le32(entry);
+            inode_number = ifs_ext2_engine_load_le32(entry);
             rec_len = ifs_ext2_directory_record_length_from_disk(
-                load_le16(entry + 4U), volume->block_size);
+                ifs_ext2_engine_load_le16(entry + 4U), volume->block_size);
 
             if ((volume->feature_incompat &
                  IFS_EXT2_FEATURE_INCOMPAT_FILETYPE) != 0U) {
@@ -674,7 +674,7 @@ IfsExt2Status ifs_ext2_iterate_directory(
                 file_type = entry[7U];
                 type = dir_type(file_type);
             } else {
-                decoded_name_len = load_le16(entry + 6U);
+                decoded_name_len = ifs_ext2_engine_load_le16(entry + 6U);
             }
 
             if (decoded_name_len > IFS_EXT2_MAX_NAME_LENGTH)
