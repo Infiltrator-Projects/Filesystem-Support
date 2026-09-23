@@ -1324,55 +1324,17 @@ unsigned long ext2_count_free_blocks (struct super_block * sb)
 }
 
 
-/**
- * test_root - Implements the test root operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int test_root(int a, int b)
-{
-	int num = b;
-
-	while (a > num)
-		num *= b;
-	return num == a;
-}
-
-
-/**
- * ext2_group_sparse - Implements the group sparse operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_group_sparse(int group)
-{
-	if (group <= 1)
-		return 1;
-	return (test_root(group, 3) || test_root(group, 5) ||
-		test_root(group, 7));
-}
-
-
-/**
- * ext2_bg_has_super - Implements the bg has super operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext2_bg_has_super(struct super_block *sb, int group)
 {
-	if (EXT2_HAS_RO_COMPAT_FEATURE(sb,EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER)&&
-	    !ext2_group_sparse(group))
+	const int sparse_super_enabled =
+		EXT2_HAS_RO_COMPAT_FEATURE(
+			sb, EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER) != 0;
+
+	if (group < 0)
 		return 0;
-	return 1;
+
+	return ifs_ext2_group_has_super(
+		sparse_super_enabled, (ifs_ext2_u32)group);
 }
 
 
