@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+/build/
+/build-cross/
+/build-signing/
+/release/
+*.user
+*.suo
+*.VC.db
+/.vs/
+/windows/driver/x64/
+/windows/installer/*.exe
+/ExtFS-for-Windows-*-experimental-x64-setup.exe
+
+*.plist

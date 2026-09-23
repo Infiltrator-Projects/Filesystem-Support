@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Hardware Dev Center submission CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  submission:
+    name: Submission CAB ${{ matrix.platform }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x64
+            slug: x64
+          - platform: ARM64
+            slug: arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Locate NuGet
+        shell: powershell
+        run: |
+          if (-not (Get-Command nuget.exe -ErrorAction SilentlyContinue)) {
+              choco install nuget.commandline -y --no-progress
+              if ($LASTEXITCODE -ne 0) { throw "NuGet install failed with exit code $LASTEXITCODE." }
+          }
+
+      - name: Ensure full WDK validation tools
+        timeout-minutes: 15
+        shell: powershell
+        run: |
+          $inf2cat = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10" -Filter Inf2Cat.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $inf2cat) {
+              $winget = Get-Command winget.exe -ErrorAction Stop
+              & $winget.Source install --source winget --exact --id Microsoft.WindowsWDK.10.0.28000 --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+              if ($LASTEXITCODE -ne 0) { throw "WDK installation failed with exit code $LASTEXITCODE." }
+          }
+
+      - name: Build Hardware Dev Center CAB
+        shell: powershell
+        run: |
+          .\windows\Build-HardwareSubmission.ps1 -Platform '${{ matrix.platform }}' -SkipCodeAnalysis
+          $cab = "release\hardware-submission\${{ matrix.platform }}\ExtFS-0.9.3-${{ matrix.platform }}-Hardware-Submission.cab"
+          if (-not (Test-Path -LiteralPath $cab)) { throw "Expected submission CAB not produced: $cab" }
+          Write-Host "CAB SHA-256: $((Get-FileHash -Algorithm SHA256 -LiteralPath $cab).Hash)"
+
+      - name: Upload unsigned submission bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: extfs-hardware-submission-${{ matrix.slug }}
+          path: release/hardware-submission/${{ matrix.platform }}
+          if-no-files-found: error
