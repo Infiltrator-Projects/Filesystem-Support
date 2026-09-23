@@ -144,7 +144,7 @@ static struct buffer_head *ifs_amiga_find_entry(
     u32 budget;
 
     if (slot < 0 || slot >= AFFS_SB(sb)->s_hashsize)
-        return ERR_PTR(-EFSCORRUPTED);
+        return ERR_PTR(-EUCLEAN);
 
     bh = affs_bread(sb, (u32)dir->i_ino);
     if (!bh)
@@ -156,7 +156,7 @@ static struct buffer_head *ifs_amiga_find_entry(
 
     while (key != 0U) {
         if (budget-- == 0U)
-            return ERR_PTR(-EFSCORRUPTED);
+            return ERR_PTR(-EUCLEAN);
 
         bh = affs_bread(sb, key);
         if (!bh)
