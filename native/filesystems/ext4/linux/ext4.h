@@ -2177,35 +2177,27 @@ EXT4_FEATURE_INCOMPAT_FUNCS(casefold,		CASEFOLD)
 					 EXT4_FEATURE_RO_COMPAT_VERITY |\
 					 EXT4_FEATURE_RO_COMPAT_ORPHAN_PRESENT)
 
-#define EXTN_FEATURE_FUNCS(ver) \
-static inline bool ext4_has_unknown_ext##ver##_compat_features(struct super_block *sb) \
-{ \
-	return ((EXT4_SB(sb)->s_es->s_feature_compat & \
-		cpu_to_le32(~EXT##ver##_FEATURE_COMPAT_SUPP)) != 0); \
-} \
-static inline bool ext4_has_unknown_ext##ver##_ro_compat_features(struct super_block *sb) \
-{ \
-	return ((EXT4_SB(sb)->s_es->s_feature_ro_compat & \
-		cpu_to_le32(~EXT##ver##_FEATURE_RO_COMPAT_SUPP)) != 0); \
-} \
-static inline bool ext4_has_unknown_ext##ver##_incompat_features(struct super_block *sb) \
-{ \
-	return ((EXT4_SB(sb)->s_es->s_feature_incompat & \
-		cpu_to_le32(~EXT##ver##_FEATURE_INCOMPAT_SUPP)) != 0); \
+/*
+ * EXT4 owns only EXT4 feature negotiation.  EXT2/EXT3 compatibility masks do
+ * not belong in this wrapper: those filesystems have their own cores/modules.
+ */
+static inline bool ext4_has_unknown_ext4_compat_features(struct super_block *sb)
+{
+	return ((EXT4_SB(sb)->s_es->s_feature_compat &
+		 cpu_to_le32(~EXT4_FEATURE_COMPAT_SUPP)) != 0);
 }
 
+static inline bool ext4_has_unknown_ext4_ro_compat_features(struct super_block *sb)
+{
+	return ((EXT4_SB(sb)->s_es->s_feature_ro_compat &
+		 cpu_to_le32(~EXT4_FEATURE_RO_COMPAT_SUPP)) != 0);
+}
 
-/**
- * ext4_has_compat_features - Implements the has compat features operation within the ext4 shared model subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-EXTN_FEATURE_FUNCS(2)
-EXTN_FEATURE_FUNCS(3)
-EXTN_FEATURE_FUNCS(4)
+static inline bool ext4_has_unknown_ext4_incompat_features(struct super_block *sb)
+{
+	return ((EXT4_SB(sb)->s_es->s_feature_incompat &
+		 cpu_to_le32(~EXT4_FEATURE_INCOMPAT_SUPP)) != 0);
+}
 
 static inline bool ext4_has_compat_features(struct super_block *sb)
 {
