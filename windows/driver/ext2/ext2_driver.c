@@ -2,12 +2,11 @@
 #include "ext2_driver.h"
 
 /*
- * ExtFS 0.9.3 is a deliberately conservative synchronous native IFS.  All ext
- * on-disk decisions remain in the portable core; this file translates Windows
- * IRPs, names, synchronization and information records.  Supported writes are
- * bounded to existing-file data overwrite plus the filesystem-specific ext2,
- * ext3 and ext4 resize paths.  Namespace mutation and paging writes remain
- * fail-closed until their later qualification checkpoints.
+ * Filesystem Support EXT2 is a conservative synchronous native IFS adapter.
+ * All EXT2 on-disk decisions are delegated to the canonical shared engine;
+ * this file owns only Windows IRPs, object lifetime, naming, synchronization
+ * and Windows information records. Unsupported metadata mutation remains
+ * fail-closed until the canonical engine exposes and qualifies it.
  */
 
 typedef struct _EXTFS_OUTPUT_BUFFER {
@@ -56,9 +55,9 @@ typedef struct _EXTFS_DIRENT_PICK {
     ULONG CurrentIndex;
     ULONG FoundIndex;
     ULONG InodeNumber;
-    extfs_node_type Type;
+    IfsExt2NodeType Type;
     UCHAR Utf8Length;
-    CHAR Utf8Name[EXTFS_MAX_NAME_LENGTH + 1U];
+    CHAR Utf8Name[IFS_EXT2_MAX_NAME_LENGTH + 1U];
     const WCHAR *Pattern;
     USHORT PatternLength;
     BOOLEAN CaseSensitive;
@@ -125,20 +124,20 @@ static NTSTATUS ExtfsCompleteIrp(PIRP Irp, NTSTATUS Status,
     return Status;
 }
 
-static NTSTATUS ExtfsStatusToNt(extfs_status Status)
+static NTSTATUS ExtfsStatusToNt(IfsExt2Status Status)
 {
     switch (Status) {
-        case EXTFS_OK: return STATUS_SUCCESS;
-        case EXTFS_ERR_NOT_EXT: return STATUS_UNRECOGNIZED_VOLUME;
-        case EXTFS_ERR_NOT_FOUND: return STATUS_OBJECT_NAME_NOT_FOUND;
-        case EXTFS_ERR_NOT_DIRECTORY: return STATUS_NOT_A_DIRECTORY;
-        case EXTFS_ERR_IS_DIRECTORY: return STATUS_FILE_IS_A_DIRECTORY;
-        case EXTFS_ERR_BUFFER_TOO_SMALL: return STATUS_BUFFER_TOO_SMALL;
-        case EXTFS_ERR_UNSUPPORTED: return STATUS_NOT_SUPPORTED;
-        case EXTFS_ERR_RANGE: return STATUS_INVALID_PARAMETER;
-        case EXTFS_ERR_IO: return STATUS_IO_DEVICE_ERROR;
-        case EXTFS_ERR_NO_SPACE: return STATUS_DISK_FULL;
-        case EXTFS_ERR_CORRUPT: return STATUS_FILE_CORRUPT_ERROR;
+        case IFS_EXT2_OK: return STATUS_SUCCESS;
+        case IFS_EXT2_ERROR_MAGIC: return STATUS_UNRECOGNIZED_VOLUME;
+        case IFS_EXT2_ERROR_NOT_FOUND: return STATUS_OBJECT_NAME_NOT_FOUND;
+        case IFS_EXT2_ERROR_NOT_DIRECTORY: return STATUS_NOT_A_DIRECTORY;
+        case IFS_EXT2_ERROR_IS_DIRECTORY: return STATUS_FILE_IS_A_DIRECTORY;
+        case IFS_EXT2_ERROR_BUFFER_TOO_SMALL: return STATUS_BUFFER_TOO_SMALL;
+        case IFS_EXT2_ERROR_UNSUPPORTED: return STATUS_NOT_SUPPORTED;
+        case IFS_EXT2_ERROR_RANGE: return STATUS_INVALID_PARAMETER;
+        case IFS_EXT2_ERROR_IO: return STATUS_IO_DEVICE_ERROR;
+        case IFS_EXT2_ERROR_NO_SPACE: return STATUS_DISK_FULL;
+        case IFS_EXT2_ERROR_CORRUPT: return STATUS_FILE_CORRUPT_ERROR;
         default: return STATUS_INVALID_PARAMETER;
     }
 }
@@ -179,7 +178,7 @@ static PEXTFS_CCB ExtfsCcbFromFile(PFILE_OBJECT FileObject)
 /* FCBs are shared by inode while FILE_OBJECT references remain. The VCB
  * resource serialises cache membership, lifetime and Windows SHARE_ACCESS updates. */
 static PEXTFS_FCB ExtfsFindFcbLocked(PEXTFS_VCB Vcb,
-                                     const extfs_inode *Inode,
+                                     const IfsExt2Inode *Inode,
                                      BOOLEAN VolumeOpen)
 {
     PLIST_ENTRY entry;
@@ -313,7 +312,7 @@ static VOID ExtfsCollectReapableFcbsLocked(PEXTFS_VCB Vcb,
 }
 
 static NTSTATUS ExtfsAcquireFcb(PEXTFS_VCB Vcb,
-                                const extfs_inode *Inode,
+                                const IfsExt2Inode *Inode,
                                 BOOLEAN VolumeOpen,
                                 ACCESS_MASK DesiredAccess,
                                 ULONG ShareAccess,
@@ -433,8 +432,8 @@ static VOID ExtfsReleaseFcbReference(PEXTFS_FCB Fcb)
  * to whole sectors, satisfy the device alignment requirement, then copy only
  * the originally requested byte range back to the core.
  */
-static int ExtfsReadAt(void *User, extfs_u64 ByteOffset,
-                       void *Destination, extfs_u32 ByteCount)
+static int ExtfsReadAt(void *User, ifs_ext2_u64 ByteOffset,
+                       void *Destination, ifs_ext2_u32 ByteCount)
 {
     PEXTFS_DISK_READER reader = (PEXTFS_DISK_READER)User;
     IO_STATUS_BLOCK ioStatus;
@@ -515,8 +514,8 @@ static int ExtfsReadAt(void *User, extfs_u64 ByteOffset,
  * sectors perform a read/modify/write so the portable core can issue arbitrary
  * byte-range data overwrites without accidentally changing neighbouring data.
  */
-static int ExtfsWriteAt(void *User, extfs_u64 ByteOffset,
-                        const void *Source, extfs_u32 ByteCount)
+static int ExtfsWriteAt(void *User, ifs_ext2_u64 ByteOffset,
+                        const void *Source, ifs_ext2_u32 ByteCount)
 {
     PEXTFS_DISK_READER reader = (PEXTFS_DISK_READER)User;
     IO_STATUS_BLOCK ioStatus;
@@ -887,25 +886,25 @@ static BOOLEAN ExtfsWildcardMatch(const WCHAR *Pattern, ULONG PatternLength,
 }
 
 typedef struct _EXTFS_CASE_LOOKUP {
-    WCHAR Name[EXTFS_MAX_NAME_LENGTH];
+    WCHAR Name[IFS_EXT2_MAX_NAME_LENGTH];
     ULONG Length;
     ULONG InodeNumber;
     ULONG Matches;
 } EXTFS_CASE_LOOKUP, *PEXTFS_CASE_LOOKUP;
 
-static int ExtfsCaseLookupCallback(void *User, extfs_u32 InodeNumber,
-                                   extfs_node_type Type, const char *Name,
-                                   extfs_u8 NameLength)
+static int ExtfsCaseLookupCallback(void *User, ifs_ext2_u32 InodeNumber,
+                                   IfsExt2NodeType Type, const char *Name,
+                                   ifs_ext2_u8 NameLength)
 {
     PEXTFS_CASE_LOOKUP context = (PEXTFS_CASE_LOOKUP)User;
-    WCHAR unicode[EXTFS_MAX_NAME_LENGTH];
+    WCHAR unicode[IFS_EXT2_MAX_NAME_LENGTH];
     ULONG unicodeLength = 0U;
     ULONG index;
     NTSTATUS status;
     (void)Type;
 
     status = ExtfsUtf8ToUnicode(Name, NameLength, unicode,
-                                EXTFS_MAX_NAME_LENGTH, &unicodeLength);
+                                IFS_EXT2_MAX_NAME_LENGTH, &unicodeLength);
     if (!NT_SUCCESS(status) || unicodeLength != context->Length) return 0;
     for (index = 0U; index < unicodeLength; ++index) {
         if (ExtfsFoldChar(unicode[index]) != ExtfsFoldChar(context->Name[index]))
@@ -923,20 +922,20 @@ static int ExtfsCaseLookupCallback(void *User, extfs_u32 InodeNumber,
  * collapse to the same Windows case-insensitive spelling, fail the lookup rather
  * than choosing an arbitrary inode.
  */
-static extfs_status ExtfsLookupComponent(PEXTFS_VCB Vcb,
-                                         const extfs_inode *Directory,
+static IfsExt2Status ExtfsLookupComponent(PEXTFS_VCB Vcb,
+                                         const IfsExt2Inode *Directory,
                                          const CHAR *Name, UCHAR NameLength,
                                          BOOLEAN CaseSensitive,
                                          PULONG InodeNumber,
                                          PVOID Scratch)
 {
-    extfs_u32 inodeNumber = 0U;
-    extfs_status status = extfs_lookup(&Vcb->Volume, Directory, Name,
+    ifs_ext2_u32 inodeNumber = 0U;
+    IfsExt2Status status = ifs_ext2_lookup(&Vcb->Volume, Directory, Name,
                                        NameLength, &inodeNumber,
                                        Scratch, Vcb->Volume.block_size);
     EXTFS_CASE_LOOKUP context;
-    if (status != EXTFS_ERR_NOT_FOUND || CaseSensitive) {
-        if (status == EXTFS_OK) *InodeNumber = (ULONG)inodeNumber;
+    if (status != IFS_EXT2_ERROR_NOT_FOUND || CaseSensitive) {
+        if (status == IFS_EXT2_OK) *InodeNumber = (ULONG)inodeNumber;
         return status;
     }
     context.InodeNumber = 0U;
@@ -944,18 +943,18 @@ static extfs_status ExtfsLookupComponent(PEXTFS_VCB Vcb,
     {
         ULONG unicodeLength = 0U;
         NTSTATUS ntStatus = ExtfsUtf8ToUnicode(Name, NameLength, context.Name,
-                                                EXTFS_MAX_NAME_LENGTH,
+                                                IFS_EXT2_MAX_NAME_LENGTH,
                                                 &unicodeLength);
-        if (!NT_SUCCESS(ntStatus)) return EXTFS_ERR_NOT_FOUND;
+        if (!NT_SUCCESS(ntStatus)) return IFS_EXT2_ERROR_NOT_FOUND;
         context.Length = unicodeLength;
     }
-    status = extfs_iterate_directory(&Vcb->Volume, Directory,
+    status = ifs_ext2_iterate_directory(&Vcb->Volume, Directory,
                                      ExtfsCaseLookupCallback, &context,
                                      Scratch, Vcb->Volume.block_size);
-    if (status != EXTFS_OK && status != EXTFS_STOP) return status;
-    if (context.Matches != 1U) return EXTFS_ERR_NOT_FOUND;
+    if (status != IFS_EXT2_OK && status != IFS_EXT2_STOP) return status;
+    if (context.Matches != 1U) return IFS_EXT2_ERROR_NOT_FOUND;
     *InodeNumber = (ULONG)context.InodeNumber;
-    return EXTFS_OK;
+    return IFS_EXT2_OK;
 }
 
 /*
@@ -966,13 +965,13 @@ static extfs_status ExtfsLookupComponent(PEXTFS_VCB Vcb,
 static NTSTATUS ExtfsResolveFileName(PEXTFS_VCB Vcb,
                                      PFILE_OBJECT FileObject,
                                      BOOLEAN CaseSensitive,
-                                     extfs_inode *Inode,
+                                     IfsExt2Inode *Inode,
                                      PVOID Scratch,
                                      PBOOLEAN VolumeOpen)
 {
     const WCHAR *cursor;
     ULONG characters;
-    extfs_status extStatus;
+    IfsExt2Status extStatus;
     PEXTFS_FCB related;
     *VolumeOpen = FALSE;
 
@@ -992,9 +991,9 @@ static NTSTATUS ExtfsResolveFileName(PEXTFS_VCB Vcb,
         }
         *Inode = related->Inode;
     } else {
-        extStatus = extfs_read_inode(&Vcb->Volume, EXTFS_ROOT_INODE, Inode,
+        extStatus = ifs_ext2_read_inode(&Vcb->Volume, IFS_EXT2_ROOT_INODE, Inode,
                                      Scratch, Vcb->Volume.block_size);
-        if (extStatus != EXTFS_OK) return ExtfsStatusToNt(extStatus);
+        if (extStatus != IFS_EXT2_OK) return ExtfsStatusToNt(extStatus);
     }
     while (characters != 0U && (*cursor == L'\\' || *cursor == L'/')) {
         ++cursor;
@@ -1008,7 +1007,7 @@ static NTSTATUS ExtfsResolveFileName(PEXTFS_VCB Vcb,
     while (characters != 0U) {
         const WCHAR *start = cursor;
         ULONG componentChars = 0U;
-        CHAR utf8[EXTFS_MAX_NAME_LENGTH];
+        CHAR utf8[IFS_EXT2_MAX_NAME_LENGTH];
         UCHAR utf8Length;
         ULONG nextInode;
         NTSTATUS status;
@@ -1026,7 +1025,7 @@ static NTSTATUS ExtfsResolveFileName(PEXTFS_VCB Vcb,
             --characters;
             continue;
         }
-        if (extfs_inode_type(Inode) != EXTFS_NODE_DIRECTORY) {
+        if (IfsExt2Inode_type(Inode) != IFS_EXT2_NODE_DIRECTORY) {
             return STATUS_NOT_A_DIRECTORY;
         }
         status = ExtfsUnicodeToUtf8(start, componentChars, utf8,
@@ -1034,10 +1033,10 @@ static NTSTATUS ExtfsResolveFileName(PEXTFS_VCB Vcb,
         if (!NT_SUCCESS(status)) return status;
         extStatus = ExtfsLookupComponent(Vcb, Inode, utf8, utf8Length,
                                          CaseSensitive, &nextInode, Scratch);
-        if (extStatus != EXTFS_OK) return ExtfsStatusToNt(extStatus);
-        extStatus = extfs_read_inode(&Vcb->Volume, nextInode, Inode,
+        if (extStatus != IFS_EXT2_OK) return ExtfsStatusToNt(extStatus);
+        extStatus = ifs_ext2_read_inode(&Vcb->Volume, nextInode, Inode,
                                      Scratch, Vcb->Volume.block_size);
-        if (extStatus != EXTFS_OK) return ExtfsStatusToNt(extStatus);
+        if (extStatus != IFS_EXT2_OK) return ExtfsStatusToNt(extStatus);
         cursor += componentChars;
         characters -= componentChars;
         while (characters != 0U && (*cursor == L'\\' || *cursor == L'/')) {
@@ -1048,30 +1047,30 @@ static NTSTATUS ExtfsResolveFileName(PEXTFS_VCB Vcb,
     return STATUS_SUCCESS;
 }
 
-static ULONG ExtfsFileAttributes(PEXTFS_VCB Vcb, const extfs_inode *Inode)
+static ULONG ExtfsFileAttributes(PEXTFS_VCB Vcb, const IfsExt2Inode *Inode)
 {
     ULONG attributes = 0U;
-    if (extfs_inode_type(Inode) == EXTFS_NODE_DIRECTORY)
+    if (IfsExt2Inode_type(Inode) == IFS_EXT2_NODE_DIRECTORY)
         attributes |= FILE_ATTRIBUTE_DIRECTORY;
     if (Vcb == NULL || !Vcb->WriteEnabled ||
-        extfs_inode_write_assess(&Vcb->Volume, Inode) != EXTFS_OK)
+        IfsExt2Inode_write_assess(&Vcb->Volume, Inode) != IFS_EXT2_OK)
         attributes |= FILE_ATTRIBUTE_READONLY;
     if (attributes == 0U) attributes = FILE_ATTRIBUTE_NORMAL;
     return attributes;
 }
 
-static LARGE_INTEGER ExtfsNtTime(extfs_s64 UnixSeconds, ULONG Nanoseconds)
+static LARGE_INTEGER ExtfsNtTime(long long UnixSeconds, ULONG Nanoseconds)
 {
     LARGE_INTEGER value;
-    const extfs_s64 epoch = 11644473600LL;
-    extfs_s64 shifted;
+    const long long epoch = 11644473600LL;
+    long long shifted;
     ULONGLONG ticks;
     if (Nanoseconds >= 1000000000U || UnixSeconds < -epoch) {
         value.QuadPart = 0;
         return value;
     }
     shifted = UnixSeconds + epoch;
-    if ((extfs_u64)shifted >
+    if ((ifs_ext2_u64)shifted >
         (0x7FFFFFFFFFFFFFFFULL - Nanoseconds / 100U) / 10000000ULL) {
         value.QuadPart = 0;
         return value;
@@ -1090,7 +1089,7 @@ static ULONG ExtfsFileModeFromCreateOptions(ULONG Options)
 }
 
 static VOID ExtfsFillBasicInformation(PEXTFS_VCB Vcb,
-                                      const extfs_inode *Inode,
+                                      const IfsExt2Inode *Inode,
                                       PFILE_BASIC_INFORMATION Buffer)
 {
     Buffer->CreationTime = ExtfsNtTime(Inode->creation_time,
@@ -1105,7 +1104,7 @@ static VOID ExtfsFillBasicInformation(PEXTFS_VCB Vcb,
 }
 
 static VOID ExtfsFillStandardInformation(PEXTFS_VCB Vcb,
-                                         const extfs_inode *Inode,
+                                         const IfsExt2Inode *Inode,
                                          PFILE_STANDARD_INFORMATION Buffer)
 {
     ULONGLONG blockSize = Vcb->Volume.block_size;
@@ -1122,7 +1121,7 @@ static VOID ExtfsFillStandardInformation(PEXTFS_VCB Vcb,
     Buffer->AllocationSize.QuadPart = (LONGLONG)rounded;
     Buffer->NumberOfLinks = Inode->links_count;
     Buffer->DeletePending = FALSE;
-    Buffer->Directory = extfs_inode_type(Inode) == EXTFS_NODE_DIRECTORY;
+    Buffer->Directory = IfsExt2Inode_type(Inode) == IFS_EXT2_NODE_DIRECTORY;
 }
 
 /*
@@ -1241,8 +1240,8 @@ NTSTATUS ExtfsDispatchCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     PVOID scratch = NULL;
     PEXTFS_FCB fcb = NULL;
     PEXTFS_CCB ccb = NULL;
-    extfs_inode resolved;
-    extfs_node_type nodeType;
+    IfsExt2Inode resolved;
+    IfsExt2NodeType nodeType;
     NTSTATUS status;
     BOOLEAN volumeOpen;
     BOOLEAN caseSensitive;
@@ -1291,10 +1290,10 @@ NTSTATUS ExtfsDispatchCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     }
 
     if (!volumeOpen) {
-        nodeType = extfs_inode_type(&resolved);
-        if (nodeType != EXTFS_NODE_REGULAR &&
-            nodeType != EXTFS_NODE_DIRECTORY &&
-            nodeType != EXTFS_NODE_SYMLINK) {
+        nodeType = IfsExt2Inode_type(&resolved);
+        if (nodeType != IFS_EXT2_NODE_REGULAR &&
+            nodeType != IFS_EXT2_NODE_DIRECTORY &&
+            nodeType != IFS_EXT2_NODE_SYMLINK) {
             status = STATUS_NOT_SUPPORTED;
             goto Exit;
         }
@@ -1303,18 +1302,18 @@ NTSTATUS ExtfsDispatchCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
             goto Exit;
         }
         if ((options & FILE_DIRECTORY_FILE) != 0U &&
-            nodeType != EXTFS_NODE_DIRECTORY) {
+            nodeType != IFS_EXT2_NODE_DIRECTORY) {
             status = STATUS_NOT_A_DIRECTORY;
             goto Exit;
         }
         if ((options & FILE_NON_DIRECTORY_FILE) != 0U &&
-            nodeType == EXTFS_NODE_DIRECTORY) {
+            nodeType == IFS_EXT2_NODE_DIRECTORY) {
             status = STATUS_FILE_IS_A_DIRECTORY;
             goto Exit;
         }
         if ((access & (FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA |
                        FILE_WRITE_ATTRIBUTES)) != 0U &&
-            extfs_inode_write_assess(&vcb->Volume, &resolved) != EXTFS_OK) {
+            IfsExt2Inode_write_assess(&vcb->Volume, &resolved) != IFS_EXT2_OK) {
             status = STATUS_MEDIA_WRITE_PROTECTED;
             goto Exit;
         }
@@ -1404,8 +1403,8 @@ NTSTATUS ExtfsDispatchRead(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     LONGLONG offset = stack->Parameters.Read.ByteOffset.QuadPart;
     EXTFS_OUTPUT_BUFFER output;
     PVOID scratch;
-    extfs_u32 bytesRead = 0U;
-    extfs_status extStatus;
+    ifs_ext2_u32 bytesRead = 0U;
+    IfsExt2Status extStatus;
     NTSTATUS status;
     (void)DeviceObject;
     if (fcb == NULL || fcb->VolumeOpen) {
@@ -1413,7 +1412,7 @@ NTSTATUS ExtfsDispatchRead(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     }
     if (fcb->Vcb->Dismounted)
         return ExtfsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED, 0U);
-    if (extfs_inode_type(&fcb->Inode) == EXTFS_NODE_DIRECTORY) {
+    if (IfsExt2Inode_type(&fcb->Inode) == IFS_EXT2_NODE_DIRECTORY) {
         return ExtfsCompleteIrp(Irp, STATUS_FILE_IS_A_DIRECTORY, 0U);
     }
     if (length == 0U) return ExtfsCompleteIrp(Irp, STATUS_SUCCESS, 0U);
@@ -1430,8 +1429,8 @@ NTSTATUS ExtfsDispatchRead(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         return ExtfsCompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES, 0U);
     }
     ExtfsAcquireFileData(fcb, FALSE);
-    extStatus = extfs_read_file(&fcb->Vcb->Volume, &fcb->Inode,
-                                (extfs_u64)offset, output.Address, length,
+    extStatus = ifs_ext2_read_file(&fcb->Vcb->Volume, &fcb->Inode,
+                                (ifs_ext2_u64)offset, output.Address, length,
                                 scratch, fcb->Vcb->Volume.block_size,
                                 &bytesRead);
     ExtfsReleaseFileData(fcb);
@@ -1451,23 +1450,23 @@ NTSTATUS ExtfsDispatchRead(PDEVICE_OBJECT DeviceObject, PIRP Irp)
  * portable core owns the distinction between unjournaled ext2 mutation,
  * journaled ext3 mutation and the bounded checksum-aware ext4 extent-tree path.
  */
-static extfs_status ExtfsResizeRegularFile(PEXTFS_FCB Fcb,
-                                           extfs_u64 NewSize,
+static IfsExt2Status ExtfsResizeRegularFile(PEXTFS_FCB Fcb,
+                                           ifs_ext2_u64 NewSize,
                                            PVOID Scratch,
-                                           extfs_u32 ScratchSize)
+                                           ifs_ext2_u32 ScratchSize)
 {
     (void)Fcb;
     (void)NewSize;
     (void)Scratch;
     (void)ScratchSize;
-    return EXTFS_ERR_UNSUPPORTED;
+    return IFS_EXT2_ERROR_UNSUPPORTED;
 }
 
 static VOID ExtfsDisableWritesIfUnsafe(PEXTFS_VCB Vcb)
 {
-    extfs_u32 risks = 0U;
+    ifs_ext2_u32 risks = 0U;
     if (Vcb == NULL) return;
-    if (extfs_write_assess(&Vcb->Volume, &risks) != EXTFS_OK) {
+    if (ifs_ext2_write_assess(&Vcb->Volume, &risks) != IFS_EXT2_OK) {
         Vcb->WriteEnabled = FALSE;
         if (Vcb->VolumeDeviceObject != NULL) {
             Vcb->VolumeDeviceObject->Characteristics |= FILE_READ_ONLY_DEVICE;
@@ -1484,8 +1483,8 @@ NTSTATUS ExtfsDispatchWrite(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     LONGLONG offset = stack->Parameters.Write.ByteOffset.QuadPart;
     EXTFS_OUTPUT_BUFFER input;
     PVOID scratch;
-    extfs_u32 bytesWritten = 0U;
-    extfs_status extStatus;
+    ifs_ext2_u32 bytesWritten = 0U;
+    IfsExt2Status extStatus;
     NTSTATUS status;
     ULONGLONG endOffset;
     BOOLEAN metadataLocked = FALSE;
@@ -1497,7 +1496,7 @@ NTSTATUS ExtfsDispatchWrite(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         return ExtfsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED, 0U);
     if (!fcb->Vcb->WriteEnabled)
         return ExtfsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED, 0U);
-    if (extfs_inode_type(&fcb->Inode) != EXTFS_NODE_REGULAR)
+    if (IfsExt2Inode_type(&fcb->Inode) != IFS_EXT2_NODE_REGULAR)
         return ExtfsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED, 0U);
     if ((ccb->GrantedAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) == 0U)
         return ExtfsCompleteIrp(Irp, STATUS_ACCESS_DENIED, 0U);
@@ -1537,11 +1536,11 @@ NTSTATUS ExtfsDispatchWrite(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         ExtfsAcquireMetadata(fcb->Vcb);
         metadataLocked = TRUE;
         extStatus = ExtfsResizeRegularFile(
-            fcb, (extfs_u64)endOffset, scratch,
+            fcb, (ifs_ext2_u64)endOffset, scratch,
             fcb->Vcb->Volume.block_size * 8U);
         ExtfsReleaseMetadata(fcb->Vcb);
         metadataLocked = FALSE;
-        if (extStatus != EXTFS_OK) {
+        if (extStatus != IFS_EXT2_OK) {
             ExtfsDisableWritesIfUnsafe(fcb->Vcb);
             ExtfsReleaseFileData(fcb);
             ExFreePool(scratch);
@@ -1552,8 +1551,8 @@ NTSTATUS ExtfsDispatchWrite(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         ExtfsSyncFcbHeaderSizes(fcb);
     }
 
-    extStatus = extfs_write_file_existing(&fcb->Vcb->Volume, &fcb->Inode,
-                                          (extfs_u64)offset, input.Address,
+    extStatus = ifs_ext2_write_file_existing(&fcb->Vcb->Volume, &fcb->Inode,
+                                          (ifs_ext2_u64)offset, input.Address,
                                           length, scratch,
                                           fcb->Vcb->Volume.block_size * 2U,
                                           &bytesWritten);
@@ -1562,7 +1561,7 @@ NTSTATUS ExtfsDispatchWrite(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     ExFreePool(scratch);
     ExtfsUnlockOutputBuffer(&input);
     status = ExtfsStatusToNt(extStatus);
-    if (extStatus == EXTFS_ERR_UNSUPPORTED) status = STATUS_NOT_SUPPORTED;
+    if (extStatus == IFS_EXT2_ERROR_UNSUPPORTED) status = STATUS_NOT_SUPPORTED;
     if (NT_SUCCESS(status) &&
         (ccb->CreateOptions & FILE_WRITE_THROUGH) != 0U) {
         NTSTATUS flushStatus = ExtfsFlushLowerDevice(&fcb->Vcb->Reader);
@@ -1587,7 +1586,7 @@ NTSTATUS ExtfsDispatchSetInformation(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     PVOID buffer = Irp->AssociatedIrp.SystemBuffer;
     PVOID scratch;
     LONGLONG requestedSize;
-    extfs_status extStatus;
+    IfsExt2Status extStatus;
     NTSTATUS status;
     (void)DeviceObject;
 
@@ -1601,7 +1600,7 @@ NTSTATUS ExtfsDispatchSetInformation(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         return ExtfsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED, 0U);
     if ((ccb->GrantedAccess & FILE_WRITE_DATA) == 0U)
         return ExtfsCompleteIrp(Irp, STATUS_ACCESS_DENIED, 0U);
-    if (extfs_inode_type(&fcb->Inode) != EXTFS_NODE_REGULAR)
+    if (IfsExt2Inode_type(&fcb->Inode) != IFS_EXT2_NODE_REGULAR)
         return ExtfsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST, 0U);
     if (buffer == NULL || stack->Parameters.SetFile.Length <
                           sizeof(FILE_END_OF_FILE_INFORMATION)) {
@@ -1621,14 +1620,14 @@ NTSTATUS ExtfsDispatchSetInformation(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     ExtfsAcquireFileData(fcb, TRUE);
     ExtfsAcquireMetadata(fcb->Vcb);
     extStatus = ExtfsResizeRegularFile(
-        fcb, (extfs_u64)requestedSize, scratch,
+        fcb, (ifs_ext2_u64)requestedSize, scratch,
         fcb->Vcb->Volume.block_size * 8U);
     ExtfsReleaseMetadata(fcb->Vcb);
-    if (extStatus == EXTFS_OK) ExtfsSyncFcbHeaderSizes(fcb);
+    if (extStatus == IFS_EXT2_OK) ExtfsSyncFcbHeaderSizes(fcb);
     ExtfsReleaseFileData(fcb);
     ExFreePool(scratch);
 
-    if (extStatus != EXTFS_OK) ExtfsDisableWritesIfUnsafe(fcb->Vcb);
+    if (extStatus != IFS_EXT2_OK) ExtfsDisableWritesIfUnsafe(fcb->Vcb);
     status = ExtfsStatusToNt(extStatus);
     if (NT_SUCCESS(status) &&
         (ccb->CreateOptions & FILE_WRITE_THROUGH) != 0U) {
@@ -1928,7 +1927,7 @@ NTSTATUS ExtfsDispatchQueryVolumeInformation(PDEVICE_OBJECT DeviceObject,
                 FILE_SUPPORTS_SPARSE_FILES;
             if (!vcb->WriteEnabled)
                 info->FileSystemAttributes |= FILE_READ_ONLY_VOLUME;
-            info->MaximumComponentNameLength = EXTFS_MAX_NAME_LENGTH;
+            info->MaximumComponentNameLength = IFS_EXT2_MAX_NAME_LENGTH;
             info->FileSystemNameLength = nameBytes;
             if (nameBytes > length - base) {
                 nameBytes = length - base;
@@ -1947,12 +1946,12 @@ NTSTATUS ExtfsDispatchQueryVolumeInformation(PDEVICE_OBJECT DeviceObject,
                                 ? used : 0U);
 }
 
-static int ExtfsPickDirectoryEntry(void *User, extfs_u32 InodeNumber,
-                                   extfs_node_type Type, const char *Name,
-                                   extfs_u8 NameLength)
+static int ExtfsPickDirectoryEntry(void *User, ifs_ext2_u32 InodeNumber,
+                                   IfsExt2NodeType Type, const char *Name,
+                                   ifs_ext2_u8 NameLength)
 {
     PEXTFS_DIRENT_PICK pick = (PEXTFS_DIRENT_PICK)User;
-    WCHAR unicode[EXTFS_MAX_NAME_LENGTH];
+    WCHAR unicode[IFS_EXT2_MAX_NAME_LENGTH];
     ULONG unicodeLength = 0U;
     NTSTATUS status;
     if ((NameLength == 1U && Name[0] == '.') ||
@@ -1961,7 +1960,7 @@ static int ExtfsPickDirectoryEntry(void *User, extfs_u32 InodeNumber,
     }
     if (pick->CurrentIndex++ < pick->StartIndex) return 0;
     status = ExtfsUtf8ToUnicode(Name, NameLength, unicode,
-                                EXTFS_MAX_NAME_LENGTH, &unicodeLength);
+                                IFS_EXT2_MAX_NAME_LENGTH, &unicodeLength);
     if (!NT_SUCCESS(status)) {
         /* ext directory names are raw bytes. Never make a live entry silently
          * disappear merely because Windows cannot represent it as UTF-16. */
@@ -1987,16 +1986,16 @@ static NTSTATUS ExtfsFindDirectoryEntry(PEXTFS_FCB Fcb, PEXTFS_CCB Ccb,
                                         PEXTFS_DIRENT_PICK Pick,
                                         PVOID Scratch)
 {
-    extfs_status status;
+    IfsExt2Status status;
     ExtfsZeroMemory(Pick, sizeof(*Pick));
     Pick->StartIndex = Ccb->DirectoryIndex;
     Pick->Pattern = Ccb->Pattern;
     Pick->PatternLength = Ccb->PatternLength;
     Pick->CaseSensitive = CaseSensitive;
-    status = extfs_iterate_directory(&Fcb->Vcb->Volume, &Fcb->Inode,
+    status = ifs_ext2_iterate_directory(&Fcb->Vcb->Volume, &Fcb->Inode,
                                      ExtfsPickDirectoryEntry, Pick,
                                      Scratch, Fcb->Vcb->Volume.block_size);
-    if (status != EXTFS_OK && status != EXTFS_STOP)
+    if (status != IFS_EXT2_OK && status != IFS_EXT2_STOP)
         return ExtfsStatusToNt(status);
     if (!NT_SUCCESS(Pick->NameStatus)) return Pick->NameStatus;
     return Pick->Found ? STATUS_SUCCESS : STATUS_NO_MORE_FILES;
@@ -2026,10 +2025,10 @@ static NTSTATUS ExtfsFillDirectoryRecord(FILE_INFORMATION_CLASS InformationClass
                                          PUCHAR Record, ULONG Available,
                                          PEXTFS_FCB Directory,
                                          PEXTFS_DIRENT_PICK Pick,
-                                         const extfs_inode *Inode,
+                                         const IfsExt2Inode *Inode,
                                          PULONG RecordLength)
 {
-    WCHAR name[EXTFS_MAX_NAME_LENGTH];
+    WCHAR name[IFS_EXT2_MAX_NAME_LENGTH];
     ULONG nameChars = 0U;
     ULONG nameBytes;
     ULONG base = ExtfsDirectoryBaseLength(InformationClass);
@@ -2038,7 +2037,7 @@ static NTSTATUS ExtfsFillDirectoryRecord(FILE_INFORMATION_CLASS InformationClass
     ULONG attributes = ExtfsFileAttributes(Directory->Vcb, Inode);
     if (base == 0U) return STATUS_INVALID_INFO_CLASS;
     status = ExtfsUtf8ToUnicode(Pick->Utf8Name, Pick->Utf8Length,
-                                name, EXTFS_MAX_NAME_LENGTH, &nameChars);
+                                name, IFS_EXT2_MAX_NAME_LENGTH, &nameChars);
     if (!NT_SUCCESS(status)) return status;
     nameBytes = nameChars * sizeof(WCHAR);
     if (base + nameBytes > Available) return STATUS_BUFFER_OVERFLOW;
@@ -2119,7 +2118,7 @@ NTSTATUS ExtfsDispatchDirectoryControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     if (fcb != NULL && fcb->Vcb->Dismounted)
         return ExtfsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED, 0U);
     if (fcb == NULL || ccb == NULL ||
-        extfs_inode_type(&fcb->Inode) != EXTFS_NODE_DIRECTORY ||
+        IfsExt2Inode_type(&fcb->Inode) != IFS_EXT2_NODE_DIRECTORY ||
         ExtfsDirectoryBaseLength(informationClass) == 0U) {
         return ExtfsCompleteIrp(Irp, STATUS_INVALID_INFO_CLASS, 0U);
     }
@@ -2156,8 +2155,8 @@ NTSTATUS ExtfsDispatchDirectoryControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     status = STATUS_SUCCESS;
     for (;;) {
         EXTFS_DIRENT_PICK pick;
-        extfs_inode inode;
-        extfs_status extStatus;
+        IfsExt2Inode inode;
+        IfsExt2Status extStatus;
         ULONG recordLength;
         ULONG alignedLength;
         status = ExtfsFindDirectoryEntry(fcb, ccb, caseSensitive,
@@ -2168,10 +2167,10 @@ NTSTATUS ExtfsDispatchDirectoryControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                 status = STATUS_NO_SUCH_FILE;
             break;
         }
-        extStatus = extfs_read_inode(&fcb->Vcb->Volume, pick.InodeNumber,
+        extStatus = ifs_ext2_read_inode(&fcb->Vcb->Volume, pick.InodeNumber,
                                      &inode, scratch,
                                      fcb->Vcb->Volume.block_size);
-        if (extStatus != EXTFS_OK) {
+        if (extStatus != IFS_EXT2_OK) {
             status = ExtfsStatusToNt(extStatus);
             break;
         }
@@ -2217,9 +2216,9 @@ static NTSTATUS ExtfsMountVolume(PIRP Irp)
     PVPB vpb = stack->Parameters.MountVolume.Vpb;
     PDEVICE_OBJECT volumeDevice = NULL;
     PEXTFS_VCB vcb;
-    extfs_io io;
-    extfs_status extStatus;
-    extfs_u32 risks;
+    IfsExt2Io io;
+    IfsExt2Status extStatus;
+    ifs_ext2_u32 risks;
     NTSTATUS status;
     ULONG index;
     ULONG labelChars = 0U;
@@ -2267,8 +2266,8 @@ static NTSTATUS ExtfsMountVolume(PIRP Irp)
     io.write_at = ExtfsWriteAt;
     io.flush = ExtfsFlushCore;
         io.user = &vcb->Reader;
-    extStatus = extfs_open(&vcb->Volume, &io);
-    if (extStatus != EXTFS_OK) {
+    extStatus = ifs_ext2_open(&vcb->Volume, &io);
+    if (extStatus != IFS_EXT2_OK) {
         status = ExtfsStatusToNt(extStatus);
         if (status != STATUS_UNRECOGNIZED_VOLUME) status = STATUS_UNRECOGNIZED_VOLUME;
         ExDeleteResourceLite(&vcb->MetadataResource);
@@ -2277,8 +2276,8 @@ static NTSTATUS ExtfsMountVolume(PIRP Irp)
         IoDeleteDevice(volumeDevice);
         return status;
     }
-    extStatus = extfs_readonly_assess(&vcb->Volume, &risks);
-    if (extStatus != EXTFS_OK) {
+    extStatus = ifs_ext2_readonly_assess(&vcb->Volume, &risks);
+    if (extStatus != IFS_EXT2_OK) {
         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_WARNING_LEVEL,
                    "Filesystem Support EXT2: volume refused by read policy (risks=0x%08x)\n",
                    risks);
@@ -2290,7 +2289,7 @@ static NTSTATUS ExtfsMountVolume(PIRP Irp)
     }
     vcb->WriteEnabled =
         ExtfsDeviceIsWritable(target) &&
-        extfs_write_assess(&vcb->Volume, &risks) == EXTFS_OK ? TRUE : FALSE;
+        ifs_ext2_write_assess(&vcb->Volume, &risks) == IFS_EXT2_OK ? TRUE : FALSE;
     if (!vcb->WriteEnabled)
         volumeDevice->Characteristics |= FILE_READ_ONLY_DEVICE;
     volumeDevice->AlignmentRequirement = target->AlignmentRequirement;
@@ -2321,18 +2320,18 @@ static NTSTATUS ExtfsMountVolume(PIRP Irp)
 
 static NTSTATUS ExtfsVerifyMountedVolume(PEXTFS_VCB Vcb)
 {
-    extfs_volume observed;
-    extfs_io io;
-    extfs_u32 risks;
-    extfs_status extStatus;
+    IfsExt2Volume observed;
+    IfsExt2Io io;
+    ifs_ext2_u32 risks;
+    IfsExt2Status extStatus;
 
     io.read_at = ExtfsReadAt;
     io.write_at = ExtfsWriteAt;
     io.flush = ExtfsFlushCore;
         io.user = &Vcb->Reader;
-    extStatus = extfs_open(&observed, &io);
-    if (extStatus != EXTFS_OK ||
-        extfs_readonly_assess(&observed, &risks) != EXTFS_OK) {
+    extStatus = ifs_ext2_open(&observed, &io);
+    if (extStatus != IFS_EXT2_OK ||
+        ifs_ext2_readonly_assess(&observed, &risks) != IFS_EXT2_OK) {
         return STATUS_WRONG_VOLUME;
     }
     if (!ExtfsBytesEqual(observed.uuid, Vcb->Volume.uuid, 16U) ||
@@ -2377,7 +2376,7 @@ static NTSTATUS ExtfsVerifyMountedVolume(PEXTFS_VCB Vcb)
         Vcb->Volume = observed;
         Vcb->WriteEnabled =
             ExtfsDeviceIsWritable(Vcb->TargetDeviceObject) &&
-            extfs_write_assess(&Vcb->Volume, &risks) == EXTFS_OK ? TRUE : FALSE;
+            ifs_ext2_write_assess(&Vcb->Volume, &risks) == IFS_EXT2_OK ? TRUE : FALSE;
         if (Vcb->VolumeDeviceObject != NULL) {
             if (Vcb->WriteEnabled)
                 Vcb->VolumeDeviceObject->Characteristics &= ~FILE_READ_ONLY_DEVICE;
