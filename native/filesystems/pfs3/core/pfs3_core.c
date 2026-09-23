@@ -122,6 +122,26 @@ IfsPfs3RootStatus ifs_pfs3_validate_root_geometry(
     return IFS_PFS3_ROOT_OK;
 }
 
+int ifs_pfs3_effective_filename_size(
+    const ifs_pfs3_u16 stored_filename_size,
+    ifs_pfs3_u16 *const effective_filename_size)
+{
+    if (effective_filename_size == 0)
+        return -1;
+
+    if (stored_filename_size == 0U) {
+        *effective_filename_size = IFS_PFS3_DEFAULT_FILENAME_SIZE;
+        return 0;
+    }
+
+    if (stored_filename_size < IFS_PFS3_MIN_FILENAME_SIZE ||
+        stored_filename_size > IFS_PFS3_MAX_FILENAME_SIZE)
+        return -1;
+
+    *effective_filename_size = stored_filename_size;
+    return 0;
+}
+
 int ifs_pfs3_validate_allocation_counts(
     const ifs_pfs3_u32 blocks_free,
     const ifs_pfs3_u32 always_free)

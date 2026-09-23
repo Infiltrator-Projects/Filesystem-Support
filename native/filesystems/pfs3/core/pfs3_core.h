@@ -18,6 +18,9 @@ typedef uint32_t ifs_pfs3_u32;
 #define IFS_PFS3_MAX_ROOT_CLUSTER 521U
 #define IFS_PFS3_DISK_NAME_BYTES 32U
 #define IFS_PFS3_MAX_DISK_NAME 31U
+#define IFS_PFS3_DEFAULT_FILENAME_SIZE 32U
+#define IFS_PFS3_MIN_FILENAME_SIZE 30U
+#define IFS_PFS3_MAX_FILENAME_SIZE 107U
 #define IFS_PFS3_ROOT_MIN_BYTES 96U
 
 #define IFS_PFS3_MODE_HARDDISK        0x0001U
@@ -92,6 +95,10 @@ IfsPfs3RootStatus ifs_pfs3_validate_root_geometry(
     ifs_pfs3_u32 first_reserved,
     ifs_pfs3_u32 last_reserved,
     ifs_pfs3_u32 reserved_free);
+
+int ifs_pfs3_effective_filename_size(
+    ifs_pfs3_u16 stored_filename_size,
+    ifs_pfs3_u16 *effective_filename_size);
 
 int ifs_pfs3_validate_allocation_counts(
     ifs_pfs3_u32 blocks_free,

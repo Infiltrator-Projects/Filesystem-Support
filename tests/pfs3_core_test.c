@@ -106,5 +106,20 @@ int main(void)
             return fail("decoded PFS disk name rejected");
     }
 
+
+    {
+        ifs_pfs3_u16 effective = 0U;
+        if (ifs_pfs3_effective_filename_size(0U, &effective) != 0 ||
+            effective != IFS_PFS3_DEFAULT_FILENAME_SIZE)
+            return fail("PFS zero fnsize default failed");
+        if (ifs_pfs3_effective_filename_size(107U, &effective) != 0 ||
+            effective != 107U)
+            return fail("PFS 107-character fnsize rejected");
+        if (ifs_pfs3_effective_filename_size(108U, &effective) == 0)
+            return fail("PFS oversized fnsize accepted");
+        if (ifs_pfs3_effective_filename_size(29U, &effective) == 0)
+            return fail("PFS undersized fnsize accepted");
+    }
+
     return 0;
 }
