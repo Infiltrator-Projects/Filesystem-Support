@@ -16,6 +16,19 @@ JBD2 and the metadata cache are implementation code embedded into `ext4.ko`; the
 
 ## Source layout
 
+The architectural rule is **one EXT4 filesystem implementation**. The
+portable filesystem implementation belongs in `core/`; `linux/` and
+`windows/` are OS wrappers around that same core, not separate EXT4
+implementations. Most filesystem logic should therefore converge into
+`core/`. Only host-specific VFS/KO or IFS/WDK integration remains in the
+wrappers.
+
+The current amount of code under `linux/` reflects migration history, not the
+target split. Moving a file into `linux/` does not classify its filesystem
+semantics as Linux-owned; those semantics must still be extracted or rewritten
+into `core/` as the migration proceeds.
+
+
 The Linux implementation and remaining migration-era source now live at:
 
 ```text
