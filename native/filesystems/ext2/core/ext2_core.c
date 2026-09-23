@@ -373,6 +373,50 @@ IfsExt2Status ifs_ext2_directory_initial_layout(
     return IFS_EXT2_OK;
 }
 
+IfsExt2Status ifs_ext2_directory_delete_span(
+    const ifs_ext2_u32 target_offset,
+    const ifs_ext2_u32 target_record_length,
+    const int has_previous,
+    const ifs_ext2_u32 previous_offset,
+    const ifs_ext2_u32 block_size,
+    ifs_ext2_u32 *const span_offset,
+    ifs_ext2_u32 *const span_length)
+{
+    ifs_ext2_u32 target_in_block;
+    ifs_ext2_u32 start;
+    ifs_ext2_u32 end;
+
+    if (span_offset == IFS_EXT2_NULL || span_length == IFS_EXT2_NULL)
+        return IFS_EXT2_ERROR_ARGUMENT;
+    if (block_size < IFS_EXT2_MIN_BLOCK_SIZE ||
+        block_size > IFS_EXT2_MAX_BLOCK_SIZE ||
+        (block_size & (block_size - 1U)) != 0U)
+        return IFS_EXT2_ERROR_BLOCK_SIZE;
+    if (target_record_length == 0U)
+        return IFS_EXT2_ERROR_CORRUPT;
+
+    target_in_block = target_offset & (block_size - 1U);
+    if (target_record_length > block_size - target_in_block)
+        return IFS_EXT2_ERROR_CORRUPT;
+
+    start = target_offset;
+    if (has_previous != 0) {
+        if (previous_offset >= target_offset ||
+            (previous_offset & ~(block_size - 1U)) !=
+            (target_offset & ~(block_size - 1U)))
+            return IFS_EXT2_ERROR_CORRUPT;
+        start = previous_offset;
+    }
+
+    end = target_offset + target_record_length;
+    if (end < target_offset || end < start)
+        return IFS_EXT2_ERROR_RANGE;
+
+    *span_offset = start;
+    *span_length = end - start;
+    return IFS_EXT2_OK;
+}
+
 ifs_ext2_u32 ifs_ext2_directory_record_length_from_disk(
     const ifs_ext2_u16 encoded_length,
     const ifs_ext2_u32 maximum_record_length)
