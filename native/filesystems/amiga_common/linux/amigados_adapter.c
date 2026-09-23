@@ -7,22 +7,13 @@
 #include <linux/math64.h>
 #include <linux/iversion.h>
 
-static u32 ifs_amiga_chain_budget(const struct super_block *sb)
-{
-    const struct affs_sb_info *sbi = AFFS_SB((struct super_block *)sb);
-
-    if (sbi->s_partition_size <= sbi->s_reserved)
-        return 1U;
-    return (u32)(sbi->s_partition_size - sbi->s_reserved);
-}
-
 static int ifs_amiga_hash_slot(
     struct super_block *sb, const unsigned char *name, unsigned int length)
 {
     const int slot = affs_hash_name(sb, name, length);
 
     if (slot < 0 || slot >= AFFS_SB(sb)->s_hashsize)
-        return -EFSCORRUPTED;
+        return -EUCLEAN;
     return slot;
 }
 
@@ -55,7 +46,7 @@ int affs_insert_hash(struct inode *dir, struct buffer_head *entry_bh)
             break;
         if (budget-- == 0U) {
             affs_brelse(cursor);
-            return -EFSCORRUPTED;
+            return -EUCLEAN;
         }
 
         affs_brelse(cursor);
@@ -127,7 +118,7 @@ int affs_remove_hash(struct inode *dir, struct buffer_head *remove_bh)
         }
 
         if (budget-- == 0U) {
-            result = -EFSCORRUPTED;
+            result = -EUCLEAN;
             break;
         }
 
@@ -267,7 +258,7 @@ static int ifs_amiga_remove_link(struct dentry *dentry)
     if (link_block == (u32)inode->i_ino) {
         link_block = be32_to_cpu(AFFS_TAIL(sb, cursor)->link_chain);
         if (link_block == 0U) {
-            result = -EFSCORRUPTED;
+            result = -EUCLEAN;
             goto out;
         }
 
@@ -313,7 +304,7 @@ static int ifs_amiga_remove_link(struct dentry *dentry)
         }
 
         if (budget-- == 0U) {
-            result = -EFSCORRUPTED;
+            result = -EUCLEAN;
             break;
         }
 
