@@ -661,6 +661,7 @@ static int ext3_splice_branch(handle_t *handle, struct inode *inode,
 	ext3_fsblk_t current_block;
 	struct ext3_inode_info *ei = EXT3_I(inode);
 	struct timespec64 now;
+	struct timespec64 old_ctime;
 
 	block_i = ei->i_block_alloc_info;
 
@@ -691,7 +692,8 @@ static int ext3_splice_branch(handle_t *handle, struct inode *inode,
 
 
 	now = current_time(inode);
-	if (!timespec64_equal(&inode_get_ctime(inode), &now) || !where->bh) {
+	old_ctime = inode_get_ctime(inode);
+	if (!timespec64_equal(&old_ctime, &now) || !where->bh) {
 		inode_set_ctime_to_ts(inode, now);
 		ext3_mark_inode_dirty(handle, inode);
 	}
@@ -1220,64 +1222,84 @@ static void ext3_truncate_failed_direct_write(struct inode *inode)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_write_begin(struct file *file, struct address_space *mapping,
-				loff_t pos, unsigned len, unsigned flags,
-				struct page **pagep, void **fsdata)
+static int ext3_write_begin(struct file *file,
+			    struct address_space *mapping,
+			    loff_t pos, unsigned len,
+			    struct folio **foliop, void **fsdata)
 {
 	struct inode *inode = mapping->host;
 	int ret;
 	handle_t *handle;
 	int retries = 0;
-	struct page *page;
+	struct folio *folio;
 	pgoff_t index;
 	unsigned from, to;
-
-
 	int needed_blocks = ext3_writepage_trans_blocks(inode) + 1;
-
-
 
 	index = pos >> PAGE_SHIFT;
 	from = pos & (PAGE_SIZE - 1);
 	to = from + len;
 
-retry:
-	page = grab_cache_page_write_begin(mapping, index, flags);
-	if (!page)
-		return -ENOMEM;
-	*pagep = page;
+retry_grab:
+	folio = __filemap_get_folio(mapping, index, FGP_WRITEBEGIN,
+				    mapping_gfp_mask(mapping));
+	if (IS_ERR(folio))
+		return PTR_ERR(folio);
 
+	/*
+	 * Allocate buffer heads outside the journal transaction.  EXT3's
+	 * block mapping still runs under the historical JBD handle below.
+	 */
+	if (!folio_buffers(folio))
+		create_empty_buffers(folio, inode->i_sb->s_blocksize, 0);
+	folio_unlock(folio);
+
+retry_journal:
 	handle = ext3_journal_start(inode, needed_blocks);
 	if (IS_ERR(handle)) {
-		unlock_page(page);
-		page_cache_release(page);
-		ret = PTR_ERR(handle);
-		goto out;
+		folio_put(folio);
+		return PTR_ERR(handle);
 	}
-	ret = __block_write_begin(page, pos, len, ext3_get_block);
-	if (ret)
-		goto write_begin_failed;
 
-	if (ext3_should_journal_data(inode)) {
-		ret = walk_page_buffers(handle, page_buffers(page),
-				from, to, NULL, do_journal_get_write_access);
+	folio_lock(folio);
+	if (folio->mapping != mapping) {
+		folio_unlock(folio);
+		folio_put(folio);
+		ext3_journal_stop(handle);
+		goto retry_grab;
 	}
-write_begin_failed:
+	folio_wait_stable(folio);
+
+	ret = __block_write_begin(folio, pos, len, ext3_get_block);
+	if (!ret && ext3_should_journal_data(inode))
+		ret = walk_page_buffers(handle, folio_buffers(folio),
+					from, to, NULL,
+					do_journal_get_write_access);
+
 	if (ret) {
+		bool extended = pos + len > inode->i_size;
 
-
-		if (pos + len > inode->i_size && ext3_can_truncate(inode))
+		folio_unlock(folio);
+		if (extended && ext3_can_truncate(inode))
 			ext3_orphan_add(handle, inode);
 		ext3_journal_stop(handle);
-		unlock_page(page);
-		page_cache_release(page);
-		if (pos + len > inode->i_size)
+
+		if (extended) {
 			ext3_truncate_failed_write(inode);
+			if (inode->i_nlink)
+				ext3_orphan_del(NULL, inode);
+		}
+
+		if (ret == -ENOSPC &&
+		    ext3_should_retry_alloc(inode->i_sb, &retries))
+			goto retry_journal;
+
+		folio_put(folio);
+		return ret;
 	}
-	if (ret == -ENOSPC && ext3_should_retry_alloc(inode->i_sb, &retries))
-		goto retry;
-out:
-	return ret;
+
+	*foliop = folio;
+	return 0;
 }
 
 
@@ -1365,7 +1387,7 @@ static void update_file_sizes(struct inode *inode, loff_t pos, unsigned copied)
 static int ext3_ordered_write_end(struct file *file,
 				struct address_space *mapping,
 				loff_t pos, unsigned len, unsigned copied,
-				struct page *page, void *fsdata)
+				struct folio *folio, void *fsdata)
 {
 	handle_t *handle = ext3_journal_current_handle();
 	struct inode *inode = file->f_mapping->host;
@@ -1373,11 +1395,11 @@ static int ext3_ordered_write_end(struct file *file,
 	int ret = 0, ret2;
 
 
-	copied = block_write_end(file, mapping, pos, len, copied, page, fsdata);
+	copied = block_write_end(file, mapping, pos, len, copied, folio, fsdata);
 
 	from = pos & (PAGE_SIZE - 1);
 	to = from + copied;
-	ret = walk_page_buffers(handle, page_buffers(page),
+	ret = walk_page_buffers(handle, folio_buffers(folio),
 		from, to, NULL, journal_dirty_data_fn);
 
 	if (ret == 0)
@@ -1389,8 +1411,8 @@ static int ext3_ordered_write_end(struct file *file,
 	ret2 = ext3_journal_stop(handle);
 	if (!ret)
 		ret = ret2;
-	unlock_page(page);
-	page_cache_release(page);
+	folio_unlock(folio);
+	folio_put(folio);
 
 	if (pos + len > inode->i_size)
 		ext3_truncate_failed_write(inode);
@@ -1409,22 +1431,22 @@ static int ext3_ordered_write_end(struct file *file,
 static int ext3_writeback_write_end(struct file *file,
 				struct address_space *mapping,
 				loff_t pos, unsigned len, unsigned copied,
-				struct page *page, void *fsdata)
+				struct folio *folio, void *fsdata)
 {
 	handle_t *handle = ext3_journal_current_handle();
 	struct inode *inode = file->f_mapping->host;
 	int ret;
 
 
-	copied = block_write_end(file, mapping, pos, len, copied, page, fsdata);
+	copied = block_write_end(file, mapping, pos, len, copied, folio, fsdata);
 	update_file_sizes(inode, pos, copied);
 
 
 	if (pos + len > inode->i_size && ext3_can_truncate(inode))
 		ext3_orphan_add(handle, inode);
 	ret = ext3_journal_stop(handle);
-	unlock_page(page);
-	page_cache_release(page);
+	folio_unlock(folio);
+	folio_put(folio);
 
 	if (pos + len > inode->i_size)
 		ext3_truncate_failed_write(inode);
@@ -1443,7 +1465,7 @@ static int ext3_writeback_write_end(struct file *file,
 static int ext3_journalled_write_end(struct file *file,
 				struct address_space *mapping,
 				loff_t pos, unsigned len, unsigned copied,
-				struct page *page, void *fsdata)
+				struct folio *folio, void *fsdata)
 {
 	handle_t *handle = ext3_journal_current_handle();
 	struct inode *inode = mapping->host;
@@ -1457,16 +1479,16 @@ static int ext3_journalled_write_end(struct file *file,
 	to = from + len;
 
 	if (copied < len) {
-		if (!PageUptodate(page))
+		if (!folio_test_uptodate(folio))
 			copied = 0;
-		page_zero_new_buffers(page, from + copied, to);
+		folio_zero_new_buffers(folio, from + copied, to);
 		to = from + copied;
 	}
 
-	ret = walk_page_buffers(handle, page_buffers(page), from,
+	ret = walk_page_buffers(handle, folio_buffers(folio), from,
 				to, &partial, write_end_fn);
 	if (!partial)
-		SetPageUptodate(page);
+		folio_mark_uptodate(folio);
 
 	if (pos + copied > inode->i_size)
 		i_size_write(inode, pos + copied);
@@ -1486,8 +1508,8 @@ static int ext3_journalled_write_end(struct file *file,
 	ret2 = ext3_journal_stop(handle);
 	if (!ret)
 		ret = ret2;
-	unlock_page(page);
-	page_cache_release(page);
+	folio_unlock(folio);
+	folio_put(folio);
 
 	if (pos + len > inode->i_size)
 		ext3_truncate_failed_write(inode);
@@ -1599,7 +1621,7 @@ static int ext3_ordered_writepage(struct page *page,
 
 
 	if (!page_has_buffers(page)) {
-		create_empty_buffers(page, inode->i_sb->s_blocksize,
+		create_empty_buffers(page_folio(page), inode->i_sb->s_blocksize,
 				(1 << BH_Dirty)|(1 << BH_Uptodate));
 		page_bufs = page_buffers(page);
 	} else {
@@ -1608,7 +1630,7 @@ static int ext3_ordered_writepage(struct page *page,
 				       NULL, buffer_unmapped)) {
 
 
-			return block_write_full_page(page, NULL, wbc);
+			return block_write_full_folio(page_folio(page), wbc, NULL);
 		}
 	}
 	handle = ext3_journal_start(inode, ext3_writepage_trans_blocks(inode));
@@ -1621,7 +1643,7 @@ static int ext3_ordered_writepage(struct page *page,
 	walk_page_buffers(handle, page_bufs, 0,
 			PAGE_SIZE, NULL, bget_one);
 
-	ret = block_write_full_page(page, ext3_get_block, wbc);
+	ret = block_write_full_folio(page_folio(page), wbc, ext3_get_block);
 
 
 	if (ret == 0)
@@ -1672,7 +1694,7 @@ static int ext3_writeback_writepage(struct page *page,
 				      PAGE_SIZE, NULL, buffer_unmapped)) {
 
 
-			return block_write_full_page(page, NULL, wbc);
+			return block_write_full_folio(page_folio(page), wbc, NULL);
 		}
 	}
 
@@ -1682,7 +1704,7 @@ static int ext3_writeback_writepage(struct page *page,
 		goto out_fail;
 	}
 
-	ret = block_write_full_page(page, ext3_get_block, wbc);
+	ret = block_write_full_folio(page_folio(page), wbc, ext3_get_block);
 
 	err = ext3_journal_stop(handle);
 	if (!ret)
@@ -1732,7 +1754,7 @@ static int ext3_journalled_writepage(struct page *page,
 
 
 		ClearPageChecked(page);
-		ret = __block_write_begin(page, 0, PAGE_SIZE,
+		ret = __block_write_begin(page_folio(page), 0, PAGE_SIZE,
 					  ext3_get_block);
 		if (ret != 0) {
 			ext3_journal_stop(handle);
@@ -1755,7 +1777,7 @@ static int ext3_journalled_writepage(struct page *page,
 	} else {
 
 
-		ret = block_write_full_page(page, NULL, wbc);
+		ret = block_write_full_folio(page_folio(page), wbc, NULL);
 	}
 out:
 	return ret;
@@ -1776,26 +1798,14 @@ out_unlock:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_readpage(struct file *file, struct page *page)
+static int ext3_read_folio(struct file *file, struct folio *folio)
 {
-
-	return mpage_readpage(page, ext3_get_block);
+	return mpage_read_folio(folio, ext3_get_block);
 }
 
-
-/**
- * ext3_readpages - Implements the readpages operation within the inode mapping and lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int
-ext3_readpages(struct file *file, struct address_space *mapping,
-		struct list_head *pages, unsigned nr_pages)
+static void ext3_readahead(struct readahead_control *rac)
 {
-	return mpage_readpages(mapping, pages, nr_pages, ext3_get_block);
+	mpage_readahead(rac, ext3_get_block);
 }
 
 
@@ -1807,38 +1817,25 @@ ext3_readpages(struct file *file, struct address_space *mapping,
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_invalidatepage(struct page *page, unsigned int offset,
-				unsigned int length)
+static void ext3_invalidate_folio(struct folio *folio,
+				      size_t offset, size_t length)
 {
-	journal_t *journal = EXT3_JOURNAL(page->mapping->host);
+	journal_t *journal = EXT3_JOURNAL(folio->mapping->host);
 
+	if (offset == 0 && length == folio_size(folio))
+		folio_clear_checked(folio);
 
-
-
-	if (offset == 0 && length == PAGE_SIZE)
-		ClearPageChecked(page);
-
-	journal_invalidatepage(journal, page, offset, length);
+	journal_invalidatepage(journal, folio, offset, length);
 }
 
-
-/**
- * ext3_releasepage - Implements the releasepage operation within the inode mapping and lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext3_releasepage(struct page *page, gfp_t wait)
+static bool ext3_release_folio(struct folio *folio, gfp_t wait)
 {
-	journal_t *journal = EXT3_JOURNAL(page->mapping->host);
+	journal_t *journal = EXT3_JOURNAL(folio->mapping->host);
 
-
-	WARN_ON(PageChecked(page));
-	if (!page_has_buffers(page))
-		return 0;
-	return journal_try_to_free_buffers(journal, page, wait);
+	WARN_ON(folio_test_checked(folio));
+	if (!folio_buffers(folio))
+		return true;
+	return journal_try_to_free_buffers(journal, folio, wait);
 }
 
 
@@ -1850,10 +1847,10 @@ static int ext3_releasepage(struct page *page, gfp_t wait)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext3_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
-			      loff_t offset)
+static ssize_t ext3_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 {
 	struct file *file = iocb->ki_filp;
+	loff_t offset = iocb->ki_pos;
 	struct inode *inode = file->f_mapping->host;
 	struct ext3_inode_info *ei = EXT3_I(inode);
 	handle_t *handle;
@@ -1886,7 +1883,7 @@ static ssize_t ext3_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 	}
 
 retry:
-	ret = blockdev_direct_IO(iocb, inode, iter, offset, ext3_get_block);
+	ret = blockdev_direct_IO(iocb, inode, iter, ext3_get_block);
 
 
 	if (unlikely(iov_iter_rw(iter) == WRITE && ret < 0)) {
@@ -1943,55 +1940,59 @@ out:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_journalled_set_page_dirty(struct page *page)
+static bool ext3_journalled_dirty_folio(struct address_space *mapping,
+					 struct folio *folio)
 {
-	SetPageChecked(page);
-	return __set_page_dirty_nobuffers(page);
+	folio_set_checked(folio);
+	return filemap_dirty_folio(mapping, folio);
 }
 
 static const struct address_space_operations ext3_ordered_aops = {
-	.readpage		= ext3_readpage,
-	.readpages		= ext3_readpages,
+	.read_folio		= ext3_read_folio,
+	.readahead		= ext3_readahead,
 	.writepage		= ext3_ordered_writepage,
 	.write_begin		= ext3_write_begin,
 	.write_end		= ext3_ordered_write_end,
+	.dirty_folio		= block_dirty_folio,
 	.bmap			= ext3_bmap,
-	.invalidatepage		= ext3_invalidatepage,
-	.releasepage		= ext3_releasepage,
+	.invalidate_folio	= ext3_invalidate_folio,
+	.release_folio		= ext3_release_folio,
 	.direct_IO		= ext3_direct_IO,
-	.migratepage		= buffer_migrate_page,
+	.migrate_folio		= buffer_migrate_folio,
 	.is_partially_uptodate  = block_is_partially_uptodate,
 	.is_dirty_writeback	= buffer_check_dirty_writeback,
-	.error_remove_page	= generic_error_remove_page,
+	.error_remove_folio	= generic_error_remove_folio,
 };
 
 static const struct address_space_operations ext3_writeback_aops = {
-	.readpage		= ext3_readpage,
-	.readpages		= ext3_readpages,
+	.read_folio		= ext3_read_folio,
+	.readahead		= ext3_readahead,
 	.writepage		= ext3_writeback_writepage,
 	.write_begin		= ext3_write_begin,
 	.write_end		= ext3_writeback_write_end,
+	.dirty_folio		= block_dirty_folio,
 	.bmap			= ext3_bmap,
-	.invalidatepage		= ext3_invalidatepage,
-	.releasepage		= ext3_releasepage,
+	.invalidate_folio	= ext3_invalidate_folio,
+	.release_folio		= ext3_release_folio,
 	.direct_IO		= ext3_direct_IO,
-	.migratepage		= buffer_migrate_page,
+	.migrate_folio		= buffer_migrate_folio,
 	.is_partially_uptodate  = block_is_partially_uptodate,
-	.error_remove_page	= generic_error_remove_page,
+	.error_remove_folio	= generic_error_remove_folio,
 };
 
 static const struct address_space_operations ext3_journalled_aops = {
-	.readpage		= ext3_readpage,
-	.readpages		= ext3_readpages,
+	.read_folio		= ext3_read_folio,
+	.readahead		= ext3_readahead,
 	.writepage		= ext3_journalled_writepage,
 	.write_begin		= ext3_write_begin,
 	.write_end		= ext3_journalled_write_end,
-	.set_page_dirty		= ext3_journalled_set_page_dirty,
+	.dirty_folio		= ext3_journalled_dirty_folio,
 	.bmap			= ext3_bmap,
-	.invalidatepage		= ext3_invalidatepage,
-	.releasepage		= ext3_releasepage,
+	.invalidate_folio	= ext3_invalidate_folio,
+	.release_folio		= ext3_release_folio,
+	.migrate_folio		= buffer_migrate_folio_norefs,
 	.is_partially_uptodate  = block_is_partially_uptodate,
-	.error_remove_page	= generic_error_remove_page,
+	.error_remove_folio	= generic_error_remove_folio,
 };
 
 
@@ -2044,7 +2045,7 @@ static int ext3_block_truncate_page(struct inode *inode, loff_t from)
 	iblock = index << (PAGE_SHIFT - inode->i_sb->s_blocksize_bits);
 
 	if (!page_has_buffers(page))
-		create_empty_buffers(page, blocksize, 0);
+		create_empty_buffers(page_folio(page), blocksize, 0);
 
 
 	bh = page_buffers(page);
@@ -2076,7 +2077,7 @@ static int ext3_block_truncate_page(struct inode *inode, loff_t from)
 		set_buffer_uptodate(bh);
 
 	if (!bh_uptodate_or_lock(bh)) {
-		err = bh_submit_read(bh);
+		err = bh_read(bh, 0);
 
 		if (err)
 			goto unlock;
