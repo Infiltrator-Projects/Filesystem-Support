@@ -40,8 +40,7 @@
 
 #define EXT4_JOURNAL(inode)	(EXT4_SB((inode)->i_sb)->s_journal)
 
-int infiltratr_jbd2_init(void);
-void infiltratr_jbd2_exit(void);
+#include "embedded_jbd2.h"
 
 
 
