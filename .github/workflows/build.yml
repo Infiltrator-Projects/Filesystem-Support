@@ -87,7 +87,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          make -C /tmp/linux-6.12.107 M="$PWD/native/filesystems/ext2/kernel" modules
+          # modules_prepare deliberately does not create Module.symvers.  This
+          # job qualifies source/API compatibility against the pinned kernel;
+          # load-time symbol qualification is performed against a built or
+          # installed target kernel that supplies its real Module.symvers.
+          make -C /tmp/linux-6.12.107 \
+            M="$PWD/native/filesystems/ext2/kernel" \
+            KBUILD_MODPOST_WARN=1 modules
+          test -s native/filesystems/ext2/kernel/ext2.ko
 
   windows-manager:
     runs-on: windows-latest
