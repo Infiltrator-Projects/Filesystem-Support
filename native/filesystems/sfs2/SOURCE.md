@@ -19,3 +19,17 @@ The imported C# implementation is reference/migration input, not production
 kernel code. The canonical SFS2 engine will be adapted from real implementation
 behaviour and independently qualified. SFS2 filesystem rules must not be hidden
 inside the SFS core.
+
+
+A second SFS2-capable implementation reference is AmiPart:
+
+- upstream repository: `ChuckyGang/AmiPart`
+- pinned commit: `6f8a0d75fb8ade28af4942230cfb3faa71c488dc`
+- imported code: native SFS/SFS2 formatter and resize implementation
+- licence: MIT, retained verbatim in `reference/amipart/README.md`
+
+AmiPart's C implementation explicitly handles the `SFS\\2` format and is
+tested against media produced by the real Amiga handler. It provides a
+write-side C implementation reference alongside Aaru's independent read-side
+implementation. Both remain migration evidence; neither is production-linked
+as the canonical SFS2 engine.
