@@ -10,6 +10,3 @@ block sizing, root-block cluster limits, reserved-area accounting, and the
 rule that PFS1 media cannot advertise PFS2-only large-file or >1024-byte
 reserved-block features.
 
-The reference PFS3AIO source remains implementation evidence. Production host
-adapters will consume this independently maintained canonical core rather than
-linking the reference tree directly.
