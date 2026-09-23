@@ -211,3 +211,29 @@ ifs_sfs_u32 ifs_sfs_bitmap_word_clear(
 
     return word;
 }
+
+int ifs_sfs_free_count_after_allocate(
+    const ifs_sfs_u32 current_free,
+    const ifs_sfs_u32 allocated_blocks,
+    ifs_sfs_u32 *const new_free)
+{
+    if (new_free == 0 || allocated_blocks > current_free)
+        return -1;
+
+    *new_free = current_free - allocated_blocks;
+    return 0;
+}
+
+int ifs_sfs_free_count_after_release(
+    const ifs_sfs_u32 current_free,
+    const ifs_sfs_u32 released_blocks,
+    const ifs_sfs_u32 total_blocks,
+    ifs_sfs_u32 *const new_free)
+{
+    if (new_free == 0 || current_free > total_blocks ||
+        released_blocks > total_blocks - current_free)
+        return -1;
+
+    *new_free = current_free + released_blocks;
+    return 0;
+}

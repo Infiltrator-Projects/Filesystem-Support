@@ -81,4 +81,15 @@ ifs_sfs_u32 ifs_sfs_bitmap_word_clear(
     ifs_sfs_u32 word,
     ifs_sfs_u32 start_bit,
     ifs_sfs_u32 bit_count);
+
+int ifs_sfs_free_count_after_allocate(
+    ifs_sfs_u32 current_free,
+    ifs_sfs_u32 allocated_blocks,
+    ifs_sfs_u32 *new_free);
+
+int ifs_sfs_free_count_after_release(
+    ifs_sfs_u32 current_free,
+    ifs_sfs_u32 released_blocks,
+    ifs_sfs_u32 total_blocks,
+    ifs_sfs_u32 *new_free);
 #endif

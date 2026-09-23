@@ -209,7 +209,15 @@ int asfs_markspace(struct super_block *sb, u32 block, u32 blocks)
 		return -EIO;
 	}
 
-	if ((errorcode = setfreeblocks(sb, ASFS_SB(sb)->freeblocks - blocks)) == 0) {
+	{
+		u32 new_freeblocks;
+
+		if (ifs_sfs_free_count_after_allocate(
+				ASFS_SB(sb)->freeblocks, blocks,
+				&new_freeblocks) != 0)
+			return -EUCLEAN;
+
+		if ((errorcode = setfreeblocks(sb, new_freeblocks)) == 0) {
 		struct buffer_head *bh;
 		u32 skipblocks = block / ASFS_SB(sb)->blocks_inbitmap;
 		u32 longs = (sb->s_blocksize - sizeof(struct fsBitmap)) >> 2;
@@ -229,6 +237,7 @@ int asfs_markspace(struct super_block *sb, u32 block, u32 blocks)
 				asfs_brelse(bh);
 			} else
 				return -EIO;
+		}
 		}
 	}
 
@@ -273,7 +282,16 @@ int asfs_freespace(struct super_block *sb, u32 block, u32 blocks)
 
 	asfs_debug("freespace: Freeing %d blocks from block %d\n", blocks, block);
 
-	if ((errorcode = setfreeblocks(sb, ASFS_SB(sb)->freeblocks + blocks)) == 0) {
+	{
+		u32 new_freeblocks;
+
+		if (ifs_sfs_free_count_after_release(
+				ASFS_SB(sb)->freeblocks, blocks,
+				ASFS_SB(sb)->totalblocks,
+				&new_freeblocks) != 0)
+			return -EUCLEAN;
+
+		if ((errorcode = setfreeblocks(sb, new_freeblocks)) == 0) {
 		struct buffer_head *bh;
 		u32 skipblocks = block / ASFS_SB(sb)->blocks_inbitmap;
 		u32 longs = (sb->s_blocksize - sizeof(struct fsBitmap)) >> 2;
@@ -293,6 +311,7 @@ int asfs_freespace(struct super_block *sb, u32 block, u32 blocks)
 				asfs_brelse(bh);
 			} else
 				return -EIO;
+		}
 		}
 	}
 
@@ -420,8 +439,14 @@ int asfs_freeadminspace(struct super_block *sb, u32 block)
 
 			if (ifs_sfs_adminspace_block_mask(
 					be32_to_cpu(as->space), block, &mask) == 0) {
+				u32 bits = be32_to_cpu(as->bits);
+
+				if ((bits & mask) == 0U) {
+					asfs_brelse(bh);
+					return -EUCLEAN;
+				}
 				asfs_debug("freeadminspace: Block to be freed is located in AdminSpaceContainer block at %d\n", adminspaceblock);
-				as->bits &= cpu_to_be32(~mask);
+				as->bits = cpu_to_be32(bits & ~mask);
 				asfs_bstore(sb, bh);
 				asfs_brelse(bh);
 				return 0;

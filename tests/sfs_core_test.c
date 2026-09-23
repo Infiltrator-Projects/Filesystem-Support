@@ -94,5 +94,22 @@ int main(void)
         0xfffffffcU)
         return fail("bitmap range clear/clamp is wrong");
 
+
+    {
+        ifs_sfs_u32 new_free = 0U;
+
+        if (ifs_sfs_free_count_after_allocate(10U, 4U, &new_free) != 0 ||
+            new_free != 6U)
+            return fail("valid free-block allocation accounting failed");
+        if (ifs_sfs_free_count_after_allocate(3U, 4U, &new_free) == 0)
+            return fail("free-block allocation underflow was accepted");
+        if (ifs_sfs_free_count_after_release(
+                90U, 10U, 100U, &new_free) != 0 || new_free != 100U)
+            return fail("valid free-block release accounting failed");
+        if (ifs_sfs_free_count_after_release(
+                95U, 6U, 100U, &new_free) == 0)
+            return fail("free-block release overflow was accepted");
+    }
+
     return 0;
 }
