@@ -22,7 +22,7 @@ static int is_power_of_two(const ifs_ext2_u32 value)
 
 IfsExt2Status ifs_ext2_decode_superblock(
     const void *raw_superblock,
-    const size_t raw_size,
+    const ifs_ext2_size_t raw_size,
     IfsExt2Superblock *superblock)
 {
     const ifs_ext2_u8 *raw = (const ifs_ext2_u8 *)raw_superblock;
@@ -159,7 +159,7 @@ IfsExt2Status ifs_ext2_validate_superblock(
 
 IfsExt2Status ifs_ext2_decode_group_descriptor(
     const void *raw_descriptor,
-    const size_t raw_size,
+    const ifs_ext2_size_t raw_size,
     IfsExt2GroupDescriptor *descriptor)
 {
     const ifs_ext2_u8 *raw = (const ifs_ext2_u8 *)raw_descriptor;
