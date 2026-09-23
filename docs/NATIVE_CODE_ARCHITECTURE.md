@@ -34,6 +34,44 @@ Infiltratr Common may supply genuinely generic userspace/portable primitives,
 but neither filesystem semantics nor kernel adapters may depend on GUI,
 package-manager or unrelated application code.
 
+## One filesystem implementation, two OS wrappers
+
+For each filesystem there is exactly **one filesystem implementation**.
+
+`core/` is not merely a parser or a collection of helpers. It is the
+filesystem: format interpretation, allocation, mapping, directory semantics,
+metadata semantics, journaling/recovery rules, mutation logic and other
+filesystem-defined behaviour belong there whenever they can be expressed
+without an operating-system object.
+
+The `linux/` and `windows/` directories are wrappers/adapters around that
+same implementation. They must remain as thin as the host APIs allow.
+
+A target shape is therefore:
+
+```text
+                    ext2/core/
+              canonical EXT2 filesystem
+                    /          \
+                   /            \
+          ext2/linux/          ext2/windows/
+          thin VFS/KO          thin IFS/WDK
+          adapter              adapter
+```
+
+There is no separately maintained "Linux EXT2" and "Windows EXT2". If the same
+filesystem rule would otherwise be implemented in both wrappers, that rule
+belongs in `core/`.
+
+The same rule applies independently to EXT3, EXT4 and every filesystem promoted
+from reference/import state into rewrite state.
+
+During migration, substantial implementation may temporarily remain under
+`linux/` because that is where the working reference implementation currently
+lives. That is a migration condition, not the intended ownership boundary. The
+direction of travel is to move/rewrite filesystem semantics into `core/` and
+leave only unavoidable OS integration in the wrapper.
+
 ## What is canonical filesystem code?
 
 The canonical per-filesystem engine owns facts dictated by the filesystem
