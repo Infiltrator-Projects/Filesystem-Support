@@ -144,13 +144,13 @@ struct inode *affs_iget(struct super_block *sb, unsigned long inode_number)
         inode->i_size = size;
         AFFS_I(inode)->mmu_private = size;
 
-        if (size != 0U) {
-            AFFS_I(inode)->i_blkcnt =
-                (size - 1U) / sbi->s_data_blksize + 1U;
-            AFFS_I(inode)->i_extcnt =
-                (AFFS_I(inode)->i_blkcnt - 1U) /
-                (u32)sbi->s_hashsize + 1U;
-        }
+        if (ifs_amiga_file_block_count(
+                size, sbi->s_data_blksize,
+                &AFFS_I(inode)->i_blkcnt) != 0 ||
+            ifs_amiga_file_extension_count(
+                AFFS_I(inode)->i_blkcnt, (u32)sbi->s_hashsize,
+                &AFFS_I(inode)->i_extcnt) != 0)
+            goto bad_inode;
 
         if (tail->link_chain != 0)
             set_nlink(inode, 2);
