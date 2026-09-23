@@ -160,6 +160,73 @@ ifs_amiga_u32 ifs_amiga_bitmap_scan_mask(const ifs_amiga_u32 bit_offset)
     return 0xffffffffU << (bit_offset & 31U);
 }
 
+int ifs_amiga_bitmap_location(
+    const ifs_amiga_u32 block,
+    const ifs_amiga_u32 reserved_blocks,
+    const ifs_amiga_u32 partition_blocks,
+    const ifs_amiga_u32 bits_per_bitmap,
+    ifs_amiga_u32 *const bitmap_index,
+    ifs_amiga_u32 *const bit_index)
+{
+    ifs_amiga_u32 relative;
+
+    if (bitmap_index == 0 || bit_index == 0 || bits_per_bitmap == 0U ||
+        !ifs_amiga_data_block_valid(
+            block, reserved_blocks, partition_blocks))
+        return -1;
+
+    relative = block - reserved_blocks;
+    *bitmap_index = relative / bits_per_bitmap;
+    *bit_index = relative % bits_per_bitmap;
+    return 0;
+}
+
+ifs_amiga_u32 ifs_amiga_bitmap_valid_word_mask(
+    const ifs_amiga_u32 valid_bits)
+{
+    if (valid_bits == 0U)
+        return 0U;
+    if (valid_bits >= 32U)
+        return 0xffffffffU;
+    return (1U << valid_bits) - 1U;
+}
+
+int ifs_amiga_bitmap_select_free_run(
+    const ifs_amiga_u32 word,
+    const ifs_amiga_u32 start_bit,
+    const ifs_amiga_u32 valid_bits,
+    ifs_amiga_u32 *const first_bit,
+    ifs_amiga_u32 *const run_mask,
+    ifs_amiga_u32 *const run_length)
+{
+    ifs_amiga_u32 bit;
+    ifs_amiga_u32 mask = 0U;
+    ifs_amiga_u32 length = 0U;
+    const ifs_amiga_u32 limit = valid_bits > 32U ? 32U : valid_bits;
+
+    if (first_bit == 0 || run_mask == 0 || run_length == 0 ||
+        start_bit >= limit)
+        return -1;
+
+    for (bit = start_bit; bit < limit; ++bit) {
+        if ((word & (1U << bit)) != 0U)
+            break;
+    }
+    if (bit == limit)
+        return -1;
+
+    *first_bit = bit;
+    while (bit < limit && (word & (1U << bit)) != 0U) {
+        mask |= 1U << bit;
+        length++;
+        bit++;
+    }
+
+    *run_mask = mask;
+    *run_length = length;
+    return 0;
+}
+
 IfsAmigaSymlinkStatus ifs_amiga_translate_symlink(
     const ifs_amiga_u8 *const source,
     const ifs_amiga_u32 source_capacity,
