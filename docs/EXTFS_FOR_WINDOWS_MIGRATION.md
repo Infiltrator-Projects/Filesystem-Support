@@ -212,3 +212,26 @@ Still blocking deletion of the standalone repository:
 
 **Deletion status: NOT SAFE YET.** Keep `ExtFS-for-Windows` unchanged until
 these remaining gates are closed.
+
+
+## Historical binary disposition
+
+The standalone ExtFS-for-Windows release binaries are deliberately **RETIRED**,
+not migrated into the live Filesystem Support product.
+
+They were experimental/test-signed installers for the superseded standalone
+EXT implementation. Carrying those executable installers forward would create
+a second distribution path for code that Filesystem Support is explicitly
+retiring.
+
+For historical verification, Filesystem Support preserves:
+
+- the exact v0.9.9 repository source tree byte-for-byte;
+- release names, dates and release notes;
+- every release asset filename and byte size;
+- GitHub-recorded SHA-256 digests for the release assets where available;
+- the issue/pull-request engineering history and available comments.
+
+This is an explicit RETIRED classification under this ledger, not an accidental
+loss. Deleting the old repository may therefore remove the old downloadable
+experimental binaries without violating the migration preservation rule.
