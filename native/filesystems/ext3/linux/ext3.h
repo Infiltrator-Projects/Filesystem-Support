@@ -987,6 +987,7 @@ struct dir_private_info {
 	struct rb_node	*curr_node;
 	struct fname	*extra_fname;
 	loff_t		last_pos;
+	u64		cookie;
 	__u32		curr_hash;
 	__u32		curr_minor_hash;
 	__u32		next_hash;
