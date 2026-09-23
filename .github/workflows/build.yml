@@ -420,6 +420,33 @@ jobs:
           test -s native/filesystems/ffs/linux/ffs.ko
 
 
+
+  linux-sfs-module:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Linux 6.12.107 build API
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
+          git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
+          make -C /tmp/linux-6.12.107 defconfig
+          make -C /tmp/linux-6.12.107 modules_prepare
+
+      - name: Build native SFS kernel module
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C /tmp/linux-6.12.107 \
+            M="$PWD/native/filesystems/sfs/linux" \
+            KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/sfs-build.log
+          test -s native/filesystems/sfs/linux/sfs.ko
+          ! grep -Fq 'section mismatch' /tmp/sfs-build.log
+
   windows-manager:
     runs-on: windows-latest
     steps:
