@@ -173,3 +173,42 @@ The current Filesystem Support EXT2 kernel source is much more feature-complete,
 Do **not** delete ExtFS-for-Windows yet.
 
 Deletion becomes safe only after the migration checklist in `WINDOWS_FILESYSTEM_ARCHITECTURE.md` has been completed and a final repository-to-repository comparison confirms that no unique source, documentation, test, build/signing logic or required release artifact remains only in ExtFS-for-Windows.
+
+
+## Migration status — 2026-09-23
+
+Completed preservation work:
+
+- the complete `ExtFS-for-Windows` v0.9.9 main tree at
+  `dda219be47033372217149bce8c8ee20f19ded0a` is preserved byte-for-byte under
+  `archive/extfs-for-windows-v0.9.9/`;
+- all 62 source-tree blobs from that baseline match their archived blob SHA;
+- `docs/archive/EXTFS_FOR_WINDOWS_ISSUE_HISTORY.md` preserves the old
+  repository's 27 issue/pull-request records and available discussion;
+- `docs/archive/EXTFS_FOR_WINDOWS_RELEASE_HISTORY.md` preserves metadata,
+  notes, asset names, sizes and recorded SHA-256 digests for all 10 releases;
+- the Windows manager consumes the shared Filesystem Support catalogue and
+  keeps every unqualified Windows implementation non-installable;
+- generic Windows host-readiness and diagnostics tooling now lives under
+  `windows/test/`;
+- `native/platform/windows/` is reserved explicitly for Windows IFS/WDK
+  adaptation only, never filesystem-format duplication;
+- CI/CTest now has a Windows catalogue qualification-gate test.
+
+Still blocking deletion of the standalone repository:
+
+1. the production Windows IFS adapter has not yet been extracted from the old
+   ExtFS driver into `native/platform/windows/`;
+2. WDK build/package/signing orchestration is still only preserved in the
+   archive and has not yet been generalized into the live Windows build path;
+3. EXT2 does not yet use one canonical filesystem engine on both Linux and
+   Windows;
+4. the old ExtFS Windows driver still depends on the archived independent
+   `core/extfs*.c` implementation, so it cannot simply be promoted as the
+   production Windows adapter;
+5. a fresh-clone Windows build/qualification from Filesystem Support has not
+   yet passed;
+6. final repository-to-repository migration closure has not yet been performed.
+
+**Deletion status: NOT SAFE YET.** Keep `ExtFS-for-Windows` unchanged until
+these remaining gates are closed.
