@@ -15,13 +15,12 @@ itself qualify as a rewrite.
 
 ## Directory-layout status
 
-The current `kernel/` paths are not proof of Linux ownership and are not the
-target project structure.  They are temporary migration locations retained
-while individual subsystems are replaced.
+The former `kernel/` staging paths have been retired. Active Linux adapter and
+migration source now lives under each filesystem's `linux/` directory.
 
 A rewritten implementation may move from a migration path such as
-`kernel/file.c` into `core/` and/or `linux/` when its filesystem semantics
-and operating-system glue are separated.  Provenance classification follows the
+`linux/inode.c` into `core/` and/or remain in `linux/` when its filesystem
+semantics and operating-system glue are separated.  Provenance classification follows the
 implementation, not the filename or directory.
 
 The permanent layout is chosen by responsibility and cohesion.  Filesystem
@@ -36,9 +35,9 @@ The following active EXT2 units are maintained as project-authored source:
 - `native/filesystems/ext2/core/ext2_core.h`
 - `native/filesystems/ext2/core/ext2_engine.c`
 - `native/filesystems/ext2/core/ext2_engine.h`
-- `native/filesystems/ext2/kernel/canonical.c`
-- `native/filesystems/ext2/kernel/file.c`
-- `native/filesystems/ext2/kernel/Makefile`
+- `native/filesystems/ext2/linux/canonical.c`
+- `native/filesystems/ext2/linux/file.c`
+- `native/filesystems/ext2/linux/Makefile`
 
 The regular-file unit was replaced on 23 September 2026. Its implementation
 uses the Linux VFS/IOMAP/DAX interfaces as platform APIs but does not retain the
@@ -46,7 +45,7 @@ previous implementation body or third-party author block.
 
 ## EXT2 migration units still to replace
 
-These active kernel units remain migration work and must retain any existing
+These active Linux-side units remain migration work and must retain any existing
 legal provenance until their implementation is genuinely replaced:
 
 - `balloc.c`
@@ -60,14 +59,14 @@ legal provenance until their implementation is genuinely replaced:
 
 ## EXT3 migration state
 
-The active EXT3 kernel tree is still migration-era implementation and is not
+The active EXT3 `linux/` tree is still migration-era implementation and is not
 yet classified as project-authored implementation. Rewrite it subsystem by
 subsystem while preserving the one-`ext3.ko` architecture and EXT3-only
 semantics.
 
 ## EXT4 migration state
 
-The active EXT4 kernel tree is still migration-era implementation and is not
+The active EXT4 `linux/` tree is still migration-era implementation and is not
 yet classified as project-authored implementation. Rewrite it subsystem by
 subsystem while preserving the one-`ext4.ko` architecture, EXT4-only
 registration and complete supported feature set.

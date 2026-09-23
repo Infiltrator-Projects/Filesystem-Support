@@ -39,7 +39,7 @@
   <PropertyGroup><OutDir>$(IntDir)</OutDir><TargetName>filesystem_support_ext2</TargetName></PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;..\..\..\native\filesystems\ext2\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;..\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><ExceptionHandling></ExceptionHandling>
       <PreprocessorDefinitions>DBG=1;IFS_EXT2_WINDOWS_KERNEL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
@@ -47,7 +47,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;..\..\..\native\filesystems\ext2\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;..\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><ExceptionHandling></ExceptionHandling>
       <PreprocessorDefinitions>NDEBUG;IFS_EXT2_WINDOWS_KERNEL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
@@ -55,13 +55,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ext2_driver.c" />
-    <ClCompile Include="..\..\..\native\filesystems\ext2\core\ext2_core.c" />
-    <ClCompile Include="..\..\..\native\filesystems\ext2\core\ext2_engine.c" />
+    <ClCompile Include="..\core\ext2_core.c" />
+    <ClCompile Include="..\core\ext2_engine.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ext2_driver.h" />
-    <ClInclude Include="..\..\..\native\filesystems\ext2\core\ext2_core.h" />
-    <ClInclude Include="..\..\..\native\filesystems\ext2\core\ext2_engine.h" />
+    <ClInclude Include="..\core\ext2_core.h" />
+    <ClInclude Include="..\core\ext2_engine.h" />
   </ItemGroup>
   <ItemGroup><Inf Include="filesystem_support_ext2.inf" /></ItemGroup>
   <ItemGroup><ResourceCompile Include="filesystem_support_ext2.rc" Condition="'$(Platform)'=='x64'" /></ItemGroup>

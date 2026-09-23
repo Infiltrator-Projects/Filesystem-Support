@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <Project>
   <PropertyGroup>
-    <FilesystemSupportWdkPackagesDir Condition="'$(FilesystemSupportWdkPackagesDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\build\windows-wdk-packages</FilesystemSupportWdkPackagesDir>
+    <FilesystemSupportWdkPackagesDir Condition="'$(FilesystemSupportWdkPackagesDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\..\build\windows-wdk-packages</FilesystemSupportWdkPackagesDir>
     <FilesystemSupportWdkVersion>10.0.28000.2526</FilesystemSupportWdkVersion>
   </PropertyGroup>
 

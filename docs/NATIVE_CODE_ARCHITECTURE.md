@@ -130,9 +130,10 @@ adapter glue only where the OS contract genuinely needs it.
 
 ## Migration layout is not the target layout
 
-The current rewrite may temporarily retain Linux-derived file names and
-directories such as `kernel/file.c`, `kernel/inode.c`, `kernel/super.c`
-and `kernel/dir.c`.  Those paths are migration scaffolding, not architectural
+The EXT rewrite may temporarily retain Linux-derived translation-unit names
+such as `linux/file.c`, `linux/inode.c`, `linux/super.c` and `linux/dir.c`.
+The old per-filesystem `kernel/` staging directories have been retired; these
+remaining file boundaries are migration scaffolding, not architectural
 requirements.
 
 Keeping an inherited translation-unit boundary can be useful while replacing a
@@ -151,8 +152,8 @@ The target distinction is responsibility-based:
   per-filesystem `windows/` adapter or reusable Windows platform layer.
 
 A source file may be split during migration when it mixes these responsibilities.
-For example, an inherited `file.c` may contain both filesystem I/O semantics
-and Linux VFS dispatch.  The final implementation should place shared
+For example, a migration-era `linux/file.c` may contain both filesystem I/O
+semantics and Linux VFS dispatch.  The final implementation should place shared
 filesystem behaviour in `core/` and retain only Linux-specific dispatch in
 `linux/`.
 

@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          file=native/filesystems/ext2/kernel/file.c
+          file=native/filesystems/ext2/linux/file.c
           grep -Fq 'Copyright (C) 2026 Shannon Smith' "$file"
           ! grep -Eiq 'linux/fs/ext2|Remy Card|Linus Torvalds|Stephen Tweedie|Red Hat' "$file"
 
@@ -39,11 +39,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test ! -e windows/driver/ext2/ext2_compat.h
-          ! grep -R -E 'archive/extfs-for-windows|core/extfs(_classic_resize|_resize_dispatch)?\.c'               windows/driver windows/build CMakeLists.txt
-          grep -Fq '..\..\..\native\filesystems\ext2\core\ext2_core.c'               windows/driver/ext2/filesystem_support_ext2.vcxproj
-          grep -Fq '..\..\..\native\filesystems\ext2\core\ext2_engine.c'               windows/driver/ext2/filesystem_support_ext2.vcxproj
-          grep -Fq '#include "../../../native/filesystems/ext2/core/ext2_engine.h"'               windows/driver/ext2/ext2_driver.h
+          test ! -e native/filesystems/ext2/windows/ext2_compat.h
+          ! grep -R -E 'archive/extfs-for-windows|core/extfs(_classic_resize|_resize_dispatch)?\.c'               native/filesystems/ext2/windows windows/build CMakeLists.txt
+          grep -Fq '..\core\ext2_core.c'               native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
+          grep -Fq '..\core\ext2_engine.c'               native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
+          grep -Fq '#include "../core/ext2_engine.h"'               native/filesystems/ext2/windows/ext2_driver.h
 
   linux:
     runs-on: ubuntu-24.04
@@ -92,9 +92,9 @@ jobs:
           # load-time symbol qualification is performed against a built or
           # installed target kernel that supplies its real Module.symvers.
           make -C /tmp/linux-6.12.107 \
-            M="$PWD/native/filesystems/ext2/kernel" \
+            M="$PWD/native/filesystems/ext2/linux" \
             KBUILD_MODPOST_WARN=1 modules
-          test -s native/filesystems/ext2/kernel/ext2.ko
+          test -s native/filesystems/ext2/linux/ext2.ko
 
   windows-manager:
     runs-on: windows-latest

@@ -17,7 +17,7 @@ EXT2 is intentionally independent from EXT3 and EXT4. It must not register, moun
 ## Source ownership and migration layout
 
 EXT2 is in active rewrite state.  The currently inherited Linux-style
-translation-unit names under `native/filesystems/ext2/kernel/` are migration
+translation-unit names under `native/filesystems/ext2/linux/` are migration
 boundaries, not the final Filesystem Support architecture.
 
 Files such as `file.c`, `inode.c`, `super.c`, `dir.c` and `namei.c`
@@ -44,9 +44,10 @@ by both operating-system adapters.  Linux still produces exactly one
 `ext2.ko`; changing source-file boundaries does not imply additional kernel
 modules.
 
-The existing `kernel/` directory remains a staging area only until its
-migration-era units have been replaced or moved to their permanent
-`core/`/`linux/` homes.
+The former `kernel/` staging directory has now been retired. The active Linux
+adapter and remaining Linux-side migration units live under `linux/`. As each
+mixed unit is rewritten, portable filesystem semantics move into `core/` while
+Linux-only VFS/module code remains under `linux/`.
 
 ## Module boundary
 
@@ -207,7 +208,7 @@ The EXT2 tree deliberately excludes:
 - separate helper applications;
 - EXT3 or EXT4 registration.
 
-These exclusions are enforced during the import/shaping workflow so a future refresh cannot silently restore them.
+These exclusions remain part of the EXT2 rewrite contract; the EXT trees are not refreshed from upstream while rewrite work is active.
 
 
 ## Source-rewrite policy
@@ -230,10 +231,10 @@ Current conversion state:
 
 - `core/ext2_core.c`, `core/ext2_core.h`, `core/ext2_engine.c` and
   `core/ext2_engine.h` are the project-owned canonical core.
-- `kernel/canonical.c` is the Linux adapter for that canonical core.
-- `kernel/file.c` has been replaced with the Infiltrator regular-file/VFS
+- `linux/canonical.c` is the Linux adapter for that canonical core.
+- `linux/file.c` has been replaced with the Infiltrator regular-file/VFS
   implementation.
-- Remaining kernel units are migration work until their implementation has
+- Remaining Linux migration units are migration work until their implementation has
   been independently replaced and validated.
 
 Legal/provenance notices are removed from a source file only when the inherited

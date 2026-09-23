@@ -16,13 +16,13 @@ The historical JBD journal engine and metadata cache are embedded into `ext3.ko`
 
 ## Source layout
 
-The active implementation lives at:
+The Linux implementation and remaining migration-era source now live at:
 
 ```text
-native/filesystems/ext3/kernel/
+native/filesystems/ext3/linux/
 ```
 
-The shaped tree contains 18 files:
+The current Linux migration tree contains 18 files:
 
 ```text
 Makefile
@@ -48,6 +48,8 @@ jbd_transaction.c
 ```
 
 This is deliberately larger than EXT2 because journaling is a real EXT3 subsystem and its transaction, commit, checkpoint, recovery and revoke engines are substantial enough to remain separate.
+
+`linux/` is the active adapter/migration location, not the eventual home of portable EXT3 semantics. As subsystems are independently rewritten, format logic moves into `core/`; a future Windows adapter belongs under `windows/`.
 
 ## Filesystem identity
 
@@ -177,7 +179,7 @@ then shaped those sources into `ext3.ko` has been retired.  No replacement
 workflow may copy or transform an external implementation into the active
 source tree.
 
-The current kernel directory still contains migration-era implementation that
+The current `linux/` directory still contains migration-era implementation that
 predates this rule.  Those units must retain their existing legal provenance
 until each implementation is genuinely replaced.  The migration is complete
 only when the active EXT3 tree is project-authored implementation throughout,

@@ -10,7 +10,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$driverRoot = Join-Path $root 'windows\driver\ext2'
+$driverRoot = Join-Path $root 'native\filesystems\ext2\windows'
 $solution = Join-Path $driverRoot 'filesystem_support_ext2.sln'
 $project = Join-Path $driverRoot 'filesystem_support_ext2.vcxproj'
 $inf = Join-Path $driverRoot 'filesystem_support_ext2.inf'
@@ -215,7 +215,7 @@ $driver = Get-ChildItem -LiteralPath $driverRoot -Filter filesystem_support_ext2
     Sort-Object LastWriteTimeUtc -Descending |
     Select-Object -First 1
 if (-not $driver) {
-    throw 'The build completed but filesystem_support_ext2.sys could not be located under windows\driver\ext2.'
+    throw 'The build completed but filesystem_support_ext2.sys could not be located under native\filesystems\ext2\windows.'
 }
 $peMachine = Get-PortableExecutableMachine -Path $driver.FullName
 $expectedPeMachine = if ($Platform -eq 'ARM64') { 0xAA64 } else { 0x8664 }

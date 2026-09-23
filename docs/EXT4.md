@@ -16,13 +16,15 @@ JBD2 and the metadata cache are implementation code embedded into `ext4.ko`; the
 
 ## Source layout
 
-The active implementation lives at:
+The Linux implementation and remaining migration-era source now live at:
 
 ```text
-native/filesystems/ext4/kernel/
+native/filesystems/ext4/linux/
 ```
 
-The shaped production tree currently contains 46 files.
+The current Linux migration tree contains 46 files.
+
+`linux/` is the active adapter/migration location, not the permanent home of portable EXT4 semantics. As feature engines are independently rewritten, filesystem-format logic moves into `core/`; a future Windows adapter belongs under `windows/`.
 
 EXT4 is intentionally much larger than EXT2 or EXT3 because its genuine feature engines are large and independent. The project removes tiny organisational splits, compatibility-only code and production-irrelevant tests, but it does not merge large subsystems merely to reduce a file count.
 
@@ -166,7 +168,7 @@ The previous pinned-Linux import/shaping path has been retired.  In particular,
 there is no longer a supported workflow that copies `fs/ext4`, JBD2 or
 mbcache into this repository and edits it into the one-module layout.
 
-The current kernel directory still contains migration-era source from that
+The current `linux/` directory still contains migration-era source from that
 earlier approach.  Existing third-party provenance must remain attached to such
 files until their implementation has actually been replaced.  Each converted
 unit must instead be designed around this project's own module boundaries,

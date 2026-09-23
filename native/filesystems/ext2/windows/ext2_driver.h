@@ -4,7 +4,7 @@
 
 #include <ntifs.h>
 #include <ntdddisk.h>
-#include "../../../native/filesystems/ext2/core/ext2_engine.h"
+#include "../core/ext2_engine.h"
 
 #define EXTFS_POOL_TAG 0x53465845U
 #define EXTFS_VCB_SIGNATURE 0x42435645U /* EVCB */
