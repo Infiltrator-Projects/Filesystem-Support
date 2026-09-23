@@ -119,6 +119,16 @@ int asfs_getextent(struct super_block *sb, u32 key, struct buffer_head **ret_bh,
 		*ret_ebn = NULL;
 		return -ENOENT;
 	}
+	if (ifs_sfs_validate_extent(
+			be32_to_cpu((*ret_ebn)->key),
+			be32_to_cpu((*ret_ebn)->next),
+			be16_to_cpu((*ret_ebn)->blocks),
+			ASFS_SB(sb)->totalblocks) != 0) {
+		asfs_brelse(*ret_bh);
+		*ret_bh = NULL;
+		*ret_ebn = NULL;
+		return -EUCLEAN;
+	}
 
 	return 0;
 }

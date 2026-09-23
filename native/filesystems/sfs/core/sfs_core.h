@@ -3,10 +3,14 @@
 #define INFILTRATOR_SFS_CORE_H
 #if defined(__KERNEL__)
 #include <linux/types.h>
+typedef s32 ifs_sfs_i32;
+typedef s64 ifs_sfs_i64;
 typedef u32 ifs_sfs_u32;
 typedef u64 ifs_sfs_u64;
 #else
 #include <stdint.h>
+typedef int32_t ifs_sfs_i32;
+typedef int64_t ifs_sfs_i64;
 typedef uint32_t ifs_sfs_u32;
 typedef uint64_t ifs_sfs_u64;
 #endif
@@ -130,4 +134,15 @@ int ifs_sfs_validate_btree_layout(
     ifs_sfs_u32 node_size,
     int is_leaf,
     ifs_sfs_u32 *capacity);
+
+int ifs_sfs_validate_extent(
+    ifs_sfs_u32 key,
+    ifs_sfs_u32 next,
+    ifs_sfs_u32 block_count,
+    ifs_sfs_u32 total_blocks);
+
+int ifs_sfs_adjust_counter(
+    ifs_sfs_u32 current,
+    ifs_sfs_i32 delta,
+    ifs_sfs_u32 *result);
 #endif

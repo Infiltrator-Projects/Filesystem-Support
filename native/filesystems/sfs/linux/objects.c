@@ -187,9 +187,21 @@ static int setrecycledinfodiff(struct super_block *sb, s32 deletedfiles, s32 del
 
 	if ((bh = asfs_breadcheck(sb, ASFS_SB(sb)->rootobjectcontainer, ASFS_OBJECTCONTAINER_ID))) {
 		struct fsRootInfo *ri = (struct fsRootInfo *) ((u8 *) bh->b_data + sb->s_blocksize - sizeof(struct fsRootInfo));
+		u32 new_deleted_files;
+		u32 new_deleted_blocks;
 
-		ri->deletedfiles = cpu_to_be32(be32_to_cpu(ri->deletedfiles) + deletedfiles);
-		ri->deletedblocks = cpu_to_be32(be32_to_cpu(ri->deletedblocks) + deletedblocks);
+		if (ifs_sfs_adjust_counter(
+				be32_to_cpu(ri->deletedfiles), deletedfiles,
+				&new_deleted_files) != 0 ||
+		    ifs_sfs_adjust_counter(
+				be32_to_cpu(ri->deletedblocks), deletedblocks,
+				&new_deleted_blocks) != 0) {
+			asfs_brelse(bh);
+			return -EUCLEAN;
+		}
+
+		ri->deletedfiles = cpu_to_be32(new_deleted_files);
+		ri->deletedblocks = cpu_to_be32(new_deleted_blocks);
 
 		asfs_bstore(sb, bh);
 		asfs_brelse(bh);

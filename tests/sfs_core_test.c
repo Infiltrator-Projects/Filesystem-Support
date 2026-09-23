@@ -187,5 +187,32 @@ int main(void)
             return fail("odd short internal btree node was accepted");
     }
 
+
+    if (ifs_sfs_validate_extent(100U, 200U, 10U, 1000U) != 0)
+        return fail("valid SFS extent was rejected");
+    if (ifs_sfs_validate_extent(100U, 200U, 0U, 1000U) == 0)
+        return fail("zero-length SFS extent was accepted");
+    if (ifs_sfs_validate_extent(995U, 0U, 10U, 1000U) == 0)
+        return fail("out-of-volume SFS extent was accepted");
+    if (ifs_sfs_validate_extent(100U, 100U, 10U, 1000U) == 0)
+        return fail("self-linked SFS extent was accepted");
+    if (ifs_sfs_validate_extent(100U, 1000U, 10U, 1000U) == 0)
+        return fail("out-of-volume next extent was accepted");
+
+    {
+        ifs_sfs_u32 counter = 0U;
+
+        if (ifs_sfs_adjust_counter(10U, -4, &counter) != 0 ||
+            counter != 6U)
+            return fail("valid SFS counter decrement failed");
+        if (ifs_sfs_adjust_counter(3U, -4, &counter) == 0)
+            return fail("SFS counter underflow was accepted");
+        if (ifs_sfs_adjust_counter(0xfffffffeU, 1, &counter) != 0 ||
+            counter != 0xffffffffU)
+            return fail("valid SFS counter increment failed");
+        if (ifs_sfs_adjust_counter(0xffffffffU, 1, &counter) == 0)
+            return fail("SFS counter overflow was accepted");
+    }
+
     return 0;
 }

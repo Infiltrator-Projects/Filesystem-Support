@@ -361,3 +361,44 @@ int ifs_sfs_validate_btree_layout(
     *capacity = available_nodes;
     return 0;
 }
+
+int ifs_sfs_validate_extent(
+    const ifs_sfs_u32 key,
+    const ifs_sfs_u32 next,
+    const ifs_sfs_u32 block_count,
+    const ifs_sfs_u32 total_blocks)
+{
+    if (total_blocks == 0U || block_count == 0U ||
+        key == 0U || key >= total_blocks)
+        return -1;
+    if (block_count > total_blocks - key)
+        return -1;
+    if (next != 0U && (next >= total_blocks || next == key))
+        return -1;
+    return 0;
+}
+
+int ifs_sfs_adjust_counter(
+    const ifs_sfs_u32 current,
+    const ifs_sfs_i32 delta,
+    ifs_sfs_u32 *const result)
+{
+    ifs_sfs_u64 amount;
+
+    if (result == 0)
+        return -1;
+
+    if (delta < 0) {
+        amount = (ifs_sfs_u64)(-(ifs_sfs_i64)delta);
+        if (amount > current)
+            return -1;
+        *result = current - (ifs_sfs_u32)amount;
+        return 0;
+    }
+
+    amount = (ifs_sfs_u64)delta;
+    if (amount > 0xffffffffULL - current)
+        return -1;
+    *result = current + (ifs_sfs_u32)amount;
+    return 0;
+}
