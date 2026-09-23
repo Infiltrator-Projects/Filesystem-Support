@@ -11,7 +11,7 @@ static int fail(const char *message)
 
 int main(void)
 {
-    ifs_ext4_u32 group_count = 0U;
+    ifs_ext4_u64 group_count = 0U;
 
     if (ifs_ext4_unsupported_incompat_features(
             IFS_EXT4_FEATURE_INCOMPAT_SUPPORTED) != 0U)
