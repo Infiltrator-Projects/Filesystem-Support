@@ -164,5 +164,28 @@ int main(void)
             return fail("zero node span was accepted");
     }
 
+
+    {
+        ifs_sfs_u32 capacity = 0U;
+
+        if (ifs_sfs_validate_btree_layout(
+                512U, 10U, 14U, 1, &capacity) != 0 ||
+            capacity != 35U)
+            return fail("valid btree extent layout was rejected");
+        if (ifs_sfs_validate_btree_layout(
+                512U, 62U, 8U, 0, &capacity) != 0 ||
+            capacity != 62U)
+            return fail("valid btree internal layout was rejected");
+        if (ifs_sfs_validate_btree_layout(
+                512U, 36U, 14U, 1, &capacity) == 0)
+            return fail("btree nodecount overflow was accepted");
+        if (ifs_sfs_validate_btree_layout(
+                512U, 1U, 12U, 1, &capacity) == 0)
+            return fail("short extent btree node was accepted");
+        if (ifs_sfs_validate_btree_layout(
+                512U, 1U, 7U, 0, &capacity) == 0)
+            return fail("odd short internal btree node was accepted");
+    }
+
     return 0;
 }

@@ -33,6 +33,19 @@
 	   for the Root of the tree).  Be sure to check if the Root
 	   is not empty before calling this function. */
 
+static int asfs_validate_btree_layout(
+	struct super_block *sb,
+	const struct BTreeContainer *btc,
+	u32 *capacity)
+{
+	return ifs_sfs_validate_btree_layout(
+		sb->s_blocksize,
+		be16_to_cpu(btc->nodecount),
+		btc->nodesize,
+		btc->isleaf == TRUE,
+		capacity) == 0 ? 0 : -EUCLEAN;
+}
+
 static struct BNode *searchforbnode(u32 key, struct BTreeContainer *tc)
 {
 	struct BNode *tn;
@@ -63,6 +76,14 @@ static int findbnode(struct super_block *sb, u32 key, struct buffer_head **retur
 	while ((*returned_bh = asfs_breadcheck(sb, rootblock, ASFS_BNODECONTAINER_ID))) {
 		struct fsBNodeContainer *bnc = (void *) (*returned_bh)->b_data;
 		struct BTreeContainer *btc = &bnc->btc;
+		u32 capacity;
+
+		if (asfs_validate_btree_layout(sb, btc, &capacity) != 0) {
+			asfs_brelse(*returned_bh);
+			*returned_bh = NULL;
+			*returned_bnode = NULL;
+			return -EUCLEAN;
+		}
 
 		if (btc->nodecount == 0) {
 			*returned_bnode = NULL;
@@ -132,9 +153,20 @@ static struct BNode *insertbnode(u32 key, struct BTreeContainer *btc)
 
 static int getparentbtreecontainer(struct super_block *sb, struct buffer_head *bh, struct buffer_head **parent_bh)
 {
+	struct fsBNodeContainer *child_bnc = (void *)bh->b_data;
+	struct BTreeContainer *child_btc = &child_bnc->btc;
+	u32 child_capacity;
 	u32 rootblock = ASFS_SB(sb)->extentbnoderoot;
-	u32 childkey = be32_to_cpu(((struct fsBNodeContainer *) bh->b_data)->btc.bnode[0].key);
-	u32 childblock = be32_to_cpu(((struct fsBNodeContainer *) bh->b_data)->bheader.ownblock);
+	u32 childkey;
+	u32 childblock;
+
+	if (asfs_validate_btree_layout(
+			sb, child_btc, &child_capacity) != 0 ||
+		be16_to_cpu(child_btc->nodecount) == 0)
+		return -EUCLEAN;
+
+	childkey = be32_to_cpu(child_btc->bnode[0].key);
+	childblock = be32_to_cpu(child_bnc->bheader.ownblock);
 
 	asfs_debug("getparentbtreecontainer: Getting parent of block %d\n", childblock);
 
@@ -146,7 +178,16 @@ static int getparentbtreecontainer(struct super_block *sb, struct buffer_head *b
 			struct fsBNodeContainer *bnc = (void *) (*parent_bh)->b_data;
 			struct BTreeContainer *btc = &bnc->btc;
 			struct BNode *bn;
-			s16 n = be16_to_cpu(btc->nodecount);
+			u32 capacity;
+			s16 n;
+
+			if (asfs_validate_btree_layout(sb, btc, &capacity) != 0 ||
+			    be16_to_cpu(btc->nodecount) == 0) {
+				asfs_brelse(*parent_bh);
+				*parent_bh = NULL;
+				return -EUCLEAN;
+			}
+			n = be16_to_cpu(btc->nodecount);
 
 			if (btc->isleaf == TRUE) {
 				asfs_brelse(*parent_bh);
@@ -374,6 +415,16 @@ int asfs_deletebnode(struct super_block *sb, struct buffer_head *bh, u32 key)
 					if ((bhsec = asfs_breadcheck(sb, be32_to_cpu(btcparent->bnode[n + 1].data), ASFS_BNODECONTAINER_ID))) {
 						struct fsBNodeContainer *bnc_next = (void *) bhsec->b_data;
 						struct BTreeContainer *btc_next = &bnc_next->btc;
+						u32 next_capacity;
+
+						if (asfs_validate_btree_layout(
+								sb, btc_next, &next_capacity) != 0 ||
+							btc_next->nodesize != btc->nodesize ||
+							btc_next->isleaf != btc->isleaf) {
+							asfs_brelse(bhsec);
+							errorcode = -EUCLEAN;
+							goto out_parent;
+						}
 
 						if (be16_to_cpu(btc_next->nodecount) + be16_to_cpu(btc->nodecount) > branches) {	/* Check if we need to steal nodes. */
 							s16 nodestosteal = (be16_to_cpu(btc_next->nodecount) + be16_to_cpu(btc->nodecount)) / 2 - be16_to_cpu(btc->nodecount);
@@ -408,6 +459,16 @@ int asfs_deletebnode(struct super_block *sb, struct buffer_head *bh, u32 key)
 					if ((bhsec = asfs_breadcheck(sb, be32_to_cpu(btcparent->bnode[n - 1].data), ASFS_BNODECONTAINER_ID)) != NULL) {
 						struct fsBNodeContainer *bnc2 = (void *) bhsec->b_data;
 						struct BTreeContainer *btc2 = &bnc2->btc;
+						u32 previous_capacity;
+
+						if (asfs_validate_btree_layout(
+								sb, btc2, &previous_capacity) != 0 ||
+							btc2->nodesize != btc->nodesize ||
+							btc2->isleaf != btc->isleaf) {
+							asfs_brelse(bhsec);
+							errorcode = -EUCLEAN;
+							goto out_parent;
+						}
 
 						if (be16_to_cpu(btc2->nodecount) + be16_to_cpu(btc->nodecount) > branches) {
 							/* Merging them is not possible.  Steal a few nodes then. */
@@ -444,6 +505,7 @@ int asfs_deletebnode(struct super_block *sb, struct buffer_head *bh, u32 key)
 				   {
 				   // Never happens, except for root and then we don't care.
 				   } */
+out_parent:
 			} else if (btc->nodecount == 1) {
 				/* No parent, so must be root. */
 

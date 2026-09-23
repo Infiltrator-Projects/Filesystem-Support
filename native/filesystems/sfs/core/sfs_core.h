@@ -119,4 +119,15 @@ int ifs_sfs_node_index_slot(
     ifs_sfs_u32 nodes_per_entry,
     ifs_sfs_u32 target_node,
     ifs_sfs_u32 *slot);
+
+#define IFS_SFS_BNODE_CONTAINER_FIXED_SIZE 16U
+#define IFS_SFS_BTREE_INTERNAL_NODE_MIN_SIZE 8U
+#define IFS_SFS_BTREE_EXTENT_NODE_MIN_SIZE 14U
+
+int ifs_sfs_validate_btree_layout(
+    ifs_sfs_u32 block_size,
+    ifs_sfs_u32 node_count,
+    ifs_sfs_u32 node_size,
+    int is_leaf,
+    ifs_sfs_u32 *capacity);
 #endif

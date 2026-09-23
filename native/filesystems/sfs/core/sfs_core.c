@@ -330,3 +330,34 @@ int ifs_sfs_node_index_slot(
     *slot = index;
     return 0;
 }
+
+int ifs_sfs_validate_btree_layout(
+    const ifs_sfs_u32 block_size,
+    const ifs_sfs_u32 node_count,
+    const ifs_sfs_u32 node_size,
+    const int is_leaf,
+    ifs_sfs_u32 *const capacity)
+{
+    ifs_sfs_u32 minimum_node_size;
+    ifs_sfs_u32 available_nodes;
+
+    if (capacity == 0 ||
+        block_size <= IFS_SFS_BNODE_CONTAINER_FIXED_SIZE ||
+        (is_leaf != 0 && is_leaf != 1) ||
+        node_size == 0U || (node_size & 1U) != 0U)
+        return -1;
+
+    minimum_node_size = is_leaf != 0 ?
+        IFS_SFS_BTREE_EXTENT_NODE_MIN_SIZE :
+        IFS_SFS_BTREE_INTERNAL_NODE_MIN_SIZE;
+    if (node_size < minimum_node_size)
+        return -1;
+
+    available_nodes =
+        (block_size - IFS_SFS_BNODE_CONTAINER_FIXED_SIZE) / node_size;
+    if (available_nodes == 0U || node_count > available_nodes)
+        return -1;
+
+    *capacity = available_nodes;
+    return 0;
+}
