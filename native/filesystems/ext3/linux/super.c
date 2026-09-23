@@ -628,7 +628,7 @@ static int ext3_drop_inode(struct inode *inode)
 {
 	int drop = generic_drop_inode(inode);
 
-	trace_ext3_drop_inode(inode, drop);
+
 	return drop;
 }
 
@@ -2877,7 +2877,7 @@ static int ext3_sync_fs(struct super_block *sb, int wait)
 {
 	tid_t target;
 
-	trace_ext3_sync_fs(sb, wait);
+
 
 
 	dquot_writeback_dquots(sb, -1);
