@@ -684,6 +684,8 @@ int ext2_delete_entry(struct ext2_dir_entry_2 *dir, struct folio *folio)
 {
 	struct inode *inode = folio->mapping->host;
 	size_t from, to;
+	ifs_ext2_u32 span_offset = 0U;
+	ifs_ext2_u32 span_length = 0U;
 	char *kaddr;
 	loff_t pos;
 	ext2_dirent *de, *pde = NULL;
@@ -704,11 +706,21 @@ int ext2_delete_entry(struct ext2_dir_entry_2 *dir, struct folio *folio)
 		pde = de;
 		de = ext2_next_entry(de);
 	}
-	if (pde)
-		from = offset_in_folio(folio, pde);
+	err = ifs_ext2_directory_delete_span(
+		(ifs_ext2_u32)offset_in_folio(folio, dir),
+		(ifs_ext2_u32)ext2_rec_len_from_disk(dir->rec_len),
+		pde != NULL,
+		pde ? (ifs_ext2_u32)offset_in_folio(folio, pde) : 0U,
+		(ifs_ext2_u32)ext2_chunk_size(inode),
+		&span_offset, &span_length);
+	if (err != IFS_EXT2_OK)
+		return -EFSCORRUPTED;
+
+	from = span_offset;
+	to = from + span_length;
 	pos = folio_pos(folio) + from;
 	folio_lock(folio);
-	err = ext2_prepare_chunk(folio, pos, to - from);
+	err = ext2_prepare_chunk(folio, pos, span_length);
 	if (err) {
 		folio_unlock(folio);
 		return err;
@@ -716,7 +728,7 @@ int ext2_delete_entry(struct ext2_dir_entry_2 *dir, struct folio *folio)
 	if (pde)
 		pde->rec_len = ext2_rec_len_to_disk(to - from);
 	dir->inode = 0;
-	ext2_commit_chunk(folio, pos, to - from);
+	ext2_commit_chunk(folio, pos, span_length);
 	inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
 	EXT2_I(inode)->i_flags &= ~EXT2_BTREE_FL;
 	mark_inode_dirty(inode);
