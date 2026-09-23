@@ -92,4 +92,14 @@ int ifs_sfs_free_count_after_release(
     ifs_sfs_u32 released_blocks,
     ifs_sfs_u32 total_blocks,
     ifs_sfs_u32 *new_free);
+
+ifs_sfs_u32 ifs_sfs_calculate_block_checksum(
+    const unsigned char *block,
+    ifs_sfs_u32 block_size);
+
+int ifs_sfs_validate_block_header(
+    const unsigned char *block,
+    ifs_sfs_u32 block_size,
+    ifs_sfs_u32 expected_block_number,
+    ifs_sfs_u32 expected_block_id);
 #endif

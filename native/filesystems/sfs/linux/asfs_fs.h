@@ -91,12 +91,9 @@ u32 asfs_calcchecksum(void *block, u32 blocksize);
 static inline int
 asfs_check_block(struct fsBlockHeader *block, u32 blocksize, u32 n, u32 id)
 {
-	if (asfs_calcchecksum(block, blocksize) ==
-	    be32_to_cpu(((struct fsBlockHeader *) block)->checksum) &&
-	    n == be32_to_cpu(((struct fsBlockHeader *) block)->ownblock) &&
-	    id == be32_to_cpu(((struct fsBlockHeader *) block)->id))
-		return TRUE;
-	return FALSE;
+	return ifs_sfs_validate_block_header(
+		(const unsigned char *)block, blocksize, n, id) ?
+		TRUE : FALSE;
 }
 
 /* get fs structure from block and do some checks... */
@@ -104,20 +101,35 @@ static inline struct buffer_head *
 asfs_breadcheck(struct super_block *sb, u32 n, u32 type)
 {
 	struct buffer_head *bh;
-	if ((bh = sb_bread(sb, n))) {
-		if (asfs_check_block ((void *)bh->b_data, sb->s_blocksize, n, type)) {
-			return bh;	/* all okay */
-		}
+
+	if (ASFS_SB(sb)->totalblocks != 0U &&
+	    n >= ASFS_SB(sb)->totalblocks)
+		return NULL;
+
+	bh = sb_bread(sb, n);
+	if (bh) {
+		if (asfs_check_block((void *)bh->b_data, sb->s_blocksize,
+				     n, type))
+			return bh;
 		brelse(bh);
 	}
-	return NULL;		/* error */
+	return NULL;
 }
 
 static inline struct buffer_head *
 asfs_getzeroblk(struct super_block *sb, int block)
 {
 	struct buffer_head *bh;
+
+	if (block < 0 ||
+	    (ASFS_SB(sb)->totalblocks != 0U &&
+	     (u32)block >= ASFS_SB(sb)->totalblocks))
+		return NULL;
+
 	bh = sb_getblk(sb, block);
+	if (!bh)
+		return NULL;
+
 	lock_buffer(bh);
 	memset(bh->b_data, 0, sb->s_blocksize);
 	set_buffer_uptodate(bh);

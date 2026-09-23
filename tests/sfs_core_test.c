@@ -111,5 +111,29 @@ int main(void)
             return fail("free-block release overflow was accepted");
     }
 
+
+    {
+        unsigned char block[12] = {
+            0x12U, 0x34U, 0x56U, 0x78U,
+            0U, 0U, 0U, 0U,
+            0U, 0U, 0U, 5U
+        };
+        ifs_sfs_u32 checksum =
+            ifs_sfs_calculate_block_checksum(block, sizeof(block));
+
+        block[4] = (unsigned char)(checksum >> 24);
+        block[5] = (unsigned char)(checksum >> 16);
+        block[6] = (unsigned char)(checksum >> 8);
+        block[7] = (unsigned char)checksum;
+
+        if (ifs_sfs_validate_block_header(
+                block, sizeof(block), 5U, 0x12345678U) == 0)
+            return fail("valid canonical block checksum was rejected");
+        block[11] = 6U;
+        if (ifs_sfs_validate_block_header(
+                block, sizeof(block), 5U, 0x12345678U) != 0)
+            return fail("wrong SFS ownblock was accepted");
+    }
+
     return 0;
 }

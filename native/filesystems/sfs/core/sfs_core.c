@@ -237,3 +237,45 @@ int ifs_sfs_free_count_after_release(
     *new_free = current_free + released_blocks;
     return 0;
 }
+
+static ifs_sfs_u32 ifs_sfs_read_be32(const unsigned char *const data)
+{
+    return ((ifs_sfs_u32)data[0] << 24) |
+           ((ifs_sfs_u32)data[1] << 16) |
+           ((ifs_sfs_u32)data[2] << 8) |
+           (ifs_sfs_u32)data[3];
+}
+
+ifs_sfs_u32 ifs_sfs_calculate_block_checksum(
+    const unsigned char *const block,
+    const ifs_sfs_u32 block_size)
+{
+    ifs_sfs_u32 checksum = 1U;
+    ifs_sfs_u32 offset;
+
+    if (block == 0 || block_size < IFS_SFS_BLOCK_HEADER_SIZE ||
+        (block_size & 3U) != 0U)
+        return 0U;
+
+    for (offset = 0U; offset < block_size; offset += 4U)
+        checksum += ifs_sfs_read_be32(block + offset);
+
+    checksum -= ifs_sfs_read_be32(block + 4U);
+    return 0U - checksum;
+}
+
+int ifs_sfs_validate_block_header(
+    const unsigned char *const block,
+    const ifs_sfs_u32 block_size,
+    const ifs_sfs_u32 expected_block_number,
+    const ifs_sfs_u32 expected_block_id)
+{
+    if (block == 0 || block_size < IFS_SFS_BLOCK_HEADER_SIZE ||
+        (block_size & 3U) != 0U)
+        return 0;
+
+    return ifs_sfs_read_be32(block) == expected_block_id &&
+           ifs_sfs_read_be32(block + 8U) == expected_block_number &&
+           ifs_sfs_read_be32(block + 4U) ==
+               ifs_sfs_calculate_block_checksum(block, block_size);
+}

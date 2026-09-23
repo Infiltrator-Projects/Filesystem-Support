@@ -77,13 +77,7 @@ static char asfs_default_iocharset[] = CONFIG_NLS_DEFAULT;
 
 u32 asfs_calcchecksum(void *block, u32 blocksize)
 {
-	u32 *data = block, checksum = 1;
-	while (blocksize > 0) {
-		checksum += be32_to_cpu(*data++);
-		blocksize -= 4;
-	}
-	checksum -= be32_to_cpu(((struct fsBlockHeader *)block)->checksum);
-	return -checksum;
+	return ifs_sfs_calculate_block_checksum(block, blocksize);
 }
 
 static const struct super_operations asfs_ops = {
