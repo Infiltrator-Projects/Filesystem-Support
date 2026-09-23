@@ -47,6 +47,7 @@
  */
 
 #include <linux/quotaops.h>
+#include <linux/iversion.h>
 #include "ext3.h"
 
 
