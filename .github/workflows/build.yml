@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: filesystem-support-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   source-boundary:
     runs-on: ubuntu-24.04
