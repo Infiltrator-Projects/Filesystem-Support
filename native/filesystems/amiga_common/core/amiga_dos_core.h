@@ -45,6 +45,22 @@ int ifs_amiga_bitmap_select_free_run(
     ifs_amiga_u32 *run_mask,
     ifs_amiga_u32 *run_length);
 
+int ifs_amiga_file_block_location(
+    ifs_amiga_u32 logical_block,
+    ifs_amiga_u32 entries_per_extension,
+    ifs_amiga_u32 *extension_index,
+    ifs_amiga_u32 *entry_index);
+
+int ifs_amiga_file_block_count(
+    ifs_amiga_u32 file_size,
+    ifs_amiga_u32 data_bytes_per_block,
+    ifs_amiga_u32 *block_count);
+
+int ifs_amiga_file_extension_count(
+    ifs_amiga_u32 block_count,
+    ifs_amiga_u32 entries_per_extension,
+    ifs_amiga_u32 *extension_count);
+
 #define IFS_AMIGA_DOS_NAME_MAX 30U
 
 typedef enum IfsAmigaNameStatus {
