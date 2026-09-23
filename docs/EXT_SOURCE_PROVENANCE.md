@@ -59,17 +59,28 @@ legal provenance until their implementation is genuinely replaced:
 
 ## EXT3 migration state
 
-The active EXT3 `linux/` tree is still migration-era implementation and is not
-yet classified as project-authored implementation. Rewrite it subsystem by
-subsystem while preserving the one-`ext3.ko` architecture and EXT3-only
-semantics.
+EXT3 now has a project-authored canonical core for feature compatibility policy:
+
+- `native/filesystems/ext3/core/ext3_core.c`
+- `native/filesystems/ext3/core/ext3_core.h`
+
+The Linux wrapper links that exact core through `linux/canonical.c`. The rest of
+the active EXT3 `linux/` tree remains migration-era implementation and must be
+replaced subsystem by subsystem while preserving the one-`ext3.ko` architecture
+and EXT3-only semantics.
 
 ## EXT4 migration state
 
-The active EXT4 `linux/` tree is still migration-era implementation and is not
-yet classified as project-authored implementation. Rewrite it subsystem by
-subsystem while preserving the one-`ext4.ko` architecture, EXT4-only
-registration and complete supported feature set.
+EXT4 now has a project-authored canonical core for feature compatibility and
+bigalloc format invariants:
+
+- `native/filesystems/ext4/core/ext4_core.c`
+- `native/filesystems/ext4/core/ext4_core.h`
+
+The Linux wrapper links that exact core through `linux/canonical.c`. The rest of
+the active EXT4 `linux/` tree remains migration-era implementation and must be
+replaced feature by feature while preserving the one-`ext4.ko` architecture,
+EXT4-only registration and the complete supported feature set.
 
 ## Retired EXT mechanisms
 
