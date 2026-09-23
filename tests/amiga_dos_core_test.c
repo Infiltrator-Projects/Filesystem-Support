@@ -13,7 +13,7 @@ int main(void)
     static const ifs_amiga_u8 normal[] = "ReadMe";
     static const ifs_amiga_u8 bad[] = "bad:name";
     ifs_amiga_u8 block[24] = { 0 };
-    const ifs_amiga_u32 checksum = 0xfffffff9U;
+    const ifs_amiga_u32 checksum = 0xfffffffaU;
 
     if (ifs_amiga_validate_name(normal, 6U, 1) != IFS_AMIGA_NAME_OK)
         return fail("valid name rejected");

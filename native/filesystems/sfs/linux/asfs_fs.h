@@ -205,11 +205,11 @@ static inline bool asfs_object_slot_fits(
 {
     const u8 *const start = (const u8 *)container;
     const u8 *const end = start + sb->s_blocksize;
-    const u8 *const current = (const u8 *)object;
+    const u8 *const object_bytes = (const u8 *)object;
 
-    if (current < start || current > end)
+    if (object_bytes < start || object_bytes > end)
         return false;
-    return (size_t)(end - current) >= sizeof(struct fsObject) + 2U;
+    return (size_t)(end - object_bytes) >= sizeof(struct fsObject) + 2U;
 }
 
 /* objects */

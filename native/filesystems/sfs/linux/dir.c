@@ -80,7 +80,7 @@ int asfs_readdir(struct file *filp, struct dir_context *ctx)
 
 			if (!next) {
 				asfs_brelse(bh);
-				return -EFSCORRUPTED;
+				return -EUCLEAN;
 			}
 
 			if (!add && objectnode == startnode)
@@ -132,7 +132,7 @@ static struct fsObject *asfs_find_obj_by_name_nls(struct super_block *sb, struct
 		struct fsObject *next = asfs_nextobject(sb, objcont, obj);
 
 		if (!next)
-			return ERR_PTR(-EFSCORRUPTED);
+			return ERR_PTR(-EUCLEAN);
 		asfs_translate(buf, obj->name, ASFS_SB(sb)->nls_io,
 			       ASFS_SB(sb)->nls_disk, sizeof(buf));
 		if (asfs_namecmp(buf, name,

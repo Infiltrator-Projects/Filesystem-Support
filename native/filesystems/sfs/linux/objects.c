@@ -66,7 +66,7 @@ struct fsObject *asfs_find_obj_by_name(struct super_block *sb, struct fsObjectCo
 		struct fsObject *next = asfs_nextobject(sb, objcont, obj);
 
 		if (!next)
-			return ERR_PTR(-EFSCORRUPTED);
+			return ERR_PTR(-EUCLEAN);
 		if (asfs_namecmp(obj->name, name,
 				 ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE,
 				 NULL) == 0) {
@@ -90,7 +90,7 @@ static struct fsObject *find_obj_by_node(struct super_block *sb, struct fsObject
 		struct fsObject *next = asfs_nextobject(sb, objcont, obj);
 
 		if (!next)
-			return ERR_PTR(-EFSCORRUPTED);
+			return ERR_PTR(-EUCLEAN);
 		if (be32_to_cpu(obj->objectnode) == objnode)
 			return obj;
 		obj = next;
@@ -221,7 +221,7 @@ static int simpleremoveobject(struct super_block *sb, struct buffer_head *bh, st
 			asfs_nextobject(sb, oc, oc->object);
 
 		if (!first_next || !asfs_object_slot_fits(sb, oc, first_next))
-			return -EFSCORRUPTED;
+			return -EUCLEAN;
 		if (first_next->name[0] == '\0')
 			return removeobjectcontainer(sb, bh);
 	}
@@ -231,7 +231,7 @@ static int simpleremoveobject(struct super_block *sb, struct buffer_head *bh, st
 
 		nexto = asfs_nextobject(sb, oc, o);
 		if (!nexto)
-			return -EFSCORRUPTED;
+			return -EUCLEAN;
 		objlen = (u8 *)nexto - (u8 *)o;
 
 		memmove(o, nexto, sb->s_blocksize - ((u8 *) nexto - (u8 *) oc));
@@ -453,7 +453,7 @@ static int findobjectspace(struct super_block *sb, struct buffer_head **io_bh, s
 		emptyspace = emptyspaceinobjectcontainer(sb, oc);
 		if (!emptyspace) {
 			asfs_brelse(bh);
-			return -EFSCORRUPTED;
+			return -EUCLEAN;
 		}
 
 		if ((u8 *) oc + sb->s_blocksize - emptyspace >= bytesneeded) {
@@ -699,7 +699,7 @@ int asfs_renameobject(struct super_block *sb, struct buffer_head *bh1, struct fs
 
 	object = *o1;
 	if (strscpy(oldname, o1->name, sizeof(oldname)) < 0)
-		return -EFSCORRUPTED;
+		return -EUCLEAN;
 
 	if ((errorcode = dehashobjectquick(sb, be32_to_cpu(o1->objectnode), o1->name, oldparentnode)) == 0) {
 		u32 parentobjectnode = be32_to_cpu(oparent->objectnode);
