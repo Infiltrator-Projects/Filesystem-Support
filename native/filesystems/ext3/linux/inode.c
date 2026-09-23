@@ -44,6 +44,7 @@
  *   non-obvious design intent. They deliberately avoid restating C syntax.
  */
 
+#include <linux/fiemap.h>
 #include <linux/highuid.h>
 #include <linux/quotaops.h>
 #include <linux/writeback.h>
@@ -264,7 +265,7 @@ void ext3_evict_inode (struct inode *inode)
 
 
 	ext3_orphan_del(handle, inode);
-	ei->i_dtime = get_seconds();
+	ei->i_dtime = ktime_get_real_seconds();
 
 
 	if (ext3_mark_inode_dirty(handle, inode)) {
@@ -659,7 +660,7 @@ static int ext3_splice_branch(handle_t *handle, struct inode *inode,
 	struct ext3_block_alloc_info *block_i;
 	ext3_fsblk_t current_block;
 	struct ext3_inode_info *ei = EXT3_I(inode);
-	struct timespec now;
+	struct timespec64 now;
 
 	block_i = ei->i_block_alloc_info;
 
@@ -689,9 +690,9 @@ static int ext3_splice_branch(handle_t *handle, struct inode *inode,
 	}
 
 
-	now = CURRENT_TIME_SEC;
-	if (!timespec_equal(&inode->i_ctime, &now) || !where->bh) {
-		inode->i_ctime = now;
+	now = current_time(inode);
+	if (!timespec64_equal(&inode_get_ctime(inode), &now) || !where->bh) {
+		inode_set_ctime_to_ts(inode, now);
 		ext3_mark_inode_dirty(handle, inode);
 	}
 
@@ -909,11 +910,110 @@ out:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
+static inline sector_t ext3_logical_to_blk(struct inode *inode,
+					       loff_t offset)
+{
+	return offset >> inode->i_blkbits;
+}
+
+static inline loff_t ext3_blk_to_logical(struct inode *inode, sector_t block)
+{
+	return (loff_t)block << inode->i_blkbits;
+}
+
 int ext3_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		u64 start, u64 len)
 {
-	return generic_block_fiemap(inode, fieinfo, start, len,
-				    ext3_get_block);
+	struct buffer_head map_bh;
+	sector_t start_blk, last_blk;
+	loff_t isize;
+	u64 logical = 0, phys = 0, size = 0;
+	u32 flags = FIEMAP_EXTENT_MERGED;
+	bool past_eof = false;
+	bool whole_file = false;
+	int ret;
+
+	ret = fiemap_prep(inode, fieinfo, start, &len, 0);
+	if (ret)
+		return ret;
+
+	inode_lock(inode);
+	isize = i_size_read(inode);
+	if (len >= isize) {
+		whole_file = true;
+		len = isize;
+	}
+	if (!len)
+		goto out_unlock;
+
+	if (ext3_logical_to_blk(inode, len) == 0)
+		len = ext3_blk_to_logical(inode, 1);
+
+	start_blk = ext3_logical_to_blk(inode, start);
+	last_blk = ext3_logical_to_blk(inode, start + len - 1);
+
+	for (;;) {
+		memset(&map_bh, 0, sizeof(map_bh));
+		map_bh.b_size = len;
+
+		ret = ext3_get_block(inode, start_blk, &map_bh, 0);
+		if (ret)
+			break;
+
+		if (!buffer_mapped(&map_bh)) {
+			start_blk++;
+			if (!past_eof &&
+			    ext3_blk_to_logical(inode, start_blk) >= isize)
+				past_eof = true;
+
+			if (past_eof && size) {
+				ret = fiemap_fill_next_extent(fieinfo, logical, phys,
+							      size,
+							      FIEMAP_EXTENT_MERGED |
+							      FIEMAP_EXTENT_LAST);
+			} else if (size) {
+				ret = fiemap_fill_next_extent(fieinfo, logical, phys,
+							      size, flags);
+				size = 0;
+			}
+
+			if (start_blk > last_blk || past_eof || ret)
+				break;
+		} else {
+			if (start_blk > last_blk && !whole_file) {
+				ret = fiemap_fill_next_extent(fieinfo, logical, phys,
+							      size, flags);
+				break;
+			}
+			if (size) {
+				ret = fiemap_fill_next_extent(fieinfo, logical, phys,
+							      size, flags);
+				if (ret)
+					break;
+			}
+
+			logical = ext3_blk_to_logical(inode, start_blk);
+			phys = ext3_blk_to_logical(inode, map_bh.b_blocknr);
+			size = map_bh.b_size;
+			flags = FIEMAP_EXTENT_MERGED;
+			start_blk += ext3_logical_to_blk(inode, size);
+
+			if (!past_eof && logical + size >= isize)
+				past_eof = true;
+		}
+
+		cond_resched();
+		if (fatal_signal_pending(current)) {
+			ret = -EINTR;
+			break;
+		}
+	}
+
+	if (ret == 1)
+		ret = 0;
+out_unlock:
+	inode_unlock(inode);
+	return ret;
 }
 
 
@@ -2398,12 +2498,14 @@ do_indirects:
 			ext3_free_branches(handle, inode, NULL, &nr, &nr+1, 1);
 			i_data[EXT3_IND_BLOCK] = 0;
 		}
+		fallthrough;
 	case EXT3_IND_BLOCK:
 		nr = i_data[EXT3_DIND_BLOCK];
 		if (nr) {
 			ext3_free_branches(handle, inode, NULL, &nr, &nr+1, 2);
 			i_data[EXT3_DIND_BLOCK] = 0;
 		}
+		fallthrough;
 	case EXT3_DIND_BLOCK:
 		nr = i_data[EXT3_TIND_BLOCK];
 		if (nr) {
@@ -2417,7 +2519,7 @@ do_indirects:
 	ext3_discard_reservation(inode);
 
 	mutex_unlock(&ei->truncate_mutex);
-	inode->i_mtime = inode->i_ctime = CURRENT_TIME_SEC;
+	inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
 	ext3_mark_inode_dirty(handle, inode);
 
 
@@ -2707,10 +2809,9 @@ struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 	i_gid_write(inode, i_gid);
 	set_nlink(inode, le16_to_cpu(raw_inode->i_links_count));
 	inode->i_size = le32_to_cpu(raw_inode->i_size);
-	inode->i_atime.tv_sec = (signed)le32_to_cpu(raw_inode->i_atime);
-	inode->i_ctime.tv_sec = (signed)le32_to_cpu(raw_inode->i_ctime);
-	inode->i_mtime.tv_sec = (signed)le32_to_cpu(raw_inode->i_mtime);
-	inode->i_atime.tv_nsec = inode->i_ctime.tv_nsec = inode->i_mtime.tv_nsec = 0;
+	inode_set_atime(inode, (signed)le32_to_cpu(raw_inode->i_atime), 0);
+	inode_set_ctime(inode, (signed)le32_to_cpu(raw_inode->i_ctime), 0);
+	inode_set_mtime(inode, (signed)le32_to_cpu(raw_inode->i_mtime), 0);
 
 	ei->i_state_flags = 0;
 	ei->i_dir_start_lookup = 0;
@@ -2809,6 +2910,7 @@ struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 			inode->i_link = (char *)ei->i_data;
 		} else {
 			inode->i_op = &ext3_symlink_inode_operations;
+			inode_nohighmem(inode);
 			ext3_set_aops(inode);
 		}
 	} else {
@@ -2892,9 +2994,9 @@ again:
 		need_datasync = 1;
 		raw_inode->i_size = disksize;
 	}
-	raw_inode->i_atime = cpu_to_le32(inode->i_atime.tv_sec);
-	raw_inode->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
-	raw_inode->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
+	raw_inode->i_atime = cpu_to_le32(inode_get_atime_sec(inode));
+	raw_inode->i_ctime = cpu_to_le32(inode_get_ctime_sec(inode));
+	raw_inode->i_mtime = cpu_to_le32(inode_get_mtime_sec(inode));
 	raw_inode->i_blocks = cpu_to_le32(inode->i_blocks);
 	raw_inode->i_dtime = cpu_to_le32(ei->i_dtime);
 	raw_inode->i_flags = cpu_to_le32(ei->i_flags);
@@ -3007,17 +3109,18 @@ int ext3_write_inode(struct inode *inode, struct writeback_control *wbc)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-int ext3_setattr(struct dentry *dentry, struct iattr *attr)
+int ext3_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+		 struct iattr *attr)
 {
 	struct inode *inode = d_inode(dentry);
 	int error, rc = 0;
 	const unsigned int ia_valid = attr->ia_valid;
 
-	error = inode_change_ok(inode, attr);
+	error = setattr_prepare(idmap, dentry, attr);
 	if (error)
 		return error;
 
-	if (is_quota_modification(inode, attr))
+	if (is_quota_modification(idmap, inode, attr))
 		dquot_initialize(inode);
 	if ((ia_valid & ATTR_UID && !uid_eq(attr->ia_uid, inode->i_uid)) ||
 	    (ia_valid & ATTR_GID && !gid_eq(attr->ia_gid, inode->i_gid))) {
@@ -3030,7 +3133,7 @@ int ext3_setattr(struct dentry *dentry, struct iattr *attr)
 			error = PTR_ERR(handle);
 			goto err_out;
 		}
-		error = dquot_transfer(inode, attr);
+		error = dquot_transfer(idmap, inode, attr);
 		if (error) {
 			ext3_journal_stop(handle);
 			return error;
@@ -3091,11 +3194,11 @@ int ext3_setattr(struct dentry *dentry, struct iattr *attr)
 		ext3_truncate(inode);
 	}
 
-	setattr_copy(inode, attr);
+	setattr_copy(idmap, inode, attr);
 	mark_inode_dirty(inode);
 
 	if (ia_valid & ATTR_MODE)
-		rc = posix_acl_chmod(inode, inode->i_mode);
+		rc = posix_acl_chmod(idmap, dentry, inode->i_mode);
 
 err_out:
 	ext3_std_error(inode->i_sb, error);
@@ -3318,26 +3421,17 @@ int ext3_change_inode_journal_flag(struct inode *inode, int val)
 
 
 const struct inode_operations ext3_symlink_inode_operations = {
-	.readlink	= generic_readlink,
-	.follow_link	= page_follow_link_light,
-	.put_link	= page_put_link,
+	.get_link	= page_get_link,
 	.setattr	= ext3_setattr,
 #ifdef CONFIG_EXT3_FS_XATTR
-	.setxattr	= generic_setxattr,
-	.getxattr	= generic_getxattr,
 	.listxattr	= ext3_listxattr,
-	.removexattr	= generic_removexattr,
 #endif
 };
 
 const struct inode_operations ext3_fast_symlink_inode_operations = {
-	.readlink	= generic_readlink,
-	.follow_link	= simple_follow_link,
+	.get_link	= simple_get_link,
 	.setattr	= ext3_setattr,
 #ifdef CONFIG_EXT3_FS_XATTR
-	.setxattr	= generic_setxattr,
-	.getxattr	= generic_getxattr,
 	.listxattr	= ext3_listxattr,
-	.removexattr	= generic_removexattr,
 #endif
 };
