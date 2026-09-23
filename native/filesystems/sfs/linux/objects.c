@@ -1,968 +1,1352 @@
-/*
- *
- * Amiga Smart File System, Linux implementation
- * version: 1.0beta11
- *
- * This file contains some parts of the original amiga version of 
- * SmartFilesystem source code.
- *
- * SmartFilesystem is copyrighted (C) 2003 by: John Hendrikx, 
- * Ralph Schmidt, Emmanuel Lesueur, David Gerber, and Marcin Kurek
- * 
- * Adapted and modified by Marek 'March' Szyprowski <marek@amiga.pl>
- *
- */
-
-#include <linux/types.h>
+#include <linux/buffer_head.h>
 #include <linux/errno.h>
 #include <linux/err.h>
-#include <linux/string.h>
-#include <linux/slab.h>
 #include <linux/fs.h>
-#include <linux/buffer_head.h>
-#include <linux/vfs.h>
+#include <linux/overflow.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 #include "asfs_fs.h"
 
-#include <asm/byteorder.h>
-
-struct fsObject *asfs_nextobject(
-	struct super_block *sb,
-	struct fsObjectContainer *container,
-	struct fsObject *obj)
+static u32 sfs_object_fixed_bytes(void)
 {
-	u8 *const block_end = (u8 *)container + sb->s_blocksize;
-	u8 *const object_start = (u8 *)obj;
-	u8 *const tail = obj->name;
-	ifs_sfs_u32 record_bytes = 0U;
-	ifs_sfs_u32 name_bytes = 0U;
-	ifs_sfs_u32 fixed_prefix_bytes;
-	IfsSfsObjectRecordStatus status;
-
-	if (!asfs_object_slot_fits(sb, container, obj))
-		return NULL;
-
-	fixed_prefix_bytes = (ifs_sfs_u32)(tail - object_start);
-	status = ifs_sfs_object_record_layout(
-		tail, (ifs_sfs_u32)(block_end - tail), fixed_prefix_bytes,
-		&record_bytes, &name_bytes);
-	if (status != IFS_SFS_OBJECT_RECORD_OK) {
-		pr_err_ratelimited("ASFS: corrupt object record: %s\n",
-				   ifs_sfs_object_record_status_string(status));
-		return NULL;
-	}
-	if (record_bytes > (ifs_sfs_u32)(block_end - object_start))
-		return NULL;
-
-	return (struct fsObject *)(object_start + record_bytes);
+    return (u32)offsetof(struct fsObject, name);
 }
 
-struct fsObject *asfs_find_obj_by_name(struct super_block *sb, struct fsObjectContainer *objcont, u8 * name)
+static int sfs_object_record_bytes(
+    size_t name_length,
+    u32 *record_bytes)
 {
-	struct fsObject *obj;
+    size_t raw;
 
-	obj = &(objcont->object[0]);
-	while (asfs_object_slot_fits(sb, objcont, obj) &&
-	       be32_to_cpu(obj->objectnode) > 0) {
-		struct fsObject *next = asfs_nextobject(sb, objcont, obj);
+    if (!record_bytes ||
+        name_length > ASFS_MAXFN ||
+        check_add_overflow(
+            (size_t)sfs_object_fixed_bytes(),
+            name_length + 2U, &raw))
+        return -EINVAL;
 
-		if (!next)
-			return ERR_PTR(-EUCLEAN);
-		if (asfs_namecmp(obj->name, name,
-				 ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE,
-				 NULL) == 0) {
-			asfs_debug("Object found! Node %u, Name %s, Type %x, inCont %u\n", be32_to_cpu(obj->objectnode), obj->name, obj->bits, be32_to_cpu(objcont->bheader.ownblock));
-			return obj;
-		}
-		obj = next;
-	}
-	return NULL;
+    raw = ALIGN(raw, 2U);
+    if (raw > U32_MAX)
+        return -EOVERFLOW;
+
+    *record_bytes = (u32)raw;
+    return 0;
+}
+
+struct fsObject *asfs_nextobject(
+    struct super_block *sb,
+    struct fsObjectContainer *container,
+    struct fsObject *object)
+{
+    u8 *block_end;
+    u8 *object_start;
+    u8 *tail;
+    ifs_sfs_u32 record_bytes = 0U;
+    ifs_sfs_u32 name_bytes = 0U;
+    IfsSfsObjectRecordStatus status;
+
+    if (!asfs_object_slot_fits(
+            sb, container, object))
+        return NULL;
+
+    block_end =
+        (u8 *)container + sb->s_blocksize;
+    object_start = (u8 *)object;
+    tail = object->name;
+
+    status = ifs_sfs_object_record_layout(
+        tail,
+        (ifs_sfs_u32)(block_end - tail),
+        (ifs_sfs_u32)(tail - object_start),
+        &record_bytes, &name_bytes);
+    if (status != IFS_SFS_OBJECT_RECORD_OK ||
+        record_bytes >
+            (ifs_sfs_u32)(
+                block_end - object_start))
+        return NULL;
+
+    return (struct fsObject *)
+        (object_start + record_bytes);
+}
+
+struct fsObject *asfs_find_obj_by_name(
+    struct super_block *sb,
+    struct fsObjectContainer *container,
+    u8 *name)
+{
+    struct fsObject *object =
+        &container->object[0];
+
+    while (asfs_object_slot_fits(
+               sb, container, object) &&
+           be32_to_cpu(object->objectnode) != 0U) {
+        struct fsObject *next =
+            asfs_nextobject(
+                sb, container, object);
+
+        if (!next)
+            return ERR_PTR(-EUCLEAN);
+
+        if (asfs_namecmp(
+                object->name, name,
+                (ASFS_SB(sb)->flags &
+                 ASFS_ROOTBITS_CASESENSITIVE) != 0,
+                NULL) == 0)
+            return object;
+
+        object = next;
+    }
+
+    return NULL;
 }
 
 #ifdef CONFIG_ASFS_RW
 
-static struct fsObject *find_obj_by_node(struct super_block *sb, struct fsObjectContainer *objcont, u32 objnode)
+static struct fsObject *sfs_find_object_by_node(
+    struct super_block *sb,
+    struct fsObjectContainer *container,
+    u32 object_node)
 {
-	struct fsObject *obj;
+    struct fsObject *object =
+        &container->object[0];
 
-	obj = &(objcont->object[0]);
-	while (asfs_object_slot_fits(sb, objcont, obj) &&
-	       be32_to_cpu(obj->objectnode) > 0) {
-		struct fsObject *next = asfs_nextobject(sb, objcont, obj);
+    while (asfs_object_slot_fits(
+               sb, container, object) &&
+           be32_to_cpu(object->objectnode) != 0U) {
+        struct fsObject *next =
+            asfs_nextobject(
+                sb, container, object);
 
-		if (!next)
-			return ERR_PTR(-EUCLEAN);
-		if (be32_to_cpu(obj->objectnode) == objnode)
-			return obj;
-		obj = next;
-	}
-	return NULL;
+        if (!next)
+            return ERR_PTR(-EUCLEAN);
+
+        if (be32_to_cpu(
+                object->objectnode) ==
+            object_node)
+            return object;
+
+        object = next;
+    }
+
+    return NULL;
 }
 
-int asfs_readobject(struct super_block *sb, u32 objectnode,
-			struct buffer_head **bh,
-			struct fsObject **returned_object)
+int asfs_readobject(
+    struct super_block *sb,
+    u32 object_node,
+    struct buffer_head **returned_bh,
+    struct fsObject **returned_object)
 {
-	struct fsObjectNode *on;
-	int errorcode;
-	u32 contblock;
+    struct buffer_head *node_bh = NULL;
+    struct fsObjectNode *node = NULL;
+    u32 container_block;
+    int result;
 
-	if (!bh || !returned_object)
-		return -EINVAL;
-	*bh = NULL;
-	*returned_object = NULL;
+    if (!returned_bh || !returned_object)
+        return -EINVAL;
 
-	asfs_debug("Searching object - node %u\n", objectnode);
+    *returned_bh = NULL;
+    *returned_object = NULL;
 
-	errorcode = asfs_getnode(sb, objectnode, bh, &on);
-	if (errorcode != 0)
-		return errorcode;
+    result = asfs_getnode(
+        sb, object_node,
+        &node_bh, &node);
+    if (result != 0)
+        return result;
 
-	contblock = be32_to_cpu(on->node.data);
-	asfs_brelse(*bh);
-	*bh = NULL;
-	if (contblock == 0U)
-		return -EUCLEAN;
+    container_block =
+        be32_to_cpu(node->node.data);
+    asfs_brelse(node_bh);
 
-	*bh = asfs_breadcheck(sb, contblock, ASFS_OBJECTCONTAINER_ID);
-	if (!*bh)
-		return -EIO;
+    if (container_block == 0U ||
+        container_block >=
+            ASFS_SB(sb)->totalblocks)
+        return -EUCLEAN;
 
-	*returned_object = find_obj_by_node(
-		sb, (void *)(*bh)->b_data, objectnode);
-	if (IS_ERR(*returned_object)) {
-		errorcode = PTR_ERR(*returned_object);
-		*returned_object = NULL;
-		asfs_brelse(*bh);
-		*bh = NULL;
-		return errorcode;
-	}
-	if (!*returned_object) {
-		asfs_brelse(*bh);
-		*bh = NULL;
-		return -ENOENT;
-	}
-	return 0;
+    *returned_bh = asfs_breadcheck(
+        sb, container_block,
+        ASFS_OBJECTCONTAINER_ID);
+    if (!*returned_bh)
+        return -EIO;
+
+    *returned_object =
+        sfs_find_object_by_node(
+            sb,
+            (struct fsObjectContainer *)
+                (*returned_bh)->b_data,
+            object_node);
+    if (IS_ERR(*returned_object)) {
+        result = PTR_ERR(*returned_object);
+        *returned_object = NULL;
+        asfs_brelse(*returned_bh);
+        *returned_bh = NULL;
+        return result;
+    }
+    if (!*returned_object) {
+        asfs_brelse(*returned_bh);
+        *returned_bh = NULL;
+        return -ENOENT;
+    }
+
+    return 0;
 }
 
-static int removeobjectcontainer(struct super_block *sb, struct buffer_head *bh)
+static int sfs_remove_object_container(
+    struct super_block *sb,
+    struct buffer_head *container_bh)
 {
-	struct fsObjectContainer *oc = (void *) bh->b_data;
-	int errorcode;
-	struct buffer_head *block;
+    struct fsObjectContainer *container =
+        (struct fsObjectContainer *)
+            container_bh->b_data;
+    const u32 own_block =
+        be32_to_cpu(
+            container->bheader.ownblock);
+    const u32 next =
+        be32_to_cpu(container->next);
+    const u32 previous =
+        be32_to_cpu(container->previous);
+    const u32 parent =
+        be32_to_cpu(container->parent);
+    struct buffer_head *link_bh;
+    int result;
 
-	asfs_debug("removeobjectcontainer: block %u\n", be32_to_cpu(oc->bheader.ownblock));
+    if (own_block == 0U ||
+        own_block >= ASFS_SB(sb)->totalblocks ||
+        next == own_block ||
+        previous == own_block)
+        return -EUCLEAN;
 
-	if (oc->next != 0 && oc->next != oc->bheader.ownblock) {
-		struct fsObjectContainer *next_oc;
+    if (next != 0U) {
+        struct fsObjectContainer *next_container;
 
-		if ((block = asfs_breadcheck(sb, be32_to_cpu(oc->next), ASFS_OBJECTCONTAINER_ID)) == NULL)
-			return -EIO;
+        if (next >= ASFS_SB(sb)->totalblocks)
+            return -EUCLEAN;
 
-		next_oc = (void *) block->b_data;
-		next_oc->previous = oc->previous;
+        link_bh = asfs_breadcheck(
+            sb, next,
+            ASFS_OBJECTCONTAINER_ID);
+        if (!link_bh)
+            return -EIO;
 
-		asfs_bstore(sb, block);
-		asfs_brelse(block);
-	}
+        next_container =
+            (struct fsObjectContainer *)
+                link_bh->b_data;
+        next_container->previous =
+            cpu_to_be32(previous);
+        asfs_bstore(sb, link_bh);
+        asfs_brelse(link_bh);
+    }
 
-	if (oc->previous != 0 && oc->previous != oc->bheader.ownblock) {
-		struct fsObjectContainer *previous_oc;
+    if (previous != 0U) {
+        struct fsObjectContainer *previous_container;
 
-		if ((block = asfs_breadcheck(sb, be32_to_cpu(oc->previous), ASFS_OBJECTCONTAINER_ID)) == NULL)
-			return -EIO;
+        if (previous >= ASFS_SB(sb)->totalblocks)
+            return -EUCLEAN;
 
-		previous_oc = (void *) block->b_data;
-		previous_oc->next = oc->next;
+        link_bh = asfs_breadcheck(
+            sb, previous,
+            ASFS_OBJECTCONTAINER_ID);
+        if (!link_bh)
+            return -EIO;
 
-		asfs_bstore(sb, block);
-		asfs_brelse(block);
-	} else {
-		struct fsObject *parent_o;
+        previous_container =
+            (struct fsObjectContainer *)
+                link_bh->b_data;
+        previous_container->next =
+            cpu_to_be32(next);
+        asfs_bstore(sb, link_bh);
+        asfs_brelse(link_bh);
+    } else {
+        struct fsObject *parent_object = NULL;
 
-		if ((errorcode = asfs_readobject(sb, be32_to_cpu(oc->parent), &block, &parent_o)) != 0)
-			return (errorcode);
+        result = asfs_readobject(
+            sb, parent, &link_bh,
+            &parent_object);
+        if (result != 0)
+            return result;
 
-		parent_o->object.dir.firstdirblock = oc->next;
+        if ((parent_object->bits &
+             OTYPE_DIR) == 0U) {
+            asfs_brelse(link_bh);
+            return -EUCLEAN;
+        }
 
-		asfs_bstore(sb, block);
-		asfs_brelse(block);
-	}
+        parent_object->
+            object.dir.firstdirblock =
+            cpu_to_be32(next);
+        asfs_bstore(sb, link_bh);
+        asfs_brelse(link_bh);
+    }
 
-	if ((errorcode = asfs_freeadminspace(sb, be32_to_cpu(oc->bheader.ownblock))) != 0)
-		return (errorcode);
-
-	return (0);
+    return asfs_freeadminspace(
+        sb, own_block);
 }
 
-static int setrecycledinfodiff(struct super_block *sb, s32 deletedfiles, s32 deletedblocks)
+static int sfs_adjust_recycled_info(
+    struct super_block *sb,
+    s32 deleted_files,
+    s32 deleted_blocks)
 {
-	struct buffer_head *bh;
+    struct buffer_head *bh;
+    struct fsRootInfo *root_info;
+    u32 files;
+    u32 blocks;
 
-	if ((bh = asfs_breadcheck(sb, ASFS_SB(sb)->rootobjectcontainer, ASFS_OBJECTCONTAINER_ID))) {
-		struct fsRootInfo *ri = (struct fsRootInfo *) ((u8 *) bh->b_data + sb->s_blocksize - sizeof(struct fsRootInfo));
-		u32 new_deleted_files;
-		u32 new_deleted_blocks;
+    if (sb->s_blocksize <
+        sizeof(struct fsRootInfo))
+        return -EUCLEAN;
 
-		if (ifs_sfs_adjust_counter(
-				be32_to_cpu(ri->deletedfiles), deletedfiles,
-				&new_deleted_files) != 0 ||
-		    ifs_sfs_adjust_counter(
-				be32_to_cpu(ri->deletedblocks), deletedblocks,
-				&new_deleted_blocks) != 0) {
-			asfs_brelse(bh);
-			return -EUCLEAN;
-		}
+    bh = asfs_breadcheck(
+        sb, ASFS_SB(sb)->rootobjectcontainer,
+        ASFS_OBJECTCONTAINER_ID);
+    if (!bh)
+        return -EIO;
 
-		ri->deletedfiles = cpu_to_be32(new_deleted_files);
-		ri->deletedblocks = cpu_to_be32(new_deleted_blocks);
+    root_info = (struct fsRootInfo *)
+        ((u8 *)bh->b_data +
+         sb->s_blocksize -
+         sizeof(struct fsRootInfo));
 
-		asfs_bstore(sb, bh);
-		asfs_brelse(bh);
-	} else
-		return -EIO;
-	return 0;
+    if (ifs_sfs_adjust_counter(
+            be32_to_cpu(
+                root_info->deletedfiles),
+            deleted_files, &files) != 0 ||
+        ifs_sfs_adjust_counter(
+            be32_to_cpu(
+                root_info->deletedblocks),
+            deleted_blocks, &blocks) != 0) {
+        asfs_brelse(bh);
+        return -EUCLEAN;
+    }
+
+    root_info->deletedfiles =
+        cpu_to_be32(files);
+    root_info->deletedblocks =
+        cpu_to_be32(blocks);
+    asfs_bstore(sb, bh);
+    asfs_brelse(bh);
+    return 0;
 }
 
-	/* This function removes the fsObject structure passed in from the passed
-	   buffer_head.  If the ObjectContainer becomes completely empty it will be 
-	   delinked from the ObjectContainer chain and marked free for reuse.
-	   This function doesn't delink the object from the hashchain! */
-
-static int simpleremoveobject(struct super_block *sb, struct buffer_head *bh, struct fsObject *o)
+static int sfs_remove_packed_object(
+    struct super_block *sb,
+    struct buffer_head *bh,
+    struct fsObject *object)
 {
-	struct fsObjectContainer *oc = (void *) bh->b_data;
-	int errorcode = 0;
+    struct fsObjectContainer *container =
+        (struct fsObjectContainer *)bh->b_data;
+    struct fsObject *first =
+        &container->object[0];
+    struct fsObject *next;
+    u8 *block_end =
+        (u8 *)container + sb->s_blocksize;
+    size_t record_bytes;
 
-	asfs_debug("simpleremoveobject:\n");
+    if (!asfs_object_slot_fits(
+            sb, container, object))
+        return -EUCLEAN;
 
-	if (be32_to_cpu(oc->parent) == ASFS_RECYCLEDNODE) {
-		/* This object is removed from the Recycled directory. */
-		if ((errorcode = setrecycledinfodiff(sb, -1, -((be32_to_cpu(o->object.file.size) + sb->s_blocksize - 1) >> sb->s_blocksize_bits))) != 0)
-			return errorcode;
-	}
+    if (be32_to_cpu(container->parent) ==
+        ASFS_RECYCLEDNODE) {
+        const u32 file_blocks =
+            DIV_ROUND_UP(
+                be32_to_cpu(
+                    object->object.file.size),
+                sb->s_blocksize);
+        int result =
+            sfs_adjust_recycled_info(
+                sb, -1, -(s32)file_blocks);
 
-	{
-		struct fsObject *first_next =
-			asfs_nextobject(sb, oc, oc->object);
+        if (result != 0)
+            return result;
+    }
 
-		if (!first_next || !asfs_object_slot_fits(sb, oc, first_next))
-			return -EUCLEAN;
-		if (first_next->name[0] == '\0')
-			return removeobjectcontainer(sb, bh);
-	}
-	{
-		struct fsObject *nexto;
-		int objlen;
+    next = asfs_nextobject(
+        sb, container, object);
+    if (!next)
+        return -EUCLEAN;
 
-		nexto = asfs_nextobject(sb, oc, o);
-		if (!nexto)
-			return -EUCLEAN;
-		objlen = (u8 *)nexto - (u8 *)o;
+    if (object == first &&
+        asfs_object_slot_fits(
+            sb, container, next) &&
+        be32_to_cpu(next->objectnode) == 0U)
+        return sfs_remove_object_container(
+            sb, bh);
 
-		memmove(o, nexto, sb->s_blocksize - ((u8 *) nexto - (u8 *) oc));
-		memset((u8 *) oc + sb->s_blocksize - objlen, 0, objlen);
+    record_bytes =
+        (size_t)((u8 *)next -
+                 (u8 *)object);
+    if (record_bytes == 0U ||
+        (u8 *)next > block_end)
+        return -EUCLEAN;
 
-		asfs_bstore(sb, bh);
-	}
-	return errorcode;
+    memmove(
+        object, next,
+        (size_t)(block_end -
+                 (u8 *)next));
+    memset(
+        block_end - record_bytes,
+        0, record_bytes);
+    asfs_bstore(sb, bh);
+    return 0;
 }
 
-/* This function delinks the passed in ObjectNode from its hash-chain.  Handy when deleting
-   the object, or when renaming/moving it. */
-
-static int dehashobjectquick(struct super_block *sb, u32 objectnode, u8 *name, u32 parentobjectnode)
+static int sfs_dehash_object(
+    struct super_block *sb,
+    u32 object_node,
+    u8 *name,
+    u32 parent_node)
 {
-	struct fsObject *o;
-	int errorcode = 0;
-	struct buffer_head *block;
-
-	asfs_debug("dehashobject: Delinking object %d (=ObjectNode) from hashchain. Parentnode = %d\n", objectnode, parentobjectnode);
-
-	if ((errorcode = asfs_readobject(sb, parentobjectnode, &block, &o)) == 0 && o->object.dir.hashtable != 0) {
-		u32 hashtable = be32_to_cpu(o->object.dir.hashtable);
-		asfs_brelse(block);
-
-		if ((block = asfs_breadcheck(sb, hashtable, ASFS_HASHTABLE_ID))) {
-			struct buffer_head *node_bh;
-			struct fsObjectNode *onptr, on;
-			struct fsHashTable *ht = (void *) block->b_data;
-			u32 nexthash;
-
-			if ((errorcode = asfs_getnode(sb, objectnode, &node_bh, &onptr)) == 0) {
-				u16 hashchain;
-
-				asfs_debug("dehashobject: Read HashTable block of parent object of object to be delinked\n");
-
-				hashchain = HASHCHAIN(asfs_hash(name, ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE));
-				nexthash = be32_to_cpu(ht->hashentry[hashchain]);
-
-				if (nexthash == objectnode) {
-					/* The hashtable directly points to the fsObject to be delinked.  We simply
-					   modify the Hashtable to point to the new nexthash entry. */
-
-					asfs_debug("dehashobject: The hashtable points directly to the to be delinked object\n");
-
-					ht->hashentry[hashchain] = onptr->next;
-					asfs_bstore(sb, block);
-				} else {
-					struct fsObjectNode *onsearch = 0;
-
-					on = *onptr;
-
-					asfs_debug("dehashobject: Walking through hashchain\n");
-
-					while (nexthash != 0 && nexthash != objectnode) {
-						asfs_brelse(node_bh);
-						if ((errorcode = asfs_getnode(sb, nexthash, &node_bh, &onsearch)) != 0)
-							break;
-						nexthash = be32_to_cpu(onsearch->next);
-					}
-
-					if (errorcode == 0) {
-						if (nexthash != 0) {
-							/* Previous fsObjectNode found in hash chain.  Modify the fsObjectNode to 'skip' the
-							   ObjectNode which is being delinked from the hash chain. */
-
-							onsearch->next = on.next;
-							asfs_bstore(sb, node_bh);
-						} else {
-							printk("ASFS: Hashchain of object %d is corrupt or incorrectly linked.", objectnode);
-
-							/*** This is strange.  We have been looking for the fsObjectNode which is located before the
-							     passed in fsObjectNode in the hash-chain.  However, we never found the
-							     fsObjectNode reffered to in the hash-chain!  Has to be somekind
-							     of internal error... */
-
-							errorcode = -ENOENT;
-						}
-					}
-				}
-				asfs_brelse(node_bh);
-			}
-			asfs_brelse(block);
-		}
-	}
-	return errorcode;
-}
-
-
-	/* This function removes an object from any directory.  It takes care
-	   of delinking the object from the hashchain and also frees the
-	   objectnode number. */
-
-static int removeobject(struct super_block *sb, struct buffer_head *bh, struct fsObject *o)
-{
-	struct fsObjectContainer *oc = (void *) bh->b_data;
-	int errorcode;
-
-	asfs_debug("removeobject\n");
-
-	if ((errorcode = dehashobjectquick(sb, be32_to_cpu(o->objectnode), o->name, be32_to_cpu(oc->parent))) == 0) {
-		u32 objectnode = be32_to_cpu(o->objectnode);
-
-		if ((errorcode = simpleremoveobject(sb, bh, o)) == 0)
-			errorcode = asfs_deletenode(sb, objectnode);
-	}
-
-	return (errorcode);
-}
-
-	/* This function deletes the specified object. */
-int asfs_deleteobject(struct super_block *sb, struct buffer_head *bh, struct fsObject *o)
-{
-	int errorcode = 0;
-
-	asfs_debug("deleteobject: Entry -- deleting object %d (%s)\n", be32_to_cpu(o->objectnode), o->name);
-
-	if ((o->bits & OTYPE_DIR) == 0 || o->object.dir.firstdirblock == 0) {
-		u8 bits = o->bits;
-		u32 hashblckno = be32_to_cpu(o->object.dir.hashtable);
-		u32 extentbnode = be32_to_cpu(o->object.file.data);
-
-		if ((errorcode = removeobject(sb, bh, o)) == 0) {
-			if ((bits & OTYPE_LINK) != 0) {
-				asfs_debug("deleteobject: Object is soft link!\n");
-				errorcode = asfs_freeadminspace(sb, extentbnode);
-			} else if ((bits & OTYPE_DIR) != 0) {
-				asfs_debug("deleteobject: Object is a directory!\n");
-				errorcode = asfs_freeadminspace(sb, hashblckno);
-			} else {
-				asfs_debug("deleteobject: Object is a file\n");
-				if (extentbnode != 0)
-					errorcode = asfs_deleteextents(sb, extentbnode);
-			}
-		}
-	}
-
-	return (errorcode);
-}
-
-	/* This function takes a HashBlock pointer, an ObjectNode and an ObjectName.
-	   If there is a hashblock, then this function will correctly link the object
-	   into the hashchain.  If there isn't a hashblock (=0) then this function
-	   does nothing.  */
-
-static int hashobject(struct super_block *sb, u32 hashblock, struct fsObjectNode *on, u32 nodeno, u8 *objectname)
-{
-	struct buffer_head *hash_bh;
-
-	asfs_debug("hashobject, using hashblock %d\n", hashblock);
-	if (hashblock == 0)
-		return 0;
-
-	if ((hash_bh = asfs_breadcheck(sb, hashblock, ASFS_HASHTABLE_ID))) {
-		struct fsHashTable *ht = (void *) hash_bh->b_data;
-		u32 nexthash;
-		u16 hashvalue, hashchain;
-
-		hashvalue = asfs_hash(objectname, ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE);
-		hashchain = HASHCHAIN(hashvalue);
-		nexthash = be32_to_cpu(ht->hashentry[hashchain]);
-
-		ht->hashentry[hashchain] = cpu_to_be32(nodeno);
-
-		asfs_bstore(sb, hash_bh);
-		asfs_brelse(hash_bh);
-
-		on->next = cpu_to_be32(nexthash);
-		on->hash16 = cpu_to_be16(hashvalue);
-	} else
-		return -EIO;
-
-	return 0;
-}
-
-	/* This function returns a pointer to the first unused byte in
-	   an ObjectContainer. */
-
-static u8 *emptyspaceinobjectcontainer(struct super_block *sb, struct fsObjectContainer *oc)
-{
-	struct fsObject *o = oc->object;
-	u8 *endadr;
-
-	endadr = (u8 *) oc + sb->s_blocksize - sizeof(struct fsObject) - 2;
-
-	while ((u8 *)o < endadr && o->name[0] != 0) {
-		struct fsObject *next = asfs_nextobject(sb, oc, o);
-
-		if (!next)
-			return NULL;
-		o = next;
-	}
-
-	return (u8 *) o;
-}
-
-	/* This function will look in the directory indicated by io_o
-	   for an ObjectContainer block which contains bytesneeded free
-	   bytes.  If none is found then this function simply creates a
-	   new ObjectContainer and adds that to the indicated directory. */
-
-static int findobjectspace(struct super_block *sb,
-			   struct buffer_head **io_bh,
-			   struct fsObject **io_o, u32 bytesneeded)
-{
-	struct buffer_head *bhparent = *io_bh;
-	struct fsObject *oparent = *io_o;
-	u32 nextblock = be32_to_cpu(oparent->object.dir.firstdirblock);
-
-	asfs_debug("findobjectspace: Looking for %u bytes in directory with ObjectNode number %u (in block %u)\n",
-		   bytesneeded, be32_to_cpu(oparent->objectnode),
-		   be32_to_cpu(((struct fsBlockHeader *)bhparent->b_data)->ownblock));
-
-	while (nextblock != 0U) {
-		struct buffer_head *bh =
-			asfs_breadcheck(sb, nextblock, ASFS_OBJECTCONTAINER_ID);
-		struct fsObjectContainer *oc;
-		u8 *emptyspace;
-
-		if (!bh)
-			return -EIO;
-		oc = (void *)bh->b_data;
-		emptyspace = emptyspaceinobjectcontainer(sb, oc);
-		if (!emptyspace) {
-			asfs_brelse(bh);
-			return -EUCLEAN;
-		}
-
-		if ((u8 *)oc + sb->s_blocksize - emptyspace >= bytesneeded) {
-			*io_bh = bh;
-			*io_o = (struct fsObject *)emptyspace;
-			return 0;
-		}
-
-		nextblock = be32_to_cpu(oc->next);
-		asfs_brelse(bh);
-	}
-
-	{
-		struct buffer_head *bh;
-		struct buffer_head *old_head_bh = NULL;
-		struct fsObjectContainer *oc;
-		const u32 old_head =
-			be32_to_cpu(oparent->object.dir.firstdirblock);
-		u32 newcontblock;
-		int errorcode;
-
-		errorcode = asfs_allocadminspace(sb, &newcontblock);
-		if (errorcode != 0)
-			return errorcode;
-
-		bh = asfs_getzeroblk(sb, newcontblock);
-		if (!bh) {
-			if (asfs_freeadminspace(sb, newcontblock) != 0)
-				return -EUCLEAN;
-			return -EIO;
-		}
-
-		if (old_head != 0U) {
-			old_head_bh = asfs_breadcheck(
-				sb, old_head, ASFS_OBJECTCONTAINER_ID);
-			if (!old_head_bh) {
-				asfs_brelse(bh);
-				if (asfs_freeadminspace(sb, newcontblock) != 0)
-					return -EUCLEAN;
-				return -EIO;
-			}
-		}
-
-		oc = (void *)bh->b_data;
-		oc->bheader.id = cpu_to_be32(ASFS_OBJECTCONTAINER_ID);
-		oc->bheader.ownblock = cpu_to_be32(newcontblock);
-		oc->parent = oparent->objectnode;
-		oc->next = cpu_to_be32(old_head);
-		oc->previous = 0;
-		asfs_bstore(sb, bh);
-
-		/*
-		 * Publish the forward chain first.  If power is lost before the
-		 * optional back-link update, the directory is still traversable.
-		 */
-		oparent->object.dir.firstdirblock = cpu_to_be32(newcontblock);
-		asfs_bstore(sb, bhparent);
-
-		if (old_head_bh) {
-			struct fsObjectContainer *old =
-				(void *)old_head_bh->b_data;
-
-			old->previous = cpu_to_be32(newcontblock);
-			asfs_bstore(sb, old_head_bh);
-			asfs_brelse(old_head_bh);
-		}
-
-		*io_bh = bh;
-		*io_o = oc->object;
-		return 0;
-	}
-}
-/* io_bh & io_o refer to the direct parent of the new object.  Objectname is the
-	name of the new object (name only). Does not realese io_bh !!! */
-
-int asfs_createobject(struct super_block *sb,
-			struct buffer_head **io_bh, struct fsObject **io_o,
-			struct fsObject *src_o, u8 *objectname, int force)
-{
-	struct buffer_head *node_bh = NULL;
-	struct fsObjectNode *on = NULL;
-	struct fsObjectNode saved_node;
-	struct fsObject *destination = NULL;
-	u32 allocated_aux_block = 0U;
-	u32 nodeno = 0U;
-	size_t name_length;
-	size_t object_size;
-	int created_node = 0;
-	int saved_node_valid = 0;
-	int errorcode;
-	u32 hashblock;
-
-	if (!io_bh || !*io_bh || !io_o || !*io_o || !src_o || !objectname)
-		return -EINVAL;
-
-	name_length = strnlen(objectname, ASFS_MAXFN + 1U);
-	if (name_length > ASFS_MAXFN)
-		return -ENAMETOOLONG;
-
-	hashblock = be32_to_cpu((*io_o)->object.dir.hashtable);
-	asfs_debug("createobject: Creating object '%s' in dir '%s'.\n",
-		   objectname, (*io_o)->name);
-
-	if (!force &&
-	    !ifs_sfs_has_allocation_headroom(
-		ASFS_SB(sb)->freeblocks, 1U, ASFS_ALWAYSFREE))
-		return -ENOSPC;
-	if (!force && be32_to_cpu((*io_o)->objectnode) == ASFS_RECYCLEDNODE)
-		return -EINVAL;
-
-	object_size = sizeof(struct fsObject) + name_length + 2U;
-	errorcode = findobjectspace(
-		sb, io_bh, io_o, (u32)object_size);
-	if (errorcode != 0)
-		return errorcode;
-	destination = *io_o;
-
-	{
-		struct fsObject *o2 = destination;
-		u8 *name = o2->name;
-
-		**io_o = *src_o;
-		memcpy(name, objectname, name_length);
-		name[name_length] = 0;
-		name[name_length + 1U] = 0;
-
-		if (o2->objectnode != 0) {
-			errorcode = asfs_getnode(
-				sb, be32_to_cpu(o2->objectnode), &node_bh, &on);
-			if (errorcode != 0)
-				goto fail_before_publish;
-			saved_node = *on;
-			saved_node_valid = 1;
-			nodeno = be32_to_cpu(o2->objectnode);
-		} else {
-			errorcode = asfs_createnode(
-				sb, &node_bh, (struct fsNode **)&on, &nodeno);
-			if (errorcode != 0)
-				goto fail_before_publish;
-			created_node = 1;
-			on->hash16 = cpu_to_be16(asfs_hash(
-				o2->name,
-				ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE));
-			o2->objectnode = cpu_to_be32(nodeno);
-		}
-
-		/* Prepare directory/softlink storage before publishing the hash link. */
-		if ((o2->bits & OTYPE_DIR) != 0 &&
-		    o2->object.dir.hashtable == 0) {
-			struct buffer_head *hashbh;
-			struct fsHashTable *ht;
-
-			errorcode = asfs_allocadminspace(sb, &allocated_aux_block);
-			if (errorcode != 0)
-				goto fail_before_publish;
-			hashbh = asfs_getzeroblk(sb, allocated_aux_block);
-			if (!hashbh) {
-				errorcode = -EIO;
-				goto fail_before_publish;
-			}
-
-			ht = (void *)hashbh->b_data;
-			ht->bheader.id = cpu_to_be32(ASFS_HASHTABLE_ID);
-			ht->bheader.ownblock = cpu_to_be32(allocated_aux_block);
-			ht->parent = o2->objectnode;
-			asfs_bstore(sb, hashbh);
-			asfs_brelse(hashbh);
-			o2->object.dir.hashtable = cpu_to_be32(allocated_aux_block);
-		} else if ((o2->bits & (OTYPE_LINK | OTYPE_HARDLINK)) ==
-			   OTYPE_LINK && o2->object.file.data == 0) {
-			struct buffer_head *linkbh;
-			struct fsSoftLink *sl;
-
-			errorcode = asfs_allocadminspace(sb, &allocated_aux_block);
-			if (errorcode != 0)
-				goto fail_before_publish;
-			linkbh = asfs_getzeroblk(sb, allocated_aux_block);
-			if (!linkbh) {
-				errorcode = -EIO;
-				goto fail_before_publish;
-			}
-
-			sl = (void *)linkbh->b_data;
-			sl->bheader.id = cpu_to_be32(ASFS_SOFTLINK_ID);
-			sl->bheader.ownblock = cpu_to_be32(allocated_aux_block);
-			sl->parent = o2->objectnode;
-			sl->next = 0;
-			sl->previous = 0;
-			asfs_bstore(sb, linkbh);
-			asfs_brelse(linkbh);
-			o2->object.file.data = cpu_to_be32(allocated_aux_block);
-		}
-
-		on->node.data =
-			((struct fsBlockHeader *)(*io_bh)->b_data)->ownblock;
-		errorcode = hashobject(
-			sb, hashblock, on, be32_to_cpu(o2->objectnode),
-			objectname);
-		if (errorcode != 0)
-			goto fail_before_publish;
-
-		asfs_bstore(sb, node_bh);
-		asfs_brelse(node_bh);
-		return 0;
-	}
-
-fail_before_publish:
-	/*
-	 * None of the destination object bytes are durable until the caller
-	 * stores io_bh. Restore the cache image as well, otherwise a later,
-	 * unrelated dirtying of this buffer could persist a failed create.
-	 */
-	if (destination)
-		memset(destination, 0, object_size);
-
-	if (node_bh) {
-		if (saved_node_valid)
-			*on = saved_node;
-		asfs_brelse(node_bh);
-		node_bh = NULL;
-	}
-	if (allocated_aux_block != 0U &&
-	    asfs_freeadminspace(sb, allocated_aux_block) != 0)
-		errorcode = -EUCLEAN;
-	if (created_node && asfs_deletenode(sb, nodeno) != 0)
-		errorcode = -EUCLEAN;
-	return errorcode;
-}
-	/* This function extends the file object 'o' with a number  of blocks 
-		(hopefully, if any blocks has been found!). Only new Extents will 
-      be created -- the size of the file will not be altered, and changing 
-		it is left up to the caller.  If the file did not have any blocks 
-		yet, then the o->object.file.data will be set to the first (new) 
-		ExtentBNode. It returns the number of added blocks through 
-		addedblocks pointer */
-
-int asfs_addblockstofile(struct super_block *sb, struct buffer_head *objbh,
-			 struct fsObject *o, u32 blocks, u32 *newspace,
-			 u32 *addedblocks)
-{
-	u32 last_extent = be32_to_cpu(o->object.file.data);
-	u32 searchstart = 0U;
-	u32 found_block = 0U;
-	u32 found_blocks = 0U;
-	struct fsExtentBNode *ebnp = NULL;
-	struct buffer_head *block = NULL;
-	int errorcode;
-
-	if (!newspace || !addedblocks || blocks == 0U)
-		return -EINVAL;
-
-	*addedblocks = 0U;
-	*newspace = 0U;
-	asfs_debug("extendblocksinfile: Trying to increase number of blocks by %u.\n",
-		   blocks);
-
-	if (last_extent != 0U) {
-		for (;;) {
-			u32 next_extent;
-
-			if (block) {
-				asfs_brelse(block);
-				block = NULL;
-			}
-			errorcode = asfs_getextent(
-				sb, last_extent, &block, &ebnp);
-			if (errorcode != 0)
-				goto out;
-
-			next_extent = be32_to_cpu(ebnp->next);
-			if (next_extent == 0U) {
-				last_extent = be32_to_cpu(ebnp->key);
-				searchstart =
-					last_extent + be16_to_cpu(ebnp->blocks);
-				break;
-			}
-			last_extent = next_extent;
-		}
-
-		asfs_brelse(block);
-		block = NULL;
-		ebnp = NULL;
-	}
-
-	errorcode = asfs_findspace(
-		sb, blocks, searchstart, searchstart,
-		&found_block, &found_blocks);
-	if (errorcode != 0)
-		goto out;
-
-	errorcode = asfs_markspace(sb, found_block, found_blocks);
-	if (errorcode != 0)
-		goto out;
-
-	{
-		u32 new_last_extent = last_extent;
-
-		errorcode = asfs_addblocks(
-			sb, (u16)found_blocks, found_block,
-			be32_to_cpu(o->objectnode), &new_last_extent);
-		if (errorcode != 0) {
-			struct buffer_head *rollback_bh = NULL;
-			struct fsExtentBNode *rollback_extent = NULL;
-			int cleanup = asfs_getextent(
-				sb, found_block, &rollback_bh, &rollback_extent);
-
-			/*
-			 * The add operation never publishes the previous->next link
-			 * until the new extent exists.  On failure an extent at the
-			 * new key can therefore only be an orphan and is safe to remove.
-			 */
-			if (cleanup == 0) {
-				cleanup = asfs_deletebnode(
-					sb, rollback_bh, found_block);
-				asfs_brelse(rollback_bh);
-			} else if (cleanup == -ENOENT) {
-				cleanup = 0;
-			}
-
-			if (cleanup == 0) {
-				int free_error = asfs_freespace(
-					sb, found_block, found_blocks);
-
-				if (free_error != 0)
-					errorcode = free_error;
-			} else {
-				errorcode = -EUCLEAN;
-			}
-			goto out;
-		}
-
-		last_extent = new_last_extent;
-	}
-
-	if (o->object.file.data == 0)
-		o->object.file.data = cpu_to_be32(last_extent);
-
-	*addedblocks = found_blocks;
-	*newspace = found_block;
-	asfs_bstore(sb, objbh);
-	errorcode = 0;
+    struct buffer_head *parent_bh = NULL;
+    struct fsObject *parent = NULL;
+    struct buffer_head *hash_bh = NULL;
+    struct fsHashTable *table;
+    struct buffer_head *target_bh = NULL;
+    struct fsObjectNode *target = NULL;
+    u32 hash_block;
+    u16 hash;
+    u16 chain;
+    u32 current;
+    u32 replacement;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+    int result;
+
+    result = asfs_readobject(
+        sb, parent_node,
+        &parent_bh, &parent);
+    if (result != 0)
+        return result;
+
+    hash_block =
+        be32_to_cpu(
+            parent->object.dir.hashtable);
+    asfs_brelse(parent_bh);
+    if (hash_block == 0U)
+        return 0;
+
+    hash_bh = asfs_breadcheck(
+        sb, hash_block, ASFS_HASHTABLE_ID);
+    if (!hash_bh)
+        return -EIO;
+
+    result = asfs_getnode(
+        sb, object_node,
+        &target_bh, &target);
+    if (result != 0) {
+        asfs_brelse(hash_bh);
+        return result;
+    }
+
+    table =
+        (struct fsHashTable *)hash_bh->b_data;
+    hash = asfs_hash(
+        name,
+        (ASFS_SB(sb)->flags &
+         ASFS_ROOTBITS_CASESENSITIVE) != 0);
+    chain = HASHCHAIN(hash);
+    current =
+        be32_to_cpu(
+            table->hashentry[chain]);
+    replacement =
+        be32_to_cpu(target->next);
+
+    if (current == object_node) {
+        table->hashentry[chain] =
+            cpu_to_be32(replacement);
+        asfs_bstore(sb, hash_bh);
+        asfs_brelse(target_bh);
+        asfs_brelse(hash_bh);
+        return 0;
+    }
+
+    asfs_brelse(target_bh);
+    target_bh = NULL;
+
+    while (current != 0U) {
+        struct buffer_head *node_bh = NULL;
+        struct fsObjectNode *node = NULL;
+        u32 next;
+
+        if (budget-- == 0U) {
+            result = -EUCLEAN;
+            goto out;
+        }
+
+        result = asfs_getnode(
+            sb, current,
+            &node_bh, &node);
+        if (result != 0)
+            goto out;
+
+        next = be32_to_cpu(node->next);
+        if (next == object_node) {
+            node->next =
+                cpu_to_be32(replacement);
+            asfs_bstore(sb, node_bh);
+            asfs_brelse(node_bh);
+            result = 0;
+            goto out;
+        }
+
+        asfs_brelse(node_bh);
+        current = next;
+    }
+
+    result = -EUCLEAN;
 
 out:
-	if (block)
-		asfs_brelse(block);
-	return errorcode;
+    asfs_brelse(hash_bh);
+    return result;
 }
 
-	/* The Object indicated by bh1 & o1, gets renamed to newname and placed
-	   in the directory indicated by bhparent & oparent. */
-
-int asfs_renameobject(struct super_block *sb, struct buffer_head *bh1, struct fsObject *o1, struct buffer_head *bhparent, struct fsObject *oparent, u8 * newname)
+static int sfs_remove_object(
+    struct super_block *sb,
+    struct buffer_head *bh,
+    struct fsObject *object,
+    bool delete_node)
 {
-	struct fsObject object;
-	u32 oldparentnode = be32_to_cpu(((struct fsObjectContainer *) bh1->b_data)->parent);
-	u8 oldname[107];
-	int errorcode;
+    struct fsObjectContainer *container =
+        (struct fsObjectContainer *)bh->b_data;
+    const u32 node =
+        be32_to_cpu(object->objectnode);
+    int result;
 
-	asfs_debug("renameobject: Renaming '%s' to '%s' in dir '%s'\n", o1->name, newname, oparent->name);
+    result = sfs_dehash_object(
+        sb, node, object->name,
+        be32_to_cpu(container->parent));
+    if (result != 0)
+        return result;
 
-	object = *o1;
-	if (strscpy(oldname, o1->name, sizeof(oldname)) < 0)
-		return -EUCLEAN;
+    result = sfs_remove_packed_object(
+        sb, bh, object);
+    if (result != 0)
+        return result;
 
-	if ((errorcode = dehashobjectquick(sb, be32_to_cpu(o1->objectnode), o1->name, oldparentnode)) == 0) {
-		u32 parentobjectnode = be32_to_cpu(oparent->objectnode);
+    if (delete_node)
+        return asfs_deletenode(sb, node);
 
-		if ((errorcode = simpleremoveobject(sb, bh1, o1)) == 0) {
-			struct buffer_head *bh2 = bhparent;
-			struct fsObject *o2;
-
-			/* oparent might changed after simpleremoveobject */
-			oparent = o2 = find_obj_by_node(sb, (struct fsObjectContainer *) bhparent->b_data, parentobjectnode);
-
-			/* In goes the Parent bh & o, out comes the New object's bh & o :-) */
-			if ((errorcode = asfs_createobject(sb, &bh2, &o2, &object, newname, TRUE)) == 0) {
-				asfs_bstore(sb, bh2);
-				if (be32_to_cpu(oparent->objectnode) == ASFS_RECYCLEDNODE) {
-					asfs_debug("renameobject: Updating recycled dir info\n");
-					if ((errorcode = setrecycledinfodiff(sb, 1, (be32_to_cpu(o2->object.file.size) + sb->s_blocksize - 1) >> sb->s_blocksize_bits)) != 0) {
-						brelse(bh2);
-						return errorcode;
-					}
-				}
-				brelse(bh2);
-				asfs_debug("renameobject: Succesfully created & stored new object.\n");
-			} else { /* recreate object in old place, maybe this will not fail, but who knows... */
-				asfs_debug("renameobject: Creating new object failed. Trying to recreate it in source directory.\n");
-				if (asfs_readobject(sb, oldparentnode, &bh1, &o1) == 0) {
-					struct buffer_head *bh2 = bh1;
-					if (asfs_createobject(sb, &bh2, &o1, &object, oldname, TRUE) == 0) {
-						asfs_bstore(sb, bh2);
-						if (oldparentnode == ASFS_RECYCLEDNODE) {
-							asfs_debug("renameobject: Updating recycled dir info\n");
-							setrecycledinfodiff(sb, 1, (be32_to_cpu(o1->object.file.size) + sb->s_blocksize - 1) >> sb->s_blocksize_bits);
-						}
-						brelse(bh2);
-					}
-					brelse(bh1);
-				}
-			}
-		}
-	}
-	return errorcode;
+    return 0;
 }
 
-		/* Truncates the specified file to /newsize/ bytes */
-
-int asfs_truncateblocksinfile(struct super_block *sb, struct buffer_head *bh, struct fsObject *o, u32 newsize)
+int asfs_deleteobject(
+    struct super_block *sb,
+    struct buffer_head *bh,
+    struct fsObject *object)
 {
-	struct buffer_head *ebh;
-	struct fsExtentBNode *ebn;
-	int errorcode;
-	u32 pos = 0;
-	u32 newblocks = (newsize + sb->s_blocksize - 1) >> sb->s_blocksize_bits;
-	u32 filedata = be32_to_cpu(o->object.file.data);
-	u32 eprev, ekey;
-	u16 eblocks;
+    u8 bits;
+    u32 auxiliary;
+    int result;
 
-	asfs_debug("trucateblocksinfile: newsize %u\n", newsize);
+    if (!bh || !object)
+        return -EINVAL;
 
-	if (filedata == 0)
-		return 0;
+    if ((object->bits & OTYPE_DIR) != 0U &&
+        object->object.dir.firstdirblock != 0U)
+        return -ENOTEMPTY;
 
-	for (;;) {
-		if ((errorcode = asfs_getextent(sb, filedata, &ebh, &ebn)) != 0)
-			return errorcode;
-		if (pos + be16_to_cpu(ebn->blocks) >= newblocks)
-			break;
-		pos += be16_to_cpu(ebn->blocks);
-		if ((filedata = be32_to_cpu(ebn->next)) == 0)
-			break;
-		asfs_brelse(ebh);
-	};
+    bits = object->bits;
+    auxiliary =
+        (bits & OTYPE_DIR) != 0U
+        ? be32_to_cpu(
+            object->object.dir.hashtable)
+        : be32_to_cpu(
+            object->object.file.data);
 
-	eblocks = newblocks - pos;
-	ekey = be32_to_cpu(ebn->key);
-	eprev = be32_to_cpu(ebn->prev);
+    result = sfs_remove_object(
+        sb, bh, object, true);
+    if (result != 0)
+        return result;
 
-	if (be16_to_cpu(ebn->blocks) < eblocks) {
-		printk("ASFS: Extent chain is too short or damaged!\n");
-		asfs_brelse(ebh);
-		return -ENOENT;
-	}
-	if (be16_to_cpu(ebn->blocks) - eblocks > 0 && (errorcode = asfs_freespace(sb, be32_to_cpu(ebn->key) + eblocks, be16_to_cpu(ebn->blocks) - eblocks)) != 0) {
-		asfs_brelse(ebh);
-		return errorcode;
-	}
-	if (be32_to_cpu(ebn->next) > 0 && (errorcode = asfs_deleteextents(sb, be32_to_cpu(ebn->next))) != 0) {
-		asfs_brelse(ebh);
-		return errorcode;
-	}
-	ebn->blocks = cpu_to_be16(eblocks);
-	ebn->next = 0;
-	asfs_bstore(sb, ebh);
+    if ((bits & OTYPE_LINK) != 0U &&
+        (bits & OTYPE_HARDLINK) == 0U) {
+        return auxiliary != 0U
+            ? asfs_freeadminspace(
+                sb, auxiliary)
+            : 0;
+    }
 
-	if (eblocks == 0) {
-		if (eprev & MSB_MASK) {
-			o->object.file.data = 0;
-			asfs_bstore(sb, bh);
-		} else {
-			struct buffer_head *ebhp;
-			struct fsExtentBNode *ebnp;
+    if ((bits & OTYPE_DIR) != 0U) {
+        return auxiliary != 0U
+            ? asfs_freeadminspace(
+                sb, auxiliary)
+            : 0;
+    }
 
-			if ((errorcode = asfs_getextent(sb, eprev & ~MSB_MASK, &ebhp, &ebnp)) != 0) {
-				asfs_brelse(ebh);
-				return errorcode;
-			}
+    if (auxiliary != 0U)
+        return asfs_deleteextents(
+            sb, auxiliary);
 
-			ebnp->next = 0;
-			asfs_bstore(sb, ebhp);
-			asfs_brelse(ebhp);
-		}
-		if ((errorcode = asfs_deletebnode(sb, ebh, ekey)) != 0) {
-			asfs_brelse(ebh);
-			return errorcode;
-		}
-	}
-	asfs_brelse(ebh);
-
-	return 0;
+    return 0;
 }
+
+static u8 *sfs_object_container_end(
+    struct super_block *sb,
+    struct fsObjectContainer *container)
+{
+    struct fsObject *object =
+        &container->object[0];
+    u32 budget =
+        sb->s_blocksize /
+        max_t(u32, sfs_object_fixed_bytes(), 1U);
+
+    while (budget-- != 0U &&
+           asfs_object_slot_fits(
+               sb, container, object) &&
+           be32_to_cpu(
+               object->objectnode) != 0U) {
+        object = asfs_nextobject(
+            sb, container, object);
+        if (!object)
+            return NULL;
+    }
+
+    if (!asfs_object_slot_fits(
+            sb, container, object))
+        return NULL;
+
+    return (u8 *)object;
+}
+
+static int sfs_find_object_space(
+    struct super_block *sb,
+    struct buffer_head **io_bh,
+    struct fsObject **io_object,
+    u32 bytes_needed)
+{
+    struct buffer_head *parent_bh;
+    struct fsObject *parent;
+    u32 block;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+
+    if (!io_bh || !*io_bh ||
+        !io_object || !*io_object ||
+        bytes_needed == 0U ||
+        bytes_needed > sb->s_blocksize)
+        return -EINVAL;
+
+    parent_bh = *io_bh;
+    parent = *io_object;
+    block =
+        be32_to_cpu(
+            parent->object.dir.firstdirblock);
+
+    while (block != 0U) {
+        struct buffer_head *bh;
+        struct fsObjectContainer *container;
+        u8 *end;
+        u32 next;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        bh = asfs_breadcheck(
+            sb, block,
+            ASFS_OBJECTCONTAINER_ID);
+        if (!bh)
+            return -EIO;
+
+        container =
+            (struct fsObjectContainer *)
+                bh->b_data;
+        end = sfs_object_container_end(
+            sb, container);
+        if (!end) {
+            asfs_brelse(bh);
+            return -EUCLEAN;
+        }
+
+        if ((size_t)(
+                (u8 *)container +
+                sb->s_blocksize - end) >=
+            bytes_needed) {
+            *io_bh = bh;
+            *io_object =
+                (struct fsObject *)end;
+            return 0;
+        }
+
+        next = be32_to_cpu(container->next);
+        asfs_brelse(bh);
+        block = next;
+    }
+
+    {
+        const u32 old_head =
+            be32_to_cpu(
+                parent->
+                    object.dir.firstdirblock);
+        struct buffer_head *new_bh;
+        struct fsObjectContainer *new_container;
+        struct buffer_head *old_head_bh = NULL;
+        u32 new_block;
+        int result;
+
+        result = asfs_allocadminspace(
+            sb, &new_block);
+        if (result != 0)
+            return result;
+
+        new_bh = asfs_getzeroblk(
+            sb, new_block);
+        if (!new_bh) {
+            (void)asfs_freeadminspace(
+                sb, new_block);
+            return -EIO;
+        }
+
+        if (old_head != 0U) {
+            old_head_bh = asfs_breadcheck(
+                sb, old_head,
+                ASFS_OBJECTCONTAINER_ID);
+            if (!old_head_bh) {
+                asfs_brelse(new_bh);
+                (void)asfs_freeadminspace(
+                    sb, new_block);
+                return -EIO;
+            }
+        }
+
+        new_container =
+            (struct fsObjectContainer *)
+                new_bh->b_data;
+        new_container->bheader.id =
+            cpu_to_be32(
+                ASFS_OBJECTCONTAINER_ID);
+        new_container->bheader.ownblock =
+            cpu_to_be32(new_block);
+        new_container->parent =
+            parent->objectnode;
+        new_container->next =
+            cpu_to_be32(old_head);
+        new_container->previous = 0U;
+        asfs_bstore(sb, new_bh);
+
+        parent->
+            object.dir.firstdirblock =
+            cpu_to_be32(new_block);
+        asfs_bstore(sb, parent_bh);
+
+        if (old_head_bh) {
+            struct fsObjectContainer *old =
+                (struct fsObjectContainer *)
+                    old_head_bh->b_data;
+
+            old->previous =
+                cpu_to_be32(new_block);
+            asfs_bstore(sb, old_head_bh);
+            asfs_brelse(old_head_bh);
+        }
+
+        *io_bh = new_bh;
+        *io_object =
+            &new_container->object[0];
+        return 0;
+    }
+}
+
+static int sfs_publish_hash_link(
+    struct super_block *sb,
+    u32 hash_block,
+    struct buffer_head *node_bh,
+    struct fsObjectNode *node,
+    u32 node_number,
+    u8 *name)
+{
+    struct buffer_head *hash_bh;
+    struct fsHashTable *table;
+    u16 hash;
+    u16 chain;
+    u32 old_head;
+
+    if (hash_block == 0U) {
+        asfs_bstore(sb, node_bh);
+        return 0;
+    }
+
+    hash_bh = asfs_breadcheck(
+        sb, hash_block, ASFS_HASHTABLE_ID);
+    if (!hash_bh)
+        return -EIO;
+
+    table =
+        (struct fsHashTable *)hash_bh->b_data;
+    hash = asfs_hash(
+        name,
+        (ASFS_SB(sb)->flags &
+         ASFS_ROOTBITS_CASESENSITIVE) != 0);
+    chain = HASHCHAIN(hash);
+    old_head =
+        be32_to_cpu(
+            table->hashentry[chain]);
+
+    node->next = cpu_to_be32(old_head);
+    node->hash16 = cpu_to_be16(hash);
+    asfs_bstore(sb, node_bh);
+
+    table->hashentry[chain] =
+        cpu_to_be32(node_number);
+    asfs_bstore(sb, hash_bh);
+    asfs_brelse(hash_bh);
+    return 0;
+}
+
+int asfs_createobject(
+    struct super_block *sb,
+    struct buffer_head **io_bh,
+    struct fsObject **io_object,
+    struct fsObject *template,
+    u8 *object_name,
+    int force)
+{
+    struct buffer_head *parent_bh;
+    struct fsObject *parent;
+    struct buffer_head *node_bh = NULL;
+    struct fsObjectNode *node = NULL;
+    struct fsObjectNode saved_node;
+    struct fsObject *destination = NULL;
+    u32 parent_hash;
+    u32 node_number = 0U;
+    u32 auxiliary_block = 0U;
+    u32 record_bytes;
+    size_t name_length;
+    bool created_node = false;
+    bool saved_node_valid = false;
+    int result;
+
+    if (!io_bh || !*io_bh ||
+        !io_object || !*io_object ||
+        !template || !object_name)
+        return -EINVAL;
+
+    parent_bh = *io_bh;
+    parent = *io_object;
+    if ((parent->bits & OTYPE_DIR) == 0U)
+        return -ENOTDIR;
+
+    name_length =
+        strnlen(
+            (const char *)object_name,
+            ASFS_MAXFN + 1U);
+    if (name_length > ASFS_MAXFN)
+        return -ENAMETOOLONG;
+
+    result = sfs_object_record_bytes(
+        name_length, &record_bytes);
+    if (result != 0)
+        return result;
+
+    parent_hash =
+        be32_to_cpu(
+            parent->object.dir.hashtable);
+
+    if (!force &&
+        !ifs_sfs_has_allocation_headroom(
+            ASFS_SB(sb)->freeblocks,
+            1U, ASFS_ALWAYSFREE))
+        return -ENOSPC;
+    if (!force &&
+        be32_to_cpu(parent->objectnode) ==
+            ASFS_RECYCLEDNODE)
+        return -EINVAL;
+
+    result = sfs_find_object_space(
+        sb, io_bh, io_object,
+        record_bytes);
+    if (result != 0)
+        return result;
+
+    destination = *io_object;
+    memset(destination, 0, record_bytes);
+    memcpy(
+        destination, template,
+        sfs_object_fixed_bytes());
+    memcpy(
+        destination->name,
+        object_name, name_length);
+    destination->name[name_length] = 0U;
+    destination->name[name_length + 1U] = 0U;
+
+    if (destination->objectnode != 0U) {
+        node_number =
+            be32_to_cpu(
+                destination->objectnode);
+        result = asfs_getnode(
+            sb, node_number,
+            &node_bh, &node);
+        if (result != 0)
+            goto rollback_record;
+
+        saved_node = *node;
+        saved_node_valid = true;
+    } else {
+        result = asfs_createnode(
+            sb, &node_bh,
+            (struct fsNode **)&node,
+            &node_number);
+        if (result != 0)
+            goto rollback_record;
+
+        created_node = true;
+        destination->objectnode =
+            cpu_to_be32(node_number);
+    }
+
+    if ((destination->bits & OTYPE_DIR) != 0U &&
+        destination->object.dir.hashtable == 0U) {
+        struct buffer_head *aux_bh;
+        struct fsHashTable *table;
+
+        result = asfs_allocadminspace(
+            sb, &auxiliary_block);
+        if (result != 0)
+            goto rollback_node;
+
+        aux_bh = asfs_getzeroblk(
+            sb, auxiliary_block);
+        if (!aux_bh) {
+            result = -EIO;
+            goto rollback_node;
+        }
+
+        table =
+            (struct fsHashTable *)aux_bh->b_data;
+        table->bheader.id =
+            cpu_to_be32(ASFS_HASHTABLE_ID);
+        table->bheader.ownblock =
+            cpu_to_be32(auxiliary_block);
+        table->parent =
+            destination->objectnode;
+        asfs_bstore(sb, aux_bh);
+        asfs_brelse(aux_bh);
+        destination->object.dir.hashtable =
+            cpu_to_be32(auxiliary_block);
+    } else if ((destination->bits &
+                (OTYPE_LINK |
+                 OTYPE_HARDLINK)) ==
+               OTYPE_LINK &&
+               destination->object.file.data == 0U) {
+        struct buffer_head *aux_bh;
+        struct fsSoftLink *link;
+
+        result = asfs_allocadminspace(
+            sb, &auxiliary_block);
+        if (result != 0)
+            goto rollback_node;
+
+        aux_bh = asfs_getzeroblk(
+            sb, auxiliary_block);
+        if (!aux_bh) {
+            result = -EIO;
+            goto rollback_node;
+        }
+
+        link =
+            (struct fsSoftLink *)aux_bh->b_data;
+        link->bheader.id =
+            cpu_to_be32(ASFS_SOFTLINK_ID);
+        link->bheader.ownblock =
+            cpu_to_be32(auxiliary_block);
+        link->parent =
+            destination->objectnode;
+        asfs_bstore(sb, aux_bh);
+        asfs_brelse(aux_bh);
+        destination->object.file.data =
+            cpu_to_be32(auxiliary_block);
+    }
+
+    node->node.data =
+        ((struct fsBlockHeader *)
+             (*io_bh)->b_data)->ownblock;
+
+    asfs_bstore(sb, *io_bh);
+    result = sfs_publish_hash_link(
+        sb, parent_hash,
+        node_bh, node,
+        node_number, object_name);
+    if (result != 0)
+        goto rollback_node;
+
+    asfs_brelse(node_bh);
+    return 0;
+
+rollback_node:
+    if (saved_node_valid && node_bh) {
+        *node = saved_node;
+        asfs_bstore(sb, node_bh);
+    }
+    asfs_brelse(node_bh);
+
+    if (created_node &&
+        asfs_deletenode(
+            sb, node_number) != 0)
+        result = -EUCLEAN;
+
+    if (auxiliary_block != 0U &&
+        asfs_freeadminspace(
+            sb, auxiliary_block) != 0)
+        result = -EUCLEAN;
+
+rollback_record:
+    if (destination) {
+        memset(
+            destination, 0, record_bytes);
+        asfs_bstore(sb, *io_bh);
+    }
+    return result;
+}
+
+int asfs_addblockstofile(
+    struct super_block *sb,
+    struct buffer_head *object_bh,
+    struct fsObject *object,
+    u32 blocks,
+    u32 *new_space,
+    u32 *added_blocks)
+{
+    struct buffer_head *extent_bh = NULL;
+    struct fsExtentBNode *extent = NULL;
+    u32 last_extent =
+        be32_to_cpu(
+            object->object.file.data);
+    u32 search_start = 0U;
+    u32 found_block = 0U;
+    u32 found_blocks = 0U;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+    int result;
+
+    if (!new_space || !added_blocks ||
+        blocks == 0U || blocks > 0xffffU)
+        return -EINVAL;
+
+    *new_space = 0U;
+    *added_blocks = 0U;
+
+    if (last_extent != 0U) {
+        while (last_extent != 0U) {
+            u32 next;
+
+            if (budget-- == 0U)
+                return -EUCLEAN;
+
+            result = asfs_getextent(
+                sb, last_extent,
+                &extent_bh, &extent);
+            if (result != 0)
+                return result;
+
+            next = be32_to_cpu(extent->next);
+            if (next == 0U) {
+                search_start =
+                    be32_to_cpu(extent->key) +
+                    be16_to_cpu(extent->blocks);
+                last_extent =
+                    be32_to_cpu(extent->key);
+                asfs_brelse(extent_bh);
+                extent_bh = NULL;
+                break;
+            }
+
+            last_extent = next;
+            asfs_brelse(extent_bh);
+            extent_bh = NULL;
+        }
+    }
+
+    result = asfs_findspace(
+        sb, blocks,
+        search_start, search_start,
+        &found_block, &found_blocks);
+    if (result != 0)
+        return result;
+
+    result = asfs_markspace(
+        sb, found_block, found_blocks);
+    if (result != 0)
+        return result;
+
+    {
+        u32 new_last = last_extent;
+
+        result = asfs_addblocks(
+            sb, (u16)found_blocks,
+            found_block,
+            be32_to_cpu(object->objectnode),
+            &new_last);
+        if (result != 0) {
+            struct buffer_head *orphan_bh = NULL;
+            struct fsExtentBNode *orphan = NULL;
+            int cleanup = asfs_getextent(
+                sb, found_block,
+                &orphan_bh, &orphan);
+
+            if (cleanup == 0) {
+                cleanup = asfs_deletebnode(
+                    sb, orphan_bh,
+                    found_block);
+                asfs_brelse(orphan_bh);
+            } else if (cleanup == -ENOENT) {
+                cleanup = 0;
+            }
+
+            if (cleanup == 0) {
+                cleanup = asfs_freespace(
+                    sb, found_block,
+                    found_blocks);
+            }
+            return cleanup == 0
+                ? result : -EUCLEAN;
+        }
+
+        if (object->object.file.data == 0U)
+            object->object.file.data =
+                cpu_to_be32(new_last);
+    }
+
+    *new_space = found_block;
+    *added_blocks = found_blocks;
+    asfs_bstore(sb, object_bh);
+    return 0;
+}
+
+int asfs_renameobject(
+    struct super_block *sb,
+    struct buffer_head *source_bh,
+    struct fsObject *source,
+    struct buffer_head *parent_bh,
+    struct fsObject *parent,
+    u8 *new_name)
+{
+    struct fsObject saved_object;
+    u8 old_name[ASFS_MAXFN + 2U];
+    const u32 old_parent =
+        be32_to_cpu(
+            ((struct fsObjectContainer *)
+                 source_bh->b_data)->parent);
+    const u32 new_parent =
+        be32_to_cpu(parent->objectnode);
+    size_t old_name_length;
+    int result;
+
+    old_name_length =
+        strnlen(
+            (const char *)source->name,
+            ASFS_MAXFN + 1U);
+    if (old_name_length > ASFS_MAXFN)
+        return -EUCLEAN;
+
+    memcpy(
+        old_name, source->name,
+        old_name_length + 1U);
+    saved_object = *source;
+
+    result = sfs_remove_object(
+        sb, source_bh, source, false);
+    if (result != 0)
+        return result;
+
+    {
+        struct buffer_head *fresh_parent_bh = NULL;
+        struct fsObject *fresh_parent = NULL;
+        struct buffer_head *destination_bh;
+        struct fsObject *destination;
+
+        result = asfs_readobject(
+            sb, new_parent,
+            &fresh_parent_bh,
+            &fresh_parent);
+        if (result == 0) {
+            destination_bh = fresh_parent_bh;
+            destination = fresh_parent;
+            result = asfs_createobject(
+                sb, &destination_bh,
+                &destination,
+                &saved_object,
+                new_name, TRUE);
+            if (result == 0)
+                asfs_bstore(
+                    sb, destination_bh);
+
+            if (destination_bh !=
+                fresh_parent_bh)
+                asfs_brelse(
+                    destination_bh);
+            asfs_brelse(
+                fresh_parent_bh);
+        }
+    }
+
+    if (result == 0) {
+        if (new_parent ==
+            ASFS_RECYCLEDNODE) {
+            const s32 file_blocks =
+                (s32)DIV_ROUND_UP(
+                    be32_to_cpu(
+                        saved_object.
+                            object.file.size),
+                    sb->s_blocksize);
+            result =
+                sfs_adjust_recycled_info(
+                    sb, 1, file_blocks);
+        }
+        return result;
+    }
+
+    {
+        struct buffer_head *restore_parent_bh = NULL;
+        struct fsObject *restore_parent = NULL;
+        struct buffer_head *restore_bh;
+        struct fsObject *restore_object;
+
+        if (asfs_readobject(
+                sb, old_parent,
+                &restore_parent_bh,
+                &restore_parent) == 0) {
+            restore_bh =
+                restore_parent_bh;
+            restore_object =
+                restore_parent;
+            if (asfs_createobject(
+                    sb, &restore_bh,
+                    &restore_object,
+                    &saved_object,
+                    old_name, TRUE) == 0)
+                asfs_bstore(
+                    sb, restore_bh);
+
+            if (restore_bh !=
+                restore_parent_bh)
+                asfs_brelse(restore_bh);
+            asfs_brelse(
+                restore_parent_bh);
+        }
+    }
+
+    return result;
+}
+
+int asfs_truncateblocksinfile(
+    struct super_block *sb,
+    struct buffer_head *object_bh,
+    struct fsObject *object,
+    u32 new_size)
+{
+    struct buffer_head *extent_bh = NULL;
+    struct fsExtentBNode *extent = NULL;
+    u32 needed_blocks =
+        DIV_ROUND_UP(
+            new_size, sb->s_blocksize);
+    u32 logical = 0U;
+    u32 key =
+        be32_to_cpu(
+            object->object.file.data);
+    u32 budget = ASFS_SB(sb)->totalblocks;
+    int result;
+
+    if (key == 0U)
+        return needed_blocks == 0U
+            ? 0 : -EUCLEAN;
+
+    while (key != 0U) {
+        const u32 next_key = key;
+        u32 extent_blocks;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        result = asfs_getextent(
+            sb, next_key,
+            &extent_bh, &extent);
+        if (result != 0)
+            return result;
+
+        extent_blocks =
+            be16_to_cpu(extent->blocks);
+        if ((u64)logical + extent_blocks >=
+            needed_blocks)
+            break;
+
+        logical += extent_blocks;
+        key = be32_to_cpu(extent->next);
+        asfs_brelse(extent_bh);
+        extent_bh = NULL;
+    }
+
+    if (!extent_bh || !extent)
+        return -EUCLEAN;
+
+    {
+        const u32 keep_blocks =
+            needed_blocks - logical;
+        const u32 current_blocks =
+            be16_to_cpu(extent->blocks);
+        const u32 extent_key =
+            be32_to_cpu(extent->key);
+        const u32 next =
+            be32_to_cpu(extent->next);
+        const u32 previous =
+            be32_to_cpu(extent->prev);
+
+        if (keep_blocks > current_blocks) {
+            asfs_brelse(extent_bh);
+            return -EUCLEAN;
+        }
+
+        if (current_blocks > keep_blocks) {
+            result = asfs_freespace(
+                sb,
+                extent_key + keep_blocks,
+                current_blocks - keep_blocks);
+            if (result != 0) {
+                asfs_brelse(extent_bh);
+                return result;
+            }
+        }
+
+        if (next != 0U) {
+            result = asfs_deleteextents(
+                sb, next);
+            if (result != 0) {
+                asfs_brelse(extent_bh);
+                return result;
+            }
+        }
+
+        if (keep_blocks != 0U) {
+            extent->blocks =
+                cpu_to_be16(
+                    (u16)keep_blocks);
+            extent->next = 0U;
+            asfs_bstore(sb, extent_bh);
+            asfs_brelse(extent_bh);
+            return 0;
+        }
+
+        if ((previous & MSB_MASK) != 0U) {
+            object->object.file.data = 0U;
+            asfs_bstore(sb, object_bh);
+        } else {
+            struct buffer_head *previous_bh = NULL;
+            struct fsExtentBNode *previous_extent = NULL;
+
+            result = asfs_getextent(
+                sb, previous & ~MSB_MASK,
+                &previous_bh,
+                &previous_extent);
+            if (result != 0) {
+                asfs_brelse(extent_bh);
+                return result;
+            }
+
+            previous_extent->next = 0U;
+            asfs_bstore(sb, previous_bh);
+            asfs_brelse(previous_bh);
+        }
+
+        result = asfs_deletebnode(
+            sb, extent_bh, extent_key);
+        asfs_brelse(extent_bh);
+        return result;
+    }
+}
+
 #endif
