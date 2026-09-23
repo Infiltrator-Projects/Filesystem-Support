@@ -163,7 +163,7 @@ static bool ext2_check_folio(struct folio *folio, int quiet, char *kaddr)
 	unsigned offs, rec_len;
 	unsigned limit = folio_size(folio);
 	ext2_dirent *p;
-	char *error;
+	const char *error;
 	IfsExt2DirectoryRecordStatus record_status;
 
 	if (dir->i_size < folio_pos(folio) + limit) {
