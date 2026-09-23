@@ -26,7 +26,7 @@ install -m 0644 "$desktop" "$tmp/payload/usr/local/share/applications/org.infilt
 install -m 0755 "$root/packaging/linux/native-module-helper.sh" \
     "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native-module-helper"
 
-for native_fs in ext2 ext3 ext4 ofs ffs; do
+for native_fs in ext2 ext3 ext4 ofs ffs sfs; do
     mkdir -p "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems/$native_fs"
     cp -a "$root/native/filesystems/$native_fs/core" \
         "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems/$native_fs/core"
@@ -52,7 +52,7 @@ Installs:
   /usr/local/bin/filesystem-support
   /usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop
   /usr/local/lib/infiltrator-filesystem-support/native-module-helper
-  native module source for EXT2/EXT3/EXT4/OFS/FFS
+  native module source for EXT2/EXT3/EXT4/OFS/FFS/SFS
 
 Run the file normally. PolicyKit will request administrator authentication if needed.
 HELP
