@@ -8,7 +8,7 @@
 
 #include <linux/exportfs.h>
 
-static int ifs_amiga_name_hash(
+static int ifs_ofs_name_hash(
     const struct dentry *parent, struct qstr *name, const bool international)
 {
     const unsigned char *cursor = name->name;
@@ -32,19 +32,19 @@ static int ifs_amiga_name_hash(
     return 0;
 }
 
-static int ifs_amiga_hash_dentry(
+static int ifs_ofs_hash_dentry(
     const struct dentry *parent, struct qstr *name)
 {
-    return ifs_amiga_name_hash(parent, name, false);
+    return ifs_ofs_name_hash(parent, name, false);
 }
 
-static int ifs_amiga_intl_hash_dentry(
+static int ifs_ofs_intl_hash_dentry(
     const struct dentry *parent, struct qstr *name)
 {
-    return ifs_amiga_name_hash(parent, name, true);
+    return ifs_ofs_name_hash(parent, name, true);
 }
 
-static int ifs_amiga_name_compare(
+static int ifs_ofs_name_compare(
     const struct dentry *parent,
     unsigned int existing_length,
     const char *existing_name,
@@ -81,23 +81,23 @@ static int ifs_amiga_name_compare(
     return 0;
 }
 
-static int ifs_amiga_compare_dentry(
+static int ifs_ofs_compare_dentry(
     const struct dentry *parent, unsigned int length,
     const char *existing, const struct qstr *candidate)
 {
-    return ifs_amiga_name_compare(
+    return ifs_ofs_name_compare(
         parent, length, existing, candidate, false);
 }
 
-static int ifs_amiga_intl_compare_dentry(
+static int ifs_ofs_intl_compare_dentry(
     const struct dentry *parent, unsigned int length,
     const char *existing, const struct qstr *candidate)
 {
-    return ifs_amiga_name_compare(
+    return ifs_ofs_name_compare(
         parent, length, existing, candidate, true);
 }
 
-static bool ifs_amiga_disk_name_matches(
+static bool ifs_ofs_disk_name_matches(
     const struct dentry *dentry,
     const u8 *disk_name,
     const bool international)
@@ -133,7 +133,7 @@ int affs_hash_name(struct super_block *sb, const u8 *name, unsigned int length)
         affs_test_opt(AFFS_SB(sb)->s_flags, SF_INTL) ? 1 : 0);
 }
 
-static struct buffer_head *ifs_amiga_find_entry(
+static struct buffer_head *ifs_ofs_find_entry(
     struct inode *dir, struct dentry *dentry)
 {
     struct super_block *sb = dir->i_sb;
@@ -154,7 +154,7 @@ static struct buffer_head *ifs_amiga_find_entry(
 
     key = be32_to_cpu(AFFS_HEAD(bh)->table[slot]);
     affs_brelse(bh);
-    budget = ifs_amiga_chain_budget(sb);
+    budget = ifs_ofs_chain_budget(sb);
 
     while (key != 0U) {
         if (budget-- == 0U)
@@ -164,7 +164,7 @@ static struct buffer_head *ifs_amiga_find_entry(
         if (!bh)
             return ERR_PTR(-EIO);
 
-        if (ifs_amiga_disk_name_matches(
+        if (ifs_ofs_disk_name_matches(
                 dentry, AFFS_TAIL(sb, bh)->name, international))
             return bh;
 
@@ -184,7 +184,7 @@ struct dentry *affs_lookup(
     struct dentry *result;
 
     affs_lock_dir(dir);
-    bh = ifs_amiga_find_entry(dir, dentry);
+    bh = ifs_ofs_find_entry(dir, dentry);
     if (IS_ERR(bh)) {
         affs_unlock_dir(dir);
         return ERR_CAST(bh);
@@ -352,14 +352,14 @@ int affs_link(
     return affs_add_entry(dir, d_inode(old_dentry), dentry, ST_LINKFILE);
 }
 
-static u32 ifs_amiga_dentry_block(const struct dentry *dentry)
+static u32 ifs_ofs_dentry_block(const struct dentry *dentry)
 {
     const unsigned long stored = (unsigned long)dentry->d_fsdata;
 
     return stored != 0UL ? (u32)stored : (u32)d_inode(dentry)->i_ino;
 }
 
-static int ifs_amiga_remove_from_directory(
+static int ifs_ofs_remove_from_directory(
     struct inode *dir, struct buffer_head *bh)
 {
     int result;
@@ -370,7 +370,7 @@ static int ifs_amiga_remove_from_directory(
     return result;
 }
 
-static int ifs_amiga_insert_into_directory(
+static int ifs_ofs_insert_into_directory(
     struct inode *dir, struct buffer_head *bh)
 {
     int result;
@@ -381,7 +381,7 @@ static int ifs_amiga_insert_into_directory(
     return result;
 }
 
-static int ifs_amiga_rename(
+static int ifs_ofs_rename(
     struct inode *old_dir, struct dentry *old_dentry,
     struct inode *new_dir, struct dentry *new_dentry)
 {
@@ -403,27 +403,27 @@ static int ifs_amiga_rename(
             return result;
     }
 
-    bh = affs_bread(sb, ifs_amiga_dentry_block(old_dentry));
+    bh = affs_bread(sb, ifs_ofs_dentry_block(old_dentry));
     if (!bh)
         return -EIO;
 
     memcpy(old_name, AFFS_TAIL(sb, bh)->name, sizeof(old_name));
 
-    result = ifs_amiga_remove_from_directory(old_dir, bh);
+    result = ifs_ofs_remove_from_directory(old_dir, bh);
     if (result != 0)
         goto out;
 
     affs_copy_name(AFFS_TAIL(sb, bh)->name, new_dentry);
     affs_fix_checksum(sb, bh);
-    result = ifs_amiga_insert_into_directory(new_dir, bh);
+    result = ifs_ofs_insert_into_directory(new_dir, bh);
     if (result == 0)
         goto out;
 
     memcpy(AFFS_TAIL(sb, bh)->name, old_name, sizeof(old_name));
     affs_fix_checksum(sb, bh);
-    rollback = ifs_amiga_insert_into_directory(old_dir, bh);
+    rollback = ifs_ofs_insert_into_directory(old_dir, bh);
     if (rollback != 0)
-        affs_error(sb, "ifs_amiga_rename",
+        affs_error(sb, "ifs_ofs_rename",
                    "Could not restore source after failed rename");
 
 out:
@@ -432,7 +432,7 @@ out:
     return result;
 }
 
-static int ifs_amiga_exchange(
+static int ifs_ofs_exchange(
     struct inode *old_dir, struct dentry *old_dentry,
     struct inode *new_dir, struct dentry *new_dentry)
 {
@@ -449,8 +449,8 @@ static int ifs_amiga_exchange(
     if (!d_really_is_positive(new_dentry))
         return -ENOENT;
 
-    old_bh = affs_bread(sb, ifs_amiga_dentry_block(old_dentry));
-    new_bh = affs_bread(sb, ifs_amiga_dentry_block(new_dentry));
+    old_bh = affs_bread(sb, ifs_ofs_dentry_block(old_dentry));
+    new_bh = affs_bread(sb, ifs_ofs_dentry_block(new_dentry));
     if (!old_bh || !new_bh) {
         result = -EIO;
         goto out;
@@ -459,32 +459,32 @@ static int ifs_amiga_exchange(
     memcpy(old_name, AFFS_TAIL(sb, old_bh)->name, sizeof(old_name));
     memcpy(new_name, AFFS_TAIL(sb, new_bh)->name, sizeof(new_name));
 
-    result = ifs_amiga_remove_from_directory(old_dir, old_bh);
+    result = ifs_ofs_remove_from_directory(old_dir, old_bh);
     if (result != 0)
         goto out;
     old_removed = true;
 
-    result = ifs_amiga_remove_from_directory(new_dir, new_bh);
+    result = ifs_ofs_remove_from_directory(new_dir, new_bh);
     if (result != 0)
         goto rollback;
     new_removed = true;
 
     affs_copy_name(AFFS_TAIL(sb, old_bh)->name, new_dentry);
     affs_fix_checksum(sb, old_bh);
-    result = ifs_amiga_insert_into_directory(new_dir, old_bh);
+    result = ifs_ofs_insert_into_directory(new_dir, old_bh);
     if (result != 0)
         goto rollback;
     old_inserted_new = true;
 
     affs_copy_name(AFFS_TAIL(sb, new_bh)->name, old_dentry);
     affs_fix_checksum(sb, new_bh);
-    result = ifs_amiga_insert_into_directory(old_dir, new_bh);
+    result = ifs_ofs_insert_into_directory(old_dir, new_bh);
     if (result == 0)
         goto out;
 
 rollback:
     if (old_inserted_new)
-        (void)ifs_amiga_remove_from_directory(new_dir, old_bh);
+        (void)ifs_ofs_remove_from_directory(new_dir, old_bh);
 
     memcpy(AFFS_TAIL(sb, old_bh)->name, old_name, sizeof(old_name));
     memcpy(AFFS_TAIL(sb, new_bh)->name, new_name, sizeof(new_name));
@@ -492,13 +492,13 @@ rollback:
     affs_fix_checksum(sb, new_bh);
 
     if (old_removed &&
-        ifs_amiga_insert_into_directory(old_dir, old_bh) != 0)
-        affs_error(sb, "ifs_amiga_exchange",
+        ifs_ofs_insert_into_directory(old_dir, old_bh) != 0)
+        affs_error(sb, "ifs_ofs_exchange",
                    "Could not restore first entry after failed exchange");
 
     if (new_removed &&
-        ifs_amiga_insert_into_directory(new_dir, new_bh) != 0)
-        affs_error(sb, "ifs_amiga_exchange",
+        ifs_ofs_insert_into_directory(new_dir, new_bh) != 0)
+        affs_error(sb, "ifs_ofs_exchange",
                    "Could not restore second entry after failed exchange");
 
 out:
@@ -525,14 +525,14 @@ int affs_rename2(
         return -EEXIST;
 
     if ((flags & RENAME_EXCHANGE) != 0U)
-        return ifs_amiga_exchange(
+        return ifs_ofs_exchange(
             old_dir, old_dentry, new_dir, new_dentry);
 
-    return ifs_amiga_rename(
+    return ifs_ofs_rename(
         old_dir, old_dentry, new_dir, new_dentry);
 }
 
-static struct dentry *ifs_amiga_get_parent(struct dentry *child)
+static struct dentry *ifs_ofs_get_parent(struct dentry *child)
 {
     struct buffer_head *bh;
     struct inode *parent;
@@ -548,7 +548,7 @@ static struct dentry *ifs_amiga_get_parent(struct dentry *child)
     return d_obtain_alias(parent);
 }
 
-static struct inode *ifs_amiga_export_inode(
+static struct inode *ifs_ofs_export_inode(
     struct super_block *sb, u64 inode_number, u32 generation)
 {
     if (inode_number > U32_MAX ||
@@ -558,33 +558,33 @@ static struct inode *ifs_amiga_export_inode(
     return affs_iget(sb, (unsigned long)inode_number);
 }
 
-static struct dentry *ifs_amiga_fh_to_dentry(
+static struct dentry *ifs_ofs_fh_to_dentry(
     struct super_block *sb, struct fid *fid, int length, int type)
 {
     return generic_fh_to_dentry(
-        sb, fid, length, type, ifs_amiga_export_inode);
+        sb, fid, length, type, ifs_ofs_export_inode);
 }
 
-static struct dentry *ifs_amiga_fh_to_parent(
+static struct dentry *ifs_ofs_fh_to_parent(
     struct super_block *sb, struct fid *fid, int length, int type)
 {
     return generic_fh_to_parent(
-        sb, fid, length, type, ifs_amiga_export_inode);
+        sb, fid, length, type, ifs_ofs_export_inode);
 }
 
 const struct export_operations affs_export_ops = {
     .encode_fh = generic_encode_ino32_fh,
-    .fh_to_dentry = ifs_amiga_fh_to_dentry,
-    .fh_to_parent = ifs_amiga_fh_to_parent,
-    .get_parent = ifs_amiga_get_parent,
+    .fh_to_dentry = ifs_ofs_fh_to_dentry,
+    .fh_to_parent = ifs_ofs_fh_to_parent,
+    .get_parent = ifs_ofs_get_parent,
 };
 
 const struct dentry_operations affs_dentry_operations = {
-    .d_hash = ifs_amiga_hash_dentry,
-    .d_compare = ifs_amiga_compare_dentry,
+    .d_hash = ifs_ofs_hash_dentry,
+    .d_compare = ifs_ofs_compare_dentry,
 };
 
 const struct dentry_operations affs_intl_dentry_operations = {
-    .d_hash = ifs_amiga_intl_hash_dentry,
-    .d_compare = ifs_amiga_intl_compare_dentry,
+    .d_hash = ifs_ofs_intl_hash_dentry,
+    .d_compare = ifs_ofs_intl_compare_dentry,
 };
