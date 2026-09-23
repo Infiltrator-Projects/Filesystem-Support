@@ -159,3 +159,80 @@ ifs_amiga_u32 ifs_amiga_bitmap_scan_mask(const ifs_amiga_u32 bit_offset)
 {
     return 0xffffffffU << (bit_offset & 31U);
 }
+
+IfsAmigaSymlinkStatus ifs_amiga_translate_symlink(
+    const ifs_amiga_u8 *const source,
+    const ifs_amiga_u32 source_capacity,
+    const ifs_amiga_u8 *const volume_prefix,
+    const ifs_amiga_u32 volume_prefix_length,
+    ifs_amiga_u8 *const output,
+    const ifs_amiga_u32 output_capacity,
+    ifs_amiga_u32 *const output_length)
+{
+    ifs_amiga_u32 source_length = 0U;
+    ifs_amiga_u32 colon = source_capacity;
+    ifs_amiga_u32 source_index = 0U;
+    ifs_amiga_u32 output_index = 0U;
+    ifs_amiga_u8 previous = 0U;
+    ifs_amiga_u32 index;
+
+    if (source == 0 || output == 0 || output_length == 0 ||
+        output_capacity == 0U ||
+        (volume_prefix == 0 && volume_prefix_length != 0U))
+        return IFS_AMIGA_SYMLINK_INVALID_ARGUMENT;
+
+    while (source_length < source_capacity &&
+           source[source_length] != 0U) {
+        if (source[source_length] == (ifs_amiga_u8)':' &&
+            colon == source_capacity)
+            colon = source_length;
+        source_length++;
+    }
+
+    if (source_length == source_capacity) {
+        output[0] = 0U;
+        *output_length = 0U;
+        return IFS_AMIGA_SYMLINK_SOURCE_UNTERMINATED;
+    }
+
+#define IFS_AMIGA_SYMLINK_APPEND(ch)                                      \
+    do {                                                                  \
+        if (output_index + 1U >= output_capacity) {                       \
+            output[0] = 0U;                                               \
+            *output_length = 0U;                                          \
+            return IFS_AMIGA_SYMLINK_OUTPUT_TOO_SMALL;                    \
+        }                                                                 \
+        output[output_index++] = (ifs_amiga_u8)(ch);                      \
+    } while (0)
+
+    if (colon != source_capacity) {
+        for (index = 0U; index < volume_prefix_length; ++index)
+            IFS_AMIGA_SYMLINK_APPEND(volume_prefix[index]);
+
+        for (index = 0U; index < colon; ++index)
+            IFS_AMIGA_SYMLINK_APPEND(source[index]);
+
+        IFS_AMIGA_SYMLINK_APPEND('/');
+        previous = (ifs_amiga_u8)'/';
+        source_index = colon + 1U;
+    }
+
+    for (; source_index < source_length; ++source_index) {
+        const ifs_amiga_u8 character = source[source_index];
+
+        if (character == (ifs_amiga_u8)'/' &&
+            previous == (ifs_amiga_u8)'/') {
+            IFS_AMIGA_SYMLINK_APPEND('.');
+            IFS_AMIGA_SYMLINK_APPEND('.');
+        }
+
+        IFS_AMIGA_SYMLINK_APPEND(character);
+        previous = character;
+    }
+
+#undef IFS_AMIGA_SYMLINK_APPEND
+
+    output[output_index] = 0U;
+    *output_length = output_index;
+    return IFS_AMIGA_SYMLINK_OK;
+}
