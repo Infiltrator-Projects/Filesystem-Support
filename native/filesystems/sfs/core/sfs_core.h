@@ -102,4 +102,21 @@ int ifs_sfs_validate_block_header(
     ifs_sfs_u32 block_size,
     ifs_sfs_u32 expected_block_number,
     ifs_sfs_u32 expected_block_id);
+
+#define IFS_SFS_NODE_CONTAINER_FIXED_SIZE 20U
+#define IFS_SFS_OBJECT_NODE_SIZE 10U
+#define IFS_SFS_NODE_INDEX_ENTRY_SIZE 4U
+
+int ifs_sfs_node_leaf_slot(
+    ifs_sfs_u32 block_size,
+    ifs_sfs_u32 base_node,
+    ifs_sfs_u32 target_node,
+    ifs_sfs_u32 *slot);
+
+int ifs_sfs_node_index_slot(
+    ifs_sfs_u32 block_size,
+    ifs_sfs_u32 base_node,
+    ifs_sfs_u32 nodes_per_entry,
+    ifs_sfs_u32 target_node,
+    ifs_sfs_u32 *slot);
 #endif

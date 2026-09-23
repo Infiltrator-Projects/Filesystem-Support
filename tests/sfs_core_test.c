@@ -135,5 +135,34 @@ int main(void)
             return fail("wrong SFS ownblock was accepted");
     }
 
+
+    {
+        ifs_sfs_u32 slot = 0U;
+
+        if (ifs_sfs_node_leaf_slot(512U, 100U, 100U, &slot) != 0 ||
+            slot != 0U)
+            return fail("node leaf slot start is wrong");
+        if (ifs_sfs_node_leaf_slot(512U, 100U, 148U, &slot) != 0 ||
+            slot != 48U)
+            return fail("node leaf slot end is wrong");
+        if (ifs_sfs_node_leaf_slot(512U, 100U, 149U, &slot) == 0)
+            return fail("out-of-range node leaf slot was accepted");
+        if (ifs_sfs_node_leaf_slot(512U, 100U, 99U, &slot) == 0)
+            return fail("node number before leaf base was accepted");
+
+        if (ifs_sfs_node_index_slot(
+                512U, 100U, 50U, 100U, &slot) != 0 || slot != 0U)
+            return fail("node index slot start is wrong");
+        if (ifs_sfs_node_index_slot(
+                512U, 100U, 50U, 6249U, &slot) != 0 || slot != 122U)
+            return fail("node index slot end is wrong");
+        if (ifs_sfs_node_index_slot(
+                512U, 100U, 50U, 6250U, &slot) == 0)
+            return fail("out-of-range node index slot was accepted");
+        if (ifs_sfs_node_index_slot(
+                512U, 100U, 0U, 100U, &slot) == 0)
+            return fail("zero node span was accepted");
+    }
+
     return 0;
 }

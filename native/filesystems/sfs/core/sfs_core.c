@@ -279,3 +279,54 @@ int ifs_sfs_validate_block_header(
            ifs_sfs_read_be32(block + 4U) ==
                ifs_sfs_calculate_block_checksum(block, block_size);
 }
+
+int ifs_sfs_node_leaf_slot(
+    const ifs_sfs_u32 block_size,
+    const ifs_sfs_u32 base_node,
+    const ifs_sfs_u32 target_node,
+    ifs_sfs_u32 *const slot)
+{
+    ifs_sfs_u32 capacity;
+    ifs_sfs_u32 offset;
+
+    if (slot == 0 || block_size <= IFS_SFS_NODE_CONTAINER_FIXED_SIZE ||
+        target_node < base_node)
+        return -1;
+
+    capacity =
+        (block_size - IFS_SFS_NODE_CONTAINER_FIXED_SIZE) /
+        IFS_SFS_OBJECT_NODE_SIZE;
+    offset = target_node - base_node;
+    if (offset >= capacity)
+        return -1;
+
+    *slot = offset;
+    return 0;
+}
+
+int ifs_sfs_node_index_slot(
+    const ifs_sfs_u32 block_size,
+    const ifs_sfs_u32 base_node,
+    const ifs_sfs_u32 nodes_per_entry,
+    const ifs_sfs_u32 target_node,
+    ifs_sfs_u32 *const slot)
+{
+    ifs_sfs_u32 capacity;
+    ifs_sfs_u32 offset;
+    ifs_sfs_u32 index;
+
+    if (slot == 0 || block_size <= IFS_SFS_NODE_CONTAINER_FIXED_SIZE ||
+        nodes_per_entry <= 1U || target_node < base_node)
+        return -1;
+
+    capacity =
+        (block_size - IFS_SFS_NODE_CONTAINER_FIXED_SIZE) /
+        IFS_SFS_NODE_INDEX_ENTRY_SIZE;
+    offset = target_node - base_node;
+    index = offset / nodes_per_entry;
+    if (index >= capacity)
+        return -1;
+
+    *slot = index;
+    return 0;
+}

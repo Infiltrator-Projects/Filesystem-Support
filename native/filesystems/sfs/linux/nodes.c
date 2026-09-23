@@ -34,12 +34,39 @@ int asfs_getnode(struct super_block *sb, u32 nodeno, struct buffer_head **ret_bh
 		nodecont = (struct fsNodeContainer *) bh->b_data;
 
 		if (be32_to_cpu(nodecont->nodes) == 1) {
-			*ret_node = (struct fsObjectNode *) ((u8 *) nodecont->node + NODE_STRUCT_SIZE * (nodeno - be32_to_cpu(nodecont->nodenumber)));
+			u32 leaf_slot;
+
+			if (ifs_sfs_node_leaf_slot(
+					sb->s_blocksize,
+					be32_to_cpu(nodecont->nodenumber),
+					nodeno, &leaf_slot) != 0) {
+				asfs_brelse(bh);
+				return -EUCLEAN;
+			}
+			*ret_node = (struct fsObjectNode *)
+				((u8 *)nodecont->node + NODE_STRUCT_SIZE * leaf_slot);
 			*ret_bh = bh;
 			return 0;
 		} else {
-			u16 containerentry = (nodeno - be32_to_cpu(nodecont->nodenumber)) / be32_to_cpu(nodecont->nodes);
-			nodeindex = be32_to_cpu(nodecont->node[containerentry]) >> (sb->s_blocksize_bits - ASFS_BLCKFACCURACY);
+			u32 containerentry;
+			u32 raw_index;
+
+			if (ifs_sfs_node_index_slot(
+					sb->s_blocksize,
+					be32_to_cpu(nodecont->nodenumber),
+					be32_to_cpu(nodecont->nodes),
+					nodeno, &containerentry) != 0) {
+				asfs_brelse(bh);
+				return -EUCLEAN;
+			}
+			raw_index = be32_to_cpu(nodecont->node[containerentry]);
+			if (raw_index == 0U) {
+				asfs_brelse(bh);
+				return -EUCLEAN;
+			}
+			nodeindex =
+				raw_index >>
+				(sb->s_blocksize_bits - ASFS_BLCKFACCURACY);
 		}
 		asfs_brelse(bh);
 	}
@@ -80,8 +107,27 @@ static int parentnodecontainer(struct super_block *sb, struct buffer_head **io_b
 			*io_bh = NULL;
 			return -EIO;
 		} else {
-			u16 containerentry = (nodenumber - be32_to_cpu(nc->nodenumber)) / be32_to_cpu(nc->nodes);
-			noderoot = be32_to_cpu(nc->node[containerentry]) >> (sb->s_blocksize_bits - ASFS_BLCKFACCURACY);
+			u32 containerentry;
+			u32 raw_index;
+
+			if (ifs_sfs_node_index_slot(
+					sb->s_blocksize,
+					be32_to_cpu(nc->nodenumber),
+					be32_to_cpu(nc->nodes),
+					nodenumber, &containerentry) != 0) {
+				asfs_brelse(*io_bh);
+				*io_bh = NULL;
+				return -EUCLEAN;
+			}
+			raw_index = be32_to_cpu(nc->node[containerentry]);
+			if (raw_index == 0U) {
+				asfs_brelse(*io_bh);
+				*io_bh = NULL;
+				return -EUCLEAN;
+			}
+			noderoot =
+				raw_index >>
+				(sb->s_blocksize_bits - ASFS_BLCKFACCURACY);
 		}
 
 		if (noderoot == childblock)
@@ -119,7 +165,16 @@ static int markparentfull(struct super_block *sb, struct buffer_head *bh)
 
 	if ((errorcode = parentnodecontainer(sb, &bh)) == 0 && bh != 0) {
 		struct fsNodeContainer *nc = (void *) bh->b_data;
-		u16 containerentry = (nodenumber - be32_to_cpu(nc->nodenumber)) / be32_to_cpu(nc->nodes);
+		u32 containerentry;
+
+		if (ifs_sfs_node_index_slot(
+				sb->s_blocksize,
+				be32_to_cpu(nc->nodenumber),
+				be32_to_cpu(nc->nodes),
+				nodenumber, &containerentry) != 0) {
+			asfs_brelse(bh);
+			return -EUCLEAN;
+		}
 
 		nc->node[containerentry] = cpu_to_be32(be32_to_cpu(nc->node[containerentry]) | 0x00000001);
 
@@ -222,6 +277,12 @@ int asfs_createnode(struct super_block *sb, struct buffer_head **returned_bh, st
 
 	while ((*returned_bh = asfs_breadcheck(sb, nodeindex, ASFS_NODECONTAINER_ID))) {
 		struct fsNodeContainer *nc = (void *) (*returned_bh)->b_data;
+
+		if (be32_to_cpu(nc->nodes) == 0U) {
+			asfs_brelse(*returned_bh);
+			*returned_bh = NULL;
+			return -EUCLEAN;
+		}
 
 		if (be32_to_cpu(nc->nodes) == 1) {	/* Is it a leaf-container? */
 			struct fsNode *n;
@@ -365,7 +426,16 @@ static int markparentempty(struct super_block *sb, struct buffer_head *bh)
 	if ((errorcode = parentnodecontainer(sb, &bh)) == 0 && bh != 0) {
 		struct fsNodeContainer *nc = (void *) bh->b_data;
 		int wasfull;
-		u16 containerentry = (nodenumber - be32_to_cpu(nc->nodenumber)) / be32_to_cpu(nc->nodes);
+		u32 containerentry;
+
+		if (ifs_sfs_node_index_slot(
+				sb->s_blocksize,
+				be32_to_cpu(nc->nodenumber),
+				be32_to_cpu(nc->nodes),
+				nodenumber, &containerentry) != 0) {
+			asfs_brelse(bh);
+			return -EUCLEAN;
+		}
 
 		wasfull = isfull(sb, nc);
 
@@ -393,7 +463,16 @@ static int freecontainer(struct super_block *sb, struct buffer_head *bh)
 
 	if ((errorcode = parentnodecontainer(sb, &bh)) == 0 && bh != NULL) {	/* This line also prevents the freeing of the noderoot. */
 		struct fsNodeContainer *nc = (void *) bh->b_data;
-		u16 containerindex = (nodenumber - be32_to_cpu(nc->nodenumber)) / be32_to_cpu(nc->nodes);
+		u32 containerindex;
+
+		if (ifs_sfs_node_index_slot(
+				sb->s_blocksize,
+				be32_to_cpu(nc->nodenumber),
+				be32_to_cpu(nc->nodes),
+				nodenumber, &containerindex) != 0) {
+			asfs_brelse(bh);
+			return -EUCLEAN;
+		}
 
 		if ((errorcode = asfs_freeadminspace(sb, be32_to_cpu(nc->node[containerindex]) >> (sb->s_blocksize_bits - ASFS_BLCKFACCURACY))) == 0) {
 			u32 *p = nc->node;
