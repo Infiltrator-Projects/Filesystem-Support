@@ -112,4 +112,26 @@ IfsExt4ClusterGeometryStatus ifs_ext4_validate_cluster_geometry(
     ifs_ext4_u32 blocks_per_group,
     ifs_ext4_u32 clusters_per_group);
 
+typedef enum IfsExt4LayoutStatus {
+    IFS_EXT4_LAYOUT_OK = 0,
+    IFS_EXT4_LAYOUT_RESERVED_GDT_TOO_LARGE,
+    IFS_EXT4_LAYOUT_INVALID_FIRST_DATA_BLOCK,
+    IFS_EXT4_LAYOUT_INVALID_1K_FIRST_DATA_BLOCK,
+    IFS_EXT4_LAYOUT_GROUP_COUNT_TOO_LARGE,
+    IFS_EXT4_LAYOUT_INVALID_INODE_COUNT
+} IfsExt4LayoutStatus;
+
+IfsExt4LayoutStatus ifs_ext4_validate_layout(
+    ifs_ext4_u32 block_size,
+    ifs_ext4_u32 reserved_gdt_blocks,
+    ifs_ext4_u64 blocks_count,
+    ifs_ext4_u32 first_data_block,
+    ifs_ext4_u32 log_block_size,
+    ifs_ext4_u32 cluster_ratio,
+    ifs_ext4_u32 blocks_per_group,
+    ifs_ext4_u32 descriptors_per_block,
+    ifs_ext4_u32 inodes_per_group,
+    ifs_ext4_u32 inodes_count,
+    ifs_ext4_u32 *group_count);
+
 #endif
