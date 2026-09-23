@@ -23,3 +23,4 @@
  */
 
 #include "../core/ext2_core.c"
+#include "../core/ext2_engine.c"
