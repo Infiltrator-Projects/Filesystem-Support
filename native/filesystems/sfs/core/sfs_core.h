@@ -1,14 +1,17 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef INFILTRATOR_SFS_CORE_H
 #define INFILTRATOR_SFS_CORE_H
 #if defined(__KERNEL__)
 #include <linux/types.h>
+typedef u8 ifs_sfs_u8;
+typedef u16 ifs_sfs_u16;
 typedef s32 ifs_sfs_i32;
 typedef s64 ifs_sfs_i64;
 typedef u32 ifs_sfs_u32;
 typedef u64 ifs_sfs_u64;
 #else
 #include <stdint.h>
+typedef uint8_t ifs_sfs_u8;
+typedef uint16_t ifs_sfs_u16;
 typedef int32_t ifs_sfs_i32;
 typedef int64_t ifs_sfs_i64;
 typedef uint32_t ifs_sfs_u32;
@@ -55,6 +58,24 @@ int ifs_sfs_select_root_copy(
     ifs_sfs_u32 backup_sequence);
 
 #define IFS_SFS_MAX_FILENAME 105U
+
+typedef enum IfsSfsNameStatus {
+    IFS_SFS_NAME_OK = 0,
+    IFS_SFS_NAME_TOO_LONG,
+    IFS_SFS_NAME_INVALID_CHARACTER
+} IfsSfsNameStatus;
+
+IfsSfsNameStatus ifs_sfs_validate_name(
+    const ifs_sfs_u8 *name,
+    ifs_sfs_u32 length);
+
+ifs_sfs_u8 ifs_sfs_fold_character(ifs_sfs_u8 character);
+ifs_sfs_u8 ifs_sfs_lower_character(ifs_sfs_u8 character);
+
+ifs_sfs_u16 ifs_sfs_component_hash(
+    const ifs_sfs_u8 *name,
+    int case_sensitive);
+
 
 typedef enum IfsSfsObjectRecordStatus {
     IFS_SFS_OBJECT_RECORD_OK = 0,
