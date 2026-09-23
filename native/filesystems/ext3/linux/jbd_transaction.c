@@ -1376,19 +1376,20 @@ out:
  * rollback, abort or retry policy.
  */
 int journal_try_to_free_buffers(journal_t *journal,
-				struct page *page, gfp_t gfp_mask)
+				struct folio *folio, gfp_t gfp_mask)
 {
 	struct buffer_head *head;
 	struct buffer_head *bh;
 	int ret = 0;
 
-	J_ASSERT(PageLocked(page));
+	J_ASSERT(folio_test_locked(folio));
 
-	head = page_buffers(page);
+	head = folio_buffers(folio);
+	if (!head)
+		return 1;
 	bh = head;
 	do {
 		struct journal_head *jh;
-
 
 		jh = journal_grab_journal_head(bh);
 		if (!jh)
@@ -1402,7 +1403,7 @@ int journal_try_to_free_buffers(journal_t *journal,
 			goto busy;
 	} while ((bh = bh->b_this_page) != head);
 
-	ret = try_to_free_buffers(page);
+	ret = try_to_free_buffers(folio);
 
 busy:
 	return ret;
@@ -1576,47 +1577,44 @@ zap_buffer_unlocked:
  * rollback, abort or retry policy.
  */
 void journal_invalidatepage(journal_t *journal,
-		      struct page *page,
-		      unsigned int offset,
-		      unsigned int length)
+		      struct folio *folio,
+		      size_t offset,
+		      size_t length)
 {
 	struct buffer_head *head, *bh, *next;
-	unsigned int stop = offset + length;
-	unsigned int curr_off = 0;
-	int partial_page = (offset || length < PAGE_SIZE);
+	size_t stop = offset + length;
+	size_t curr_off = 0;
+	bool partial_folio = offset || length < folio_size(folio);
 	int may_free = 1;
 
-	if (!PageLocked(page))
+	if (!folio_test_locked(folio))
 		BUG();
-	if (!page_has_buffers(page))
+	if (!folio_buffers(folio))
 		return;
 
-	BUG_ON(stop > PAGE_SIZE || stop < length);
+	BUG_ON(stop > folio_size(folio) || stop < length);
 
-
-	head = bh = page_buffers(page);
+	head = bh = folio_buffers(folio);
 	do {
-		unsigned int next_off = curr_off + bh->b_size;
-		next = bh->b_this_page;
+		size_t next_off = curr_off + bh->b_size;
 
+		next = bh->b_this_page;
 		if (next_off > stop)
 			return;
 
 		if (offset <= curr_off) {
-
 			lock_buffer(bh);
 			may_free &= journal_unmap_buffer(journal, bh,
-							 partial_page);
+						 partial_folio);
 			unlock_buffer(bh);
 		}
 		curr_off = next_off;
 		bh = next;
-
 	} while (bh != head);
 
-	if (!partial_page) {
-		if (may_free && try_to_free_buffers(page))
-			J_ASSERT(!page_has_buffers(page));
+	if (!partial_folio) {
+		if (may_free && try_to_free_buffers(folio))
+			J_ASSERT(!folio_buffers(folio));
 	}
 }
 
