@@ -170,49 +170,57 @@ The current Filesystem Support EXT2 kernel source is much more feature-complete,
 
 ## Deletion gate
 
-Do **not** delete ExtFS-for-Windows yet.
+The standalone `ExtFS-for-Windows` repository has completed its migration
+gate and is safe to delete.
 
-Deletion becomes safe only after the migration checklist in `WINDOWS_FILESYSTEM_ARCHITECTURE.md` has been completed and a final repository-to-repository comparison confirms that no unique source, documentation, test, build/signing logic or required release artifact remains only in ExtFS-for-Windows.
+Deletion closure was verified on 2026-09-23 against:
 
+- final standalone source: `Infiltrator-Projects/ExtFS-for-Windows`
+  `dda219be47033372217149bce8c8ee20f19ded0a`;
+- Filesystem Support qualification commit:
+  `8e3e5bf6c299dece09641199004cc4c99ae98f25`;
+- GitHub Actions build run `35806524701`.
 
-## Migration status — 2026-09-23
+Completed gates:
 
-Completed preservation work:
+1. **Source/document preservation — complete.** All 62 blobs from the final
+   standalone main tree are preserved byte-for-byte under
+   `archive/extfs-for-windows-v0.9.9/`; the archive contains one additional
+   provenance file.
+2. **Windows engineering migration — complete.** The live repository owns the
+   canonical Windows EXT2 IFS driver, pinned WDK build/package validation,
+   architecture checks, InfVerif/Inf2Cat processing, generic host diagnostics,
+   Driver Verifier controls, and the general installation/signing/submission
+   lifecycle contract. The obsolete EXT-specific NSIS/test-signed publication
+   path is explicitly retired rather than retained as a second product.
+3. **Repository-history preservation — complete.** Issue/PR history and release
+   metadata are archived, including release asset names, sizes and recorded
+   SHA-256 digests.
+4. **Single canonical EXT2 engine — complete for the live migration boundary.**
+   The Windows driver directly compiles and calls
+   `native/filesystems/ext2/core/`; the temporary `ext2_compat.h` facade is
+   gone and live Windows build inputs contain no dependency on the archived
+   `core/extfs*.c` implementation.
+5. **Windows build/qualification ownership — complete.**
+   `windows/build/Build-Ext2Driver.ps1` builds and validates the Windows EXT2
+   package from Filesystem Support.
+6. **Fresh-clone qualification — complete.** Build run `35806524701` passed
+   Linux build/test, the pinned Linux 6.12.107 EXT2 module build, Windows
+   manager build, Windows EXT2 WDK build/package verification and the
+   single-engine source-boundary checks.
+7. **Final repository comparison — complete.** The standalone repository
+   remained frozen at `dda219be47033372217149bce8c8ee20f19ded0a`; final
+   comparison found zero missing and zero mismatched source blobs in the
+   Filesystem Support archive.
 
-- the complete `ExtFS-for-Windows` v0.9.9 main tree at
-  `dda219be47033372217149bce8c8ee20f19ded0a` is preserved byte-for-byte under
-  `archive/extfs-for-windows-v0.9.9/`;
-- all 62 source-tree blobs from that baseline match their archived blob SHA;
-- `docs/archive/EXTFS_FOR_WINDOWS_ISSUE_HISTORY.md` preserves the old
-  repository's 27 issue/pull-request records and available discussion;
-- `docs/archive/EXTFS_FOR_WINDOWS_RELEASE_HISTORY.md` preserves metadata,
-  notes, asset names, sizes and recorded SHA-256 digests for all 10 releases;
-- the Windows manager consumes the shared Filesystem Support catalogue and
-  keeps every unqualified Windows implementation non-installable;
-- generic Windows host-readiness and diagnostics tooling now lives under
-  `windows/test/`;
-- `native/platform/windows/` is reserved explicitly for Windows IFS/WDK
-  adaptation only, never filesystem-format duplication;
-- CI/CTest now has a Windows catalogue qualification-gate test.
+**Deletion status: SAFE TO DELETE.**
 
-Still blocking deletion of the standalone repository:
-
-1. the production Windows IFS adapter has not yet been extracted from the old
-   ExtFS driver into `native/platform/windows/`;
-2. WDK build/package/signing orchestration is still only preserved in the
-   archive and has not yet been generalized into the live Windows build path;
-3. EXT2 does not yet use one canonical filesystem engine on both Linux and
-   Windows;
-4. the old ExtFS Windows driver still depends on the archived independent
-   `core/extfs*.c` implementation, so it cannot simply be promoted as the
-   production Windows adapter;
-5. a fresh-clone Windows build/qualification from Filesystem Support has not
-   yet passed;
-6. final repository-to-repository migration closure has not yet been performed.
-
-**Deletion status: NOT SAFE YET.** Keep `ExtFS-for-Windows` unchanged until
-these remaining gates are closed.
-
+Deleting the standalone repository does not mean EXT2 development is complete
+or that Windows EXT2 is ready for general installation. EXT2 remains the first
+in-progress canonical filesystem and the manager continues to keep it
+non-installable until its full Windows qualification gate is satisfied. The
+deletion decision means only that the standalone repository contains no unique
+engineering state required to continue that work.
 
 ## Historical binary disposition
 
