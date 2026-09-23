@@ -665,11 +665,14 @@ IfsExt2Status ifs_ext2_iterate_directory(
                 file_type = entry[7U];
                 type = dir_type(file_type);
             } else {
-                name_len = (ifs_ext2_u8)load_le16(entry + 6U);
+                const ifs_ext2_u16 legacy_name_len =
+                    load_le16(entry + 6U);
+                if (legacy_name_len > IFS_EXT2_MAX_NAME_LENGTH)
+                    return IFS_EXT2_ERROR_CORRUPT;
+                name_len = (ifs_ext2_u8)legacy_name_len;
             }
 
-            if (name_len > IFS_EXT2_MAX_NAME_LENGTH ||
-                (ifs_ext2_u32)name_len > rec_len - 8U)
+            if ((ifs_ext2_u32)name_len > rec_len - 8U)
                 return IFS_EXT2_ERROR_CORRUPT;
 
             if (inode_number != 0U) {
