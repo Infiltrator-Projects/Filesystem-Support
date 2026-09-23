@@ -60,6 +60,7 @@
 #include <linux/parser.h>
 #include <linux/nls.h>
 #include "asfs_fs.h"
+#include "../core/sfs_core.h"
 
 #include <asm/byteorder.h>
 
@@ -239,28 +240,65 @@ static int asfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	rootblock = (struct fsRootBlock *)bh->b_data;
 
-	if (be32_to_cpu(rootblock->bheader.id) == ASFS_ROOTID && 
+	if (be32_to_cpu(rootblock->bheader.id) == ASFS_ROOTID &&
 		be16_to_cpu(rootblock->version) == ASFS_STRUCTURE_VERISON) {
+		const u32 blocksize = be32_to_cpu(rootblock->blocksize);
+		const u32 totalblocks = be32_to_cpu(rootblock->totalblocks);
+		const u32 bitmapbase = be32_to_cpu(rootblock->bitmapbase);
+		const u32 adminspacecontainer =
+			be32_to_cpu(rootblock->adminspacecontainer);
+		const u32 rootobjectcontainer =
+			be32_to_cpu(rootblock->rootobjectcontainer);
+		const u32 extentbnoderoot =
+			be32_to_cpu(rootblock->extentbnoderoot);
+		const u32 objectnoderoot =
+			be32_to_cpu(rootblock->objectnoderoot);
+		const u8 root_bits = rootblock->bits;
+		const IfsSfsRootStatus root_status =
+			ifs_sfs_validate_root_layout(
+				be32_to_cpu(rootblock->bheader.id),
+				be16_to_cpu(rootblock->version),
+				blocksize, totalblocks, bitmapbase,
+				adminspacecontainer, rootobjectcontainer,
+				extentbnoderoot, objectnoderoot);
+		u32 blocks_inbitmap;
+		u32 blocks_bitmap;
 
-		sb->s_blocksize = be32_to_cpu(rootblock->blocksize);
-		ASFS_SB(sb)->totalblocks = be32_to_cpu(rootblock->totalblocks);
-		ASFS_SB(sb)->rootobjectcontainer = be32_to_cpu(rootblock->rootobjectcontainer);
-		ASFS_SB(sb)->extentbnoderoot = be32_to_cpu(rootblock->extentbnoderoot);
-		ASFS_SB(sb)->objectnoderoot = be32_to_cpu(rootblock->objectnoderoot);
-		ASFS_SB(sb)->flags |= 0xff & rootblock->bits;
-		ASFS_SB(sb)->adminspacecontainer = be32_to_cpu(rootblock->adminspacecontainer);
-		ASFS_SB(sb)->bitmapbase = be32_to_cpu(rootblock->bitmapbase);
-		ASFS_SB(sb)->blocks_inbitmap = (sb->s_blocksize - sizeof(struct fsBitmap))<<3;  /* must be a multiple of 32 !! */
-		ASFS_SB(sb)->blocks_bitmap = (ASFS_SB(sb)->totalblocks + ASFS_SB(sb)->blocks_inbitmap - 1) / ASFS_SB(sb)->blocks_inbitmap;
-		ASFS_SB(sb)->block_rovingblockptr = 0;
-		asfs_brelse(bh);
-
-		if (!sb_set_blocksize(sb, sb->s_blocksize)) {
-			printk(KERN_ERR "ASFS: Found Amiga SFS RootBlock on dev %s, but blocksize %ld is not supported!\n", \
-			       sb->s_id, sb->s_blocksize);
+		if (root_status != IFS_SFS_ROOT_OK) {
+			if (!silent)
+				printk(KERN_ERR
+				       "ASFS: invalid SFS root layout on dev %s: %s\n",
+				       sb->s_id,
+				       ifs_sfs_root_status_string(root_status));
+			asfs_brelse(bh);
 			return -EINVAL;
 		}
 
+		asfs_brelse(bh);
+		if (!sb_set_blocksize(sb, blocksize)) {
+			printk(KERN_ERR
+			       "ASFS: Found Amiga SFS RootBlock on dev %s, but blocksize %u is not supported!\n",
+			       sb->s_id, blocksize);
+			return -EINVAL;
+		}
+		if (ifs_sfs_compute_bitmap_layout(
+				blocksize, totalblocks,
+				&blocks_inbitmap, &blocks_bitmap) != 0) {
+			printk(KERN_ERR "ASFS: invalid bitmap geometry on dev %s\n",
+			       sb->s_id);
+			return -EINVAL;
+		}
+
+		ASFS_SB(sb)->totalblocks = totalblocks;
+		ASFS_SB(sb)->rootobjectcontainer = rootobjectcontainer;
+		ASFS_SB(sb)->extentbnoderoot = extentbnoderoot;
+		ASFS_SB(sb)->objectnoderoot = objectnoderoot;
+		ASFS_SB(sb)->flags |= 0xff & root_bits;
+		ASFS_SB(sb)->adminspacecontainer = adminspacecontainer;
+		ASFS_SB(sb)->bitmapbase = bitmapbase;
+		ASFS_SB(sb)->blocks_inbitmap = blocks_inbitmap;
+		ASFS_SB(sb)->blocks_bitmap = blocks_bitmap;
+		ASFS_SB(sb)->block_rovingblockptr = 0;
 		bh = sb_bread(sb, 0);
 		if (!bh) {
 			printk(KERN_ERR "ASFS: unable to read superblock\n");

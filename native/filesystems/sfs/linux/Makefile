@@ -7,7 +7,7 @@
 
 obj-m += sfs.o
 
-sfs-y := dir.o extents.o file.o inode.o namei.o nodes.o objects.o super.o \
+sfs-y := canonical.o dir.o extents.o file.o inode.o namei.o nodes.o objects.o super.o \
          symlink.o adminspace.o bitfuncs.o
 
 ccflags-y += -I$(src)
