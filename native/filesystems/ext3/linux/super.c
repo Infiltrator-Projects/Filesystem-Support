@@ -1937,6 +1937,7 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	int needs_recovery;
 	int ret = -EINVAL;
 	ifs_ext3_u32 features;
+	IfsExt3GeometryStatus geometry_status;
 	int err;
 
 	sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
@@ -2099,29 +2100,52 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	} else {
 		sbi->s_inode_size = le16_to_cpu(es->s_inode_size);
 		sbi->s_first_ino = le32_to_cpu(es->s_first_ino);
-		if ((sbi->s_inode_size < EXT3_GOOD_OLD_INODE_SIZE) ||
-		    (!is_power_of_2(sbi->s_inode_size)) ||
-		    (sbi->s_inode_size > blocksize)) {
-			ext3_msg(sb, KERN_ERR,
-				"error: unsupported inode size: %d",
-				sbi->s_inode_size);
-			goto failed_mount;
-		}
 	}
 	sbi->s_frag_size = EXT3_MIN_FRAG_SIZE <<
 				   le32_to_cpu(es->s_log_frag_size);
-	if (blocksize != sbi->s_frag_size) {
-		ext3_msg(sb, KERN_ERR,
-		       "error: fragsize %lu != blocksize %u (unsupported)",
-		       sbi->s_frag_size, blocksize);
-		goto failed_mount;
-	}
 	sbi->s_frags_per_block = 1;
 	sbi->s_blocks_per_group = le32_to_cpu(es->s_blocks_per_group);
 	sbi->s_frags_per_group = le32_to_cpu(es->s_frags_per_group);
 	sbi->s_inodes_per_group = le32_to_cpu(es->s_inodes_per_group);
-	if (EXT3_INODE_SIZE(sb) == 0 || EXT3_INODES_PER_GROUP(sb) == 0)
+
+	geometry_status = ifs_ext3_validate_geometry(
+		blocksize,
+		sbi->s_inode_size,
+		sbi->s_frag_size,
+		sbi->s_blocks_per_group,
+		sbi->s_frags_per_group,
+		sbi->s_inodes_per_group);
+	switch (geometry_status) {
+	case IFS_EXT3_GEOMETRY_OK:
+		break;
+	case IFS_EXT3_GEOMETRY_INVALID_INODE_SIZE:
+		ext3_msg(sb, KERN_ERR,
+			"error: unsupported inode size: %d",
+			sbi->s_inode_size);
+		goto failed_mount;
+	case IFS_EXT3_GEOMETRY_FRAGMENT_SIZE_MISMATCH:
+		ext3_msg(sb, KERN_ERR,
+			"error: fragsize %lu != blocksize %u (unsupported)",
+			sbi->s_frag_size, blocksize);
+		goto failed_mount;
+	case IFS_EXT3_GEOMETRY_ZERO_GROUP_VALUE:
 		goto cantfind_ext3;
+	case IFS_EXT3_GEOMETRY_BLOCKS_PER_GROUP_TOO_LARGE:
+		ext3_msg(sb, KERN_ERR,
+			"#blocks per group too big: %lu",
+			sbi->s_blocks_per_group);
+		goto failed_mount;
+	case IFS_EXT3_GEOMETRY_FRAGMENTS_PER_GROUP_TOO_LARGE:
+		ext3_msg(sb, KERN_ERR,
+			"error: #fragments per group too big: %lu",
+			sbi->s_frags_per_group);
+		goto failed_mount;
+	case IFS_EXT3_GEOMETRY_INODES_PER_GROUP_TOO_LARGE:
+		ext3_msg(sb, KERN_ERR,
+			"error: #inodes per group too big: %lu",
+			sbi->s_inodes_per_group);
+		goto failed_mount;
+	}
 	sbi->s_inodes_per_block = blocksize / EXT3_INODE_SIZE(sb);
 	if (sbi->s_inodes_per_block == 0)
 		goto cantfind_ext3;
@@ -2145,25 +2169,6 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 #else
 		es->s_flags |= cpu_to_le32(EXT2_FLAGS_SIGNED_HASH);
 #endif
-	}
-
-	if (sbi->s_blocks_per_group > blocksize * 8) {
-		ext3_msg(sb, KERN_ERR,
-			"#blocks per group too big: %lu",
-			sbi->s_blocks_per_group);
-		goto failed_mount;
-	}
-	if (sbi->s_frags_per_group > blocksize * 8) {
-		ext3_msg(sb, KERN_ERR,
-			"error: #fragments per group too big: %lu",
-			sbi->s_frags_per_group);
-		goto failed_mount;
-	}
-	if (sbi->s_inodes_per_group > blocksize * 8) {
-		ext3_msg(sb, KERN_ERR,
-			"error: #inodes per group too big: %lu",
-			sbi->s_inodes_per_group);
-		goto failed_mount;
 	}
 
 	err = generic_check_addressable(sb->s_blocksize_bits,
