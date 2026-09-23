@@ -131,6 +131,14 @@ target_include_directories(infiltratr-fs-sfs-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/sfs/core")
 filesystem_support_configure(infiltratr-fs-sfs-core)
 
+# Canonical Amiga SFS2 format policy. SFS2 is deliberately independent
+# from the SFS core because its on-disk structures are not 1:1 compatible.
+add_library(infiltratr-fs-sfs2-core STATIC
+    native/filesystems/sfs2/core/sfs2_core.c)
+target_include_directories(infiltratr-fs-sfs2-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/sfs2/core")
+filesystem_support_configure(infiltratr-fs-sfs2-core)
+
 # The catalogue is intentionally platform-neutral. Linux package/probe policy
 # is layered on top of it; the Windows manager consumes the same identities.
 add_library(filesystem-support-catalog STATIC
@@ -307,6 +315,15 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-sfs-core
         COMMAND filesystem-support-sfs-core-test)
+
+    add_executable(filesystem-support-sfs2-core-test
+        tests/sfs2_core_test.c)
+    target_link_libraries(filesystem-support-sfs2-core-test
+        PRIVATE infiltratr-fs-sfs2-core)
+    filesystem_support_configure(filesystem-support-sfs2-core-test)
+    add_test(
+        NAME filesystem-support-sfs2-core
+        COMMAND filesystem-support-sfs2-core-test)
 
     add_executable(filesystem-support-windows-catalog-test
         tests/windows_catalog_test.cpp)

@@ -1,0 +1,54 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+#ifndef INFILTRATOR_SFS2_CORE_H
+#define INFILTRATOR_SFS2_CORE_H
+
+#if defined(__KERNEL__)
+#include <linux/types.h>
+typedef u16 ifs_sfs2_u16;
+typedef u32 ifs_sfs2_u32;
+typedef u64 ifs_sfs2_u64;
+#else
+#include <stdint.h>
+typedef uint16_t ifs_sfs2_u16;
+typedef uint32_t ifs_sfs2_u32;
+typedef uint64_t ifs_sfs2_u64;
+#endif
+
+#define IFS_SFS2_ROOT_ID 0x53465302U
+#define IFS_SFS2_STRUCTURE_VERSION 4U
+#define IFS_SFS2_OBJECT_FIXED_SIZE 27U
+#define IFS_SFS2_EXTENT_NODE_SIZE 16U
+#define IFS_SFS2_MAX_FILE_SIZE 0x0000FFFFFFFFFFFFULL
+
+typedef enum IfsSfs2RootStatus {
+    IFS_SFS2_ROOT_OK = 0,
+    IFS_SFS2_ROOT_BAD_ID,
+    IFS_SFS2_ROOT_BAD_VERSION,
+    IFS_SFS2_ROOT_INVALID_BLOCK_SIZE,
+    IFS_SFS2_ROOT_INVALID_TOTAL_BLOCKS,
+    IFS_SFS2_ROOT_BLOCK_REFERENCE_OUT_OF_RANGE
+} IfsSfs2RootStatus;
+
+IfsSfs2RootStatus ifs_sfs2_validate_root_layout(
+    ifs_sfs2_u32 id,
+    ifs_sfs2_u32 version,
+    ifs_sfs2_u32 block_size,
+    ifs_sfs2_u32 total_blocks,
+    ifs_sfs2_u32 bitmap_base,
+    ifs_sfs2_u32 adminspace_container,
+    ifs_sfs2_u32 root_object_container,
+    ifs_sfs2_u32 extent_bnode_root,
+    ifs_sfs2_u32 object_node_root);
+
+ifs_sfs2_u64 ifs_sfs2_decode_file_size(
+    ifs_sfs2_u32 high_32,
+    ifs_sfs2_u16 low_16);
+
+int ifs_sfs2_encode_file_size(
+    ifs_sfs2_u64 file_size,
+    ifs_sfs2_u32 *high_32,
+    ifs_sfs2_u16 *low_16);
+
+const char *ifs_sfs2_root_status_string(IfsSfs2RootStatus status);
+
+#endif
