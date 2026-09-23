@@ -174,7 +174,7 @@ IfsPfs3DirEntryStatus ifs_pfs3_decode_directory_entry(
         if (record_bytes < 2U)
             return IFS_PFS3_DIRENTRY_EXTRA_FIELDS_OVERRUN;
         flags = ifs_pfs3_read_be16(bytes + record_bytes - 2U);
-        if ((flags & (ifs_pfs3_u16)~((1U << IFS_PFS3_EXTRA_FIELD_WORDS) - 1U)) != 0U)
+        if ((flags >> IFS_PFS3_EXTRA_FIELD_WORDS) != 0U)
             return IFS_PFS3_DIRENTRY_UNKNOWN_EXTRA_FIELDS;
         extra_words = ifs_pfs3_popcount16(flags);
         if ((ifs_pfs3_u32)2U + (ifs_pfs3_u32)extra_words * 2U >
