@@ -1790,6 +1790,9 @@ struct mb_cache {
 };
 
 
+int infiltratr_ext3_mbcache_init(void);
+void infiltratr_ext3_mbcache_exit(void);
+
 struct mb_cache *mb_cache_create(const char *, int);
 void mb_cache_shrink(struct block_device *);
 void mb_cache_destroy(struct mb_cache *);
