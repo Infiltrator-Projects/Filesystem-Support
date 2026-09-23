@@ -231,6 +231,35 @@ IfsExt2Status ifs_ext2_block_group_position(
     return IFS_EXT2_OK;
 }
 
+static int ifs_ext2_is_power_of(
+    ifs_ext2_u32 value, const ifs_ext2_u32 base)
+{
+    if (value < 1U || base < 2U)
+        return 0;
+
+    while (value > 1U && value % base == 0U)
+        value /= base;
+
+    return value == 1U;
+}
+
+int ifs_ext2_sparse_super_group(const ifs_ext2_u32 group)
+{
+    if (group <= 1U)
+        return 1;
+
+    return ifs_ext2_is_power_of(group, 3U) ||
+           ifs_ext2_is_power_of(group, 5U) ||
+           ifs_ext2_is_power_of(group, 7U);
+}
+
+int ifs_ext2_group_has_super(
+    const int sparse_super_enabled, const ifs_ext2_u32 group)
+{
+    return sparse_super_enabled == 0 ||
+           ifs_ext2_sparse_super_group(group);
+}
+
 IfsExt2Status ifs_ext2_validate_group_descriptor(
     const IfsExt2Superblock *superblock,
     const ifs_ext2_u32 group,
