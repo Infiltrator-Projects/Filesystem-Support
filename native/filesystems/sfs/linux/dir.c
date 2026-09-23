@@ -1,258 +1,328 @@
-/*
- *
- * Amiga Smart File System, Linux implementation
- * version: 1.0beta7
- *
- * Copyright (C) 2003,2004  Marek 'March' Szyprowski <marek@amiga.pl>
- *
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
- *
- */
-
-#include <linux/types.h>
-#include <linux/errno.h>
-#include <linux/err.h>
-#include <linux/slab.h>
-#include <linux/fs.h>
 #include <linux/buffer_head.h>
-#include <linux/vfs.h>
+#include <linux/err.h>
+#include <linux/fs.h>
+#include <linux/nls.h>
+#include <linux/string.h>
 #include "asfs_fs.h"
-
-#include <asm/byteorder.h>
 
 extern const struct dentry_operations asfs_dentry_operations;
 
-int asfs_readdir(struct file *filp, struct dir_context *ctx)
+static unsigned int sfs_object_dtype(const struct fsObject *object)
 {
-	struct inode *dir = file_inode(filp);
-	struct super_block *sb = dir->i_sb;
-	struct nls_table *nls_io = ASFS_SB(sb)->nls_io;
-	struct nls_table *nls_disk = ASFS_SB(sb)->nls_disk;
-	u8 buf[512];
-	struct buffer_head *bh;
-	struct fsObjectContainer *objcont;
-	struct fsObject *obj;
-	u32 block;
-	u32 startnode;
-	bool add;
-
-	if (ctx->pos >= ASFS_SB(sb)->totalblocks)
-		return 0;
-
-	if (!dir_emit_dots(filp, ctx))
-		return 0;
-
-	if (ASFS_I(dir)->firstblock == 0) {
-		ctx->pos = ASFS_SB(sb)->totalblocks;
-		ASFS_I(dir)->modified = 0;
-		return 0;
-	}
-
-	if (ctx->pos == 2) {
-		block = ASFS_I(dir)->firstblock;
-		add = true;
-		startnode = 0;
-	} else {
-		startnode = (u32)(unsigned long)filp->private_data;
-		add = false;
-		block = ASFS_I(dir)->modified == 0
-			? (u32)ctx->pos
-			: ASFS_I(dir)->firstblock;
-	}
-
-	do {
-		bh = asfs_breadcheck(sb, block, ASFS_OBJECTCONTAINER_ID);
-		if (!bh)
-			return -EIO;
-
-		objcont = (struct fsObjectContainer *)bh->b_data;
-		obj = &objcont->object[0];
-
-		while (asfs_object_slot_fits(sb, objcont, obj) &&
-		       be32_to_cpu(obj->objectnode) > 0) {
-			struct fsObject *next = asfs_nextobject(sb, objcont, obj);
-			u32 objectnode = be32_to_cpu(obj->objectnode);
-			unsigned int type;
-
-			if (!next) {
-				asfs_brelse(bh);
-				return -EUCLEAN;
-			}
-
-			if (!add && objectnode == startnode)
-				add = true;
-
-			if (add && !(obj->bits & OTYPE_HIDDEN)) {
-				asfs_translate(buf, obj->name, nls_io, nls_disk,
-				               sizeof(buf));
-				ctx->pos = block;
-
-				if (obj->bits & OTYPE_DIR)
-					type = DT_DIR;
-				else if ((obj->bits & OTYPE_LINK) &&
-				         !(obj->bits & OTYPE_HARDLINK))
-					type = DT_LNK;
-				else
-					type = DT_REG;
-
-				if (!dir_emit(ctx, buf, strlen(buf), objectnode, type)) {
-					filp->private_data =
-						(void *)(unsigned long)objectnode;
-					ASFS_I(dir)->modified = 0;
-					asfs_brelse(bh);
-					return 0;
-				}
-			}
-
-			obj = next;
-		}
-
-		block = be32_to_cpu(objcont->next);
-		asfs_brelse(bh);
-	} while (block != 0);
-
-	ctx->pos = ASFS_SB(sb)->totalblocks;
-	ASFS_I(dir)->modified = 0;
-	filp->private_data = NULL;
-	return 0;
+    if ((object->bits & OTYPE_DIR) != 0U)
+        return DT_DIR;
+    if ((object->bits & OTYPE_LINK) != 0U &&
+        (object->bits & OTYPE_HARDLINK) == 0U)
+        return DT_LNK;
+    return DT_REG;
 }
 
-static struct fsObject *asfs_find_obj_by_name_nls(struct super_block *sb, struct fsObjectContainer *objcont, u8 * name)
+static struct fsObject *sfs_find_translated_object(
+    struct super_block *sb,
+    struct fsObjectContainer *container,
+    const u8 *name)
 {
-	struct fsObject *obj;
-	u8 buf[512];
+    struct fsObject *object = &container->object[0];
+    u8 translated[ASFS_MAXFN_BUF];
 
-	obj = &(objcont->object[0]);
-	while (asfs_object_slot_fits(sb, objcont, obj) &&
-	       be32_to_cpu(obj->objectnode) > 0) {
-		struct fsObject *next = asfs_nextobject(sb, objcont, obj);
+    while (asfs_object_slot_fits(sb, container, object) &&
+           be32_to_cpu(object->objectnode) != 0U) {
+        struct fsObject *next = asfs_nextobject(sb, container, object);
 
-		if (!next)
-			return ERR_PTR(-EUCLEAN);
-		asfs_translate(buf, obj->name, ASFS_SB(sb)->nls_io,
-			       ASFS_SB(sb)->nls_disk, sizeof(buf));
-		if (asfs_namecmp(buf, name,
-				 ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE,
-				 ASFS_SB(sb)->nls_io) == 0) {
-			asfs_debug("Object found! Node %u, Name %s, Type %x, inCont %u\n", be32_to_cpu(obj->objectnode), obj->name, obj->bits, be32_to_cpu(objcont->bheader.ownblock));
-			return obj;
-		}
-		obj = next;
-	}
-	return NULL;
+        if (!next)
+            return ERR_PTR(-EUCLEAN);
+
+        asfs_translate(
+            translated, object->name,
+            ASFS_SB(sb)->nls_io, ASFS_SB(sb)->nls_disk,
+            sizeof(translated));
+
+        if (asfs_namecmp(
+                translated, (u8 *)name,
+                (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) != 0,
+                ASFS_SB(sb)->nls_io) == 0)
+            return object;
+
+        object = next;
+    }
+
+    return NULL;
 }
 
-struct dentry *asfs_lookup(struct inode *dir, struct dentry *dentry,
-                           unsigned int flags)
+int asfs_readdir(struct file *file, struct dir_context *ctx)
 {
-	int res = -EACCES;       /* placeholder for invalid/corrupt lookup state */
-	(void)flags;
-	struct inode *inode;
-	struct super_block *sb = dir->i_sb;
-	u8 *name = (u8 *) dentry->d_name.name;
-	struct buffer_head *bh;
-	struct fsObject *obj;
-	u8 bufname[ASFS_MAXFN_BUF];
+    struct inode *dir = file_inode(file);
+    struct super_block *sb = dir->i_sb;
+    u32 block;
+    u32 resume_node;
+    u32 visited = 0U;
+    bool emit_entries;
 
-	asfs_translate(bufname, name, ASFS_SB(sb)->nls_disk, ASFS_SB(sb)->nls_io, ASFS_MAXFN_BUF);
+    if (ctx->pos >= ASFS_SB(sb)->totalblocks)
+        return 0;
+    if (!dir_emit_dots(file, ctx))
+        return 0;
 
-	asfs_debug("asfs_lookup: (searching \"%s\"...) ", name);
+    if (ASFS_I(dir)->firstblock == 0U) {
+        ctx->pos = ASFS_SB(sb)->totalblocks;
+        ASFS_I(dir)->modified = 0;
+        file->private_data = NULL;
+        return 0;
+    }
 
-	mutex_lock(&ASFS_SB(sb)->lock);
+    if (ctx->pos == 2) {
+        block = ASFS_I(dir)->firstblock;
+        resume_node = 0U;
+        emit_entries = true;
+    } else {
+        resume_node = (u32)(unsigned long)file->private_data;
+        emit_entries = false;
+        block = ASFS_I(dir)->modified == 0
+            ? (u32)ctx->pos
+            : ASFS_I(dir)->firstblock;
+    }
 
-	if ((!strchr(name, '?')) && (ASFS_I(dir)->hashtable != 0)) {	/* hashtable block is available and name can be reverse translated, quick search */
-		struct fsObjectNode *node_p;
-		struct buffer_head *node_bh;
-		u32 node;
-		u16 hash16;
+    while (block != 0U) {
+        struct buffer_head *bh;
+        struct fsObjectContainer *container;
+        struct fsObject *object;
+        u32 next_block;
 
-		asfs_debug("(quick search) ");
+        if (++visited > ASFS_SB(sb)->totalblocks)
+            return -EUCLEAN;
 
-		if (!(bh = asfs_breadcheck(sb, ASFS_I(dir)->hashtable, ASFS_HASHTABLE_ID))) {
-			mutex_unlock(&ASFS_SB(sb)->lock);
-			return ERR_PTR(res);
-		}
-		hash16 = asfs_hash(bufname, ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE); 
-		node = be32_to_cpu(((struct fsHashTable *) bh->b_data)->hashentry[HASHCHAIN(hash16)]);
-		asfs_brelse(bh);
+        bh = asfs_breadcheck(sb, block, ASFS_OBJECTCONTAINER_ID);
+        if (!bh)
+            return -EIO;
 
-		while (node != 0) {
-			if (asfs_getnode(sb, node, &node_bh, &node_p) != 0)
-				goto not_found;
-			if (be16_to_cpu(node_p->hash16) == hash16) {
-				if (!(bh = asfs_breadcheck(sb, be32_to_cpu(node_p->node.data), ASFS_OBJECTCONTAINER_ID))) {
-					asfs_brelse(node_bh);
-					mutex_unlock(&ASFS_SB(sb)->lock);
-					return ERR_PTR(res);
-				}
-				obj = asfs_find_obj_by_name(
-					sb, (struct fsObjectContainer *)bh->b_data,
-					bufname);
-				if (IS_ERR(obj)) {
-					res = PTR_ERR(obj);
-					asfs_brelse(node_bh);
-					asfs_brelse(bh);
-					mutex_unlock(&ASFS_SB(sb)->lock);
-					return ERR_PTR(res);
-				}
-				if (obj != NULL) {
-					asfs_brelse(node_bh);
-					goto found_inode;
-				}
-				asfs_brelse(bh);
-			}
-			node = be32_to_cpu(node_p->next);
-			asfs_brelse(node_bh);
-		}
-	} else { /* hashtable not available or name can't be reverse-translated, long search */
-		struct fsObjectContainer *objcont;
-		u32 block;
+        container = (struct fsObjectContainer *)bh->b_data;
+        object = &container->object[0];
 
-		asfs_debug("(long search) ");
-		block = ASFS_I(dir)->firstblock;
-		while (block != 0) {
-			if (!(bh = asfs_breadcheck(sb, block, ASFS_OBJECTCONTAINER_ID))) {
-				mutex_unlock(&ASFS_SB(sb)->lock);
-				return ERR_PTR(res);
-			}
-			objcont = (struct fsObjectContainer *)bh->b_data;
-			obj = asfs_find_obj_by_name_nls(sb, objcont, name);
-			if (IS_ERR(obj)) {
-				res = PTR_ERR(obj);
-				asfs_brelse(bh);
-				mutex_unlock(&ASFS_SB(sb)->lock);
-				return ERR_PTR(res);
-			}
-			if (obj != NULL)
-				goto found_inode;
-			block = be32_to_cpu(objcont->next);
-			asfs_brelse(bh);
-		}
-	}
+        while (asfs_object_slot_fits(sb, container, object) &&
+               be32_to_cpu(object->objectnode) != 0U) {
+            struct fsObject *next =
+                asfs_nextobject(sb, container, object);
+            const u32 object_node = be32_to_cpu(object->objectnode);
 
-not_found:
-	mutex_unlock(&ASFS_SB(sb)->lock);
-	inode = NULL;
-	asfs_debug("object not found.\n");
-	if (0) {
-found_inode:
-		mutex_unlock(&ASFS_SB(sb)->lock);
-		if (!(inode = iget_locked(sb, be32_to_cpu(obj->objectnode)))) {
-			asfs_debug("ASFS: Strange - no inode allocated.\n");
-			return ERR_PTR(res);
-		}
-		if (inode->i_state & I_NEW) {
-			asfs_read_locked_inode(inode, obj);
-			unlock_new_inode(inode);
-		}
-		asfs_brelse(bh);
-	}
-	res = 0;
-	d_set_d_op(dentry, &asfs_dentry_operations);
-	d_add(dentry, inode);
-	return NULL;
+            if (!next) {
+                asfs_brelse(bh);
+                return -EUCLEAN;
+            }
+
+            if (!emit_entries && object_node == resume_node)
+                emit_entries = true;
+
+            if (emit_entries && (object->bits & OTYPE_HIDDEN) == 0U) {
+                u8 display_name[ASFS_MAXFN_BUF];
+
+                asfs_translate(
+                    display_name, object->name,
+                    ASFS_SB(sb)->nls_io, ASFS_SB(sb)->nls_disk,
+                    sizeof(display_name));
+                ctx->pos = block;
+
+                if (!dir_emit(
+                        ctx, display_name,
+                        strnlen((const char *)display_name,
+                                sizeof(display_name)),
+                        object_node, sfs_object_dtype(object))) {
+                    file->private_data =
+                        (void *)(unsigned long)object_node;
+                    ASFS_I(dir)->modified = 0;
+                    asfs_brelse(bh);
+                    return 0;
+                }
+            }
+
+            object = next;
+        }
+
+        next_block = be32_to_cpu(container->next);
+        asfs_brelse(bh);
+        block = next_block;
+    }
+
+    ctx->pos = ASFS_SB(sb)->totalblocks;
+    ASFS_I(dir)->modified = 0;
+    file->private_data = NULL;
+    return 0;
+}
+
+static int sfs_instantiate_lookup(
+    struct super_block *sb,
+    struct dentry *dentry,
+    struct buffer_head *object_bh,
+    struct fsObject *object)
+{
+    struct inode *inode;
+    const u32 object_node = be32_to_cpu(object->objectnode);
+
+    inode = iget_locked(sb, object_node);
+    if (!inode)
+        return -ENOMEM;
+
+    if ((inode->i_state & I_NEW) != 0) {
+        asfs_read_locked_inode(inode, object);
+        unlock_new_inode(inode);
+    }
+
+    asfs_brelse(object_bh);
+    d_set_d_op(dentry, &asfs_dentry_operations);
+    d_add(dentry, inode);
+    return 0;
+}
+
+static int sfs_lookup_hashed(
+    struct inode *dir,
+    struct dentry *dentry,
+    u8 *disk_name)
+{
+    struct super_block *sb = dir->i_sb;
+    struct buffer_head *hash_bh;
+    u16 hash;
+    u32 node;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+
+    hash_bh = asfs_breadcheck(
+        sb, ASFS_I(dir)->hashtable, ASFS_HASHTABLE_ID);
+    if (!hash_bh)
+        return -EIO;
+
+    hash = asfs_hash(
+        disk_name,
+        (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) != 0);
+    node = be32_to_cpu(
+        ((struct fsHashTable *)hash_bh->b_data)->
+            hashentry[HASHCHAIN(hash)]);
+    asfs_brelse(hash_bh);
+
+    while (node != 0U) {
+        struct buffer_head *node_bh = NULL;
+        struct fsObjectNode *node_entry = NULL;
+        struct buffer_head *object_bh;
+        struct fsObject *object;
+        u32 next_node;
+        int result;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        result = asfs_getnode(sb, node, &node_bh, &node_entry);
+        if (result != 0)
+            return result;
+
+        next_node = be32_to_cpu(node_entry->next);
+        if (be16_to_cpu(node_entry->hash16) == hash) {
+            object_bh = asfs_breadcheck(
+                sb, be32_to_cpu(node_entry->node.data),
+                ASFS_OBJECTCONTAINER_ID);
+            if (!object_bh) {
+                asfs_brelse(node_bh);
+                return -EIO;
+            }
+
+            object = asfs_find_obj_by_name(
+                sb, (struct fsObjectContainer *)object_bh->b_data,
+                disk_name);
+            if (IS_ERR(object)) {
+                result = PTR_ERR(object);
+                asfs_brelse(object_bh);
+                asfs_brelse(node_bh);
+                return result;
+            }
+
+            if (object) {
+                asfs_brelse(node_bh);
+                return sfs_instantiate_lookup(
+                    sb, dentry, object_bh, object);
+            }
+
+            asfs_brelse(object_bh);
+        }
+
+        asfs_brelse(node_bh);
+        node = next_node;
+    }
+
+    return -ENOENT;
+}
+
+static int sfs_lookup_linear(
+    struct inode *dir,
+    struct dentry *dentry,
+    const u8 *io_name)
+{
+    struct super_block *sb = dir->i_sb;
+    u32 block = ASFS_I(dir)->firstblock;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+
+    while (block != 0U) {
+        struct buffer_head *bh;
+        struct fsObjectContainer *container;
+        struct fsObject *object;
+        u32 next_block;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        bh = asfs_breadcheck(sb, block, ASFS_OBJECTCONTAINER_ID);
+        if (!bh)
+            return -EIO;
+
+        container = (struct fsObjectContainer *)bh->b_data;
+        object = sfs_find_translated_object(sb, container, io_name);
+        if (IS_ERR(object)) {
+            int result = PTR_ERR(object);
+            asfs_brelse(bh);
+            return result;
+        }
+        if (object)
+            return sfs_instantiate_lookup(sb, dentry, bh, object);
+
+        next_block = be32_to_cpu(container->next);
+        asfs_brelse(bh);
+        block = next_block;
+    }
+
+    return -ENOENT;
+}
+
+struct dentry *asfs_lookup(
+    struct inode *dir,
+    struct dentry *dentry,
+    unsigned int flags)
+{
+    struct super_block *sb = dir->i_sb;
+    u8 disk_name[ASFS_MAXFN_BUF];
+    int result;
+
+    (void)flags;
+
+    result = asfs_check_name(
+        dentry->d_name.name, (int)dentry->d_name.len);
+    if (result != 0)
+        return ERR_PTR(result);
+
+    asfs_translate(
+        disk_name, (u8 *)dentry->d_name.name,
+        ASFS_SB(sb)->nls_disk, ASFS_SB(sb)->nls_io,
+        sizeof(disk_name));
+
+    mutex_lock(&ASFS_SB(sb)->lock);
+    if (ASFS_I(dir)->hashtable != 0U &&
+        strchr((const char *)disk_name, '?') == NULL)
+        result = sfs_lookup_hashed(dir, dentry, disk_name);
+    else
+        result = sfs_lookup_linear(
+            dir, dentry, dentry->d_name.name);
+    mutex_unlock(&ASFS_SB(sb)->lock);
+
+    if (result == 0)
+        return NULL;
+    if (result != -ENOENT)
+        return ERR_PTR(result);
+
+    d_set_d_op(dentry, &asfs_dentry_operations);
+    d_add(dentry, NULL);
+    return NULL;
 }
