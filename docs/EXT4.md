@@ -154,22 +154,35 @@ The EXT4 production tree deliberately excludes:
 
 Those items do not implement an EXT4 filesystem feature.
 
-## Import and shaping
 
-The semantic source is pinned Linux v6.12.107 `fs/ext4` plus its matching JBD2 and mbcache source.
+## Source-rewrite policy
 
-After import, `tools/shape-ext4.sh`:
+EXT4 production source must be an Infiltrator implementation of the EXT4
+on-disk and VFS contracts.  Linux and other mature implementations may be used
+to learn observable behaviour and edge cases, but their implementation source
+must not be copied, transformed or regenerated into the active tree.
 
-1. keeps every genuine EXT4 feature engine;
-2. removes EXT2/EXT3 registration and routing;
-3. removes production-irrelevant KUnit source;
-4. folds small organisational files into their owning subsystem;
-5. embeds mbcache into the xattr subsystem;
-6. retains JBD2 inside the one EXT4 module;
-7. preserves encryption and verity when their generic kernel frameworks are available;
-8. verifies fast commit, inline data, extents, MMP and resize remain;
-9. verifies there is exactly one module lifecycle;
-10. verifies no EXT2/EXT3 compatibility registration can silently return.
+The previous pinned-Linux import/shaping path has been retired.  In particular,
+there is no longer a supported workflow that copies `fs/ext4`, JBD2 or
+mbcache into this repository and edits it into the one-module layout.
+
+The current kernel directory still contains migration-era source from that
+earlier approach.  Existing third-party provenance must remain attached to such
+files until their implementation has actually been replaced.  Each converted
+unit must instead be designed around this project's own module boundaries,
+failure rules and tests.
+
+The completion condition is behavioural rather than textual: the project must
+retain valid EXT4 semantics and media compatibility while no active
+implementation unit depends on copied external source expression.
+
+The architectural target remains:
+
+- exactly one `ext4.ko`;
+- EXT4 registration only;
+- JBD2 functionality owned inside the EXT4 module boundary;
+- no separate project JBD2 or metadata-cache module;
+- no EXT2/EXT3 compatibility-routing implementation.
 
 ## Development rule
 
