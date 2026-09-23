@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "ofs_core.h"
 int ifs_ofs_classify_dostype(
     const ifs_ofs_u32 dostype, ifs_ofs_u32 *const variant_flags)
