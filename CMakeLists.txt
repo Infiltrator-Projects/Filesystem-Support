@@ -86,6 +86,14 @@ target_link_libraries(infiltratr-fs-native-core
     PUBLIC InfiltratrCommon::Portable)
 filesystem_support_configure(infiltratr-fs-native-core)
 
+# Canonical EXT2 on-disk semantics. This exact source is also compiled into
+# the Linux and Windows adapters; OS-specific code must not reimplement it.
+add_library(infiltratr-fs-ext2-core STATIC
+    native/filesystems/ext2/core/ext2_core.c)
+target_include_directories(infiltratr-fs-ext2-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext2/core")
+filesystem_support_configure(infiltratr-fs-ext2-core)
+
 # The catalogue is intentionally platform-neutral. Linux package/probe policy
 # is layered on top of it; the Windows manager consumes the same identities.
 add_library(filesystem-support-catalog STATIC
@@ -182,6 +190,15 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-native-core
         COMMAND filesystem-support-native-core-test)
+
+    add_executable(filesystem-support-ext2-core-test
+        tests/ext2_core_test.c)
+    target_link_libraries(filesystem-support-ext2-core-test
+        PRIVATE infiltratr-fs-ext2-core)
+    filesystem_support_configure(filesystem-support-ext2-core-test)
+    add_test(
+        NAME filesystem-support-ext2-core
+        COMMAND filesystem-support-ext2-core-test)
 
     add_executable(filesystem-support-windows-catalog-test
         tests/windows_catalog_test.cpp)
