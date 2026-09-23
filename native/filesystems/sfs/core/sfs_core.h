@@ -159,7 +159,7 @@ int ifs_sfs_validate_extent(
     ifs_sfs_u32 total_blocks);
 
 int ifs_sfs_adjust_counter(
-    ifs_sfs_u32 current,
+    ifs_sfs_u32 current_value,
     ifs_sfs_i32 delta,
     ifs_sfs_u32 *result);
 #endif
