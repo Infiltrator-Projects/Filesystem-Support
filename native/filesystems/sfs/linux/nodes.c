@@ -26,9 +26,14 @@
 /* Finds a specific node by number. */
 int asfs_getnode(struct super_block *sb, u32 nodeno, struct buffer_head **ret_bh, struct fsObjectNode **ret_node)
 {
-	struct buffer_head *bh;
+	struct buffer_head *bh = NULL;
 	struct fsNodeContainer *nodecont;
 	u32 nodeindex = ASFS_SB(sb)->objectnoderoot;
+
+	if (!ret_bh || !ret_node)
+		return -EINVAL;
+	*ret_bh = NULL;
+	*ret_node = NULL;
 
 	while ((bh = asfs_breadcheck(sb, nodeindex, ASFS_NODECONTAINER_ID))) {
 		nodecont = (struct fsNodeContainer *) bh->b_data;
@@ -70,9 +75,7 @@ int asfs_getnode(struct super_block *sb, u32 nodeno, struct buffer_head **ret_bh
 		}
 		asfs_brelse(bh);
 	}
-	if (bh == NULL)
-		return -EIO;
-	return -ENOENT;
+	return -EIO;
 }
 
 #ifdef CONFIG_ASFS_RW

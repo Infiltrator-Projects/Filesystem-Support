@@ -98,37 +98,50 @@ static struct fsObject *find_obj_by_node(struct super_block *sb, struct fsObject
 	return NULL;
 }
 
-int asfs_readobject(struct super_block *sb, u32 objectnode, struct buffer_head **bh, struct fsObject **returned_object)
+int asfs_readobject(struct super_block *sb, u32 objectnode,
+			struct buffer_head **bh,
+			struct fsObject **returned_object)
 {
 	struct fsObjectNode *on;
 	int errorcode;
 	u32 contblock;
 
-	asfs_debug("Seaching object - node %d\n", objectnode);
+	if (!bh || !returned_object)
+		return -EINVAL;
+	*bh = NULL;
+	*returned_object = NULL;
 
-	if ((errorcode = asfs_getnode(sb, objectnode, bh, &on)) != 0)
+	asfs_debug("Searching object - node %u\n", objectnode);
+
+	errorcode = asfs_getnode(sb, objectnode, bh, &on);
+	if (errorcode != 0)
 		return errorcode;
+
 	contblock = be32_to_cpu(on->node.data);
 	asfs_brelse(*bh);
+	*bh = NULL;
+	if (contblock == 0U)
+		return -EUCLEAN;
 
-	if (contblock > 0 && (*bh = asfs_breadcheck(sb, contblock, ASFS_OBJECTCONTAINER_ID))) {
-		*returned_object = find_obj_by_node(
-			sb, (void *)(*bh)->b_data, objectnode);
-		if (IS_ERR(*returned_object)) {
-			errorcode = PTR_ERR(*returned_object);
-			brelse(*bh);
-			*bh = NULL;
-			*returned_object = NULL;
-			return errorcode;
-		}
-		if (*returned_object == NULL) {
-			brelse(*bh);
-			*bh = NULL;
-			return -ENOENT;
-		}
-		return 0;
-	} else
+	*bh = asfs_breadcheck(sb, contblock, ASFS_OBJECTCONTAINER_ID);
+	if (!*bh)
 		return -EIO;
+
+	*returned_object = find_obj_by_node(
+		sb, (void *)(*bh)->b_data, objectnode);
+	if (IS_ERR(*returned_object)) {
+		errorcode = PTR_ERR(*returned_object);
+		*returned_object = NULL;
+		asfs_brelse(*bh);
+		*bh = NULL;
+		return errorcode;
+	}
+	if (!*returned_object) {
+		asfs_brelse(*bh);
+		*bh = NULL;
+		return -ENOENT;
+	}
+	return 0;
 }
 
 static int removeobjectcontainer(struct super_block *sb, struct buffer_head *bh)
@@ -445,183 +458,242 @@ static u8 *emptyspaceinobjectcontainer(struct super_block *sb, struct fsObjectCo
 	   bytes.  If none is found then this function simply creates a
 	   new ObjectContainer and adds that to the indicated directory. */
 
-static int findobjectspace(struct super_block *sb, struct buffer_head **io_bh, struct fsObject **io_o, u32 bytesneeded)
+static int findobjectspace(struct super_block *sb,
+			   struct buffer_head **io_bh,
+			   struct fsObject **io_o, u32 bytesneeded)
 {
 	struct buffer_head *bhparent = *io_bh;
 	struct fsObject *oparent = *io_o;
-	struct buffer_head *bh;
 	u32 nextblock = be32_to_cpu(oparent->object.dir.firstdirblock);
-	int errorcode = 0;
 
-	asfs_debug("findobjectspace: Looking for %u bytes in directory with ObjectNode number %d (in block %d)\n", bytesneeded, be32_to_cpu((*io_o)->objectnode),
-		   be32_to_cpu(((struct fsBlockHeader *) (*io_bh)->b_data)->ownblock));
+	asfs_debug("findobjectspace: Looking for %u bytes in directory with ObjectNode number %u (in block %u)\n",
+		   bytesneeded, be32_to_cpu(oparent->objectnode),
+		   be32_to_cpu(((struct fsBlockHeader *)bhparent->b_data)->ownblock));
 
-	while (nextblock != 0 && (bh = asfs_breadcheck(sb, nextblock, ASFS_OBJECTCONTAINER_ID))) {
-		struct fsObjectContainer *oc = (void *) bh->b_data;
+	while (nextblock != 0U) {
+		struct buffer_head *bh =
+			asfs_breadcheck(sb, nextblock, ASFS_OBJECTCONTAINER_ID);
+		struct fsObjectContainer *oc;
 		u8 *emptyspace;
 
-		/* We need to find out how much free space this ObjectContainer has */
-
+		if (!bh)
+			return -EIO;
+		oc = (void *)bh->b_data;
 		emptyspace = emptyspaceinobjectcontainer(sb, oc);
 		if (!emptyspace) {
 			asfs_brelse(bh);
 			return -EUCLEAN;
 		}
 
-		if ((u8 *) oc + sb->s_blocksize - emptyspace >= bytesneeded) {
-			/* We found enough space in one of the ObjectContainer blocks!!
-			   We return a struct fsObject *. */
+		if ((u8 *)oc + sb->s_blocksize - emptyspace >= bytesneeded) {
 			*io_bh = bh;
-			*io_o = (struct fsObject *) emptyspace;
-			break;
+			*io_o = (struct fsObject *)emptyspace;
+			return 0;
 		}
+
 		nextblock = be32_to_cpu(oc->next);
 		asfs_brelse(bh);
 	}
 
-	if (nextblock == 0) {
+	{
+		struct buffer_head *bh;
+		struct buffer_head *old_head_bh = NULL;
+		struct fsObjectContainer *oc;
+		const u32 old_head =
+			be32_to_cpu(oparent->object.dir.firstdirblock);
 		u32 newcontblock;
-		/* If we get here, we traversed the *entire* directory (ough!) and found no empty
-		   space large enough for our entry.  We allocate new space and add it to this
-		   directory. */
+		int errorcode;
 
-		if ((errorcode = asfs_allocadminspace(sb, &newcontblock)) == 0 && (bh = asfs_getzeroblk(sb, newcontblock))) {
-			struct fsObjectContainer *oc = (void *) bh->b_data;
-			struct buffer_head *bhnext;
+		errorcode = asfs_allocadminspace(sb, &newcontblock);
+		if (errorcode != 0)
+			return errorcode;
 
-			asfs_debug("findobjectspace: No room was found, allocated new block at %u\n", newcontblock);
-
-			/* Allocated new block.  We will now link it to the START of the directory chain
-			   so the new free space can be found quickly when more entries need to be added. */
-
-			oc->bheader.id = cpu_to_be32(ASFS_OBJECTCONTAINER_ID);
-			oc->bheader.ownblock = cpu_to_be32(newcontblock);
-			oc->parent = oparent->objectnode;
-			oc->next = oparent->object.dir.firstdirblock;
-			oc->previous = 0;
-
-			oparent->object.dir.firstdirblock = cpu_to_be32(newcontblock);
-
-			asfs_bstore(sb, bhparent);
-
-			if (oc->next != 0 && (bhnext = asfs_breadcheck(sb, be32_to_cpu(oc->next), ASFS_OBJECTCONTAINER_ID))) {
-				struct fsObjectContainer *ocnext = (void *) bhnext->b_data;
-				ocnext->previous = cpu_to_be32(newcontblock);
-				asfs_bstore(sb, bhnext);
-				asfs_brelse(bhnext);
-			}
-
-			*io_bh = bh;
-			*io_o = oc->object;
+		bh = asfs_getzeroblk(sb, newcontblock);
+		if (!bh) {
+			if (asfs_freeadminspace(sb, newcontblock) != 0)
+				return -EUCLEAN;
+			return -EIO;
 		}
+
+		if (old_head != 0U) {
+			old_head_bh = asfs_breadcheck(
+				sb, old_head, ASFS_OBJECTCONTAINER_ID);
+			if (!old_head_bh) {
+				asfs_brelse(bh);
+				if (asfs_freeadminspace(sb, newcontblock) != 0)
+					return -EUCLEAN;
+				return -EIO;
+			}
+		}
+
+		oc = (void *)bh->b_data;
+		oc->bheader.id = cpu_to_be32(ASFS_OBJECTCONTAINER_ID);
+		oc->bheader.ownblock = cpu_to_be32(newcontblock);
+		oc->parent = oparent->objectnode;
+		oc->next = cpu_to_be32(old_head);
+		oc->previous = 0;
+		asfs_bstore(sb, bh);
+
+		/*
+		 * Publish the forward chain first.  If power is lost before the
+		 * optional back-link update, the directory is still traversable.
+		 */
+		oparent->object.dir.firstdirblock = cpu_to_be32(newcontblock);
+		asfs_bstore(sb, bhparent);
+
+		if (old_head_bh) {
+			struct fsObjectContainer *old =
+				(void *)old_head_bh->b_data;
+
+			old->previous = cpu_to_be32(newcontblock);
+			asfs_bstore(sb, old_head_bh);
+			asfs_brelse(old_head_bh);
+		}
+
+		*io_bh = bh;
+		*io_o = oc->object;
+		return 0;
 	}
-
-	asfs_debug("findobjectspace: new object will be in container block %u\n", be32_to_cpu(((struct fsBlockHeader *) (*io_bh)->b_data)->ownblock));
-
-	return (errorcode);
 }
-
 /* io_bh & io_o refer to the direct parent of the new object.  Objectname is the
 	name of the new object (name only). Does not realese io_bh !!! */
 
-int asfs_createobject(struct super_block *sb, struct buffer_head **io_bh, struct fsObject **io_o, struct fsObject *src_o, u8 *objectname, int force)
+int asfs_createobject(struct super_block *sb,
+			struct buffer_head **io_bh, struct fsObject **io_o,
+			struct fsObject *src_o, u8 *objectname, int force)
 {
+	struct buffer_head *node_bh = NULL;
+	struct fsObjectNode *on = NULL;
+	u32 allocated_aux_block = 0U;
+	u32 nodeno = 0U;
+	size_t name_length;
+	int created_node = 0;
 	int errorcode;
-	u32 object_size;
-	u32 hashblock = be32_to_cpu((*io_o)->object.dir.hashtable);
+	u32 hashblock;
 
-	asfs_debug("createobject: Creating object '%s' in dir '%s'.\n", objectname, (*io_o)->name);
+	if (!io_bh || !*io_bh || !io_o || !*io_o || !src_o || !objectname)
+		return -EINVAL;
 
-	if (!force && ASFS_SB(sb)->freeblocks < ASFS_ALWAYSFREE)
+	name_length = strnlen(objectname, ASFS_MAXFN + 1U);
+	if (name_length > ASFS_MAXFN)
+		return -ENAMETOOLONG;
+
+	hashblock = be32_to_cpu((*io_o)->object.dir.hashtable);
+	asfs_debug("createobject: Creating object '%s' in dir '%s'.\n",
+		   objectname, (*io_o)->name);
+
+	if (!force &&
+	    !ifs_sfs_has_allocation_headroom(
+		ASFS_SB(sb)->freeblocks, 1U, ASFS_ALWAYSFREE))
 		return -ENOSPC;
-
 	if (!force && be32_to_cpu((*io_o)->objectnode) == ASFS_RECYCLEDNODE)
 		return -EINVAL;
 
-	object_size = sizeof(struct fsObject) + strlen(objectname) + 2;
+	errorcode = findobjectspace(
+		sb, io_bh, io_o,
+		(u32)(sizeof(struct fsObject) + name_length + 2U));
+	if (errorcode != 0)
+		return errorcode;
 
-	if ((errorcode = findobjectspace(sb, io_bh, io_o, object_size)) == 0) {
+	{
 		struct fsObject *o2 = *io_o;
 		u8 *name = o2->name;
-		u8 *objname = objectname;
-		struct buffer_head *node_bh;
-		struct fsObjectNode *on;
-		u32 nodeno;
 
-		**io_o = *src_o;	/* Copying whole object data... */
+		**io_o = *src_o;
+		memcpy(name, objectname, name_length);
+		name[name_length] = 0;
+		name[name_length + 1U] = 0;
 
-		while (*objname != 0)	/* Copying name */
-			*name++ = *objname++;
-
-		*name++ = 0;
-		*name = 0;	/* zero byte for comment */
-
-		if (o2->objectnode != 0)	/* ObjectNode reuse or creation */
-			errorcode = asfs_getnode(sb, o2->objectnode, &node_bh, &on);
-		else {
-			if ((errorcode = asfs_createnode(sb, &node_bh, (struct fsNode **) &on, &nodeno)) == 0) {
-				on->hash16 = cpu_to_be16(asfs_hash(o2->name, ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE));
-				o2->objectnode = cpu_to_be32(nodeno);
-			}
-			asfs_debug("createnode returned with errorcode: %d\n", errorcode);
+		if (o2->objectnode != 0) {
+			errorcode = asfs_getnode(
+				sb, be32_to_cpu(o2->objectnode), &node_bh, &on);
+			if (errorcode != 0)
+				return errorcode;
+			nodeno = be32_to_cpu(o2->objectnode);
+		} else {
+			errorcode = asfs_createnode(
+				sb, &node_bh, (struct fsNode **)&on, &nodeno);
+			if (errorcode != 0)
+				return errorcode;
+			created_node = 1;
+			on->hash16 = cpu_to_be16(asfs_hash(
+				o2->name,
+				ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE));
+			o2->objectnode = cpu_to_be32(nodeno);
 		}
 
-		if (errorcode == 0) {	/* in io_bh there is a container with created object */
-			on->node.data = ((struct fsBlockHeader *) (*io_bh)->b_data)->ownblock;
-			if ((errorcode = hashobject(sb, hashblock, on, be32_to_cpu(o2->objectnode), objectname)) == 0) {
-				asfs_bstore(sb, node_bh);
-				asfs_brelse(node_bh);
-			} else
+		/* Prepare directory/softlink storage before publishing the hash link. */
+		if ((o2->bits & OTYPE_DIR) != 0 &&
+		    o2->object.dir.hashtable == 0) {
+			struct buffer_head *hashbh;
+			struct fsHashTable *ht;
+
+			errorcode = asfs_allocadminspace(sb, &allocated_aux_block);
+			if (errorcode != 0)
+				goto fail_before_publish;
+			hashbh = asfs_getzeroblk(sb, allocated_aux_block);
+			if (!hashbh) {
 				errorcode = -EIO;
-		}
-
-		if (errorcode == 0) {	/* HashBlock reuse or creation:*/
-
-			if ((o2->bits & OTYPE_DIR) != 0 && o2->object.dir.hashtable == 0) {
-				struct buffer_head *hashbh;
-				u32 hashblock;
-
-				asfs_debug("creating Hashblock\n");
-
-				if ((errorcode = asfs_allocadminspace(sb, &hashblock)) == 0 && (hashbh = asfs_getzeroblk(sb, hashblock))) {	    
-					struct fsHashTable *ht = (void *) hashbh->b_data;
-
-					o2->object.dir.hashtable = cpu_to_be32(hashblock);
-
-					ht->bheader.id = cpu_to_be32(ASFS_HASHTABLE_ID);
-					ht->bheader.ownblock = cpu_to_be32(hashblock);
-					ht->parent = o2->objectnode;
-
-					asfs_bstore(sb, hashbh);
-					asfs_brelse(hashbh);
-				}
+				goto fail_before_publish;
 			}
-		}
 
-		if (errorcode == 0) {	/* SoftLink creation: */
-			if ((o2->bits & (OTYPE_LINK | OTYPE_HARDLINK)) == OTYPE_LINK && o2->object.file.data == 0) {
-				struct buffer_head *bh2;
-				u32 slinkblock;
+			ht = (void *)hashbh->b_data;
+			ht->bheader.id = cpu_to_be32(ASFS_HASHTABLE_ID);
+			ht->bheader.ownblock = cpu_to_be32(allocated_aux_block);
+			ht->parent = o2->objectnode;
+			asfs_bstore(sb, hashbh);
+			asfs_brelse(hashbh);
+			o2->object.dir.hashtable = cpu_to_be32(allocated_aux_block);
+		} else if ((o2->bits & (OTYPE_LINK | OTYPE_HARDLINK)) ==
+			   OTYPE_LINK && o2->object.file.data == 0) {
+			struct buffer_head *linkbh;
+			struct fsSoftLink *sl;
 
-				if ((errorcode = asfs_allocadminspace(sb, &slinkblock)) == 0 && (bh2 = asfs_getzeroblk(sb, slinkblock))) {
-					struct fsSoftLink *sl = (void *) bh2->b_data;
-					o2->object.file.data = cpu_to_be32(slinkblock);
-					sl->bheader.id = cpu_to_be32(ASFS_SOFTLINK_ID);
-					sl->bheader.ownblock = cpu_to_be32(slinkblock);
-					sl->parent = o2->objectnode;
-					sl->next = 0;
-					sl->previous = 0;
-					asfs_bstore(sb, bh2);
-					asfs_brelse(bh2);
-				}
+			errorcode = asfs_allocadminspace(sb, &allocated_aux_block);
+			if (errorcode != 0)
+				goto fail_before_publish;
+			linkbh = asfs_getzeroblk(sb, allocated_aux_block);
+			if (!linkbh) {
+				errorcode = -EIO;
+				goto fail_before_publish;
 			}
+
+			sl = (void *)linkbh->b_data;
+			sl->bheader.id = cpu_to_be32(ASFS_SOFTLINK_ID);
+			sl->bheader.ownblock = cpu_to_be32(allocated_aux_block);
+			sl->parent = o2->objectnode;
+			sl->next = 0;
+			sl->previous = 0;
+			asfs_bstore(sb, linkbh);
+			asfs_brelse(linkbh);
+			o2->object.file.data = cpu_to_be32(allocated_aux_block);
 		}
+
+		on->node.data =
+			((struct fsBlockHeader *)(*io_bh)->b_data)->ownblock;
+		errorcode = hashobject(
+			sb, hashblock, on, be32_to_cpu(o2->objectnode),
+			objectname);
+		if (errorcode != 0)
+			goto fail_before_publish;
+
+		asfs_bstore(sb, node_bh);
+		asfs_brelse(node_bh);
+		return 0;
 	}
-	asfs_debug("createobject: done.\n");
 
-	return (errorcode);
+fail_before_publish:
+	if (node_bh) {
+		asfs_brelse(node_bh);
+		node_bh = NULL;
+	}
+	if (allocated_aux_block != 0U &&
+	    asfs_freeadminspace(sb, allocated_aux_block) != 0)
+		errorcode = -EUCLEAN;
+	if (created_node && asfs_deletenode(sb, nodeno) != 0)
+		errorcode = -EUCLEAN;
+	return errorcode;
 }
-
 	/* This function extends the file object 'o' with a number  of blocks 
 		(hopefully, if any blocks has been found!). Only new Extents will 
       be created -- the size of the file will not be altered, and changing 
