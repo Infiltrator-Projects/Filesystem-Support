@@ -1,173 +1,91 @@
-/*
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
- *
- */
-
 #include <linux/types.h>
-#include <linux/bitops.h>
+#include <linux/byteorder/generic.h>
 #include "bitfuncs.h"
 
-/* Bitmap (bm) functions:
-   These functions perform bit-operations on regions of memory which
-   are a multiple of 4 bytes in length. Bitmap is in bigendian byte order.
-*/
+static int sfs_bitmap_find(
+    const u32 *bitmap, int longs, int bitoffset, bool want_set)
+{
+    int word_index;
+    int local_bit;
 
-/* This function finds the first set bit in a region of memory starting
-   with /bitoffset/.  The region of memory is /longs/ longs long.  It
-   returns the bitoffset of the first set bit it finds. */
+    if (!bitmap || longs <= 0 || bitoffset < 0 ||
+        bitoffset >= longs * 32)
+        return -1;
+
+    word_index = bitoffset / 32;
+    local_bit = bitoffset % 32;
+
+    while (word_index < longs) {
+        const u32 word = be32_to_cpu(bitmap[word_index]);
+        const int found = want_set
+            ? ifs_sfs_bitmap_word_find_set(word, (ifs_sfs_u32)local_bit)
+            : ifs_sfs_bitmap_word_find_zero(word, (ifs_sfs_u32)local_bit);
+
+        if (found >= 0)
+            return word_index * 32 + found;
+
+        word_index++;
+        local_bit = 0;
+    }
+
+    return -1;
+}
+
+static int sfs_bitmap_modify(
+    u32 *bitmap, int longs, int bitoffset, int bits, bool set_bits)
+{
+    int remaining;
+    int position;
+    int changed = 0;
+
+    if (!bitmap || longs <= 0 || bitoffset < 0 || bits <= 0 ||
+        bitoffset >= longs * 32)
+        return 0;
+
+    remaining = bits;
+    position = bitoffset;
+
+    while (remaining > 0 && position < longs * 32) {
+        const int word_index = position / 32;
+        const int local_bit = position % 32;
+        int chunk = 32 - local_bit;
+        u32 word;
+
+        if (chunk > remaining)
+            chunk = remaining;
+
+        word = be32_to_cpu(bitmap[word_index]);
+        word = set_bits
+            ? ifs_sfs_bitmap_word_set(
+                word, (ifs_sfs_u32)local_bit, (ifs_sfs_u32)chunk)
+            : ifs_sfs_bitmap_word_clear(
+                word, (ifs_sfs_u32)local_bit, (ifs_sfs_u32)chunk);
+        bitmap[word_index] = cpu_to_be32(word);
+
+        position += chunk;
+        remaining -= chunk;
+        changed += chunk;
+    }
+
+    return changed;
+}
 
 int bmffo(u32 *bitmap, int longs, int bitoffset)
 {
-	u32 *scan = bitmap;
-	int longoffset, bit;
-
-	longoffset = bitoffset >> 5;
-	longs -= longoffset;
-	scan += longoffset;
-
-	bitoffset = bitoffset & 0x1F;
-
-	if (bitoffset != 0) {
-		if ((bit = bfffo(be32_to_cpu(*scan), bitoffset)) >= 0) {
-			return (bit + ((scan - bitmap) << 5));
-		}
-		scan++;
-		longs--;
-	}
-
-	while (longs-- > 0) {
-		if (*scan != 0)
-			return bfffo(be32_to_cpu(*scan), 0) +
-			       ((scan - bitmap) << 5);
-		scan++;
-	}
-
-	return (-1);
+    return sfs_bitmap_find(bitmap, longs, bitoffset, true);
 }
-
-/* This function finds the first unset bit in a region of memory starting
-   with /bitoffset/.  The region of memory is /longs/ longs long.  It
-   returns the bitoffset of the first unset bit it finds. */
 
 int bmffz(u32 *bitmap, int longs, int bitoffset)
 {
-	u32 *scan = bitmap;
-	int longoffset, bit;
-
-	longoffset = bitoffset >> 5;
-	longs -= longoffset;
-	scan += longoffset;
-
-	bitoffset = bitoffset & 0x1F;
-
-	if (bitoffset != 0) {
-		if ((bit = bfffz(be32_to_cpu(*scan), bitoffset)) >= 0) {
-			return (bit + ((scan - bitmap) << 5));
-		}
-		scan++;
-		longs--;
-	}
-
-	while (longs-- > 0) {
-		if (*scan != 0xFFFFFFFF)
-			return bfffz(be32_to_cpu(*scan), 0) +
-			       ((scan - bitmap) << 5);
-		scan++;
-	}
-
-	return (-1);
+    return sfs_bitmap_find(bitmap, longs, bitoffset, false);
 }
-
-/* This function clears /bits/ bits in a region of memory starting
-   with /bitoffset/.  The region of memory is /longs/ longs long.  If
-   the region of memory is too small to clear /bits/ bits then this
-   function exits after having cleared all bits till the end of the
-   memory region.  In any case it returns the number of bits which
-   were actually cleared. */
 
 int bmclr(u32 *bitmap, int longs, int bitoffset, int bits)
 {
-	u32 *scan = bitmap;
-	int longoffset;
-	int orgbits = bits;
-
-	longoffset = bitoffset >> 5;
-	longs -= longoffset;
-	scan += longoffset;
-
-	bitoffset = bitoffset & 0x1F;
-
-	if (bitoffset != 0) {
-		if (bits < 32) {
-			*scan = cpu_to_be32(bfclr(be32_to_cpu(*scan), bitoffset, bits));
-		} else {
-			*scan = cpu_to_be32(bfclr(be32_to_cpu(*scan), bitoffset, 32));
-		}
-		scan++;
-		longs--;
-		bits -= 32 - bitoffset;
-	}
-
-	while (bits > 0 && longs-- > 0) {
-		if (bits > 31) {
-			*scan++ = 0;
-		} else {
-			*scan = cpu_to_be32(bfclr(be32_to_cpu(*scan), 0, bits));
-		}
-		bits -= 32;
-	}
-
-	if (bits <= 0) {
-		return (orgbits);
-	}
-	return (orgbits - bits);
+    return sfs_bitmap_modify(bitmap, longs, bitoffset, bits, false);
 }
-
-/* This function sets /bits/ bits in a region of memory starting
-   with /bitoffset/.  The region of memory is /longs/ longs long.  If
-   the region of memory is too small to set /bits/ bits then this
-   function exits after having set all bits till the end of the
-   memory region.  In any case it returns the number of bits which
-   were actually set. */
 
 int bmset(u32 *bitmap, int longs, int bitoffset, int bits)
 {
-	u32 *scan = bitmap;
-	int longoffset;
-	int orgbits = bits;
-
-	longoffset = bitoffset >> 5;
-	longs -= longoffset;
-	scan += longoffset;
-
-	bitoffset = bitoffset & 0x1F;
-
-	if (bitoffset != 0) {
-		if (bits < 32) {
-			*scan = cpu_to_be32(bfset(be32_to_cpu(*scan), bitoffset, bits));
-		} else {
-			*scan = cpu_to_be32(bfset(be32_to_cpu(*scan), bitoffset, 32));
-		}
-		scan++;
-		longs--;
-		bits -= 32 - bitoffset;
-	}
-
-	while (bits > 0 && longs-- > 0) {
-		if (bits > 31) {
-			*scan++ = 0xFFFFFFFF;
-		} else {
-			*scan = cpu_to_be32(bfset(be32_to_cpu(*scan), 0, bits));
-		}
-		bits -= 32;
-	}
-
-	if (bits <= 0) {
-		return (orgbits);
-	}
-	return (orgbits - bits);
+    return sfs_bitmap_modify(bitmap, longs, bitoffset, bits, true);
 }
