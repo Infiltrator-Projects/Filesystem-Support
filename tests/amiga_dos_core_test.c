@@ -80,6 +80,30 @@ int main(void)
                 translated, 8U, &translated_length) !=
                 IFS_AMIGA_SYMLINK_OUTPUT_TOO_SMALL)
             return fail("undersized symlink output accepted");
+
+        {
+            static const ifs_amiga_u8 unix_absolute[] =
+                "/Tools/../C//gcc";
+            static const ifs_amiga_u8 unix_relative[] =
+                "src/./include/../main";
+            static const ifs_amiga_u8 volume[] = "Work:";
+            ifs_amiga_u8 encoded[64] = { 0 };
+            ifs_amiga_u32 encoded_length = 0U;
+
+            if (ifs_amiga_encode_symlink(
+                    unix_absolute, sizeof(unix_absolute),
+                    volume, 5U, encoded, sizeof(encoded),
+                    &encoded_length) != IFS_AMIGA_SYMLINK_OK ||
+                strcmp((const char *)encoded, "Work:Tools//C/gcc") != 0)
+                return fail("absolute symlink encoding is wrong");
+
+            if (ifs_amiga_encode_symlink(
+                    unix_relative, sizeof(unix_relative),
+                    volume, 5U, encoded, sizeof(encoded),
+                    &encoded_length) != IFS_AMIGA_SYMLINK_OK ||
+                strcmp((const char *)encoded, "src/include//main") != 0)
+                return fail("relative symlink encoding is wrong");
+        }
     }
 
     {
