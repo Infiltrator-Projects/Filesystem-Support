@@ -114,3 +114,48 @@ IfsExt4ClusterGeometryStatus ifs_ext4_validate_cluster_geometry(
     return IFS_EXT4_CLUSTER_GEOMETRY_OK;
 }
 
+IfsExt4LayoutStatus ifs_ext4_validate_layout(
+    const ifs_ext4_u32 block_size,
+    const ifs_ext4_u32 reserved_gdt_blocks,
+    const ifs_ext4_u64 blocks_count,
+    const ifs_ext4_u32 first_data_block,
+    const ifs_ext4_u32 log_block_size,
+    const ifs_ext4_u32 cluster_ratio,
+    const ifs_ext4_u32 blocks_per_group,
+    const ifs_ext4_u32 descriptors_per_block,
+    const ifs_ext4_u32 inodes_per_group,
+    const ifs_ext4_u32 inodes_count,
+    ifs_ext4_u32 *const group_count)
+{
+    if (reserved_gdt_blocks > block_size / 4U)
+        return IFS_EXT4_LAYOUT_RESERVED_GDT_TOO_LARGE;
+
+    if (blocks_per_group == 0U || group_count == 0)
+        return IFS_EXT4_LAYOUT_GROUP_COUNT_TOO_LARGE;
+
+    if ((ifs_ext4_u64)first_data_block >= blocks_count)
+        return IFS_EXT4_LAYOUT_INVALID_FIRST_DATA_BLOCK;
+
+    if (first_data_block == 0U && log_block_size == 0U &&
+        cluster_ratio == 1U)
+        return IFS_EXT4_LAYOUT_INVALID_1K_FIRST_DATA_BLOCK;
+
+    {
+        const ifs_ext4_u64 groups =
+            (blocks_count - first_data_block + blocks_per_group - 1U) /
+            blocks_per_group;
+        const ifs_ext4_u64 max_groups =
+            0x100000000ULL - descriptors_per_block;
+
+        if (groups > max_groups)
+            return IFS_EXT4_LAYOUT_GROUP_COUNT_TOO_LARGE;
+
+        if (groups * inodes_per_group != inodes_count)
+            return IFS_EXT4_LAYOUT_INVALID_INODE_COUNT;
+
+        *group_count = (ifs_ext4_u32)groups;
+    }
+
+    return IFS_EXT4_LAYOUT_OK;
+}
+
