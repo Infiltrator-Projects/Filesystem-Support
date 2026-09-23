@@ -111,22 +111,17 @@ target_include_directories(infiltratr-fs-ext4-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext4/core")
 filesystem_support_configure(infiltratr-fs-ext4-core)
 
-# Shared AmigaDOS primitives used by the independent OFS and FFS cores.
-add_library(infiltratr-fs-amiga-dos-core STATIC
-    native/primitives/amiga_dos/amiga_dos_core.c)
-target_include_directories(infiltratr-fs-amiga-dos-core
-    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/primitives/amiga_dos")
-filesystem_support_configure(infiltratr-fs-amiga-dos-core)
-
 # Canonical Amiga OFS and FFS format classification.
 add_library(infiltratr-fs-ofs-core STATIC
-    native/filesystems/ofs/core/ofs_core.c)
+    native/filesystems/ofs/core/ofs_core.c
+    native/filesystems/ofs/core/ofs_primitives.c)
 target_include_directories(infiltratr-fs-ofs-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ofs/core")
 filesystem_support_configure(infiltratr-fs-ofs-core)
 
 add_library(infiltratr-fs-ffs-core STATIC
-    native/filesystems/ffs/core/ffs_core.c)
+    native/filesystems/ffs/core/ffs_core.c
+    native/filesystems/ffs/core/ffs_primitives.c)
 target_include_directories(infiltratr-fs-ffs-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ffs/core")
 filesystem_support_configure(infiltratr-fs-ffs-core)
@@ -307,15 +302,6 @@ if(BUILD_TESTING)
         NAME filesystem-support-ext4-core
         COMMAND filesystem-support-ext4-core-test)
 
-    add_executable(filesystem-support-amiga-dos-core-test
-        tests/amiga_dos_core_test.c)
-    target_link_libraries(filesystem-support-amiga-dos-core-test
-        PRIVATE infiltratr-fs-amiga-dos-core)
-    filesystem_support_configure(filesystem-support-amiga-dos-core-test)
-    add_test(
-        NAME filesystem-support-amiga-dos-core
-        COMMAND filesystem-support-amiga-dos-core-test)
-
     add_executable(filesystem-support-ofs-core-test
         tests/ofs_core_test.c)
     target_link_libraries(filesystem-support-ofs-core-test
@@ -323,12 +309,26 @@ if(BUILD_TESTING)
     filesystem_support_configure(filesystem-support-ofs-core-test)
     add_test(NAME filesystem-support-ofs-core COMMAND filesystem-support-ofs-core-test)
 
+    add_executable(filesystem-support-ofs-primitives-test
+        tests/ofs_primitives_test.c)
+    target_link_libraries(filesystem-support-ofs-primitives-test
+        PRIVATE infiltratr-fs-ofs-core)
+    filesystem_support_configure(filesystem-support-ofs-primitives-test)
+    add_test(NAME filesystem-support-ofs-primitives COMMAND filesystem-support-ofs-primitives-test)
+
     add_executable(filesystem-support-ffs-core-test
         tests/ffs_core_test.c)
     target_link_libraries(filesystem-support-ffs-core-test
         PRIVATE infiltratr-fs-ffs-core)
     filesystem_support_configure(filesystem-support-ffs-core-test)
     add_test(NAME filesystem-support-ffs-core COMMAND filesystem-support-ffs-core-test)
+
+    add_executable(filesystem-support-ffs-primitives-test
+        tests/ffs_primitives_test.c)
+    target_link_libraries(filesystem-support-ffs-primitives-test
+        PRIVATE infiltratr-fs-ffs-core)
+    filesystem_support_configure(filesystem-support-ffs-primitives-test)
+    add_test(NAME filesystem-support-ffs-primitives COMMAND filesystem-support-ffs-primitives-test)
 
     add_executable(filesystem-support-sfs-core-test
         tests/sfs_core_test.c)
