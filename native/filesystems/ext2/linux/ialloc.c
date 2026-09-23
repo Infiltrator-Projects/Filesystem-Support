@@ -1,309 +1,270 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
- *  linux/fs/ext2/ialloc.c
+ * Infiltrator Filesystem Support — EXT2 inode allocation.
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  BSD ufs-inspired inode and directory allocation by
- *  Stephen Tweedie (sct@dcs.ed.ac.uk), 1993
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
+ * Group selection is policy. Bitmap state, group counters and global counters
+ * are correctness state and are updated together under the owning group lock.
  */
 
-/*
- * EXT2 — Inode allocation
- *
- * Purpose:
- *   Selects block groups for new inodes and maintains inode/directory allocation accounting.
- *
- * Filesystem model:
- *   This file belongs to a deliberately strict, non-journalled EXT2 VFS implementation.
- *
- * Correctness focus:
- *   Group selection is policy; bitmap and counter updates are correctness state and must remain atomic with the filesystem's transaction model.
- *
- * Project rules:
- *   - Do not accept a journalled EXT3 volume as EXT2.
- *   - Keep on-disk compatibility fields when they are required to parse or reject media correctly.
- *   - Keep xattr/ACL/cache code inside ext2.ko rather than creating helper modules.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
-#include <linux/quotaops.h>
-#include <linux/sched.h>
 #include <linux/backing-dev.h>
 #include <linux/buffer_head.h>
+#include <linux/quotaops.h>
 #include <linux/random.h>
+#include <linux/sched.h>
+
 #include "ext2.h"
 
+#define EXT2_DIR_INODE_COST 64
+#define EXT2_DIR_BLOCK_COST 256
 
-/**
- * read_inode_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static struct buffer_head *
-read_inode_bitmap(struct super_block * sb, unsigned long block_group)
+static struct buffer_head *ext2_read_inode_bitmap(
+	struct super_block *sb, unsigned int group)
 {
 	struct ext2_group_desc *desc;
-	struct buffer_head *bh = NULL;
+	u32 block;
 
-	desc = ext2_get_group_desc(sb, block_group, NULL);
+	desc = ext2_get_group_desc(sb, group, NULL);
 	if (!desc)
-		goto error_out;
+		return NULL;
 
-	bh = sb_bread(sb, le32_to_cpu(desc->bg_inode_bitmap));
-	if (!bh)
-		ext2_error(sb, "read_inode_bitmap",
-			    "Cannot read inode bitmap - "
-			    "block_group = %lu, inode_bitmap = %u",
-			    block_group, le32_to_cpu(desc->bg_inode_bitmap));
-error_out:
-	return bh;
+	block = le32_to_cpu(desc->bg_inode_bitmap);
+	if (block == 0U) {
+		ext2_error(sb, __func__,
+			   "group %u has no inode bitmap", group);
+		return NULL;
+	}
+
+	{
+		struct buffer_head *bh = sb_bread(sb, block);
+
+		if (!bh)
+			ext2_error(sb, __func__,
+				   "cannot read inode bitmap for group %u at block %u",
+				   group, block);
+		return bh;
+	}
 }
 
-
-/**
- * ext2_release_inode - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void ext2_release_inode(struct super_block *sb, int group, int dir)
+static int ext2_inode_position(
+	struct super_block *sb, ino_t ino,
+	unsigned int *group, unsigned int *bit)
 {
-	struct ext2_group_desc * desc;
-	struct buffer_head *bh;
+	const u32 inodes_per_group = EXT2_INODES_PER_GROUP(sb);
+	const u32 inode_count =
+		le32_to_cpu(EXT2_SB(sb)->s_es->s_inodes_count);
+	u64 zero_based;
 
-	desc = ext2_get_group_desc(sb, group, &bh);
+	if (!group || !bit || inodes_per_group == 0U ||
+	    ino < EXT2_FIRST_INO(sb) || ino > inode_count)
+		return -EINVAL;
+
+	zero_based = (u64)ino - 1U;
+	*group = (unsigned int)(zero_based / inodes_per_group);
+	*bit = (unsigned int)(zero_based % inodes_per_group);
+
+	if (*group >= EXT2_SB(sb)->s_groups_count)
+		return -EUCLEAN;
+	return 0;
+}
+
+static void ext2_account_inode_release(
+	struct super_block *sb, unsigned int group, bool directory)
+{
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	struct ext2_group_desc *desc;
+	struct buffer_head *desc_bh;
+
+	desc = ext2_get_group_desc(sb, group, &desc_bh);
 	if (!desc) {
-		ext2_error(sb, "ext2_release_inode",
-			"can't get descriptor for group %d", group);
+		ext2_error(sb, __func__,
+			   "missing group descriptor %u", group);
 		return;
 	}
 
-	spin_lock(sb_bgl_lock(EXT2_SB(sb), group));
+	spin_lock(sb_bgl_lock(sbi, group));
 	le16_add_cpu(&desc->bg_free_inodes_count, 1);
-	if (dir)
+	if (directory)
 		le16_add_cpu(&desc->bg_used_dirs_count, -1);
-	spin_unlock(sb_bgl_lock(EXT2_SB(sb), group));
-	percpu_counter_inc(&EXT2_SB(sb)->s_freeinodes_counter);
-	if (dir)
-		percpu_counter_dec(&EXT2_SB(sb)->s_dirs_counter);
-	mark_buffer_dirty(bh);
+	spin_unlock(sb_bgl_lock(sbi, group));
+
+	percpu_counter_inc(&sbi->s_freeinodes_counter);
+	if (directory)
+		percpu_counter_dec(&sbi->s_dirs_counter);
+	mark_buffer_dirty(desc_bh);
 }
 
-
-/**
- * ext2_free_inode - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext2_free_inode (struct inode * inode)
+void ext2_free_inode(struct inode *inode)
 {
-	struct super_block * sb = inode->i_sb;
-	int is_directory;
-	unsigned long ino;
+	struct super_block *sb = inode->i_sb;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	struct buffer_head *bitmap_bh;
-	unsigned long block_group;
-	unsigned long bit;
-	struct ext2_super_block * es;
-
-	ino = inode->i_ino;
-	ext2_debug ("freeing inode %lu\n", ino);
-
+	unsigned int group;
+	unsigned int bit;
+	int result;
 
 	dquot_free_inode(inode);
 	dquot_drop(inode);
 
-	es = EXT2_SB(sb)->s_es;
-	is_directory = S_ISDIR(inode->i_mode);
-
-	if (ino < EXT2_FIRST_INO(sb) ||
-	    ino > le32_to_cpu(es->s_inodes_count)) {
-		ext2_error (sb, "ext2_free_inode",
-			    "reserved or nonexistent inode %lu", ino);
+	result = ext2_inode_position(sb, inode->i_ino, &group, &bit);
+	if (result != 0) {
+		ext2_error(sb, __func__,
+			   "invalid inode %lu", (unsigned long)inode->i_ino);
 		return;
 	}
-	block_group = (ino - 1) / EXT2_INODES_PER_GROUP(sb);
-	bit = (ino - 1) % EXT2_INODES_PER_GROUP(sb);
-	bitmap_bh = read_inode_bitmap(sb, block_group);
+
+	bitmap_bh = ext2_read_inode_bitmap(sb, group);
 	if (!bitmap_bh)
 		return;
 
+	if (!ext2_clear_bit_atomic(
+		    sb_bgl_lock(sbi, group), bit, bitmap_bh->b_data)) {
+		ext2_error(sb, __func__,
+			   "inode %lu bitmap bit was already clear",
+			   (unsigned long)inode->i_ino);
+	} else {
+		ext2_account_inode_release(
+			sb, group, S_ISDIR(inode->i_mode));
+	}
 
-	if (!ext2_clear_bit_atomic(sb_bgl_lock(EXT2_SB(sb), block_group),
-				bit, (void *) bitmap_bh->b_data))
-		ext2_error (sb, "ext2_free_inode",
-			      "bit already cleared for inode %lu", ino);
-	else
-		ext2_release_inode(sb, block_group, is_directory);
 	mark_buffer_dirty(bitmap_bh);
 	if (sb->s_flags & SB_SYNCHRONOUS)
 		sync_dirty_buffer(bitmap_bh);
-
 	brelse(bitmap_bh);
 }
 
-
-/**
- * ext2_preread_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 static void ext2_preread_inode(struct inode *inode)
 {
-	unsigned long block_group;
-	unsigned long offset;
-	unsigned long block;
-	struct ext2_group_desc * gdp;
+	struct super_block *sb = inode->i_sb;
+	struct ext2_group_desc *desc;
+	unsigned int group;
+	unsigned int bit;
+	u64 byte_offset;
+	u32 table_block;
 
-	block_group = (inode->i_ino - 1) / EXT2_INODES_PER_GROUP(inode->i_sb);
-	gdp = ext2_get_group_desc(inode->i_sb, block_group, NULL);
-	if (gdp == NULL)
+	if (ext2_inode_position(sb, inode->i_ino, &group, &bit) != 0)
 		return;
 
+	desc = ext2_get_group_desc(sb, group, NULL);
+	if (!desc)
+		return;
 
-	offset = ((inode->i_ino - 1) % EXT2_INODES_PER_GROUP(inode->i_sb)) *
-				EXT2_INODE_SIZE(inode->i_sb);
-	block = le32_to_cpu(gdp->bg_inode_table) +
-				(offset >> EXT2_BLOCK_SIZE_BITS(inode->i_sb));
-	sb_breadahead(inode->i_sb, block);
+	byte_offset = (u64)bit * EXT2_INODE_SIZE(sb);
+	table_block = le32_to_cpu(desc->bg_inode_table) +
+		(u32)(byte_offset >> EXT2_BLOCK_SIZE_BITS(sb));
+	sb_breadahead(sb, table_block);
 }
 
-
-/**
- * find_group_dir - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int find_group_dir(struct super_block *sb, struct inode *parent)
+static int ext2_choose_old_directory_group(struct super_block *sb)
 {
-	int ngroups = EXT2_SB(sb)->s_groups_count;
-	int avefreei = ext2_count_free_inodes(sb) / ngroups;
-	struct ext2_group_desc *desc, *best_desc = NULL;
-	int group, best_group = -1;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	const int groups = sbi->s_groups_count;
+	const unsigned long free_inodes = ext2_count_free_inodes(sb);
+	const unsigned long average =
+		groups > 0 ? free_inodes / (unsigned long)groups : 0U;
+	struct ext2_group_desc *best = NULL;
+	int best_group = -1;
+	int group;
 
-	for (group = 0; group < ngroups; group++) {
-		desc = ext2_get_group_desc (sb, group, NULL);
-		if (!desc || !desc->bg_free_inodes_count)
+	for (group = 0; group < groups; ++group) {
+		struct ext2_group_desc *desc =
+			ext2_get_group_desc(sb, group, NULL);
+
+		if (!desc)
 			continue;
-		if (le16_to_cpu(desc->bg_free_inodes_count) < avefreei)
+		if (le16_to_cpu(desc->bg_free_inodes_count) < average)
 			continue;
-		if (!best_desc ||
-		    (le16_to_cpu(desc->bg_free_blocks_count) >
-		     le16_to_cpu(best_desc->bg_free_blocks_count))) {
+		if (!best ||
+		    le16_to_cpu(desc->bg_free_blocks_count) >
+		    le16_to_cpu(best->bg_free_blocks_count)) {
+			best = desc;
 			best_group = group;
-			best_desc = desc;
 		}
 	}
 
 	return best_group;
 }
 
-
-#define INODE_COST 64
-#define BLOCK_COST 256
-
-
-/**
- * find_group_orlov - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int find_group_orlov(struct super_block *sb, struct inode *parent)
+static int ext2_choose_directory_group(
+	struct super_block *sb, struct inode *parent)
 {
-	int parent_group = EXT2_I(parent)->i_block_group;
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	struct ext2_super_block *es = sbi->s_es;
-	int ngroups = sbi->s_groups_count;
-	int inodes_per_group = EXT2_INODES_PER_GROUP(sb);
-	int freei;
-	int avefreei;
+	const int groups = sbi->s_groups_count;
+	const int inodes_per_group = EXT2_INODES_PER_GROUP(sb);
+	int parent_group = EXT2_I(parent)->i_block_group;
+	int free_inodes;
 	int free_blocks;
-	int avefreeb;
+	int directories;
+	int average_inodes;
+	int average_blocks;
+	int max_dirs;
+	int min_inodes;
+	int min_blocks;
 	int blocks_per_dir;
-	int ndirs;
-	int max_debt, max_dirs, min_blocks, min_inodes;
-	int group = -1, i;
-	struct ext2_group_desc *desc;
+	int max_debt;
+	int group;
+	int i;
 
-	freei = percpu_counter_read_positive(&sbi->s_freeinodes_counter);
-	avefreei = freei / ngroups;
-	free_blocks = percpu_counter_read_positive(&sbi->s_freeblocks_counter);
-	avefreeb = free_blocks / ngroups;
-	ndirs = percpu_counter_read_positive(&sbi->s_dirs_counter);
+	if (groups <= 0)
+		return -1;
 
-	if ((parent == d_inode(sb->s_root)) ||
+	free_inodes =
+		percpu_counter_read_positive(&sbi->s_freeinodes_counter);
+	free_blocks =
+		percpu_counter_read_positive(&sbi->s_freeblocks_counter);
+	directories =
+		percpu_counter_read_positive(&sbi->s_dirs_counter);
+	average_inodes = free_inodes / groups;
+	average_blocks = free_blocks / groups;
+
+	if (parent == d_inode(sb->s_root) ||
 	    (EXT2_I(parent)->i_flags & EXT2_TOPDIR_FL)) {
-		int best_ndir = inodes_per_group;
 		int best_group = -1;
+		int best_dirs = inodes_per_group;
+		int start = get_random_u32_below(groups);
 
-		parent_group = get_random_u32_below(ngroups);
-		for (i = 0; i < ngroups; i++) {
-			group = (parent_group + i) % ngroups;
-			desc = ext2_get_group_desc (sb, group, NULL);
-			if (!desc || !desc->bg_free_inodes_count)
+		for (i = 0; i < groups; ++i) {
+			struct ext2_group_desc *desc;
+
+			group = (start + i) % groups;
+			desc = ext2_get_group_desc(sb, group, NULL);
+			if (!desc)
 				continue;
-			if (le16_to_cpu(desc->bg_used_dirs_count) >= best_ndir)
+			if (le16_to_cpu(desc->bg_free_inodes_count) <
+			    average_inodes)
 				continue;
-			if (le16_to_cpu(desc->bg_free_inodes_count) < avefreei)
+			if (le16_to_cpu(desc->bg_free_blocks_count) <
+			    average_blocks)
 				continue;
-			if (le16_to_cpu(desc->bg_free_blocks_count) < avefreeb)
+			if (le16_to_cpu(desc->bg_used_dirs_count) >= best_dirs)
 				continue;
+
 			best_group = group;
-			best_ndir = le16_to_cpu(desc->bg_used_dirs_count);
+			best_dirs = le16_to_cpu(desc->bg_used_dirs_count);
 		}
-		if (best_group >= 0) {
-			group = best_group;
-			goto found;
-		}
-		goto fallback;
+		if (best_group >= 0)
+			return best_group;
 	}
 
-	if (ndirs == 0)
-		ndirs = 1;
+	if (directories <= 0)
+		directories = 1;
+	blocks_per_dir =
+		(le32_to_cpu(es->s_blocks_count) - free_blocks) / directories;
+	max_dirs = directories / groups + inodes_per_group / 16;
+	min_inodes = average_inodes - inodes_per_group / 4;
+	min_blocks =
+		average_blocks - EXT2_BLOCKS_PER_GROUP(sb) / 4;
+	max_debt = EXT2_BLOCKS_PER_GROUP(sb) /
+		max(blocks_per_dir, EXT2_DIR_BLOCK_COST);
+	if (max_debt * EXT2_DIR_INODE_COST > inodes_per_group)
+		max_debt = inodes_per_group / EXT2_DIR_INODE_COST;
+	max_debt = clamp(max_debt, 1, 255);
 
-	blocks_per_dir = (le32_to_cpu(es->s_blocks_count)-free_blocks) / ndirs;
+	for (i = 0; i < groups; ++i) {
+		struct ext2_group_desc *desc;
 
-	max_dirs = ndirs / ngroups + inodes_per_group / 16;
-	min_inodes = avefreei - inodes_per_group / 4;
-	min_blocks = avefreeb - EXT2_BLOCKS_PER_GROUP(sb) / 4;
-
-	max_debt = EXT2_BLOCKS_PER_GROUP(sb) / max(blocks_per_dir, BLOCK_COST);
-	if (max_debt * INODE_COST > inodes_per_group)
-		max_debt = inodes_per_group / INODE_COST;
-	if (max_debt > 255)
-		max_debt = 255;
-	if (max_debt == 0)
-		max_debt = 1;
-
-	for (i = 0; i < ngroups; i++) {
-		group = (parent_group + i) % ngroups;
-		desc = ext2_get_group_desc (sb, group, NULL);
-		if (!desc || !desc->bg_free_inodes_count)
+		group = (parent_group + i) % groups;
+		desc = ext2_get_group_desc(sb, group, NULL);
+		if (!desc)
 			continue;
 		if (sbi->s_debts[group] >= max_debt)
 			continue;
@@ -313,353 +274,343 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent)
 			continue;
 		if (le16_to_cpu(desc->bg_free_blocks_count) < min_blocks)
 			continue;
-		goto found;
+		return group;
 	}
 
-fallback:
-	for (i = 0; i < ngroups; i++) {
-		group = (parent_group + i) % ngroups;
-		desc = ext2_get_group_desc (sb, group, NULL);
-		if (!desc || !desc->bg_free_inodes_count)
-			continue;
-		if (le16_to_cpu(desc->bg_free_inodes_count) >= avefreei)
-			goto found;
+	for (i = 0; i < groups; ++i) {
+		struct ext2_group_desc *desc;
+
+		group = (parent_group + i) % groups;
+		desc = ext2_get_group_desc(sb, group, NULL);
+		if (desc &&
+		    le16_to_cpu(desc->bg_free_inodes_count) >= average_inodes)
+			return group;
 	}
 
-	if (avefreei) {
+	if (average_inodes != 0) {
+		for (i = 0; i < groups; ++i) {
+			struct ext2_group_desc *desc =
+				ext2_get_group_desc(sb, i, NULL);
 
-
-		avefreei = 0;
-		goto fallback;
+			if (desc && le16_to_cpu(desc->bg_free_inodes_count) != 0)
+				return i;
+		}
 	}
 
 	return -1;
-
-found:
-	return group;
 }
 
-
-/**
- * find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int find_group_other(struct super_block *sb, struct inode *parent)
+static int ext2_choose_nondirectory_group(
+	struct super_block *sb, struct inode *parent)
 {
-	int parent_group = EXT2_I(parent)->i_block_group;
-	int ngroups = EXT2_SB(sb)->s_groups_count;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	const int groups = sbi->s_groups_count;
+	const int parent_group = EXT2_I(parent)->i_block_group;
 	struct ext2_group_desc *desc;
-	int group, i;
+	int group;
+	int step;
+	int i;
 
+	if (groups <= 0)
+		return -1;
 
-	group = parent_group;
-	desc = ext2_get_group_desc (sb, group, NULL);
-	if (desc && le16_to_cpu(desc->bg_free_inodes_count) &&
-			le16_to_cpu(desc->bg_free_blocks_count))
-		goto found;
+	desc = ext2_get_group_desc(sb, parent_group, NULL);
+	if (desc &&
+	    le16_to_cpu(desc->bg_free_inodes_count) != 0 &&
+	    le16_to_cpu(desc->bg_free_blocks_count) != 0)
+		return parent_group;
 
-
-	group = (group + parent->i_ino) % ngroups;
-
-
-	for (i = 1; i < ngroups; i <<= 1) {
-		group += i;
-		if (group >= ngroups)
-			group -= ngroups;
-		desc = ext2_get_group_desc (sb, group, NULL);
-		if (desc && le16_to_cpu(desc->bg_free_inodes_count) &&
-				le16_to_cpu(desc->bg_free_blocks_count))
-			goto found;
+	group = (parent_group + parent->i_ino) % groups;
+	for (step = 1; step < groups; step <<= 1) {
+		group += step;
+		if (group >= groups)
+			group -= groups;
+		desc = ext2_get_group_desc(sb, group, NULL);
+		if (desc &&
+		    le16_to_cpu(desc->bg_free_inodes_count) != 0 &&
+		    le16_to_cpu(desc->bg_free_blocks_count) != 0)
+			return group;
 	}
 
-
 	group = parent_group;
-	for (i = 0; i < ngroups; i++) {
-		if (++group >= ngroups)
+	for (i = 0; i < groups; ++i) {
+		if (++group >= groups)
 			group = 0;
-		desc = ext2_get_group_desc (sb, group, NULL);
-		if (desc && le16_to_cpu(desc->bg_free_inodes_count))
-			goto found;
+		desc = ext2_get_group_desc(sb, group, NULL);
+		if (desc && le16_to_cpu(desc->bg_free_inodes_count) != 0)
+			return group;
 	}
 
 	return -1;
-
-found:
-	return group;
 }
 
-
-/**
- * ext2_new_inode - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-struct inode *ext2_new_inode(struct inode *dir, umode_t mode,
-			     const struct qstr *qstr)
+static int ext2_claim_inode_bit(
+	struct super_block *sb, int preferred_group,
+	struct buffer_head **bitmap_out,
+	struct ext2_group_desc **desc_out,
+	struct buffer_head **desc_bh_out,
+	unsigned int *group_out,
+	unsigned int *bit_out)
 {
-	struct super_block *sb;
-	struct buffer_head *bitmap_bh = NULL;
-	struct buffer_head *bh2;
-	int group, i;
-	ino_t ino = 0;
-	struct inode * inode;
-	struct ext2_group_desc *gdp;
-	struct ext2_super_block *es;
-	struct ext2_inode_info *ei;
-	struct ext2_sb_info *sbi;
-	int err;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	const unsigned int inodes_per_group = EXT2_INODES_PER_GROUP(sb);
+	int attempt;
 
-	sb = dir->i_sb;
+	if (!bitmap_out || !desc_out || !desc_bh_out ||
+	    !group_out || !bit_out || preferred_group < 0)
+		return -EINVAL;
+
+	for (attempt = 0; attempt < sbi->s_groups_count; ++attempt) {
+		unsigned int group =
+			(preferred_group + attempt) % sbi->s_groups_count;
+		struct ext2_group_desc *desc;
+		struct buffer_head *desc_bh;
+		struct buffer_head *bitmap_bh;
+		unsigned int bit = 0;
+
+		desc = ext2_get_group_desc(sb, group, &desc_bh);
+		if (!desc ||
+		    le16_to_cpu(desc->bg_free_inodes_count) == 0)
+			continue;
+
+		bitmap_bh = ext2_read_inode_bitmap(sb, group);
+		if (!bitmap_bh)
+			return -EIO;
+
+		while (bit < inodes_per_group) {
+			bit = ext2_find_next_zero_bit(
+				(unsigned long *)bitmap_bh->b_data,
+				inodes_per_group, bit);
+			if (bit >= inodes_per_group)
+				break;
+
+			if (!ext2_set_bit_atomic(
+				    sb_bgl_lock(sbi, group),
+				    bit, bitmap_bh->b_data)) {
+				*bitmap_out = bitmap_bh;
+				*desc_out = desc;
+				*desc_bh_out = desc_bh;
+				*group_out = group;
+				*bit_out = bit;
+				return 0;
+			}
+			++bit;
+		}
+
+		brelse(bitmap_bh);
+	}
+
+	return -ENOSPC;
+}
+
+static void ext2_account_inode_allocation(
+	struct super_block *sb, unsigned int group,
+	struct ext2_group_desc *desc,
+	struct buffer_head *desc_bh,
+	bool directory)
+{
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+
+	percpu_counter_dec(&sbi->s_freeinodes_counter);
+	if (directory)
+		percpu_counter_inc(&sbi->s_dirs_counter);
+
+	spin_lock(sb_bgl_lock(sbi, group));
+	le16_add_cpu(&desc->bg_free_inodes_count, -1);
+	if (directory) {
+		if (sbi->s_debts[group] < 255)
+			sbi->s_debts[group]++;
+		le16_add_cpu(&desc->bg_used_dirs_count, 1);
+	} else if (sbi->s_debts[group] != 0) {
+		sbi->s_debts[group]--;
+	}
+	spin_unlock(sb_bgl_lock(sbi, group));
+
+	mark_buffer_dirty(desc_bh);
+}
+
+static void ext2_initialise_new_inode(
+	struct inode *inode, struct inode *parent,
+	umode_t mode, unsigned int group)
+{
+	struct ext2_inode_info *info = EXT2_I(inode);
+	struct ext2_sb_info *sbi = EXT2_SB(inode->i_sb);
+
+	if (test_opt(inode->i_sb, GRPID)) {
+		inode->i_mode = mode;
+		inode->i_uid = current_fsuid();
+		inode->i_gid = parent->i_gid;
+	} else {
+		inode_init_owner(&nop_mnt_idmap, inode, parent, mode);
+	}
+
+	inode->i_blocks = 0;
+	simple_inode_init_ts(inode);
+	memset(info->i_data, 0, sizeof(info->i_data));
+	info->i_flags = ext2_mask_flags(
+		mode, EXT2_I(parent)->i_flags & EXT2_FL_INHERITED);
+	info->i_faddr = 0;
+	info->i_frag_no = 0;
+	info->i_frag_size = 0;
+	info->i_file_acl = 0;
+	info->i_dir_acl = 0;
+	info->i_dtime = 0;
+	info->i_block_alloc_info = NULL;
+	info->i_block_group = group;
+	info->i_dir_start_lookup = 0;
+	info->i_state = EXT2_STATE_NEW;
+	ext2_set_inode_flags(inode);
+
+	spin_lock(&sbi->s_next_gen_lock);
+	inode->i_generation = sbi->s_next_generation++;
+	spin_unlock(&sbi->s_next_gen_lock);
+}
+
+struct inode *ext2_new_inode(
+	struct inode *dir, umode_t mode, const struct qstr *qstr)
+{
+	struct super_block *sb = dir->i_sb;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	struct ext2_super_block *es = sbi->s_es;
+	struct buffer_head *bitmap_bh = NULL;
+	struct buffer_head *desc_bh = NULL;
+	struct ext2_group_desc *desc = NULL;
+	struct inode *inode;
+	unsigned int group = 0;
+	unsigned int bit = 0;
+	ino_t ino;
+	int preferred;
+	int result;
+
 	inode = new_inode(sb);
 	if (!inode)
 		return ERR_PTR(-ENOMEM);
 
-	ei = EXT2_I(inode);
-	sbi = EXT2_SB(sb);
-	es = sbi->s_es;
 	if (S_ISDIR(mode)) {
-		if (test_opt(sb, OLDALLOC))
-			group = find_group_dir(sb, dir);
-		else
-			group = find_group_orlov(sb, dir);
-	} else
-		group = find_group_other(sb, dir);
-
-	if (group == -1) {
-		err = -ENOSPC;
-		goto fail;
+		preferred = test_opt(sb, OLDALLOC)
+			? ext2_choose_old_directory_group(sb)
+			: ext2_choose_directory_group(sb, dir);
+	} else {
+		preferred = ext2_choose_nondirectory_group(sb, dir);
 	}
 
-	for (i = 0; i < sbi->s_groups_count; i++) {
-		gdp = ext2_get_group_desc(sb, group, &bh2);
-		if (!gdp) {
-			if (++group == sbi->s_groups_count)
-				group = 0;
-			continue;
-		}
-		brelse(bitmap_bh);
-		bitmap_bh = read_inode_bitmap(sb, group);
-		if (!bitmap_bh) {
-			err = -EIO;
-			goto fail;
-		}
-		ino = 0;
-
-repeat_in_this_group:
-		ino = ext2_find_next_zero_bit((unsigned long *)bitmap_bh->b_data,
-					      EXT2_INODES_PER_GROUP(sb), ino);
-		if (ino >= EXT2_INODES_PER_GROUP(sb)) {
-
-
-			if (++group == sbi->s_groups_count)
-				group = 0;
-			continue;
-		}
-		if (ext2_set_bit_atomic(sb_bgl_lock(sbi, group),
-						ino, bitmap_bh->b_data)) {
-
-			if (++ino >= EXT2_INODES_PER_GROUP(sb)) {
-
-				if (++group == sbi->s_groups_count)
-					group = 0;
-				continue;
-			}
-
-			goto repeat_in_this_group;
-		}
-		goto got;
+	if (preferred < 0) {
+		result = -ENOSPC;
+		goto fail_bad_inode;
 	}
 
+	result = ext2_claim_inode_bit(
+		sb, preferred, &bitmap_bh, &desc, &desc_bh,
+		&group, &bit);
+	if (result != 0)
+		goto fail_bad_inode;
 
-	brelse(bitmap_bh);
-	err = -ENOSPC;
-	goto fail;
-got:
 	mark_buffer_dirty(bitmap_bh);
 	if (sb->s_flags & SB_SYNCHRONOUS)
 		sync_dirty_buffer(bitmap_bh);
 	brelse(bitmap_bh);
+	bitmap_bh = NULL;
 
-	ino += group * EXT2_INODES_PER_GROUP(sb) + 1;
-	if (ino < EXT2_FIRST_INO(sb) || ino > le32_to_cpu(es->s_inodes_count)) {
-		ext2_error (sb, "ext2_new_inode",
-			    "reserved inode or inode > inodes count - "
-			    "block_group = %d,inode=%lu", group,
-			    (unsigned long) ino);
-		err = -EIO;
-		goto fail;
+	ino = (ino_t)group * EXT2_INODES_PER_GROUP(sb) + bit + 1U;
+	if (ino < EXT2_FIRST_INO(sb) ||
+	    ino > le32_to_cpu(es->s_inodes_count)) {
+		ext2_error(sb, __func__,
+			   "allocator produced invalid inode %lu in group %u",
+			   (unsigned long)ino, group);
+		result = -EUCLEAN;
+		goto fail_release_claim;
 	}
 
-	percpu_counter_dec(&sbi->s_freeinodes_counter);
-	if (S_ISDIR(mode))
-		percpu_counter_inc(&sbi->s_dirs_counter);
-
-	spin_lock(sb_bgl_lock(sbi, group));
-	le16_add_cpu(&gdp->bg_free_inodes_count, -1);
-	if (S_ISDIR(mode)) {
-		if (sbi->s_debts[group] < 255)
-			sbi->s_debts[group]++;
-		le16_add_cpu(&gdp->bg_used_dirs_count, 1);
-	} else {
-		if (sbi->s_debts[group])
-			sbi->s_debts[group]--;
-	}
-	spin_unlock(sb_bgl_lock(sbi, group));
-
-	mark_buffer_dirty(bh2);
-	if (test_opt(sb, GRPID)) {
-		inode->i_mode = mode;
-		inode->i_uid = current_fsuid();
-		inode->i_gid = dir->i_gid;
-	} else
-		inode_init_owner(&nop_mnt_idmap, inode, dir, mode);
+	ext2_account_inode_allocation(
+		sb, group, desc, desc_bh, S_ISDIR(mode));
 
 	inode->i_ino = ino;
-	inode->i_blocks = 0;
-	simple_inode_init_ts(inode);
-	memset(ei->i_data, 0, sizeof(ei->i_data));
-	ei->i_flags =
-		ext2_mask_flags(mode, EXT2_I(dir)->i_flags & EXT2_FL_INHERITED);
-	ei->i_faddr = 0;
-	ei->i_frag_no = 0;
-	ei->i_frag_size = 0;
-	ei->i_file_acl = 0;
-	ei->i_dir_acl = 0;
-	ei->i_dtime = 0;
-	ei->i_block_alloc_info = NULL;
-	ei->i_block_group = group;
-	ei->i_dir_start_lookup = 0;
-	ei->i_state = EXT2_STATE_NEW;
-	ext2_set_inode_flags(inode);
-	spin_lock(&sbi->s_next_gen_lock);
-	inode->i_generation = sbi->s_next_generation++;
-	spin_unlock(&sbi->s_next_gen_lock);
+	ext2_initialise_new_inode(inode, dir, mode, group);
+
 	if (insert_inode_locked(inode) < 0) {
-		ext2_error(sb, "ext2_new_inode",
-			   "inode number already in use - inode=%lu",
-			   (unsigned long) ino);
-		err = -EIO;
-		goto fail;
+		ext2_error(sb, __func__,
+			   "inode %lu is already instantiated",
+			   (unsigned long)ino);
+		result = -EIO;
+		goto fail_after_accounting;
 	}
 
-	err = dquot_initialize(inode);
-	if (err)
+	result = dquot_initialize(inode);
+	if (result != 0)
 		goto fail_drop;
-
-	err = dquot_alloc_inode(inode);
-	if (err)
+	result = dquot_alloc_inode(inode);
+	if (result != 0)
 		goto fail_drop;
-
-	err = ext2_init_acl(inode, dir);
-	if (err)
-		goto fail_free_drop;
-
-	err = ext2_init_security(inode, dir, qstr);
-	if (err)
-		goto fail_free_drop;
+	result = ext2_init_acl(inode, dir);
+	if (result != 0)
+		goto fail_quota;
+	result = ext2_init_security(inode, dir, qstr);
+	if (result != 0)
+		goto fail_quota;
 
 	mark_inode_dirty(inode);
-	ext2_debug("allocating inode %lu\n", inode->i_ino);
 	ext2_preread_inode(inode);
 	return inode;
 
-fail_free_drop:
+fail_quota:
 	dquot_free_inode(inode);
-
 fail_drop:
 	dquot_drop(inode);
 	inode->i_flags |= S_NOQUOTA;
 	clear_nlink(inode);
 	discard_new_inode(inode);
-	return ERR_PTR(err);
+	return ERR_PTR(result);
 
-fail:
+fail_after_accounting:
+	ext2_account_inode_release(sb, group, S_ISDIR(mode));
+	goto fail_bad_inode;
+
+fail_release_claim:
+	if (bitmap_bh)
+		brelse(bitmap_bh);
+	{
+		struct buffer_head *rollback_bh =
+			ext2_read_inode_bitmap(sb, group);
+		if (rollback_bh) {
+			ext2_clear_bit_atomic(
+				sb_bgl_lock(sbi, group), bit,
+				rollback_bh->b_data);
+			mark_buffer_dirty(rollback_bh);
+			brelse(rollback_bh);
+		}
+	}
+fail_bad_inode:
 	make_bad_inode(inode);
 	iput(inode);
-	return ERR_PTR(err);
+	return ERR_PTR(result);
 }
 
-
-/**
- * ext2_count_free_inodes - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long ext2_count_free_inodes (struct super_block * sb)
+unsigned long ext2_count_free_inodes(struct super_block *sb)
 {
-	struct ext2_group_desc *desc;
-	unsigned long desc_count = 0;
-	int i;
+	unsigned long total = 0;
+	int group;
 
-#ifdef EXT2FS_DEBUG
-	struct ext2_super_block *es;
-	unsigned long bitmap_count = 0;
-	struct buffer_head *bitmap_bh = NULL;
+	for (group = 0; group < EXT2_SB(sb)->s_groups_count; ++group) {
+		struct ext2_group_desc *desc =
+			ext2_get_group_desc(sb, group, NULL);
 
-	es = EXT2_SB(sb)->s_es;
-	for (i = 0; i < EXT2_SB(sb)->s_groups_count; i++) {
-		unsigned x;
-
-		desc = ext2_get_group_desc (sb, i, NULL);
-		if (!desc)
-			continue;
-		desc_count += le16_to_cpu(desc->bg_free_inodes_count);
-		brelse(bitmap_bh);
-		bitmap_bh = read_inode_bitmap(sb, i);
-		if (!bitmap_bh)
-			continue;
-
-		x = ext2_count_free(bitmap_bh, EXT2_INODES_PER_GROUP(sb) / 8);
-		printk("group %d: stored = %d, counted = %u\n",
-			i, le16_to_cpu(desc->bg_free_inodes_count), x);
-		bitmap_count += x;
+		if (desc)
+			total += le16_to_cpu(desc->bg_free_inodes_count);
 	}
-	brelse(bitmap_bh);
-	printk("ext2_count_free_inodes: stored = %lu, computed = %lu, %lu\n",
-		(unsigned long)
-		percpu_counter_read(&EXT2_SB(sb)->s_freeinodes_counter),
-		desc_count, bitmap_count);
-	return desc_count;
-#else
-	for (i = 0; i < EXT2_SB(sb)->s_groups_count; i++) {
-		desc = ext2_get_group_desc (sb, i, NULL);
-		if (!desc)
-			continue;
-		desc_count += le16_to_cpu(desc->bg_free_inodes_count);
-	}
-	return desc_count;
-#endif
+	return total;
 }
 
-
-/**
- * ext2_count_dirs - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long ext2_count_dirs (struct super_block * sb)
+unsigned long ext2_count_dirs(struct super_block *sb)
 {
-	unsigned long count = 0;
-	int i;
+	unsigned long total = 0;
+	int group;
 
-	for (i = 0; i < EXT2_SB(sb)->s_groups_count; i++) {
-		struct ext2_group_desc *gdp = ext2_get_group_desc (sb, i, NULL);
-		if (!gdp)
-			continue;
-		count += le16_to_cpu(gdp->bg_used_dirs_count);
+	for (group = 0; group < EXT2_SB(sb)->s_groups_count; ++group) {
+		struct ext2_group_desc *desc =
+			ext2_get_group_desc(sb, group, NULL);
+
+		if (desc)
+			total += le16_to_cpu(desc->bg_used_dirs_count);
 	}
-	return count;
+	return total;
 }
