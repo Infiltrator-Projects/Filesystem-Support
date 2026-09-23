@@ -1,11 +1,11 @@
 /*
  * Project-authored Linux adapter for canonical AmigaDOS symlink semantics.
- * Filesystem path interpretation lives in amiga_dos_core.c.
+ * Filesystem path interpretation lives in the OFS core.
  */
 
 #include "affs.h"
 
-#define IFS_AMIGA_SYMLINK_MAX 1024U
+#define IFS_OFS_SYMLINK_MAX 1024U
 
 static int affs_symlink_read_folio(struct file *file, struct folio *folio)
 {
@@ -18,8 +18,8 @@ static int affs_symlink_read_folio(struct file *file, struct folio *folio)
     size_t source_capacity;
     size_t prefix_length;
     size_t output_capacity;
-    ifs_amiga_u32 output_length = 0U;
-    IfsAmigaSymlinkStatus status;
+    ifs_ofs_u32 output_length = 0U;
+    IfsOfsSymlinkStatus status;
 
     pr_debug("get_link(ino=%lu)\n", inode->i_ino);
 
@@ -33,25 +33,25 @@ static int affs_symlink_read_folio(struct file *file, struct folio *folio)
     front = (struct slink_front *)bh->b_data;
     source_capacity = bh->b_size - sizeof(*front);
     output_capacity = min_t(size_t, folio_size(folio),
-                            (size_t)IFS_AMIGA_SYMLINK_MAX);
+                            (size_t)IFS_OFS_SYMLINK_MAX);
 
     spin_lock(&sbi->symlink_lock);
     prefix = sbi->s_prefix ? sbi->s_prefix : "/";
-    prefix_length = strnlen(prefix, IFS_AMIGA_SYMLINK_MAX);
+    prefix_length = strnlen(prefix, IFS_OFS_SYMLINK_MAX);
 
-    status = ifs_amiga_translate_symlink(
+    status = ifs_ofs_translate_symlink(
         front->symname,
-        (ifs_amiga_u32)source_capacity,
-        (const ifs_amiga_u8 *)prefix,
-        (ifs_amiga_u32)prefix_length,
-        (ifs_amiga_u8 *)link,
-        (ifs_amiga_u32)output_capacity,
+        (ifs_ofs_u32)source_capacity,
+        (const ifs_ofs_u8 *)prefix,
+        (ifs_ofs_u32)prefix_length,
+        (ifs_ofs_u8 *)link,
+        (ifs_ofs_u32)output_capacity,
         &output_length);
     spin_unlock(&sbi->symlink_lock);
 
     affs_brelse(bh);
 
-    if (status != IFS_AMIGA_SYMLINK_OK)
+    if (status != IFS_OFS_SYMLINK_OK)
         goto io_error_no_buffer;
 
     folio_mark_uptodate(folio);
