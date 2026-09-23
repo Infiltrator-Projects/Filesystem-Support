@@ -1,191 +1,186 @@
-/*
- *
- * Amiga Smart File System, Linux implementation
- * version: 1.0beta10
- *
- * Copyright (C) 2003,2004,2005  Marek 'March' Szyprowski <marek@amiga.pl>
- *
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
- *
- */
-
-#include <linux/types.h>
 #include <linux/errno.h>
-#include <linux/slab.h>
-#include <linux/string.h>
 #include <linux/fs.h>
-#include <linux/buffer_head.h>
-#include <linux/vfs.h>
-#include <linux/string.h>
 #include <linux/nls.h>
+#include <linux/string.h>
 #include "asfs_fs.h"
 
-static inline u8 asfs_upperchar(u8 c)
+static u8 sfs_linux_upper_character(u8 character, struct nls_table *table)
 {
-	if ((c >= 224 && c <= 254 && c != 247) || (c >= 'a' && c <= 'z'))
-		c -= 32;
-	return (c);
+    if (table) {
+        const u8 mapped = table->charset2upper[character];
+        return mapped != 0U ? mapped : character;
+    }
+
+    return ifs_sfs_fold_character(character);
 }
 
-u8 asfs_lowerchar(u8 c)
+u8 asfs_lowerchar(u8 character)
 {
-	if ((c >= 192 && c <= 222 && c != 215) || (c >= 'A' && c <= 'Z'))
-		c += 32;
-	return (c);
+    return ifs_sfs_lower_character(character);
 }
 
-static inline u8 asfs_nls_upperchar(u8 c, struct nls_table *t)
+int asfs_check_name(const u8 *name, int length)
 {
-	if (t) {
-		u8 nc = t->charset2upper[c];
-		return nc ? nc : c;
-	} else
-		return asfs_upperchar(c);
+    IfsSfsNameStatus status;
+
+    if (length < 0)
+        return -EINVAL;
+
+    status = ifs_sfs_validate_name(name, (ifs_sfs_u32)length);
+    switch (status) {
+    case IFS_SFS_NAME_OK:
+        return 0;
+    case IFS_SFS_NAME_TOO_LONG:
+        return -ENAMETOOLONG;
+    case IFS_SFS_NAME_INVALID_CHARACTER:
+    default:
+        return -EINVAL;
+    }
 }
 
-/* Check if the name is valid for a asfs object. */
-
-inline int asfs_check_name(const u8 *name, int len)
+static int sfs_hash_dentry(const struct dentry *parent, struct qstr *name)
 {
-	int i;
+    struct super_block *sb = d_inode(parent)->i_sb;
+    struct nls_table *nls = ASFS_SB(sb)->nls_io;
+    const bool case_sensitive =
+        (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) != 0;
+    const u8 *cursor = name->name;
+    unsigned long hash;
+    unsigned int index;
+    int result;
 
-	if (len > ASFS_MAXFN)
-		return -ENAMETOOLONG;
+    result = asfs_check_name(name->name, (int)name->len);
+    if (result != 0)
+        return result;
 
-	for (i = 0; i < len; i++)
-		if (name[i] < ' ' || name[i] == ':' || (name[i] > 0x7e && name[i] < 0xa0))
-			return -EINVAL;
+    hash = init_name_hash(parent);
+    for (index = 0U; index < name->len; ++index) {
+        const u8 character = case_sensitive
+            ? cursor[index]
+            : sfs_linux_upper_character(cursor[index], nls);
+        hash = partial_name_hash(character, hash);
+    }
 
-	return 0;
+    name->hash = end_name_hash(hash);
+    return 0;
 }
 
-/* Note: the dentry argument is the parent dentry. */
-
-static int asfs_hash_dentry(const struct dentry *dentry, struct qstr *qstr)
+static int sfs_compare_dentry(
+    const struct dentry *parent,
+    unsigned int existing_length,
+    const char *existing_name,
+    const struct qstr *candidate)
 {
-	struct super_block *sb = d_inode(dentry)->i_sb;
-	const u8 *name = qstr->name;
-	unsigned long hash;
-	int i;
-	struct nls_table *nls_io = ASFS_SB(sb)->nls_io;
+    struct super_block *sb = d_inode(parent)->i_sb;
+    struct nls_table *nls = ASFS_SB(sb)->nls_io;
+    const bool case_sensitive =
+        (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) != 0;
+    unsigned int index;
 
-	i = asfs_check_name(qstr->name,qstr->len);
-	if (i)
-		return i;
+    if (asfs_check_name(candidate->name, (int)candidate->len) != 0 ||
+        existing_length != candidate->len)
+        return 1;
 
-	hash = init_name_hash(dentry);
+    if (case_sensitive)
+        return memcmp(existing_name, candidate->name, existing_length) != 0;
 
-	if (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE)
-		for (i=qstr->len; i > 0; name++, i--)
-			hash = partial_name_hash(*name, hash);
-	else
-		for (i=qstr->len; i > 0; name++, i--)
-			hash = partial_name_hash(asfs_nls_upperchar(*name, nls_io), hash);
+    for (index = 0U; index < existing_length; ++index) {
+        if (sfs_linux_upper_character((u8)existing_name[index], nls) !=
+            sfs_linux_upper_character(candidate->name[index], nls))
+            return 1;
+    }
 
-	qstr->hash = end_name_hash(hash);
-
-	return 0;
-}
-
-static int asfs_compare_dentry(const struct dentry *dentry,
-		unsigned int len, const char *str, const struct qstr *name)
-{
-	struct super_block *sb = d_inode(dentry)->i_sb;
-	const u8 *aname = (const u8 *)str;
-	const u8 *bname = name->name;
-	struct nls_table *nls_io = ASFS_SB(sb)->nls_io;
-	unsigned int i;
-
-	if (asfs_check_name(name->name, name->len))
-		return 1;
-	if (len != name->len)
-		return 1;
-
-	if (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE)
-		return memcmp(aname, bname, len) != 0;
-
-	for (i = 0; i < len; ++i)
-		if (asfs_nls_upperchar(aname[i], nls_io) !=
-		    asfs_nls_upperchar(bname[i], nls_io))
-			return 1;
-
-	return 0;
+    return 0;
 }
 
 const struct dentry_operations asfs_dentry_operations = {
-	.d_hash = asfs_hash_dentry,
-	.d_compare = asfs_compare_dentry,
+    .d_hash = sfs_hash_dentry,
+    .d_compare = sfs_compare_dentry,
 };
 
-int asfs_namecmp(u8 *s, u8 *ct, int casesensitive, struct nls_table *t)
+int asfs_namecmp(
+    u8 *disk_name,
+    u8 *component,
+    int case_sensitive,
+    struct nls_table *table)
 {
-	if (casesensitive) {
-		while (*s == *ct && *ct != '\0' && *ct != '/') {
-			s++;
-			ct++;
-		}
-	} else {
-		while (asfs_nls_upperchar(*s, t) == asfs_nls_upperchar(*ct, t) && *ct != '\0'
-		       && *ct != '/') {
-			s++;
-			ct++;
-		}
-	}
-	return (*s == '\0' && (*ct == '\0' || *ct == '/')) ? 0 : *ct - *s;
+    while (*disk_name != 0U &&
+           *component != 0U &&
+           *component != (u8)'/') {
+        const u8 left = case_sensitive
+            ? *disk_name
+            : sfs_linux_upper_character(*disk_name, table);
+        const u8 right = case_sensitive
+            ? *component
+            : sfs_linux_upper_character(*component, table);
+
+        if (left != right)
+            return (int)right - (int)left;
+
+        disk_name++;
+        component++;
+    }
+
+    if (*disk_name == 0U &&
+        (*component == 0U || *component == (u8)'/'))
+        return 0;
+
+    return (int)*component - (int)*disk_name;
 }
 
-u16 asfs_hash(u8 *name, int casesensitive)
+u16 asfs_hash(u8 *name, int case_sensitive)
 {
-	u16 hashval = 0;
-	while (name[hashval] != 0 && name[hashval] != '/')
-		hashval++;
-	if (casesensitive) {
-		u8 c = *name;
-		while (c != 0 && c != '/') {
-			hashval = hashval * 13 + c;
-			c = *++name;
-		}
-	} else {
-		u8 c = *name;
-		while (c != 0 && c != '/') {
-			hashval = hashval * 13 + asfs_upperchar(c);
-			c = *++name;
-		}
-	}
-	return hashval;
+    return ifs_sfs_component_hash(name, case_sensitive);
 }
 
-void asfs_translate(u8 *to, u8 *from, struct nls_table *nls_to, struct nls_table *nls_from, int limit)
+void asfs_translate(
+    u8 *destination,
+    u8 *source,
+    struct nls_table *destination_nls,
+    struct nls_table *source_nls,
+    int limit)
 {
-	wchar_t uni;
-	int i, len;
-	int from_len, to_len = limit;
+    int source_offset = 0;
+    int destination_remaining;
 
-	if (nls_to) {
-		from_len = strlen(from);
-		for (i=0; i < from_len && to_len > 1; ) {
-			len = nls_from->char2uni(&from[i], from_len-i, &uni);
-			if (len > 0) {
-				i += len;
-				len = nls_to->uni2char(uni, to, to_len);
-				if (len > 0) {
-					to += len;
-					to_len -= len;
-				}
-			} else
-				i++;
-			if (len < 0) {
-				*to++ = '?';
-				to_len--;
-			}
-		}
-		*to = '\0';
-	} else {
-		strncpy (to, from, limit);
-		to[limit-1] = '\0';
-	}
+    if (!destination || !source || limit <= 0)
+        return;
+
+    destination_remaining = limit;
+
+    if (!destination_nls || !source_nls) {
+        strscpy((char *)destination, (const char *)source, limit);
+        return;
+    }
+
+    while (source[source_offset] != 0U && destination_remaining > 1) {
+        wchar_t unicode;
+        int source_count;
+        int destination_count;
+
+        source_count = source_nls->char2uni(
+            (const unsigned char *)&source[source_offset],
+            strlen((const char *)&source[source_offset]),
+            &unicode);
+        if (source_count <= 0) {
+            source_offset++;
+            continue;
+        }
+
+        source_offset += source_count;
+        destination_count = destination_nls->uni2char(
+            unicode, destination, destination_remaining);
+        if (destination_count < 0) {
+            *destination++ = (u8)'?';
+            destination_remaining--;
+            continue;
+        }
+        if (destination_count == 0)
+            continue;
+
+        destination += destination_count;
+        destination_remaining -= destination_count;
+    }
+
+    *destination = 0U;
 }
