@@ -200,22 +200,36 @@ The EXT2 tree deliberately excludes:
 
 These exclusions are enforced during the import/shaping workflow so a future refresh cannot silently restore them.
 
-## Import and shaping
 
-The Linux source import remains pinned so the project has a reproducible starting point.
+## Source-rewrite policy
 
-After import, `tools/shape-ext2.sh` converts that source into the Filesystem Support EXT2 architecture:
+The active EXT2 implementation must not be regenerated from Linux or any other
+filesystem implementation.  External implementations may be studied as
+behavioural evidence, but their source is not an input to the production tree.
 
-1. keeps the real EXT2 implementation;
-2. removes material that is not part of our EXT2 driver;
-3. merges tiny organisational source files into their owning subsystem;
-4. folds private headers into `ext2.h`;
-5. keeps the xattr cache private to EXT2;
-6. rewrites Kbuild for a single `ext2.ko`;
-7. verifies the exact ten-file structural invariant;
-8. verifies that EXT3-only mount behaviour and removed tracing do not reappear.
+The former Linux-source import and shaping workflow has been retired.  No
+automation may fetch an upstream EXT2 tree and copy, transform, merge or
+re-comment it into `native/filesystems/ext2/`.
 
-The shaping step is deterministic. A source refresh must either satisfy these invariants or fail visibly.
+Conversion is file-by-file and explicit.  A production file is considered
+project-authored only after its implementation has been replaced by an
+Infiltrator implementation designed for this repository's contracts.  Merely
+changing comments, file boundaries, symbol names or Kbuild layout is not a
+rewrite.
+
+Current conversion state:
+
+- `core/ext2_core.c`, `core/ext2_core.h`, `core/ext2_engine.c` and
+  `core/ext2_engine.h` are the project-owned canonical core.
+- `kernel/canonical.c` is the Linux adapter for that canonical core.
+- `kernel/file.c` has been replaced with the Infiltrator regular-file/VFS
+  implementation.
+- Remaining kernel units are migration work until their implementation has
+  been independently replaced and validated.
+
+Legal/provenance notices are removed from a source file only when the inherited
+implementation in that file has actually been replaced.  This rule prevents a
+cosmetic provenance edit from being mistaken for a source rewrite.
 
 ## Current development rule
 
