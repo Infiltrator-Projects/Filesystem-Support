@@ -736,12 +736,22 @@ int ext2_make_empty(struct inode *inode, struct inode *parent)
 {
 	struct folio *folio = filemap_grab_folio(inode->i_mapping, 0);
 	unsigned chunk_size = ext2_chunk_size(inode);
+	ifs_ext2_u32 dot_record_length = 0U;
+	ifs_ext2_u32 dotdot_record_length = 0U;
 	struct ext2_dir_entry_2 * de;
 	int err;
 	void *kaddr;
 
 	if (IS_ERR(folio))
 		return PTR_ERR(folio);
+
+	err = ifs_ext2_directory_initial_layout(
+		chunk_size, &dot_record_length, &dotdot_record_length);
+	if (err != IFS_EXT2_OK) {
+		folio_unlock(folio);
+		err = -EFSCORRUPTED;
+		goto fail;
+	}
 
 	err = ext2_prepare_chunk(folio, 0, chunk_size);
 	if (err) {
@@ -752,14 +762,14 @@ int ext2_make_empty(struct inode *inode, struct inode *parent)
 	memset(kaddr, 0, chunk_size);
 	de = (struct ext2_dir_entry_2 *)kaddr;
 	de->name_len = 1;
-	de->rec_len = ext2_rec_len_to_disk(EXT2_DIR_REC_LEN(1));
+	de->rec_len = ext2_rec_len_to_disk(dot_record_length);
 	memcpy (de->name, ".\0\0", 4);
 	de->inode = cpu_to_le32(inode->i_ino);
 	ext2_set_de_type (de, inode);
 
-	de = (struct ext2_dir_entry_2 *)(kaddr + EXT2_DIR_REC_LEN(1));
+	de = (struct ext2_dir_entry_2 *)(kaddr + dot_record_length);
 	de->name_len = 2;
-	de->rec_len = ext2_rec_len_to_disk(chunk_size - EXT2_DIR_REC_LEN(1));
+	de->rec_len = ext2_rec_len_to_disk(dotdot_record_length);
 	de->inode = cpu_to_le32(parent->i_ino);
 	memcpy (de->name, "..\0", 4);
 	ext2_set_de_type (de, inode);
