@@ -1,158 +1,78 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
- * linux/fs/ext2/namei.c
+ * Infiltrator Filesystem Support — EXT2 Linux namespace adapter.
  *
- * Rewrite to pagecache. Almost all code had been changed, so blame me
- * if the things go wrong. Please, send bug reports to
- * viro@parcelfarce.linux.theplanet.co.uk
- *
- * Stuff here is basically a glue between the VFS and generic UNIXish
- * filesystem that keeps everything in pagecache. All knowledge of the
- * directory layout is in fs/ext2/dir.c - it turned out to be easily separatable
- * and it's easier to debug that way. In principle we might want to
- * generalize that a bit and turn it into a library. Or not.
- *
- * The only non-static object here is ext2_dir_inode_operations.
- *
- * TODO: get rid of kmap() use, add readahead.
- *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  from
- *
- *  linux/fs/minix/namei.c
- *
- *  Copyright (C) 1991, 1992  Linus Torvalds
- *
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
- */
-
-/*
- * EXT2 — Namespace mutation
- *
- * Purpose:
- *   Implements create/link/unlink/rename/mkdir/rmdir/mknod and related pathname-facing VFS operations.
- *
- * Filesystem model:
- *   This file belongs to a deliberately strict, non-journalled EXT2 VFS implementation.
- *
- * Correctness focus:
- *   Namespace updates may touch several inodes and directory blocks; partial failure must leave a valid namespace and a recoverable transaction.
- *
- * Project rules:
- *   - Do not accept a journalled EXT3 volume as EXT2.
- *   - Keep on-disk compatibility fields when they are required to parse or reject media correctly.
- *   - Keep xattr/ACL/cache code inside ext2.ko rather than creating helper modules.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
+ * Directory-record semantics live in the EXT2 directory/core implementation.
+ * This unit translates Linux VFS namespace operations into those primitives.
  */
 
 #include <linux/pagemap.h>
 #include <linux/quotaops.h>
+
 #include "ext2.h"
 
-
-/**
- * ext2_add_nondir - Implements the add nondir operation within the namespace mutation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int ext2_add_nondir(struct dentry *dentry, struct inode *inode)
+static int ext2_publish_new_nondir(struct dentry *dentry, struct inode *inode)
 {
-	int err = ext2_add_link(dentry, inode);
-	if (!err) {
+	int result = ext2_add_link(dentry, inode);
+
+	if (result == 0) {
 		d_instantiate_new(dentry, inode);
 		return 0;
 	}
+
 	inode_dec_link_count(inode);
 	discard_new_inode(inode);
-	return err;
+	return result;
 }
 
-
-/**
- * ext2_lookup - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static struct dentry *ext2_lookup(struct inode * dir, struct dentry *dentry, unsigned int flags)
+static struct dentry *ext2_lookup(
+	struct inode *dir, struct dentry *dentry, unsigned int flags)
 {
-	struct inode * inode;
+	struct inode *inode = NULL;
 	ino_t ino;
-	int res;
+	int result;
 
 	if (dentry->d_name.len > EXT2_NAME_LEN)
 		return ERR_PTR(-ENAMETOOLONG);
 
-	res = ext2_inode_by_name(dir, &dentry->d_name, &ino);
-	if (res) {
-		if (res != -ENOENT)
-			return ERR_PTR(res);
-		inode = NULL;
-	} else {
-		inode = ext2_iget(dir->i_sb, ino);
-		if (inode == ERR_PTR(-ESTALE)) {
-			ext2_error(dir->i_sb, __func__,
-					"deleted inode referenced: %lu",
-					(unsigned long) ino);
-			return ERR_PTR(-EIO);
-		}
+	result = ext2_inode_by_name(dir, &dentry->d_name, &ino);
+	if (result == -ENOENT)
+		return d_splice_alias(NULL, dentry);
+	if (result != 0)
+		return ERR_PTR(result);
+
+	inode = ext2_iget(dir->i_sb, ino);
+	if (inode == ERR_PTR(-ESTALE)) {
+		ext2_error(dir->i_sb, __func__,
+			   "directory references deleted inode %lu",
+			   (unsigned long)ino);
+		return ERR_PTR(-EIO);
 	}
+
 	return d_splice_alias(inode, dentry);
 }
 
-
-/**
- * ext2_get_parent - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 struct dentry *ext2_get_parent(struct dentry *child)
 {
-	ino_t ino;
-	int res;
+	ino_t parent_ino;
+	int result;
 
-	res = ext2_inode_by_name(d_inode(child), &dotdot_name, &ino);
-	if (res)
-		return ERR_PTR(res);
+	result = ext2_inode_by_name(d_inode(child), &dotdot_name, &parent_ino);
+	if (result != 0)
+		return ERR_PTR(result);
 
-	return d_obtain_alias(ext2_iget(child->d_sb, ino));
+	return d_obtain_alias(ext2_iget(child->d_sb, parent_ino));
 }
 
-
-/**
- * ext2_create - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_create (struct mnt_idmap * idmap,
-			struct inode * dir, struct dentry * dentry,
-			umode_t mode, bool excl)
+static int ext2_create(
+	struct mnt_idmap *idmap, struct inode *dir,
+	struct dentry *dentry, umode_t mode, bool exclusive)
 {
 	struct inode *inode;
-	int err;
+	int result;
 
-	err = dquot_initialize(dir);
-	if (err)
-		return err;
+	result = dquot_initialize(dir);
+	if (result != 0)
+		return result;
 
 	inode = ext2_new_inode(dir, mode, &dentry->d_name);
 	if (IS_ERR(inode))
@@ -160,22 +80,16 @@ static int ext2_create (struct mnt_idmap * idmap,
 
 	ext2_set_file_ops(inode);
 	mark_inode_dirty(inode);
-	return ext2_add_nondir(dentry, inode);
+	return ext2_publish_new_nondir(dentry, inode);
 }
 
-
-/**
- * ext2_tmpfile - Implements the tmpfile operation within the namespace mutation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
-			struct file *file, umode_t mode)
+static int ext2_tmpfile(
+	struct mnt_idmap *idmap, struct inode *dir,
+	struct file *file, umode_t mode)
 {
-	struct inode *inode = ext2_new_inode(dir, mode, NULL);
+	struct inode *inode;
+
+	inode = ext2_new_inode(dir, mode, NULL);
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
 
@@ -186,360 +100,301 @@ static int ext2_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
 	return finish_open_simple(file, 0);
 }
 
-
-/**
- * ext2_mknod - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_mknod (struct mnt_idmap * idmap, struct inode * dir,
+static int ext2_mknod(
+	struct mnt_idmap *idmap, struct inode *dir,
 	struct dentry *dentry, umode_t mode, dev_t rdev)
 {
-	struct inode * inode;
-	int err;
+	struct inode *inode;
+	int result;
 
-	err = dquot_initialize(dir);
-	if (err)
-		return err;
+	result = dquot_initialize(dir);
+	if (result != 0)
+		return result;
 
-	inode = ext2_new_inode (dir, mode, &dentry->d_name);
-	err = PTR_ERR(inode);
-	if (!IS_ERR(inode)) {
-		init_special_inode(inode, inode->i_mode, rdev);
-		inode->i_op = &ext2_special_inode_operations;
-		mark_inode_dirty(inode);
-		err = ext2_add_nondir(dentry, inode);
-	}
-	return err;
+	inode = ext2_new_inode(dir, mode, &dentry->d_name);
+	if (IS_ERR(inode))
+		return PTR_ERR(inode);
+
+	init_special_inode(inode, inode->i_mode, rdev);
+	inode->i_op = &ext2_special_inode_operations;
+	mark_inode_dirty(inode);
+	return ext2_publish_new_nondir(dentry, inode);
 }
 
-
-/**
- * ext2_symlink - Implements the symlink operation within the namespace mutation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_symlink (struct mnt_idmap * idmap, struct inode * dir,
-	struct dentry * dentry, const char * symname)
+static int ext2_symlink(
+	struct mnt_idmap *idmap, struct inode *dir,
+	struct dentry *dentry, const char *target)
 {
-	struct super_block * sb = dir->i_sb;
-	int err = -ENAMETOOLONG;
-	unsigned l = strlen(symname)+1;
-	struct inode * inode;
+	struct super_block *sb = dir->i_sb;
+	struct inode *inode;
+	size_t bytes;
+	int result;
 
-	if (l > sb->s_blocksize)
-		goto out;
+	bytes = strlen(target) + 1U;
+	if (bytes > sb->s_blocksize)
+		return -ENAMETOOLONG;
 
-	err = dquot_initialize(dir);
-	if (err)
-		goto out;
+	result = dquot_initialize(dir);
+	if (result != 0)
+		return result;
 
-	inode = ext2_new_inode (dir, S_IFLNK | S_IRWXUGO, &dentry->d_name);
-	err = PTR_ERR(inode);
+	inode = ext2_new_inode(
+		dir, S_IFLNK | S_IRWXUGO, &dentry->d_name);
 	if (IS_ERR(inode))
-		goto out;
+		return PTR_ERR(inode);
 
-	if (l > sizeof (EXT2_I(inode)->i_data)) {
-
+	if (bytes > sizeof(EXT2_I(inode)->i_data)) {
 		inode->i_op = &ext2_symlink_inode_operations;
 		inode_nohighmem(inode);
 		inode->i_mapping->a_ops = &ext2_aops;
-		err = page_symlink(inode, symname, l);
-		if (err)
-			goto out_fail;
+		result = page_symlink(inode, target, bytes);
+		if (result != 0)
+			goto fail_inode;
 	} else {
-
 		inode->i_op = &ext2_fast_symlink_inode_operations;
-		inode->i_link = (char*)EXT2_I(inode)->i_data;
-		memcpy(inode->i_link, symname, l);
-		inode->i_size = l-1;
+		inode->i_link = (char *)EXT2_I(inode)->i_data;
+		memcpy(inode->i_link, target, bytes);
+		inode->i_size = bytes - 1U;
 	}
+
 	mark_inode_dirty(inode);
+	return ext2_publish_new_nondir(dentry, inode);
 
-	err = ext2_add_nondir(dentry, inode);
-out:
-	return err;
-
-out_fail:
+fail_inode:
 	inode_dec_link_count(inode);
 	discard_new_inode(inode);
-	goto out;
+	return result;
 }
 
-
-/**
- * ext2_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_link (struct dentry * old_dentry, struct inode * dir,
-	struct dentry *dentry)
+static int ext2_link(
+	struct dentry *old_dentry, struct inode *dir,
+	struct dentry *new_dentry)
 {
 	struct inode *inode = d_inode(old_dentry);
-	int err;
+	int result;
 
-	err = dquot_initialize(dir);
-	if (err)
-		return err;
+	result = dquot_initialize(dir);
+	if (result != 0)
+		return result;
 
 	inode_set_ctime_current(inode);
 	inode_inc_link_count(inode);
 	ihold(inode);
 
-	err = ext2_add_link(dentry, inode);
-	if (!err) {
-		d_instantiate(dentry, inode);
+	result = ext2_add_link(new_dentry, inode);
+	if (result == 0) {
+		d_instantiate(new_dentry, inode);
 		return 0;
 	}
+
 	inode_dec_link_count(inode);
 	iput(inode);
-	return err;
+	return result;
 }
 
-
-/**
- * ext2_mkdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_mkdir(struct mnt_idmap * idmap,
-	struct inode * dir, struct dentry * dentry, umode_t mode)
+static int ext2_mkdir(
+	struct mnt_idmap *idmap, struct inode *dir,
+	struct dentry *dentry, umode_t mode)
 {
-	struct inode * inode;
-	int err;
+	struct inode *inode;
+	int result;
 
-	err = dquot_initialize(dir);
-	if (err)
-		return err;
+	result = dquot_initialize(dir);
+	if (result != 0)
+		return result;
 
 	inode_inc_link_count(dir);
-
-	inode = ext2_new_inode(dir, S_IFDIR | mode, &dentry->d_name);
-	err = PTR_ERR(inode);
-	if (IS_ERR(inode))
-		goto out_dir;
+	inode = ext2_new_inode(
+		dir, S_IFDIR | mode, &dentry->d_name);
+	if (IS_ERR(inode)) {
+		result = PTR_ERR(inode);
+		goto fail_parent_link;
+	}
 
 	inode->i_op = &ext2_dir_inode_operations;
 	inode->i_fop = &ext2_dir_operations;
 	inode->i_mapping->a_ops = &ext2_aops;
-
 	inode_inc_link_count(inode);
 
-	err = ext2_make_empty(inode, dir);
-	if (err)
-		goto out_fail;
+	result = ext2_make_empty(inode, dir);
+	if (result != 0)
+		goto fail_child;
 
-	err = ext2_add_link(dentry, inode);
-	if (err)
-		goto out_fail;
+	result = ext2_add_link(dentry, inode);
+	if (result != 0)
+		goto fail_child;
 
 	d_instantiate_new(dentry, inode);
-out:
-	return err;
+	return 0;
 
-out_fail:
+fail_child:
 	inode_dec_link_count(inode);
 	inode_dec_link_count(inode);
 	discard_new_inode(inode);
-out_dir:
+fail_parent_link:
 	inode_dec_link_count(dir);
-	goto out;
+	return result;
 }
 
-
-/**
- * ext2_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 static int ext2_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
-	struct ext2_dir_entry_2 *de;
+	struct ext2_dir_entry_2 *entry;
 	struct folio *folio;
-	int err;
+	int result;
 
-	err = dquot_initialize(dir);
-	if (err)
-		goto out;
+	result = dquot_initialize(dir);
+	if (result != 0)
+		return result;
 
-	de = ext2_find_entry(dir, &dentry->d_name, &folio);
-	if (IS_ERR(de)) {
-		err = PTR_ERR(de);
-		goto out;
-	}
+	entry = ext2_find_entry(dir, &dentry->d_name, &folio);
+	if (IS_ERR(entry))
+		return PTR_ERR(entry);
 
-	err = ext2_delete_entry(de, folio);
-	folio_release_kmap(folio, de);
-	if (err)
-		goto out;
+	result = ext2_delete_entry(entry, folio);
+	folio_release_kmap(folio, entry);
+	if (result != 0)
+		return result;
 
 	inode_set_ctime_to_ts(inode, inode_get_ctime(dir));
 	inode_dec_link_count(inode);
-	err = 0;
-out:
-	return err;
+	return 0;
 }
 
-
-/**
- * ext2_rmdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_rmdir (struct inode * dir, struct dentry *dentry)
+static int ext2_rmdir(struct inode *dir, struct dentry *dentry)
 {
-	struct inode * inode = d_inode(dentry);
-	int err = -ENOTEMPTY;
+	struct inode *inode = d_inode(dentry);
+	int result;
 
-	if (ext2_empty_dir(inode)) {
-		err = ext2_unlink(dir, dentry);
-		if (!err) {
-			inode->i_size = 0;
-			inode_dec_link_count(inode);
-			inode_dec_link_count(dir);
-		}
-	}
-	return err;
+	if (!ext2_empty_dir(inode))
+		return -ENOTEMPTY;
+
+	result = ext2_unlink(dir, dentry);
+	if (result != 0)
+		return result;
+
+	inode->i_size = 0;
+	inode_dec_link_count(inode);
+	inode_dec_link_count(dir);
+	return 0;
 }
 
-
-/**
- * ext2_rename - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_rename (struct mnt_idmap * idmap,
-			struct inode * old_dir, struct dentry * old_dentry,
-			struct inode * new_dir, struct dentry * new_dentry,
-			unsigned int flags)
+static int ext2_rename(
+	struct mnt_idmap *idmap,
+	struct inode *old_dir, struct dentry *old_dentry,
+	struct inode *new_dir, struct dentry *new_dentry,
+	unsigned int flags)
 {
-	struct inode * old_inode = d_inode(old_dentry);
-	struct inode * new_inode = d_inode(new_dentry);
-	struct folio *dir_folio = NULL;
-	struct ext2_dir_entry_2 * dir_de = NULL;
-	struct folio * old_folio;
-	struct ext2_dir_entry_2 * old_de;
-	bool old_is_dir = S_ISDIR(old_inode->i_mode);
-	int err;
+	struct inode *old_inode = d_inode(old_dentry);
+	struct inode *new_inode = d_inode(new_dentry);
+	const bool directory = S_ISDIR(old_inode->i_mode);
+	struct folio *old_folio = NULL;
+	struct folio *dotdot_folio = NULL;
+	struct ext2_dir_entry_2 *old_entry;
+	struct ext2_dir_entry_2 *dotdot_entry = NULL;
+	int result;
 
 	if (flags & ~RENAME_NOREPLACE)
 		return -EINVAL;
 
-	err = dquot_initialize(old_dir);
-	if (err)
-		return err;
+	result = dquot_initialize(old_dir);
+	if (result != 0)
+		return result;
+	result = dquot_initialize(new_dir);
+	if (result != 0)
+		return result;
 
-	err = dquot_initialize(new_dir);
-	if (err)
-		return err;
+	old_entry = ext2_find_entry(
+		old_dir, &old_dentry->d_name, &old_folio);
+	if (IS_ERR(old_entry))
+		return PTR_ERR(old_entry);
 
-	old_de = ext2_find_entry(old_dir, &old_dentry->d_name, &old_folio);
-	if (IS_ERR(old_de))
-		return PTR_ERR(old_de);
-
-	if (old_is_dir && old_dir != new_dir) {
-		err = -EIO;
-		dir_de = ext2_dotdot(old_inode, &dir_folio);
-		if (!dir_de)
+	if (directory && old_dir != new_dir) {
+		dotdot_entry = ext2_dotdot(old_inode, &dotdot_folio);
+		if (!dotdot_entry) {
+			result = -EIO;
 			goto out_old;
+		}
 	}
 
 	if (new_inode) {
 		struct folio *new_folio;
-		struct ext2_dir_entry_2 *new_de;
+		struct ext2_dir_entry_2 *new_entry;
 
-		err = -ENOTEMPTY;
-		if (old_is_dir && !ext2_empty_dir(new_inode))
-			goto out_dir;
-
-		new_de = ext2_find_entry(new_dir, &new_dentry->d_name,
-					 &new_folio);
-		if (IS_ERR(new_de)) {
-			err = PTR_ERR(new_de);
-			goto out_dir;
+		if (directory && !ext2_empty_dir(new_inode)) {
+			result = -ENOTEMPTY;
+			goto out_dotdot;
 		}
-		err = ext2_set_link(new_dir, new_de, new_folio, old_inode, true);
-		folio_release_kmap(new_folio, new_de);
-		if (err)
-			goto out_dir;
+
+		new_entry = ext2_find_entry(
+			new_dir, &new_dentry->d_name, &new_folio);
+		if (IS_ERR(new_entry)) {
+			result = PTR_ERR(new_entry);
+			goto out_dotdot;
+		}
+
+		result = ext2_set_link(
+			new_dir, new_entry, new_folio, old_inode, true);
+		folio_release_kmap(new_folio, new_entry);
+		if (result != 0)
+			goto out_dotdot;
+
 		inode_set_ctime_current(new_inode);
-		if (old_is_dir)
+		if (directory)
 			drop_nlink(new_inode);
 		inode_dec_link_count(new_inode);
 	} else {
-		err = ext2_add_link(new_dentry, old_inode);
-		if (err)
-			goto out_dir;
-		if (old_is_dir)
+		result = ext2_add_link(new_dentry, old_inode);
+		if (result != 0)
+			goto out_dotdot;
+		if (directory)
 			inode_inc_link_count(new_dir);
 	}
-
 
 	inode_set_ctime_current(old_inode);
 	mark_inode_dirty(old_inode);
 
-	err = ext2_delete_entry(old_de, old_folio);
-	if (!err && old_is_dir) {
+	result = ext2_delete_entry(old_entry, old_folio);
+	if (result == 0 && directory) {
 		if (old_dir != new_dir)
-			err = ext2_set_link(old_inode, dir_de, dir_folio,
-					    new_dir, false);
-
+			result = ext2_set_link(
+				old_inode, dotdot_entry,
+				dotdot_folio, new_dir, false);
 		inode_dec_link_count(old_dir);
 	}
-out_dir:
-	if (dir_de)
-		folio_release_kmap(dir_folio, dir_de);
+
+out_dotdot:
+	if (dotdot_entry)
+		folio_release_kmap(dotdot_folio, dotdot_entry);
 out_old:
-	folio_release_kmap(old_folio, old_de);
-	return err;
+	folio_release_kmap(old_folio, old_entry);
+	return result;
 }
 
 const struct inode_operations ext2_dir_inode_operations = {
-	.create		= ext2_create,
-	.lookup		= ext2_lookup,
-	.link		= ext2_link,
-	.unlink		= ext2_unlink,
-	.symlink	= ext2_symlink,
-	.mkdir		= ext2_mkdir,
-	.rmdir		= ext2_rmdir,
-	.mknod		= ext2_mknod,
-	.rename		= ext2_rename,
-	.listxattr	= ext2_listxattr,
-	.getattr	= ext2_getattr,
-	.setattr	= ext2_setattr,
-	.get_inode_acl	= ext2_get_acl,
-	.set_acl	= ext2_set_acl,
-	.tmpfile	= ext2_tmpfile,
-	.fileattr_get	= ext2_fileattr_get,
-	.fileattr_set	= ext2_fileattr_set,
+	.create = ext2_create,
+	.lookup = ext2_lookup,
+	.link = ext2_link,
+	.unlink = ext2_unlink,
+	.symlink = ext2_symlink,
+	.mkdir = ext2_mkdir,
+	.rmdir = ext2_rmdir,
+	.mknod = ext2_mknod,
+	.rename = ext2_rename,
+	.listxattr = ext2_listxattr,
+	.getattr = ext2_getattr,
+	.setattr = ext2_setattr,
+	.get_inode_acl = ext2_get_acl,
+	.set_acl = ext2_set_acl,
+	.tmpfile = ext2_tmpfile,
+	.fileattr_get = ext2_fileattr_get,
+	.fileattr_set = ext2_fileattr_set,
 };
 
 const struct inode_operations ext2_special_inode_operations = {
-	.listxattr	= ext2_listxattr,
-	.getattr	= ext2_getattr,
-	.setattr	= ext2_setattr,
-	.get_inode_acl	= ext2_get_acl,
-	.set_acl	= ext2_set_acl,
+	.listxattr = ext2_listxattr,
+	.getattr = ext2_getattr,
+	.setattr = ext2_setattr,
+	.get_inode_acl = ext2_get_acl,
+	.set_acl = ext2_set_acl,
 };
