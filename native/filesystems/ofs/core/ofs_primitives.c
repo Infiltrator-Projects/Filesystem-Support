@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "ofs_primitives.h"
 
 static ifs_ofs_u32 ifs_ofs_read_be32(const ifs_ofs_u8 *data)
