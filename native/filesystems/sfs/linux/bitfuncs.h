@@ -36,7 +36,7 @@ static inline int bfffz(u32 data, int bitoffset)
    /bits/ must be between 1 and 32. */
 static inline u32 bfset(u32 data, int bitoffset, int bits)
 {
-	u32 mask = ~((1 << (32 - bits)) - 1);
+	u32 mask = ~((1U << (32 - bits)) - 1);
 	mask >>= bitoffset;
 	return data | mask;
 }
@@ -45,7 +45,7 @@ static inline u32 bfset(u32 data, int bitoffset, int bits)
    /bits/ must be between 1 and 32. */
 static inline u32 bfclr(u32 data, int bitoffset, int bits)
 {
-	u32 mask = ~((1 << (32 - bits)) - 1);
+	u32 mask = ~((1U << (32 - bits)) - 1);
 	mask >>= bitoffset;
 	return data & ~mask;
 }

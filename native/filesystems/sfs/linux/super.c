@@ -284,9 +284,12 @@ static int asfs_fill_super(struct super_block *sb, void *data, int silent)
 				asfs_brelse(tmpbh);
 			}
 
-			if ((tmpbh = asfs_breadcheck(sb, ASFS_SB(sb)->totalblocks-1, ASFS_ROOTID)) == NULL) {
+			tmpbh = asfs_breadcheck(sb, ASFS_SB(sb)->totalblocks - 1,
+						 ASFS_ROOTID);
+			if (!tmpbh) {
 				printk(KERN_NOTICE "VFS: Found Amiga SFS RootBlock on dev %s, but there is no second RootBlock! Mounting read-only.\n", sb->s_id);
 				ASFS_SB(sb)->flags |= ASFS_READONLY;
+			} else {
 				asfs_brelse(tmpbh);
 			}
 			if (!(ASFS_SB(sb)->flags & ASFS_READONLY))

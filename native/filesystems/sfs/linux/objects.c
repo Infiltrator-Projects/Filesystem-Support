@@ -744,7 +744,7 @@ int asfs_truncateblocksinfile(struct super_block *sb, struct buffer_head *bh, st
 			struct buffer_head *ebhp;
 			struct fsExtentBNode *ebnp;
 
-			if ((errorcode = asfs_getextent(sb, eprev & !MSB_MASK, &ebhp, &ebnp)) != 0) {
+			if ((errorcode = asfs_getextent(sb, eprev & ~MSB_MASK, &ebhp, &ebnp)) != 0) {
 				asfs_brelse(ebh);
 				return errorcode;
 			}

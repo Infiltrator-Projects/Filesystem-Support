@@ -320,7 +320,7 @@ int asfs_allocadminspace(struct super_block *sb, u32 *returned_block)
 
 			if (as1->space != 0 && (bitoffset = bfffz(be32_to_cpu(as1->bits), 0)) >= 0) {
 				u32 emptyadminblock = be32_to_cpu(as1->space) + bitoffset;
-				as1->bits |= cpu_to_be32(1 << (31 - bitoffset));
+				as1->bits |= cpu_to_be32(1U << (31 - bitoffset));
 				asfs_bstore(sb, bh);
 				*returned_block = emptyadminblock;
 				asfs_brelse(bh);
@@ -420,7 +420,7 @@ int asfs_freeadminspace(struct super_block *sb, u32 block)
 			if (block >= be32_to_cpu(as->space) && block < be32_to_cpu(as->space) + 32) {
 				s16 bitoffset = block - be32_to_cpu(as->space);
 				asfs_debug("freeadminspace: Block to be freed is located in AdminSpaceContainer block at %d\n", adminspaceblock);
-				as->bits &= cpu_to_be32(~(1 << (31 - bitoffset)));
+				as->bits &= cpu_to_be32(~(1U << (31 - bitoffset)));
 				asfs_bstore(sb, bh);
 				asfs_brelse(bh);
 				return 0;
