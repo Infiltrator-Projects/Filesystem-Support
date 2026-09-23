@@ -643,6 +643,7 @@ struct ext3_sb_info {
 	struct mutex s_resize_lock;
 	unsigned long s_commit_interval;
 	struct block_device *journal_bdev;
+	struct file *journal_bdev_file;
 #ifdef CONFIG_QUOTA
 	char *s_qf_names[EXT3_MAXQUOTAS];
 	int s_jquota_fmt;
