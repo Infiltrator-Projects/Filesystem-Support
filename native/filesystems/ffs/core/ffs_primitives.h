@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef INFILTRATOR_FFS_PRIMITIVES_H
 #define INFILTRATOR_FFS_PRIMITIVES_H
 
