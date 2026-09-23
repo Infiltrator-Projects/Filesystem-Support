@@ -13,6 +13,21 @@ actually been replaced. Renaming symbols, merging files, changing comments,
 changing Kbuild layout or embedding support code into one `.ko` does not by
 itself qualify as a rewrite.
 
+## Directory-layout status
+
+The current `kernel/` paths are not proof of Linux ownership and are not the
+target project structure.  They are temporary migration locations retained
+while individual subsystems are replaced.
+
+A rewritten implementation may move from a migration path such as
+`kernel/file.c` into `core/` and/or `linux/` when its filesystem semantics
+and operating-system glue are separated.  Provenance classification follows the
+implementation, not the filename or directory.
+
+The permanent layout is chosen by responsibility and cohesion.  Filesystem
+semantics belong to the canonical core; Linux-specific interfaces belong to the
+Linux adapter; Windows-specific interfaces belong to the Windows adapter.
+
 ## Project-authored EXT2 units
 
 The following active EXT2 units are maintained as project-authored source:
