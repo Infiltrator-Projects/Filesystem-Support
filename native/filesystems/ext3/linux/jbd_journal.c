@@ -45,6 +45,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/blkdev.h>
 #include <linux/time.h>
 #include <linux/fs.h>
 #include "journal.h"
