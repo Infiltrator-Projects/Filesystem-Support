@@ -524,7 +524,7 @@ static void ext3_put_super (struct super_block * sb)
 	if (err < 0)
 		ext3_abort(sb, __func__, "Couldn't clean up the journal");
 
-	if (!(sb->s_flags & SB_RDONLY)) {
+	if (!sb_rdonly(sb) && !test_opt(sb, ABORT)) {
 		EXT3_CLEAR_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER);
 		es->s_state = cpu_to_le16(sbi->s_mount_state);
 		BUFFER_TRACE(sbi->s_sbh, "marking dirty");
