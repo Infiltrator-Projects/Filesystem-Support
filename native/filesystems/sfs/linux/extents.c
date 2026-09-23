@@ -422,8 +422,8 @@ int asfs_deletebnode(struct super_block *sb, struct buffer_head *bh, u32 key)
 							btc_next->nodesize != btc->nodesize ||
 							btc_next->isleaf != btc->isleaf) {
 							asfs_brelse(bhsec);
-							errorcode = -EUCLEAN;
-							goto out_parent;
+							asfs_brelse(bhparent);
+							return -EUCLEAN;
 						}
 
 						if (be16_to_cpu(btc_next->nodecount) + be16_to_cpu(btc->nodecount) > branches) {	/* Check if we need to steal nodes. */
@@ -466,8 +466,8 @@ int asfs_deletebnode(struct super_block *sb, struct buffer_head *bh, u32 key)
 							btc2->nodesize != btc->nodesize ||
 							btc2->isleaf != btc->isleaf) {
 							asfs_brelse(bhsec);
-							errorcode = -EUCLEAN;
-							goto out_parent;
+							asfs_brelse(bhparent);
+							return -EUCLEAN;
 						}
 
 						if (be16_to_cpu(btc2->nodecount) + be16_to_cpu(btc->nodecount) > branches) {
@@ -505,8 +505,7 @@ int asfs_deletebnode(struct super_block *sb, struct buffer_head *bh, u32 key)
 				   {
 				   // Never happens, except for root and then we don't care.
 				   } */
-out_parent:
-			} else if (btc->nodecount == 1) {
+			} else if (be16_to_cpu(btc->nodecount) == 1) {
 				/* No parent, so must be root. */
 
 				asfs_debug("deletebnode: no parent so must be root\n");
