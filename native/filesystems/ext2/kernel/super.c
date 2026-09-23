@@ -869,42 +869,34 @@ static int ext2_check_descriptors(struct super_block *sb)
 {
 	int i;
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	IfsExt2Superblock canonical_super;
+	IfsExt2GroupDescriptor canonical_group;
+	IfsExt2Status status;
 
-	ext2_debug ("Checking group descriptors");
+	status = ifs_ext2_decode_superblock(
+		sbi->s_es, sizeof(*sbi->s_es), &canonical_super);
+	if (status == IFS_EXT2_OK)
+		status = ifs_ext2_validate_superblock(
+			&canonical_super, sb_bdev_nr_blocks(sb), !sb_rdonly(sb));
+	if (status != IFS_EXT2_OK)
+		return 0;
+
+	ext2_debug("Checking group descriptors");
 
 	for (i = 0; i < sbi->s_groups_count; i++) {
-		struct ext2_group_desc *gdp = ext2_get_group_desc(sb, i, NULL);
-		ext2_fsblk_t first_block = ext2_group_first_block_no(sb, i);
-		ext2_fsblk_t last_block = ext2_group_last_block_no(sb, i);
+		struct ext2_group_desc *gdp =
+			ext2_get_group_desc(sb, i, NULL);
 
-		if (le32_to_cpu(gdp->bg_block_bitmap) < first_block ||
-		    le32_to_cpu(gdp->bg_block_bitmap) > last_block)
-		{
-			ext2_error (sb, "ext2_check_descriptors",
-				    "Block bitmap for group %d"
-				    " not in group (block %lu)!",
-				    i, (unsigned long) le32_to_cpu(gdp->bg_block_bitmap));
-			return 0;
-		}
-		if (le32_to_cpu(gdp->bg_inode_bitmap) < first_block ||
-		    le32_to_cpu(gdp->bg_inode_bitmap) > last_block)
-		{
-			ext2_error (sb, "ext2_check_descriptors",
-				    "Inode bitmap for group %d"
-				    " not in group (block %lu)!",
-				    i, (unsigned long) le32_to_cpu(gdp->bg_inode_bitmap));
-			return 0;
-		}
-		if (le32_to_cpu(gdp->bg_inode_table) < first_block ||
-		    le32_to_cpu(gdp->bg_inode_table) > last_block ||
-		    sbi->s_itb_per_group == 0 ||
-		    sbi->s_itb_per_group - 1 >
-		    last_block - le32_to_cpu(gdp->bg_inode_table))
-		{
-			ext2_error (sb, "ext2_check_descriptors",
-				    "Inode table for group %d"
-				    " not in group (block %lu)!",
-				    i, (unsigned long) le32_to_cpu(gdp->bg_inode_table));
+		status = ifs_ext2_decode_group_descriptor(
+			gdp, sizeof(*gdp), &canonical_group);
+		if (status == IFS_EXT2_OK)
+			status = ifs_ext2_validate_group_descriptor(
+				&canonical_super, (ifs_ext2_u32)i,
+				&canonical_group);
+		if (status != IFS_EXT2_OK) {
+			ext2_error(sb, "ext2_check_descriptors",
+				   "group %d descriptor is invalid: %s",
+				   i, ifs_ext2_status_string(status));
 			return 0;
 		}
 	}
@@ -1021,7 +1013,8 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 	int blocksize = BLOCK_SIZE;
 	int db_count;
 	int i, j;
-	__le32 features;
+	IfsExt2Superblock canonical_super;
+	IfsExt2Status canonical_status;
 	int err;
 	struct ext2_mount_options opts;
 
@@ -1121,32 +1114,17 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 			"running e2fsck is recommended");
 
 
-	features = EXT2_HAS_INCOMPAT_FEATURE(sb, ~EXT2_FEATURE_INCOMPAT_SUPP);
-	if (features) {
-		ext2_msg(sb, KERN_ERR,	"error: couldn't mount because of "
-		       "unsupported optional features (%x)",
-			le32_to_cpu(features));
+	canonical_status = ifs_ext2_decode_superblock(
+		es, sizeof(*es), &canonical_super);
+	if (canonical_status == IFS_EXT2_OK)
+		canonical_status = ifs_ext2_validate_superblock(
+			&canonical_super, 0U, !sb_rdonly(sb));
+	if (canonical_status != IFS_EXT2_OK) {
+		ext2_msg(sb, KERN_ERR, "error: canonical EXT2 validation failed: %s",
+			ifs_ext2_status_string(canonical_status));
 		goto failed_mount;
 	}
-	if (EXT2_HAS_COMPAT_FEATURE(sb, EXT3_FEATURE_COMPAT_HAS_JOURNAL)) {
-		ext2_msg(sb, KERN_ERR, "error: journalled filesystem is not EXT2");
-		goto failed_mount;
-	}
-	if (!sb_rdonly(sb) && (features = EXT2_HAS_RO_COMPAT_FEATURE(sb, ~EXT2_FEATURE_RO_COMPAT_SUPP))){
-		ext2_msg(sb, KERN_ERR, "error: couldn't mount RDWR because of "
-		       "unsupported optional features (%x)",
-		       le32_to_cpu(features));
-		goto failed_mount;
-	}
-
-	if (le32_to_cpu(es->s_log_block_size) >
-	    (EXT2_MAX_BLOCK_LOG_SIZE - BLOCK_SIZE_BITS)) {
-		ext2_msg(sb, KERN_ERR,
-			 "Invalid log block size: %u",
-			 le32_to_cpu(es->s_log_block_size));
-		goto failed_mount;
-	}
-	blocksize = BLOCK_SIZE << le32_to_cpu(sbi->s_es->s_log_block_size);
+	blocksize = (int)canonical_super.block_size;
 
 	if (test_opt(sb, DAX)) {
 		if (!sbi->s_daxdev) {
@@ -1185,43 +1163,37 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 		}
 	}
 
+	canonical_status = ifs_ext2_decode_superblock(
+		es, sizeof(*es), &canonical_super);
+	if (canonical_status == IFS_EXT2_OK)
+		canonical_status = ifs_ext2_validate_superblock(
+			&canonical_super, sb_bdev_nr_blocks(sb), !sb_rdonly(sb));
+	if (canonical_status != IFS_EXT2_OK) {
+		ext2_msg(sb, KERN_ERR, "error: canonical EXT2 geometry failed: %s",
+			ifs_ext2_status_string(canonical_status));
+		goto failed_mount;
+	}
+
 	sb->s_maxbytes = ext2_max_size(sb->s_blocksize_bits);
 	sb->s_max_links = EXT2_LINK_MAX;
 	sb->s_time_min = S32_MIN;
 	sb->s_time_max = S32_MAX;
 
-	if (le32_to_cpu(es->s_rev_level) == EXT2_GOOD_OLD_REV) {
-		sbi->s_inode_size = EXT2_GOOD_OLD_INODE_SIZE;
-		sbi->s_first_ino = EXT2_GOOD_OLD_FIRST_INO;
-	} else {
-		sbi->s_inode_size = le16_to_cpu(es->s_inode_size);
-		sbi->s_first_ino = le32_to_cpu(es->s_first_ino);
-		if ((sbi->s_inode_size < EXT2_GOOD_OLD_INODE_SIZE) ||
-		    !is_power_of_2(sbi->s_inode_size) ||
-		    (sbi->s_inode_size > blocksize)) {
-			ext2_msg(sb, KERN_ERR,
-				"error: unsupported inode size: %d",
-				sbi->s_inode_size);
-			goto failed_mount;
-		}
-	}
-
-	sbi->s_blocks_per_group = le32_to_cpu(es->s_blocks_per_group);
-	sbi->s_inodes_per_group = le32_to_cpu(es->s_inodes_per_group);
-
-	sbi->s_inodes_per_block = sb->s_blocksize / EXT2_INODE_SIZE(sb);
-	if (sbi->s_inodes_per_block == 0 || sbi->s_inodes_per_group == 0)
-		goto cantfind_ext2;
-	sbi->s_itb_per_group = sbi->s_inodes_per_group /
-					sbi->s_inodes_per_block;
+	sbi->s_inode_size = canonical_super.inode_size;
+	sbi->s_first_ino = canonical_super.first_inode;
+	sbi->s_blocks_per_group = canonical_super.blocks_per_group;
+	sbi->s_inodes_per_group = canonical_super.inodes_per_group;
+	sbi->s_inodes_per_block = canonical_super.inodes_per_block;
+	sbi->s_itb_per_group = canonical_super.inode_table_blocks_per_group;
+	sbi->s_groups_count = canonical_super.group_count;
 	sbi->s_desc_per_block = sb->s_blocksize /
-					sizeof (struct ext2_group_desc);
+				sizeof(struct ext2_group_desc);
 	sbi->s_sbh = bh;
 	sbi->s_mount_state = le16_to_cpu(es->s_state);
 	sbi->s_addr_per_block_bits =
-		ilog2 (EXT2_ADDR_PER_BLOCK(sb));
+		ilog2(EXT2_ADDR_PER_BLOCK(sb));
 	sbi->s_desc_per_block_bits =
-		ilog2 (EXT2_DESC_PER_BLOCK(sb));
+		ilog2(EXT2_DESC_PER_BLOCK(sb));
 
 	if (sb->s_magic != EXT2_SUPER_MAGIC)
 		goto cantfind_ext2;
@@ -1232,51 +1204,6 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 		goto failed_mount;
 	}
 
-	if (es->s_log_frag_size != es->s_log_block_size) {
-		ext2_msg(sb, KERN_ERR,
-			"error: fragsize log %u != blocksize log %u",
-			le32_to_cpu(es->s_log_frag_size), sb->s_blocksize_bits);
-		goto failed_mount;
-	}
-
-	if (sbi->s_blocks_per_group > sb->s_blocksize * 8) {
-		ext2_msg(sb, KERN_ERR,
-			"error: #blocks per group too big: %lu",
-			sbi->s_blocks_per_group);
-		goto failed_mount;
-	}
-
-	if (sbi->s_blocks_per_group <= sbi->s_itb_per_group + 3) {
-		ext2_msg(sb, KERN_ERR,
-			"error: #blocks per group smaller than metadata size: %lu <= %lu",
-			sbi->s_blocks_per_group, sbi->s_inodes_per_group + 3);
-		goto failed_mount;
-	}
-	if (sbi->s_inodes_per_group < sbi->s_inodes_per_block ||
-	    sbi->s_inodes_per_group > sb->s_blocksize * 8) {
-		ext2_msg(sb, KERN_ERR,
-			"error: invalid #inodes per group: %lu",
-			sbi->s_inodes_per_group);
-		goto failed_mount;
-	}
-	if (sb_bdev_nr_blocks(sb) < le32_to_cpu(es->s_blocks_count)) {
-		ext2_msg(sb, KERN_ERR,
-			 "bad geometry: block count %u exceeds size of device (%u blocks)",
-			 le32_to_cpu(es->s_blocks_count),
-			 (unsigned)sb_bdev_nr_blocks(sb));
-		goto failed_mount;
-	}
-
-	sbi->s_groups_count = ((le32_to_cpu(es->s_blocks_count) -
-				le32_to_cpu(es->s_first_data_block) - 1)
-					/ EXT2_BLOCKS_PER_GROUP(sb)) + 1;
-	if ((u64)sbi->s_groups_count * sbi->s_inodes_per_group !=
-	    le32_to_cpu(es->s_inodes_count)) {
-		ext2_msg(sb, KERN_ERR, "error: invalid #inodes: %u vs computed %llu",
-			 le32_to_cpu(es->s_inodes_count),
-			 (u64)sbi->s_groups_count * sbi->s_inodes_per_group);
-		goto failed_mount;
-	}
 	db_count = (sbi->s_groups_count + EXT2_DESC_PER_BLOCK(sb) - 1) /
 		   EXT2_DESC_PER_BLOCK(sb);
 	sbi->s_group_desc = kvmalloc_array(db_count,
