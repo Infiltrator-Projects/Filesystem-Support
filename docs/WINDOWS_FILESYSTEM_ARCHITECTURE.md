@@ -150,7 +150,7 @@ ExtFS-for-Windows must not be deleted until all of the following are true:
 6. a fresh clone of Filesystem Support contains everything required to build and test the Windows EXT2 path;
 7. the migrated source is verified against the final ExtFS-for-Windows main commit used as the migration baseline.
 
-Until every gate is satisfied, ExtFS-for-Windows remains a read-only preservation source.
+All seven migration-safety gates were satisfied on 2026-09-23. The standalone ExtFS-for-Windows repository is therefore safe to delete. Its final source baseline remains preserved byte-for-byte in Filesystem Support, while live Windows EXT2 development proceeds only through the canonical engine and Filesystem Support Windows adapter/build paths.
 
 ## Migration baseline
 
