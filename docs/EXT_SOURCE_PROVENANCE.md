@@ -41,8 +41,9 @@ The following active EXT2 units are maintained as project-authored source:
 - `native/filesystems/ext2/linux/ialloc.c`
 - `native/filesystems/ext2/linux/Makefile`
 
-The regular-file, namespace and inode-allocation units were replaced on 23 September 2026. Their
-implementations use Linux VFS interfaces as platform APIs but do not retain the
+The regular-file, namespace, inode-allocation, directory, block-allocation and
+Linux private-model units have been replaced with project-owned implementations.
+Their Linux code uses kernel interfaces as platform APIs but does not retain the
 previous implementation bodies or third-party author blocks.
 
 ## EXT2 migration units still to replace
@@ -50,9 +51,6 @@ previous implementation bodies or third-party author blocks.
 These active Linux-side units remain migration work and must retain any existing
 legal provenance until their implementation is genuinely replaced:
 
-- `balloc.c`
-- `dir.c`
-- `ext2.h`
 - `inode.c`
 - `super.c`
 - `xattr.c`
@@ -74,9 +72,9 @@ Current EXT2 semantic extractions include:
 - absolute block to block-group/offset mapping used by allocator paths; and
 - sparse-superblock group placement and feature policy.
 
-Those extractions reduce inherited filesystem semantics in `dir.c` and
-`balloc.c`, but neither file is classified as project-authored until its
-remaining implementation body is genuinely replaced.
+The directory, allocator and Linux private-model replacements have now crossed
+the implementation-ownership boundary. The remaining EXT2 migration work is
+limited to inode lifecycle/mapping, mount/superblock handling and xattrs.
 
 ## EXT3 migration state
 
