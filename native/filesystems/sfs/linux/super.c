@@ -54,7 +54,6 @@
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/init.h>
-#include <linux/smp_lock.h>
 #include <linux/buffer_head.h>
 #include <linux/vfs.h>
 #include <linux/parser.h>
@@ -62,7 +61,6 @@
 #include "asfs_fs.h"
 
 #include <asm/byteorder.h>
-#include <asm/uaccess.h>
 
 static void asfs_put_super(struct super_block *sb);
 static int asfs_statfs(struct dentry *dentry, struct kstatfs *buf);
@@ -70,7 +68,7 @@ static int asfs_statfs(struct dentry *dentry, struct kstatfs *buf);
 static int asfs_remount(struct super_block *sb, int *flags, char *data);
 #endif
 static struct inode *asfs_alloc_inode(struct super_block *sb);
-static void asfs_destroy_inode(struct inode *inode);
+static void asfs_free_inode(struct inode *inode);
 
 static char asfs_default_codepage[] = CONFIG_ASFS_DEFAULT_CODEPAGE;
 static char asfs_default_iocharset[] = CONFIG_NLS_DEFAULT;
@@ -86,9 +84,9 @@ u32 asfs_calcchecksum(void *block, u32 blocksize)
 	return -checksum;
 }
 
-static struct super_operations asfs_ops = {
+static const struct super_operations asfs_ops = {
 	.alloc_inode	= asfs_alloc_inode,
-	.destroy_inode	= asfs_destroy_inode,
+	.free_inode		= asfs_free_inode,
 	.put_super		= asfs_put_super,
 	.statfs			= asfs_statfs,
 //	.show_options   = generic_show_options,
@@ -97,7 +95,7 @@ static struct super_operations asfs_ops = {
 #endif
 };
 
-extern struct dentry_operations asfs_dentry_operations;
+extern const struct dentry_operations asfs_dentry_operations;
 
 enum {
 	Opt_mode, Opt_setgid, Opt_setuid, Opt_prefix, Opt_volume, 
@@ -211,6 +209,7 @@ static int asfs_fill_super(struct super_block *sb, void *data, int silent)
 	if (!sbi)
 		return -ENOMEM;
 	sb->s_fs_info = sbi;
+	mutex_init(&sbi->lock);
 
 	/* Fill in defaults */
 	ASFS_SB(sb)->uid = ASFS_DEFAULT_UID;
@@ -312,9 +311,9 @@ static int asfs_fill_super(struct super_block *sb, void *data, int silent)
 	asfs_brelse(bh);
 
 	sb->s_magic = ASFS_MAGIC;
-	sb->s_flags |= MS_NODEV | MS_NOSUID;
+	sb->s_flags |= SB_NODEV | SB_NOSUID;
 	if (ASFS_SB(sb)->flags & ASFS_READONLY) 
-		sb->s_flags |= MS_RDONLY;
+		sb->s_flags |= SB_RDONLY;
 	sb->s_op = &asfs_ops;
 	asfs_debug("Case sensitive: %s\n", (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) ? "yes" : "no");
 
@@ -335,11 +334,11 @@ static int asfs_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	if ((rootinode = asfs_get_root_inode(sb))) {
-		if ((sb->s_root = d_alloc_root(rootinode))) {
-			sb->s_root->d_op = &asfs_dentry_operations;
+		sb->s_root = d_make_root(rootinode);
+		if (sb->s_root) {
+			d_set_d_op(sb->s_root, &asfs_dentry_operations);
 			return 0;
 		}
-		iput(rootinode);
 	}
 	unload_nls(ASFS_SB(sb)->nls_io);
 out2:
@@ -359,13 +358,13 @@ static int asfs_remount(struct super_block *sb, int *flags, char *data)
 	if (!asfs_parse_options(data,sb))
 		return -EINVAL;
 
-	if ((*flags & MS_RDONLY) == (sb->s_flags & MS_RDONLY))
+	if ((*flags & SB_RDONLY) == (sb->s_flags & SB_RDONLY))
 		return 0;
 
-	if (*flags & MS_RDONLY) {
-		sb->s_flags |= MS_RDONLY;
+	if (*flags & SB_RDONLY) {
+		sb->s_flags |= SB_RDONLY;
 	} else if (!(ASFS_SB(sb)->flags & ASFS_READONLY)) {
-		sb->s_flags &= ~MS_RDONLY;
+		sb->s_flags &= ~SB_RDONLY;
 	} else {
 		printk("VFS: Can't remount Amiga SFS on dev %s read/write because of errors.", sb->s_id);
 		return -EINVAL;
@@ -414,14 +413,14 @@ static struct kmem_cache * asfs_inode_cachep;
 static struct inode *asfs_alloc_inode(struct super_block *sb)
 {
 	struct asfs_inode_info *i;
-	i = kmem_cache_alloc(asfs_inode_cachep, GFP_KERNEL);
+	i = alloc_inode_sb(sb, asfs_inode_cachep, GFP_KERNEL);
 	if (!i)
 		return NULL;
-	i->vfs_inode.i_version = 1;
+	inode_set_iversion(&i->vfs_inode, 1);
 	return &i->vfs_inode;
 }
 
-static void asfs_destroy_inode(struct inode *inode)
+static void asfs_free_inode(struct inode *inode)
 {
 	kmem_cache_free(asfs_inode_cachep, ASFS_I(inode));
 }
@@ -435,7 +434,7 @@ static int init_inodecache(void)
 {
 	asfs_inode_cachep = kmem_cache_create("asfs_inode_cache",
 					     sizeof(struct asfs_inode_info),
-					     0, SLAB_RECLAIM_ACCOUNT|SLAB_MEM_SPREAD,
+					     0, SLAB_RECLAIM_ACCOUNT | SLAB_ACCOUNT,
 					     init_once);
 	if (asfs_inode_cachep == NULL)
 		return -ENOMEM;
@@ -444,20 +443,20 @@ static int init_inodecache(void)
 
 static void destroy_inodecache(void)
 {
+	rcu_barrier();
 	kmem_cache_destroy(asfs_inode_cachep);
 }
 
-static int asfs_get_sb(struct file_system_type *fs_type,
-	int flags, const char *dev_name, void *data, struct vfsmount *mnt)
+static struct dentry *asfs_mount(struct file_system_type *fs_type,
+	int flags, const char *dev_name, void *data)
 {
-	return get_sb_bdev(fs_type, flags, dev_name, data, asfs_fill_super,
-			   mnt);
+	return mount_bdev(fs_type, flags, dev_name, data, asfs_fill_super);
 }
 
 static struct file_system_type asfs_fs_type = {
 	.owner		= THIS_MODULE,
-	.name		= "asfs",
-	.get_sb		= asfs_get_sb,
+	.name		= "sfs",
+	.mount		= asfs_mount,
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
 };
@@ -486,12 +485,13 @@ static void __exit exit_asfs_fs(void)
 /* Yes, works even as a module... :) */
 
 #ifdef CONFIG_ASFS_RW
-MODULE_DESCRIPTION("Amiga Smart File System (read/write) support for Linux kernel 2.6.x v" ASFS_VERSION);
+MODULE_DESCRIPTION("Amiga Smart File System (read/write) support v" ASFS_VERSION);
 #else
-MODULE_DESCRIPTION("Amiga Smart File System (read-only) support for Linux kernel 2.6.x v" ASFS_VERSION);
+MODULE_DESCRIPTION("Amiga Smart File System (read-only) support v" ASFS_VERSION);
 #endif
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Marek Szyprowski <marek@amiga.pl>");
+MODULE_ALIAS_FS("sfs");
 
 module_init(init_asfs_fs)
 module_exit(exit_asfs_fs)
