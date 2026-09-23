@@ -118,11 +118,13 @@ int main(void)
         IFS_EXT4_LAYOUT_INVALID_1K_FIRST_DATA_BLOCK)
         return fail("invalid 1K first-data-block layout was accepted");
 
+    group_count = 0U;
     if (ifs_ext4_validate_layout(
             4096U, 0U, 131072U, 1U, 2U, 1U,
             32768U, 128U, 8192U, 123U, &group_count) !=
-        IFS_EXT4_LAYOUT_INVALID_INODE_COUNT)
-        return fail("inconsistent inode total was accepted");
+        IFS_EXT4_LAYOUT_INVALID_INODE_COUNT ||
+        group_count != 4U)
+        return fail("inconsistent inode total did not preserve group count");
 
     return 0;
 }
