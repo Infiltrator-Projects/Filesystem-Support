@@ -41,6 +41,17 @@ The current Linux migration tree contains 46 files.
 
 EXT4 is intentionally much larger than EXT2 or EXT3 because its genuine feature engines are large and independent. The project removes tiny organisational splits, compatibility-only code and production-irrelevant tests, but it does not merge large subsystems merely to reduce a file count.
 
+### Shared core progress
+
+The first extracted canonical subsystem is feature-compatibility policy plus
+the format-intrinsic bigalloc rules. `core/ext4_core.c` owns those decisions.
+The Linux wrapper retains only host-capability checks such as kernel Unicode and
+quota configuration.
+
+This is intentionally a small first slice. Extents, allocation, journaling,
+inode, directory and mutation engines remain migration work until they can be
+moved without weakening the working driver.
+
 ## Filesystem identity
 
 The driver registers only:
