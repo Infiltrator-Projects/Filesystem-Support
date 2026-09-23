@@ -127,21 +127,21 @@ static void ext2_adjust_group_free_blocks(
 	int delta)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
-	unsigned int current;
+	unsigned int free_count;
 
 	if (delta == 0)
 		return;
 
 	spin_lock(sb_bgl_lock(sbi, group));
-	current = le16_to_cpu(desc->bg_free_blocks_count);
-	if (delta < 0 && current < (unsigned int)(-delta)) {
+	free_count = le16_to_cpu(desc->bg_free_blocks_count);
+	if (delta < 0 && free_count < (unsigned int)(-delta)) {
 		spin_unlock(sb_bgl_lock(sbi, group));
 		ext2_error(sb, __func__,
 			   "free-block count underflow in group %u", group);
 		return;
 	}
 	desc->bg_free_blocks_count =
-		cpu_to_le16((unsigned int)((int)current + delta));
+		cpu_to_le16((unsigned int)((int)free_count + delta));
 	spin_unlock(sb_bgl_lock(sbi, group));
 	mark_buffer_dirty(desc_bh);
 }
@@ -185,14 +185,14 @@ static struct ext2_reserve_window_node *ext2_reservation_at_or_before(
 	struct ext2_reserve_window_node *candidate = NULL;
 
 	while (node) {
-		struct ext2_reserve_window_node *current =
+		struct ext2_reserve_window_node *candidate =
 			rb_entry(node, struct ext2_reserve_window_node, rsv_node);
 
-		if (block < current->rsv_start) {
+		if (block < candidate->rsv_start) {
 			node = node->rb_left;
 		} else {
-			candidate = current;
-			if (block <= current->rsv_end)
+			candidate = candidate;
+			if (block <= candidate->rsv_end)
 				break;
 			node = node->rb_right;
 		}
@@ -209,13 +209,13 @@ void ext2_rsv_window_add(
 	struct rb_node *parent = NULL;
 
 	while (*link) {
-		struct ext2_reserve_window_node *current =
+		struct ext2_reserve_window_node *candidate =
 			rb_entry(*link, struct ext2_reserve_window_node, rsv_node);
 
 		parent = *link;
-		if (window->rsv_end < current->rsv_start)
+		if (window->rsv_end < existing->rsv_start)
 			link = &(*link)->rb_left;
-		else if (window->rsv_start > current->rsv_end)
+		else if (window->rsv_start > existing->rsv_end)
 			link = &(*link)->rb_right;
 		else
 			BUG();
