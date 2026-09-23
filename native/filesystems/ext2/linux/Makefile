@@ -13,7 +13,13 @@
 
 obj-m += ext2.o
 
-ext2-y := canonical.o balloc.o dir.o file.o ialloc.o inode.o namei.o super.o
-ext2-$(CONFIG_EXT2_FS_XATTR) += xattr.o
+ext2-y := canonical.o balloc.o dir.o file.o ialloc.o inode.o namei.o super.o \
+          xattr.o
 
+# These are capabilities of the independently deployable Filesystem Support
+# EXT2 module. They must not disappear merely because the host kernel disabled
+# its own in-tree EXT2 driver or its per-driver Kconfig switches.
 ccflags-y += -I$(src)
+ccflags-y += -DCONFIG_EXT2_FS_XATTR=1
+ccflags-y += -DCONFIG_EXT2_FS_POSIX_ACL=1
+ccflags-y += -DCONFIG_EXT2_FS_SECURITY=1

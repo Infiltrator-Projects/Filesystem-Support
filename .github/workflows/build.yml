@@ -73,6 +73,10 @@ jobs:
           grep -Fq '..\core\ext2_core.c'               native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
           grep -Fq '..\core\ext2_engine.c'               native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
           grep -Fq '#include "../core/ext2_engine.h"'               native/filesystems/ext2/windows/ext2_driver.h
+          grep -Fq 'xattr.o' native/filesystems/ext2/linux/Makefile
+          grep -Fq -- '-DCONFIG_EXT2_FS_XATTR=1' native/filesystems/ext2/linux/Makefile
+          grep -Fq -- '-DCONFIG_EXT2_FS_POSIX_ACL=1' native/filesystems/ext2/linux/Makefile
+          grep -Fq -- '-DCONFIG_EXT2_FS_SECURITY=1' native/filesystems/ext2/linux/Makefile
 
   linux:
     runs-on: ubuntu-24.04
@@ -260,9 +264,6 @@ jobs:
           set -euo pipefail
           make -C /tmp/linux-6.12.107 \
             M="$PWD/native/filesystems/ext2/linux" \
-            CONFIG_EXT2_FS_XATTR=y \
-            CONFIG_EXT2_FS_POSIX_ACL=y \
-            CONFIG_EXT2_FS_SECURITY=y \
             modules
           make -C /tmp/linux-6.12.107 \
             M="$PWD/native/filesystems/ext3/linux" \
