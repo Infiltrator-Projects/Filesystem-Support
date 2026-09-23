@@ -89,13 +89,6 @@ const struct file_operations ext3_file_operations = {
 	.splice_write	= iter_file_splice_write,
 };
 
-static int ext3_vfs_setattr(struct mnt_idmap *idmap,
-			    struct dentry *dentry, struct iattr *attr)
-{
-	(void)idmap;
-	return ext3_setattr(dentry, attr);
-}
-
 #ifdef CONFIG_EXT3_FS_POSIX_ACL
 static struct posix_acl *ext3_vfs_get_inode_acl(struct inode *inode,
 						int type, bool rcu)
@@ -114,7 +107,7 @@ static int ext3_vfs_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 #endif
 
 const struct inode_operations ext3_file_inode_operations = {
-	.setattr	= ext3_vfs_setattr,
+	.setattr	= ext3_setattr,
 #ifdef CONFIG_EXT3_FS_XATTR
 	.listxattr	= ext3_listxattr,
 #endif
