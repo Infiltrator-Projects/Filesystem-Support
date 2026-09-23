@@ -128,15 +128,16 @@ jobs:
           cat > release-notes.md <<EOF
           Filesystem Support $version.
 
-          Debian-first filesystem support manager with 106 filesystem and storage-namespace implementations catalogued.
+          Debian-first filesystem support manager with 108 filesystem and storage-namespace implementations catalogued.
 
-          This release includes the 106-target Debian support manager and the greenfield native filesystem implementation framework:
+          This release includes the 108-target Debian support manager and the greenfield native filesystem implementation framework:
           - kernel/userspace-neutral native filesystem engine contracts
           - Common 1.19.24-backed exact userspace I/O, endian decoding and shared portable primitives
           - bounds-checked byte-reader and filesystem descriptor ABI
           - generic fsinspect development harness
           - one canonical filesystem implementation with Linux and Windows adapters
           - EXT2, EXT3 and EXT4 in active rewrite state under that shared-engine architecture
+          - real Linux Install/Remove for project-native EXT2/EXT3/EXT4/OFS/FFS modules, built against the running kernel
           - OFS, FFS, SFS, SFS2 and PFS3 tracked as independent Amiga rewrite targets
           - unqualified reference/import trees retained as development evidence rather than advertised native providers
           - documented reuse boundaries for Common, Defragmenter and InfiltratorFS
