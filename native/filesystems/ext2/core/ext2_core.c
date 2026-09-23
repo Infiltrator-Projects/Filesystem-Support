@@ -27,7 +27,7 @@ IfsExt2Status ifs_ext2_decode_superblock(
 {
     const ifs_ext2_u8 *raw = (const ifs_ext2_u8 *)raw_superblock;
 
-    if (raw == NULL || superblock == NULL)
+    if (raw == IFS_EXT2_NULL || superblock == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (raw_size < IFS_EXT2_SUPERBLOCK_SIZE)
         return IFS_EXT2_ERROR_RANGE;
@@ -71,7 +71,7 @@ IfsExt2Status ifs_ext2_validate_superblock(
     ifs_ext2_u64 computed_inodes;
     ifs_ext2_u32 inode_size;
 
-    if (superblock == NULL)
+    if (superblock == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (superblock->revision > IFS_EXT2_MAX_REVISION)
         return IFS_EXT2_ERROR_REVISION;
@@ -164,7 +164,7 @@ IfsExt2Status ifs_ext2_decode_group_descriptor(
 {
     const ifs_ext2_u8 *raw = (const ifs_ext2_u8 *)raw_descriptor;
 
-    if (raw == NULL || descriptor == NULL)
+    if (raw == IFS_EXT2_NULL || descriptor == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (raw_size < 32U)
         return IFS_EXT2_ERROR_RANGE;
@@ -187,7 +187,7 @@ IfsExt2Status ifs_ext2_group_bounds(
     ifs_ext2_u64 first;
     ifs_ext2_u64 last;
 
-    if (superblock == NULL || first_block == NULL || last_block == NULL)
+    if (superblock == IFS_EXT2_NULL || first_block == IFS_EXT2_NULL || last_block == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (group >= superblock->group_count ||
         superblock->blocks_per_group == 0U)
@@ -216,7 +216,7 @@ IfsExt2Status ifs_ext2_validate_group_descriptor(
     ifs_ext2_u64 last;
     IfsExt2Status status;
 
-    if (descriptor == NULL)
+    if (descriptor == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
 
     status = ifs_ext2_group_bounds(superblock, group, &first, &last);
@@ -251,7 +251,7 @@ IfsExt2Status ifs_ext2_block_to_path(
     ifs_ext2_u64 relative;
     ifs_ext2_u64 final_capacity;
 
-    if (path == NULL)
+    if (path == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (block_size < IFS_EXT2_MIN_BLOCK_SIZE ||
         block_size > IFS_EXT2_MAX_BLOCK_SIZE ||
