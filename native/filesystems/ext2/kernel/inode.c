@@ -228,6 +228,7 @@ static int ext2_block_to_path(struct inode *inode,
 	return (int)path.depth;
 }
 
+
 /**
  * ext2_get_branch - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
