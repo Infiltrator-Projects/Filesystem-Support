@@ -1809,3 +1809,6 @@ struct mb_cache_entry *mb_cache_entry_find_first(struct mb_cache *cache,
 struct mb_cache_entry *mb_cache_entry_find_next(struct mb_cache_entry *,
 						struct block_device *,
 						unsigned int);
+
+int infiltratr_ext3_mbcache_init(void);
+void infiltratr_ext3_mbcache_exit(void);
