@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef INFILTRATOR_FFS_CORE_H
 #define INFILTRATOR_FFS_CORE_H
 #if defined(__KERNEL__)
