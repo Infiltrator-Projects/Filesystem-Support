@@ -201,7 +201,7 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent)
 		int best_ndir = inodes_per_group;
 		int best_group = -1;
 
-		group = prandom_u32();
+		group = get_random_u32();
 		parent_group = (unsigned)group % ngroups;
 		for (i = 0; i < ngroups; i++) {
 			group = (parent_group + i) % ngroups;
@@ -440,12 +440,18 @@ got:
 		inode->i_uid = current_fsuid();
 		inode->i_gid = dir->i_gid;
 	} else
-		inode_init_owner(inode, dir, mode);
+		inode_init_owner(&nop_mnt_idmap, inode, dir, mode);
 
 	inode->i_ino = ino;
 
 	inode->i_blocks = 0;
-	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME_SEC;
+	{
+		struct timespec64 now = current_time(inode);
+
+		inode_set_atime_to_ts(inode, now);
+		inode_set_mtime_to_ts(inode, now);
+		inode_set_ctime_to_ts(inode, now);
+	}
 
 	memset(ei->i_data, 0, sizeof(ei->i_data));
 	ei->i_dir_start_lookup = 0;
