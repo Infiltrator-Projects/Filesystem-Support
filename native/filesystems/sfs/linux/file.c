@@ -18,6 +18,7 @@
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/pagemap.h>
+#include <linux/mpage.h>
 #include <linux/buffer_head.h>
 #include <linux/vfs.h>
 #include "asfs_fs.h"
@@ -38,13 +39,10 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 	struct fsObject *obj;
 #endif
 
-	asfs_debug("ASFS: get_block(%lu, %ld, %d)\n", inode->i_ino, block, create);
+	asfs_debug("SFS: get_block(%lu, %llu, %d)\n", inode->i_ino,\n\t\t   (unsigned long long)block, create);
 
-	if (block < 0) {
-		printk(KERN_ERR "ASFS: asfsget_block: requested block (%ld) < 0!\n", block);
-		return -EIO;
-	} else if (block >= inode->i_blocks && !create) {
-		printk(KERN_ERR "ASFS: asfsget_block: strange block request %ld!\n", block);
+	if (block >= inode->i_blocks && !create) {
+		printk(KERN_ERR "SFS: strange block request %llu\n",\n\t\t       (unsigned long long)block);
 		return -EIO;
 	} 
 
@@ -58,7 +56,7 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 	if (block < inode->i_blocks)
 		create = 0;
 
-	lock_super(sb);
+	mutex_lock(&ASFS_SB(sb)->lock);
 
 #ifdef CONFIG_ASFS_RW
 	if (create) {
@@ -73,13 +71,13 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 		asfs_debug("ASFS get_block: Trying to add %d blocks to file\n", blockstoadd);
 		
 		if ((error = asfs_readobject(sb, inode->i_ino, &bh, &obj)) != 0) {
-			unlock_super(sb);
+			unmutex_lock(&ASFS_SB(sb)->lock);
 			return error;
 		}
 
 		if ((error = asfs_addblockstofile(sb, bh, obj, blockstoadd, &newspace, &addedblocks)) != 0) {
 			asfs_brelse(bh);
-			unlock_super(sb);
+			unmutex_lock(&ASFS_SB(sb)->lock);
 			return error;
 		}
 		ASFS_I(inode)->mmu_private += addedblocks * sb->s_blocksize;
@@ -97,7 +95,7 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 		pos = ASFS_I(inode)->ext_cache.startblock;
 	} else {
 		if (asfs_getextent(inode->i_sb, ASFS_I(inode)->firstblock, &ebn_bh, &ebn_p) != 0) {
-			unlock_super(sb);
+			unmutex_lock(&ASFS_SB(sb)->lock);
 			return -EIO;
 		}
 		extent.key = be32_to_cpu(ebn_p->key);
@@ -112,7 +110,7 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 	while (pos + ebn_p->blocks <= block && ebn_p->next != 0 && pos < inode->i_blocks) {
 		pos += ebn_p->blocks;
 		if (asfs_getextent(inode->i_sb, filedata, &ebn_bh, &ebn_p) != 0) {
-			unlock_super(sb);
+			unmutex_lock(&ASFS_SB(sb)->lock);
 			return -EIO;
 		}
 		extent.key = be32_to_cpu(ebn_p->key);
@@ -123,7 +121,7 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 		asfs_brelse(ebn_bh);
 	}
 
-	unlock_super(sb);
+	unmutex_lock(&ASFS_SB(sb)->lock);
 
 	map_bh(bh_result, inode->i_sb, (sector_t) (ebn_p->key + block - pos));
 
@@ -140,10 +138,15 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 	return 0;
 }
 
-int asfs_readpage(struct file *file, struct page *page)
+int asfs_read_folio(struct file *file, struct folio *folio)
 {
-	asfs_debug("ASFS: %s\n", __FUNCTION__);
-	return block_read_full_page(page, asfs_get_block);
+	asfs_debug("SFS: %s\n", __func__);
+	return mpage_read_folio(folio, asfs_get_block);
+}
+
+void asfs_readahead(struct readahead_control *rac)
+{
+	mpage_readahead(rac, asfs_get_block);
 }
 
 sector_t asfs_bmap(struct address_space *mapping, sector_t block)
@@ -154,45 +157,48 @@ sector_t asfs_bmap(struct address_space *mapping, sector_t block)
 
 #ifdef CONFIG_ASFS_RW
 
-int asfs_writepage(struct page *page, struct writeback_control *wbc)
+int asfs_writepages(struct address_space *mapping,
+                    struct writeback_control *wbc)
 {
-	asfs_debug("ASFS: %s\n", __FUNCTION__);
-	return block_write_full_page(page, asfs_get_block, wbc);
+	asfs_debug("SFS: %s\n", __func__);
+	return mpage_writepages(mapping, wbc, asfs_get_block);
 }
 
-int asfs_write_begin(struct file *file, struct address_space *mapping, loff_t pos, unsigned len, unsigned flags, struct page **pagep, void **fsdata)
+int asfs_write_begin(struct file *file, struct address_space *mapping,
+                     loff_t pos, unsigned len, struct folio **foliop,
+                     void **fsdata)
 {
-	asfs_debug("ASFS: %s\n", __FUNCTION__);
-	*pagep = NULL;
-	return cont_write_begin(file, mapping, pos, len, flags, pagep, fsdata, asfs_get_block, &ASFS_I(mapping->host)->mmu_private);
+	asfs_debug("SFS: %s\n", __func__);
+	return block_write_begin(mapping, pos, len, foliop, asfs_get_block);
 }
 
 
 
-void asfs_truncate(struct inode *inode)
+int asfs_truncate(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 	struct buffer_head *bh;
 	struct fsObject *obj;
+	int error;
 
-	asfs_debug("AFFS: truncate(inode=%d, oldsize=%u, newsize=%u)\n",
+	asfs_debug("SFS: truncate(inode=%d, oldsize=%u, newsize=%u)\n",
 		 (u32)inode->i_ino, (u32)ASFS_I(inode)->mmu_private, (u32)inode->i_size);
 
 	if (inode->i_size > ASFS_I(inode)->mmu_private) {
-		printk("ASFS: enlarging file is not supported yet\n");
-		return;
+		printk(KERN_NOTICE "SFS: truncate growth is not supported\n");
+		return -EOPNOTSUPP;
 	}
 
-	lock_super(sb);
+	mutex_lock(&ASFS_SB(sb)->lock);
 
 	if ((asfs_readobject(sb, inode->i_ino, &bh, &obj)) != 0) {
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return;
 	}
 
 	if (asfs_truncateblocksinfile(sb, bh, obj, inode->i_size) != 0) {
 		asfs_brelse(bh);
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return;
 	}
 		
@@ -203,12 +209,14 @@ void asfs_truncate(struct inode *inode)
 	asfs_bstore(sb, bh);
 	asfs_brelse(bh);
 
-	unlock_super(sb);
+	unmutex_lock(&ASFS_SB(sb)->lock);
 }
 
 int asfs_file_open(struct inode *inode, struct file *filp)
 {
-	asfs_debug("ASFS: file open (node %lu, oc %d)\n", inode->i_ino, atomic_read(&ASFS_I(inode)->i_opencnt));
+	asfs_debug("SFS: file open (node %lu, oc %d)\n",
+		   inode->i_ino, atomic_read(&ASFS_I(inode)->i_opencnt));
+	atomic_inc(&ASFS_I(inode)->i_opencnt);
 	return 0;
 }
 
@@ -222,14 +230,14 @@ int asfs_file_release(struct inode *inode, struct file *filp)
 		if (ASFS_I(inode)->modified == TRUE) {
 			struct buffer_head *bh;
 			struct fsObject *obj;
-			lock_super(inode->i_sb);
+			mutex_lock(&ASFS_SB(inode->i_sb)->lock);
 
 			if ((error = asfs_readobject(inode->i_sb, inode->i_ino, &bh, &obj)) != 0) {
-				unlock_super(inode->i_sb);
+				unmutex_lock(&ASFS_SB(inode->i_sb)->lock);
 				return error;
 			}
 
-			obj->datemodified = cpu_to_be32(inode->i_mtime.tv_sec - (365*8+2)*24*60*60);
+			obj->datemodified = cpu_to_be32(inode_get_mtime_sec(inode) - (365*8+2)*24*60*60);
 			if (inode->i_mode & S_IFREG) {
 				error = asfs_truncateblocksinfile(inode->i_sb, bh, obj, (u32)inode->i_size);
 				obj->object.file.size = cpu_to_be32(inode->i_size);
@@ -238,7 +246,7 @@ int asfs_file_release(struct inode *inode, struct file *filp)
 			}
 			asfs_bstore(inode->i_sb, bh);
 
-			unlock_super(inode->i_sb);
+			unmutex_lock(&ASFS_SB(inode->i_sb)->lock);
 
 			asfs_brelse(bh);
 		}
