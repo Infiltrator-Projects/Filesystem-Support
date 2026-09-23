@@ -111,6 +111,13 @@ target_include_directories(infiltratr-fs-ext4-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext4/core")
 filesystem_support_configure(infiltratr-fs-ext4-core)
 
+# Shared AmigaDOS primitives used by the independent OFS and FFS cores.
+add_library(infiltratr-fs-amiga-dos-core STATIC
+    native/filesystems/amiga_common/core/amiga_dos_core.c)
+target_include_directories(infiltratr-fs-amiga-dos-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/amiga_common/core")
+filesystem_support_configure(infiltratr-fs-amiga-dos-core)
+
 # Canonical Amiga OFS and FFS format classification.
 add_library(infiltratr-fs-ofs-core STATIC
     native/filesystems/ofs/core/ofs_core.c)
@@ -299,6 +306,15 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-ext4-core
         COMMAND filesystem-support-ext4-core-test)
+
+    add_executable(filesystem-support-amiga-dos-core-test
+        tests/amiga_dos_core_test.c)
+    target_link_libraries(filesystem-support-amiga-dos-core-test
+        PRIVATE infiltratr-fs-amiga-dos-core)
+    filesystem_support_configure(filesystem-support-amiga-dos-core-test)
+    add_test(
+        NAME filesystem-support-amiga-dos-core
+        COMMAND filesystem-support-amiga-dos-core-test)
 
     add_executable(filesystem-support-ofs-core-test
         tests/ofs_core_test.c)
