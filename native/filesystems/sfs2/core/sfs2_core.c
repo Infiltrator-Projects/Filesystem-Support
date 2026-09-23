@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "sfs2_core.h"
 
 static int ifs_sfs2_is_power_of_two(const ifs_sfs2_u32 value)
