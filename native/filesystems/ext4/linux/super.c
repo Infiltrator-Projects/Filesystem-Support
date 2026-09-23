@@ -5213,56 +5213,60 @@ static int ext4_handle_clustersize(struct super_block *sb)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ext4_super_block *es = sbi->s_es;
+	IfsExt4ClusterGeometryStatus geometry_status;
 	int clustersize;
 
-
 	clustersize = BLOCK_SIZE << le32_to_cpu(es->s_log_cluster_size);
-	if (ext4_has_feature_bigalloc(sb)) {
-		if (clustersize < sb->s_blocksize) {
-			ext4_msg(sb, KERN_ERR,
-				 "cluster size (%d) smaller than "
-				 "block size (%lu)", clustersize, sb->s_blocksize);
-			return -EINVAL;
-		}
-		sbi->s_cluster_bits = le32_to_cpu(es->s_log_cluster_size) -
-			le32_to_cpu(es->s_log_block_size);
-	} else {
-		if (clustersize != sb->s_blocksize) {
-			ext4_msg(sb, KERN_ERR,
-				 "fragment/cluster size (%d) != "
-				 "block size (%lu)", clustersize, sb->s_blocksize);
-			return -EINVAL;
-		}
-		if (sbi->s_blocks_per_group > sb->s_blocksize * 8) {
-			ext4_msg(sb, KERN_ERR,
-				 "#blocks per group too big: %lu",
-				 sbi->s_blocks_per_group);
-			return -EINVAL;
-		}
-		sbi->s_cluster_bits = 0;
-	}
 	sbi->s_clusters_per_group = le32_to_cpu(es->s_clusters_per_group);
-	if (sbi->s_clusters_per_group > sb->s_blocksize * 8) {
+
+	geometry_status = ifs_ext4_validate_cluster_geometry(
+		sb->s_blocksize,
+		clustersize,
+		ext4_has_feature_bigalloc(sb),
+		sbi->s_blocks_per_group,
+		sbi->s_clusters_per_group);
+	switch (geometry_status) {
+	case IFS_EXT4_CLUSTER_GEOMETRY_OK:
+		break;
+	case IFS_EXT4_CLUSTER_GEOMETRY_CLUSTER_SMALLER_THAN_BLOCK:
+		ext4_msg(sb, KERN_ERR,
+			 "cluster size (%d) smaller than block size (%lu)",
+			 clustersize, sb->s_blocksize);
+		return -EINVAL;
+	case IFS_EXT4_CLUSTER_GEOMETRY_CLUSTER_BLOCK_MISMATCH:
+		ext4_msg(sb, KERN_ERR,
+			 "fragment/cluster size (%d) != block size (%lu)",
+			 clustersize, sb->s_blocksize);
+		return -EINVAL;
+	case IFS_EXT4_CLUSTER_GEOMETRY_BLOCKS_PER_GROUP_TOO_LARGE:
+		ext4_msg(sb, KERN_ERR,
+			 "#blocks per group too big: %lu",
+			 sbi->s_blocks_per_group);
+		return -EINVAL;
+	case IFS_EXT4_CLUSTER_GEOMETRY_CLUSTERS_PER_GROUP_TOO_LARGE:
 		ext4_msg(sb, KERN_ERR, "#clusters per group too big: %lu",
 			 sbi->s_clusters_per_group);
 		return -EINVAL;
-	}
-	if (sbi->s_blocks_per_group !=
-	    (sbi->s_clusters_per_group * (clustersize / sb->s_blocksize))) {
+	case IFS_EXT4_CLUSTER_GEOMETRY_GROUP_RATIO_MISMATCH:
 		ext4_msg(sb, KERN_ERR,
 			 "blocks per group (%lu) and clusters per group (%lu) inconsistent",
 			 sbi->s_blocks_per_group, sbi->s_clusters_per_group);
 		return -EINVAL;
 	}
-	sbi->s_cluster_ratio = clustersize / sb->s_blocksize;
 
+	if (ext4_has_feature_bigalloc(sb))
+		sbi->s_cluster_bits = le32_to_cpu(es->s_log_cluster_size) -
+		le32_to_cpu(es->s_log_block_size);
+	else
+		sbi->s_cluster_bits = 0;
+
+	sbi->s_cluster_ratio = clustersize / sb->s_blocksize;
 
 	if (sbi->s_blocks_per_group == clustersize << 3)
 		set_opt2(sb, STD_GROUP_SIZE);
 
 	return 0;
 }
-
 
 /**
  * ext4_fast_commit_init - Initialises subsystem state and establishes the resources required by later operations.
@@ -5309,6 +5313,7 @@ static int ext4_inode_info_init(struct super_block *sb,
 				struct ext4_super_block *es)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	IfsExt4InodeGeometryStatus geometry_status;
 
 	if (le32_to_cpu(es->s_rev_level) == EXT4_GOOD_OLD_REV) {
 		sbi->s_inode_size = EXT4_GOOD_OLD_INODE_SIZE;
@@ -5316,22 +5321,24 @@ static int ext4_inode_info_init(struct super_block *sb,
 	} else {
 		sbi->s_inode_size = le16_to_cpu(es->s_inode_size);
 		sbi->s_first_ino = le32_to_cpu(es->s_first_ino);
-		if (sbi->s_first_ino < EXT4_GOOD_OLD_FIRST_INO) {
-			ext4_msg(sb, KERN_ERR, "invalid first ino: %u",
-				 sbi->s_first_ino);
-			return -EINVAL;
-		}
-		if ((sbi->s_inode_size < EXT4_GOOD_OLD_INODE_SIZE) ||
-		    (!is_power_of_2(sbi->s_inode_size)) ||
-		    (sbi->s_inode_size > sb->s_blocksize)) {
-			ext4_msg(sb, KERN_ERR,
-			       "unsupported inode size: %d",
-			       sbi->s_inode_size);
-			ext4_msg(sb, KERN_ERR, "blocksize: %lu", sb->s_blocksize);
-			return -EINVAL;
-		}
+	}
 
+	geometry_status = ifs_ext4_validate_inode_geometry(
+		sb->s_blocksize, sbi->s_inode_size, sbi->s_first_ino);
+	if (geometry_status == IFS_EXT4_INODE_GEOMETRY_INVALID_FIRST_INODE) {
+		ext4_msg(sb, KERN_ERR, "invalid first ino: %u",
+			 sbi->s_first_ino);
+		return -EINVAL;
+	}
+	if (geometry_status == IFS_EXT4_INODE_GEOMETRY_INVALID_INODE_SIZE) {
+		ext4_msg(sb, KERN_ERR,
+		       "unsupported inode size: %d",
+		       sbi->s_inode_size);
+		ext4_msg(sb, KERN_ERR, "blocksize: %lu", sb->s_blocksize);
+		return -EINVAL;
+	}
 
+	if (le32_to_cpu(es->s_rev_level) != EXT4_GOOD_OLD_REV) {
 		if (sbi->s_inode_size >= offsetof(struct ext4_inode, i_atime_extra) +
 			sizeof(((struct ext4_inode *)0)->i_atime_extra)) {
 			sb->s_time_gran = 1;
@@ -6022,6 +6029,7 @@ static int ext4_block_group_meta_init(struct super_block *sb, int silent)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ext4_super_block *es = sbi->s_es;
+	IfsExt4GroupGeometryStatus geometry_status;
 	int has_huge_files;
 
 	has_huge_files = ext4_has_feature_huge_file(sb);
@@ -6030,33 +6038,37 @@ static int ext4_block_group_meta_init(struct super_block *sb, int silent)
 	sb->s_maxbytes = ext4_max_size(sb->s_blocksize_bits, has_huge_files);
 
 	sbi->s_desc_size = le16_to_cpu(es->s_desc_size);
-	if (ext4_has_feature_64bit(sb)) {
-		if (sbi->s_desc_size < EXT4_MIN_DESC_SIZE_64BIT ||
-		    sbi->s_desc_size > EXT4_MAX_DESC_SIZE ||
-		    !is_power_of_2(sbi->s_desc_size)) {
-			ext4_msg(sb, KERN_ERR,
-			       "unsupported descriptor size %lu",
-			       sbi->s_desc_size);
-			return -EINVAL;
-		}
-	} else
+	if (!ext4_has_feature_64bit(sb))
 		sbi->s_desc_size = EXT4_MIN_DESC_SIZE;
 
 	sbi->s_blocks_per_group = le32_to_cpu(es->s_blocks_per_group);
 	sbi->s_inodes_per_group = le32_to_cpu(es->s_inodes_per_group);
 
-	sbi->s_inodes_per_block = sb->s_blocksize / EXT4_INODE_SIZE(sb);
-	if (sbi->s_inodes_per_block == 0 || sbi->s_blocks_per_group == 0) {
+	geometry_status = ifs_ext4_validate_group_geometry(
+		sb->s_blocksize,
+		EXT4_INODE_SIZE(sb),
+		sbi->s_desc_size,
+		ext4_has_feature_64bit(sb),
+		sbi->s_blocks_per_group,
+		sbi->s_inodes_per_group);
+	if (geometry_status == IFS_EXT4_GROUP_GEOMETRY_INVALID_DESCRIPTOR_SIZE) {
+		ext4_msg(sb, KERN_ERR,
+		       "unsupported descriptor size %lu",
+		       sbi->s_desc_size);
+		return -EINVAL;
+	}
+	if (geometry_status == IFS_EXT4_GROUP_GEOMETRY_ZERO_VALUE) {
 		if (!silent)
 			ext4_msg(sb, KERN_ERR, "VFS: Can't find ext4 filesystem");
 		return -EINVAL;
 	}
-	if (sbi->s_inodes_per_group < sbi->s_inodes_per_block ||
-	    sbi->s_inodes_per_group > sb->s_blocksize * 8) {
+	if (geometry_status == IFS_EXT4_GROUP_GEOMETRY_INVALID_INODES_PER_GROUP) {
 		ext4_msg(sb, KERN_ERR, "invalid inodes per group: %lu\n",
 			 sbi->s_inodes_per_group);
 		return -EINVAL;
 	}
+
+	sbi->s_inodes_per_block = sb->s_blocksize / EXT4_INODE_SIZE(sb);
 	sbi->s_itb_per_group = sbi->s_inodes_per_group /
 					sbi->s_inodes_per_block;
 	sbi->s_desc_per_block = sb->s_blocksize / EXT4_DESC_SIZE(sb);
