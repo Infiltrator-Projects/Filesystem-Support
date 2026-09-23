@@ -1,0 +1,151 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#ifndef INFILTRATR_EXT2_CORE_H
+#define INFILTRATR_EXT2_CORE_H
+
+/*
+ * Canonical EXT2 on-disk semantics shared by every operating-system adapter.
+ *
+ * This interface deliberately contains no Linux VFS or Windows IFS types.
+ * The same source is compiled into the Linux EXT2 module, userspace
+ * qualification tools and the Windows EXT2 driver.
+ */
+
+#ifdef __KERNEL__
+#include <linux/types.h>
+#include <linux/stddef.h>
+typedef u8 ifs_ext2_u8;
+typedef u16 ifs_ext2_u16;
+typedef u32 ifs_ext2_u32;
+typedef u64 ifs_ext2_u64;
+#else
+#include <stddef.h>
+#include <stdint.h>
+typedef uint8_t ifs_ext2_u8;
+typedef uint16_t ifs_ext2_u16;
+typedef uint32_t ifs_ext2_u32;
+typedef uint64_t ifs_ext2_u64;
+#endif
+
+#define IFS_EXT2_SUPERBLOCK_SIZE 1024U
+#define IFS_EXT2_SUPER_MAGIC 0xEF53U
+#define IFS_EXT2_MIN_BLOCK_SIZE 1024U
+#define IFS_EXT2_MAX_BLOCK_SIZE 65536U
+#define IFS_EXT2_GOOD_OLD_INODE_SIZE 128U
+#define IFS_EXT2_GOOD_OLD_FIRST_INO 11U
+#define IFS_EXT2_MAX_REVISION 1U
+
+#define IFS_EXT2_NDIR_BLOCKS 12U
+#define IFS_EXT2_IND_BLOCK 12U
+#define IFS_EXT2_DIND_BLOCK 13U
+#define IFS_EXT2_TIND_BLOCK 14U
+#define IFS_EXT2_N_BLOCKS 15U
+
+#define IFS_EXT2_FEATURE_COMPAT_HAS_JOURNAL 0x0004U
+#define IFS_EXT2_FEATURE_COMPAT_EXT_ATTR 0x0008U
+
+#define IFS_EXT2_FEATURE_INCOMPAT_FILETYPE 0x0002U
+#define IFS_EXT2_FEATURE_INCOMPAT_RECOVER 0x0004U
+#define IFS_EXT2_FEATURE_INCOMPAT_JOURNAL_DEV 0x0008U
+#define IFS_EXT2_FEATURE_INCOMPAT_META_BG 0x0010U
+#define IFS_EXT2_FEATURE_INCOMPAT_SUPPORTED \
+    (IFS_EXT2_FEATURE_INCOMPAT_FILETYPE | IFS_EXT2_FEATURE_INCOMPAT_META_BG)
+
+#define IFS_EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER 0x0001U
+#define IFS_EXT2_FEATURE_RO_COMPAT_LARGE_FILE 0x0002U
+#define IFS_EXT2_FEATURE_RO_COMPAT_BTREE_DIR 0x0004U
+#define IFS_EXT2_FEATURE_RO_COMPAT_SUPPORTED \
+    (IFS_EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER | \
+     IFS_EXT2_FEATURE_RO_COMPAT_LARGE_FILE | \
+     IFS_EXT2_FEATURE_RO_COMPAT_BTREE_DIR)
+
+typedef enum IfsExt2Status {
+    IFS_EXT2_OK = 0,
+    IFS_EXT2_ERROR_ARGUMENT,
+    IFS_EXT2_ERROR_MAGIC,
+    IFS_EXT2_ERROR_REVISION,
+    IFS_EXT2_ERROR_JOURNALLED,
+    IFS_EXT2_ERROR_FEATURES,
+    IFS_EXT2_ERROR_BLOCK_SIZE,
+    IFS_EXT2_ERROR_FRAGMENT_SIZE,
+    IFS_EXT2_ERROR_INODE_SIZE,
+    IFS_EXT2_ERROR_GEOMETRY,
+    IFS_EXT2_ERROR_RANGE,
+    IFS_EXT2_ERROR_CORRUPT
+} IfsExt2Status;
+
+typedef struct IfsExt2Superblock {
+    ifs_ext2_u32 inodes_count;
+    ifs_ext2_u32 blocks_count;
+    ifs_ext2_u32 reserved_blocks_count;
+    ifs_ext2_u32 free_blocks_count;
+    ifs_ext2_u32 free_inodes_count;
+    ifs_ext2_u32 first_data_block;
+    ifs_ext2_u32 log_block_size;
+    ifs_ext2_u32 log_fragment_size;
+    ifs_ext2_u32 blocks_per_group;
+    ifs_ext2_u32 fragments_per_group;
+    ifs_ext2_u32 inodes_per_group;
+    ifs_ext2_u16 state;
+    ifs_ext2_u16 errors;
+    ifs_ext2_u32 revision;
+    ifs_ext2_u32 first_inode;
+    ifs_ext2_u16 inode_size;
+    ifs_ext2_u32 feature_compat;
+    ifs_ext2_u32 feature_incompat;
+    ifs_ext2_u32 feature_ro_compat;
+    ifs_ext2_u32 first_meta_bg;
+    ifs_ext2_u32 block_size;
+    ifs_ext2_u32 inodes_per_block;
+    ifs_ext2_u32 inode_table_blocks_per_group;
+    ifs_ext2_u32 group_count;
+} IfsExt2Superblock;
+
+typedef struct IfsExt2GroupDescriptor {
+    ifs_ext2_u32 block_bitmap;
+    ifs_ext2_u32 inode_bitmap;
+    ifs_ext2_u32 inode_table;
+    ifs_ext2_u16 free_blocks_count;
+    ifs_ext2_u16 free_inodes_count;
+    ifs_ext2_u16 used_dirs_count;
+} IfsExt2GroupDescriptor;
+
+typedef struct IfsExt2BlockPath {
+    ifs_ext2_u32 offsets[4];
+    ifs_ext2_u32 depth;
+    ifs_ext2_u32 boundary;
+} IfsExt2BlockPath;
+
+IfsExt2Status ifs_ext2_decode_superblock(
+    const void *raw_superblock,
+    size_t raw_size,
+    IfsExt2Superblock *superblock);
+
+IfsExt2Status ifs_ext2_validate_superblock(
+    IfsExt2Superblock *superblock,
+    ifs_ext2_u64 device_blocks,
+    int writable);
+
+IfsExt2Status ifs_ext2_decode_group_descriptor(
+    const void *raw_descriptor,
+    size_t raw_size,
+    IfsExt2GroupDescriptor *descriptor);
+
+IfsExt2Status ifs_ext2_group_bounds(
+    const IfsExt2Superblock *superblock,
+    ifs_ext2_u32 group,
+    ifs_ext2_u64 *first_block,
+    ifs_ext2_u64 *last_block);
+
+IfsExt2Status ifs_ext2_validate_group_descriptor(
+    const IfsExt2Superblock *superblock,
+    ifs_ext2_u32 group,
+    const IfsExt2GroupDescriptor *descriptor);
+
+IfsExt2Status ifs_ext2_block_to_path(
+    ifs_ext2_u32 block_size,
+    ifs_ext2_u64 logical_block,
+    IfsExt2BlockPath *path);
+
+const char *ifs_ext2_status_string(IfsExt2Status status);
+
+#endif
