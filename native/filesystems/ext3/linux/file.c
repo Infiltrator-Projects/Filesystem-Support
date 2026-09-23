@@ -40,6 +40,7 @@
  *   non-obvious design intent. They deliberately avoid restating C syntax.
  */
 
+#include <linux/blkdev.h>
 #include <linux/quotaops.h>
 #include "ext3.h"
 
@@ -84,20 +85,35 @@ const struct file_operations ext3_file_operations = {
 	.open		= dquot_file_open,
 	.release	= ext3_release_file,
 	.fsync		= ext3_sync_file,
-	.splice_read	= generic_file_splice_read,
+	.splice_read	= filemap_splice_read,
 	.splice_write	= iter_file_splice_write,
 };
 
-const struct inode_operations ext3_file_inode_operations = {
-	.setattr	= ext3_setattr,
-#ifdef CONFIG_EXT3_FS_XATTR
-	.setxattr	= generic_setxattr,
-	.getxattr	= generic_getxattr,
-	.listxattr	= ext3_listxattr,
-	.removexattr	= generic_removexattr,
+static int ext3_vfs_setattr(struct mnt_idmap *idmap,
+			    struct dentry *dentry, struct iattr *attr)
+{
+	(void)idmap;
+	return ext3_setattr(dentry, attr);
+}
+
+#ifdef CONFIG_EXT3_FS_POSIX_ACL
+static int ext3_vfs_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
+			    struct posix_acl *acl, int type)
+{
+	(void)idmap;
+	return ext3_set_acl(d_inode(dentry), acl, type);
+}
 #endif
-	.get_acl	= ext3_get_acl,
-	.set_acl	= ext3_set_acl,
+
+const struct inode_operations ext3_file_inode_operations = {
+	.setattr	= ext3_vfs_setattr,
+#ifdef CONFIG_EXT3_FS_XATTR
+	.listxattr	= ext3_listxattr,
+#endif
+#ifdef CONFIG_EXT3_FS_POSIX_ACL
+	.get_inode_acl	= ext3_get_acl,
+	.set_acl	= ext3_vfs_set_acl,
+#endif
 	.fiemap		= ext3_fiemap,
 };
 
@@ -120,7 +136,7 @@ int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 
 
 
-	if (inode->i_sb->s_flags & MS_RDONLY) {
+	if (sb_rdonly(inode->i_sb)) {
 
 		smp_rmb();
 		if (EXT3_SB(inode->i_sb)->s_mount_state & EXT3_ERROR_FS)
@@ -154,7 +170,7 @@ int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	if (needs_barrier) {
 		int err;
 
-		err = blkdev_issue_flush(inode->i_sb->s_bdev, GFP_KERNEL, NULL);
+		err = blkdev_issue_flush(inode->i_sb->s_bdev);
 		if (!ret)
 			ret = err;
 	}
@@ -193,7 +209,7 @@ long ext3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		unsigned int oldflags;
 		unsigned int jflag;
 
-		if (!inode_owner_or_capable(inode))
+		if (!inode_owner_or_capable(&nop_mnt_idmap, inode))
 			return -EACCES;
 
 		if (get_user(flags, (int __user *) arg))
@@ -205,7 +221,7 @@ long ext3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		flags = ext3_mask_flags(inode->i_mode, flags);
 
-		mutex_lock(&inode->i_mutex);
+		inode_lock(inode);
 
 
 		err = -EPERM;
@@ -245,7 +261,7 @@ long ext3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		ei->i_flags = flags;
 
 		ext3_set_inode_flags(inode);
-		inode->i_ctime = CURRENT_TIME_SEC;
+		inode_set_ctime_current(inode);
 
 		err = ext3_mark_iloc_dirty(handle, inode, &iloc);
 flags_err:
@@ -256,7 +272,7 @@ flags_err:
 		if ((jflag ^ oldflags) & (EXT3_JOURNAL_DATA_FL))
 			err = ext3_change_inode_journal_flag(inode, jflag);
 flags_out:
-		mutex_unlock(&inode->i_mutex);
+		inode_unlock(inode);
 		mnt_drop_write_file(filp);
 		return err;
 	}
@@ -270,7 +286,7 @@ flags_out:
 		__u32 generation;
 		int err;
 
-		if (!inode_owner_or_capable(inode))
+		if (!inode_owner_or_capable(&nop_mnt_idmap, inode))
 			return -EPERM;
 
 		err = mnt_want_write_file(filp);
@@ -281,7 +297,7 @@ flags_out:
 			goto setversion_out;
 		}
 
-		mutex_lock(&inode->i_mutex);
+		inode_lock(inode);
 		handle = ext3_journal_start(inode, 1);
 		if (IS_ERR(handle)) {
 			err = PTR_ERR(handle);
@@ -289,14 +305,14 @@ flags_out:
 		}
 		err = ext3_reserve_inode_write(handle, inode, &iloc);
 		if (err == 0) {
-			inode->i_ctime = CURRENT_TIME_SEC;
+			inode_set_ctime_current(inode);
 			inode->i_generation = generation;
 			err = ext3_mark_iloc_dirty(handle, inode, &iloc);
 		}
 		ext3_journal_stop(handle);
 
 unlock_out:
-		mutex_unlock(&inode->i_mutex);
+		inode_unlock(inode);
 setversion_out:
 		mnt_drop_write_file(filp);
 		return err;
@@ -319,7 +335,7 @@ setversion_out:
 		if (err)
 			return err;
 
-		if (!inode_owner_or_capable(inode)) {
+		if (!inode_owner_or_capable(&nop_mnt_idmap, inode)) {
 			err = -EACCES;
 			goto setrsvsz_out;
 		}
