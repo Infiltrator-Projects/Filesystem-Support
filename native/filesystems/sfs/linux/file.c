@@ -39,10 +39,12 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 	struct fsObject *obj;
 #endif
 
-	asfs_debug("SFS: get_block(%lu, %llu, %d)\n", inode->i_ino,\n\t\t   (unsigned long long)block, create);
+	asfs_debug("SFS: get_block(%lu, %llu, %d)\n", inode->i_ino,
+		   (unsigned long long)block, create);
 
 	if (block >= inode->i_blocks && !create) {
-		printk(KERN_ERR "SFS: strange block request %llu\n",\n\t\t       (unsigned long long)block);
+		printk(KERN_ERR "SFS: strange block request %llu\n",
+		       (unsigned long long)block);
 		return -EIO;
 	} 
 
@@ -191,15 +193,17 @@ int asfs_truncate(struct inode *inode)
 
 	mutex_lock(&ASFS_SB(sb)->lock);
 
-	if ((asfs_readobject(sb, inode->i_ino, &bh, &obj)) != 0) {
+	error = asfs_readobject(sb, inode->i_ino, &bh, &obj);
+	if (error != 0) {
 		mutex_unlock(&ASFS_SB(sb)->lock);
-		return;
+		return error;
 	}
 
-	if (asfs_truncateblocksinfile(sb, bh, obj, inode->i_size) != 0) {
+	error = asfs_truncateblocksinfile(sb, bh, obj, inode->i_size);
+	if (error != 0) {
 		asfs_brelse(bh);
 		mutex_unlock(&ASFS_SB(sb)->lock);
-		return;
+		return error;
 	}
 		
 	obj->object.file.size = cpu_to_be32(inode->i_size);
@@ -210,6 +214,7 @@ int asfs_truncate(struct inode *inode)
 	asfs_brelse(bh);
 
 	mutex_unlock(&ASFS_SB(sb)->lock);
+	return 0;
 }
 
 int asfs_file_open(struct inode *inode, struct file *filp)
