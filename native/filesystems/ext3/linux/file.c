@@ -97,6 +97,14 @@ static int ext3_vfs_setattr(struct mnt_idmap *idmap,
 }
 
 #ifdef CONFIG_EXT3_FS_POSIX_ACL
+static struct posix_acl *ext3_vfs_get_inode_acl(struct inode *inode,
+						int type, bool rcu)
+{
+	if (rcu)
+		return ERR_PTR(-ECHILD);
+	return ext3_get_acl(inode, type);
+}
+
 static int ext3_vfs_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 			    struct posix_acl *acl, int type)
 {
@@ -111,7 +119,7 @@ const struct inode_operations ext3_file_inode_operations = {
 	.listxattr	= ext3_listxattr,
 #endif
 #ifdef CONFIG_EXT3_FS_POSIX_ACL
-	.get_inode_acl	= ext3_get_acl,
+	.get_inode_acl	= ext3_vfs_get_inode_acl,
 	.set_acl	= ext3_vfs_set_acl,
 #endif
 	.fiemap		= ext3_fiemap,
