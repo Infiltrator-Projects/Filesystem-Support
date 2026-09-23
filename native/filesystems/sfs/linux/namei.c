@@ -65,9 +65,9 @@ inline int asfs_check_name(const u8 *name, int len)
 
 /* Note: the dentry argument is the parent dentry. */
 
-static int asfs_hash_dentry(struct dentry *dentry, struct qstr *qstr)
+static int asfs_hash_dentry(const struct dentry *dentry, struct qstr *qstr)
 {
-	struct super_block *sb = dentry->d_inode->i_sb;
+	struct super_block *sb = d_inode(dentry)->i_sb;
 	const u8 *name = qstr->name;
 	unsigned long hash;
 	int i;
@@ -77,7 +77,7 @@ static int asfs_hash_dentry(struct dentry *dentry, struct qstr *qstr)
 	if (i)
 		return i;
 
-	hash = init_name_hash();
+	hash = init_name_hash(dentry);
 
 	if (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE)
 		for (i=qstr->len; i > 0; name++, i--)
@@ -91,40 +91,34 @@ static int asfs_hash_dentry(struct dentry *dentry, struct qstr *qstr)
 	return 0;
 }
 
-static int asfs_compare_dentry(struct dentry *dentry, struct qstr *a, struct qstr *b)
+static int asfs_compare_dentry(const struct dentry *dentry,
+		unsigned int len, const char *str, const struct qstr *name)
 {
-	struct super_block *sb = dentry->d_inode->i_sb;
-	const u8 *aname = a->name;
-	const u8 *bname = b->name;
-	int len;
+	struct super_block *sb = d_inode(dentry)->i_sb;
+	const u8 *aname = (const u8 *)str;
+	const u8 *bname = name->name;
 	struct nls_table *nls_io = ASFS_SB(sb)->nls_io;
+	unsigned int i;
 
-	/* 'a' is the qstr of an already existing dentry, so the name
-	 * must be valid. 'b' must be validated first.
-	 */
-
-	if (asfs_check_name(b->name,b->len))
+	if (asfs_check_name(name->name, name->len))
+		return 1;
+	if (len != name->len)
 		return 1;
 
-	if (a->len != b->len)
-		return 1;
+	if (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE)
+		return memcmp(aname, bname, len) != 0;
 
-	if (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) {
-		for (len=a->len; len > 0; len--)
-			if (*aname++ != *bname++)
-				return 1;
-	} else {
-		for (len=a->len; len > 0; len--)
-			if (asfs_nls_upperchar(*aname++, nls_io) != asfs_nls_upperchar(*bname++, nls_io))
-				return 1;
-	}
+	for (i = 0; i < len; ++i)
+		if (asfs_nls_upperchar(aname[i], nls_io) !=
+		    asfs_nls_upperchar(bname[i], nls_io))
+			return 1;
 
 	return 0;
 }
 
-struct dentry_operations asfs_dentry_operations = {
-	d_hash:		asfs_hash_dentry,
-	d_compare:	asfs_compare_dentry,
+const struct dentry_operations asfs_dentry_operations = {
+	.d_hash = asfs_hash_dentry,
+	.d_compare = asfs_compare_dentry,
 };
 
 int asfs_namecmp(u8 *s, u8 *ct, int casesensitive, struct nls_table *t)
