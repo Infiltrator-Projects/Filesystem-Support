@@ -47,9 +47,11 @@ recovery semantics. Linux and Windows remain host adapters.
 ## Source bases
 
 OFS and FFS start from the pinned Linux v6.12.107 `fs/affs` implementation.
-Linux upstream combines those formats; Filesystem Support does not. The first
-migration step preserves that proven code while producing independently gated
-OFS and FFS Linux modules.
+Linux upstream combines those formats; Filesystem Support does not. The proven
+upstream code was copied into the independent OFS and FFS migration trees and
+is modified there. No separate live `native/filesystems/affs/` implementation
+is retained: provenance is preserved by the copied source headers, this
+document and Git history rather than by maintaining a third duplicate tree.
 
 SFS starts from the real ASFS Linux implementation by Marek Szyprowski and is
 kept distinct from SFS2.
