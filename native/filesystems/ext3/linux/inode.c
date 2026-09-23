@@ -49,12 +49,69 @@
 #include <linux/quotaops.h>
 #include <linux/writeback.h>
 #include <linux/mpage.h>
+#include <linux/highmem.h>
 #include <linux/namei.h>
 #include <linux/uio.h>
 #include "ext3.h"
 
 static int ext3_writepage_trans_blocks(struct inode *inode);
 static int ext3_block_truncate_page(struct inode *inode, loff_t from);
+
+
+/*
+ * Linux keeps block_write_full_folio() and buffer_check_dirty_writeback()
+ * internal to fs/buffer.c. External filesystem modules therefore reproduce
+ * only these thin boundary helpers while retaining the exported
+ * __block_write_full_folio() implementation for actual buffered writeback.
+ */
+static int ext3_block_write_full_folio(struct folio *folio,
+				       struct writeback_control *wbc,
+				       get_block_t *get_block)
+{
+	struct inode *inode = folio->mapping->host;
+	loff_t i_size = i_size_read(inode);
+
+	if (folio_pos(folio) + folio_size(folio) <= i_size)
+		return __block_write_full_folio(inode, folio, get_block, wbc);
+
+	if (folio_pos(folio) >= i_size) {
+		folio_unlock(folio);
+		return 0;
+	}
+
+	folio_zero_segment(folio, offset_in_folio(folio, i_size),
+			   folio_size(folio));
+	return __block_write_full_folio(inode, folio, get_block, wbc);
+}
+
+static void ext3_buffer_check_dirty_writeback(struct folio *folio,
+					       bool *dirty,
+					       bool *writeback)
+{
+	struct buffer_head *head;
+	struct buffer_head *bh;
+
+	*dirty = false;
+	*writeback = false;
+
+	BUG_ON(!folio_test_locked(folio));
+
+	head = folio_buffers(folio);
+	if (!head)
+		return;
+
+	if (folio_test_writeback(folio))
+		*writeback = true;
+
+	bh = head;
+	do {
+		if (buffer_locked(bh))
+			*writeback = true;
+		if (buffer_dirty(bh))
+			*dirty = true;
+		bh = bh->b_this_page;
+	} while (bh != head);
+}
 
 
 /**
@@ -1621,7 +1678,7 @@ static int ext3_ordered_writepage(struct page *page,
 				       NULL, buffer_unmapped)) {
 
 
-			return block_write_full_folio(page_folio(page), wbc, NULL);
+			return ext3_block_write_full_folio(page_folio(page), wbc, NULL);
 		}
 	}
 	handle = ext3_journal_start(inode, ext3_writepage_trans_blocks(inode));
@@ -1634,7 +1691,7 @@ static int ext3_ordered_writepage(struct page *page,
 	walk_page_buffers(handle, page_bufs, 0,
 			PAGE_SIZE, NULL, bget_one);
 
-	ret = block_write_full_folio(page_folio(page), wbc, ext3_get_block);
+	ret = ext3_block_write_full_folio(page_folio(page), wbc, ext3_get_block);
 
 
 	if (ret == 0)
@@ -1685,7 +1742,7 @@ static int ext3_writeback_writepage(struct page *page,
 				      PAGE_SIZE, NULL, buffer_unmapped)) {
 
 
-			return block_write_full_folio(page_folio(page), wbc, NULL);
+			return ext3_block_write_full_folio(page_folio(page), wbc, NULL);
 		}
 	}
 
@@ -1695,7 +1752,7 @@ static int ext3_writeback_writepage(struct page *page,
 		goto out_fail;
 	}
 
-	ret = block_write_full_folio(page_folio(page), wbc, ext3_get_block);
+	ret = ext3_block_write_full_folio(page_folio(page), wbc, ext3_get_block);
 
 	err = ext3_journal_stop(handle);
 	if (!ret)
@@ -1768,7 +1825,7 @@ static int ext3_journalled_writepage(struct page *page,
 	} else {
 
 
-		ret = block_write_full_folio(page_folio(page), wbc, NULL);
+		ret = ext3_block_write_full_folio(page_folio(page), wbc, NULL);
 	}
 out:
 	return ret;
@@ -1951,7 +2008,7 @@ static const struct address_space_operations ext3_ordered_aops = {
 	.direct_IO		= ext3_direct_IO,
 	.migrate_folio		= buffer_migrate_folio,
 	.is_partially_uptodate  = block_is_partially_uptodate,
-	.is_dirty_writeback	= buffer_check_dirty_writeback,
+	.is_dirty_writeback	= ext3_buffer_check_dirty_writeback,
 	.error_remove_folio	= generic_error_remove_folio,
 };
 
