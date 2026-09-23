@@ -41,6 +41,7 @@
 #include <linux/rbtree.h>
 #include <linux/mm.h>
 #include <linux/highmem.h>
+#include "../core/ext2_core.h"
 
 
 typedef int ext2_grpblk_t;
