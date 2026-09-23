@@ -13,7 +13,7 @@
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
 #include <linux/errno.h>
-#include "../../amiga_common/core/amiga_dos_core.h"
+#include "../../../primitives/amiga_dos/amiga_dos_core.h"
 
 #define AFFS_HEAD(bh)     ((struct affs_head *)(bh)->b_data)
 #define AFFS_TAIL(sb, bh)     ((struct affs_tail *)((bh)->b_data + (sb)->s_blocksize -                          sizeof(struct affs_tail)))
