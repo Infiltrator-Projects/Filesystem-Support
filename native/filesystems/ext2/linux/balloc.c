@@ -508,10 +508,23 @@ void ext2_free_blocks(struct inode * inode, ext2_fsblk_t block,
 
 do_more:
 	overflow = 0;
-	block_group = (block - le32_to_cpu(es->s_first_data_block)) /
-		      EXT2_BLOCKS_PER_GROUP(sb);
-	bit = (block - le32_to_cpu(es->s_first_data_block)) %
-		      EXT2_BLOCKS_PER_GROUP(sb);
+	{
+		ifs_ext2_u32 mapped_group = 0U;
+		ifs_ext2_u32 mapped_offset = 0U;
+
+		if (ifs_ext2_block_group_position(
+			    le32_to_cpu(es->s_first_data_block),
+			    EXT2_BLOCKS_PER_GROUP(sb),
+			    le32_to_cpu(es->s_blocks_count),
+			    (ifs_ext2_u32)block,
+			    &mapped_group, &mapped_offset) != IFS_EXT2_OK) {
+			ext2_error(sb, __func__,
+				"block %lu outside filesystem geometry", block);
+			goto error_return;
+		}
+		block_group = mapped_group;
+		bit = mapped_offset;
+	}
 
 
 	if (bit + count > EXT2_BLOCKS_PER_GROUP(sb)) {
@@ -1090,8 +1103,22 @@ ext2_fsblk_t ext2_new_blocks(struct inode *inode, ext2_fsblk_t goal,
 	if (goal < le32_to_cpu(es->s_first_data_block) ||
 	    goal >= le32_to_cpu(es->s_blocks_count))
 		goal = le32_to_cpu(es->s_first_data_block);
-	group_no = (goal - le32_to_cpu(es->s_first_data_block)) /
-			EXT2_BLOCKS_PER_GROUP(sb);
+	{
+		ifs_ext2_u32 mapped_group = 0U;
+		ifs_ext2_u32 mapped_offset = 0U;
+
+		if (ifs_ext2_block_group_position(
+			    le32_to_cpu(es->s_first_data_block),
+			    EXT2_BLOCKS_PER_GROUP(sb),
+			    le32_to_cpu(es->s_blocks_count),
+			    (ifs_ext2_u32)goal,
+			    &mapped_group, &mapped_offset) != IFS_EXT2_OK) {
+			*errp = -EIO;
+			goto out;
+		}
+		group_no = (int)mapped_group;
+		grp_target_blk = (ext2_grpblk_t)mapped_offset;
+	}
 	goal_group = group_no;
 retry_alloc:
 	gdp = ext2_get_group_desc(sb, group_no, &gdp_bh);
@@ -1107,10 +1134,6 @@ retry_alloc:
 		my_rsv = NULL;
 
 	if (free_blocks > 0) {
-		grp_target_blk = ((goal - le32_to_cpu(es->s_first_data_block)) %
-				EXT2_BLOCKS_PER_GROUP(sb));
-
-
 		brelse(bitmap_bh);
 		bitmap_bh = read_block_bitmap(sb, group_no);
 		if (!bitmap_bh)
