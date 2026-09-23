@@ -415,7 +415,8 @@ struct ext2_dir_entry_2 *ext2_find_entry (struct inode *dir,
 {
 	const char *name = child->name;
 	int namelen = child->len;
-	unsigned reclen = EXT2_DIR_REC_LEN(namelen);
+	unsigned reclen =
+		ifs_ext2_directory_record_required_length((ifs_ext2_u32)namelen);
 	unsigned long start, n;
 	unsigned long npages = dir_pages(dir);
 	struct ext2_inode_info *ei = EXT2_I(dir);
@@ -626,11 +627,11 @@ int ext2_add_link (struct dentry *dentry, struct inode *inode)
 			err = -EEXIST;
 			if (ext2_match (namelen, name, de))
 				goto out_unlock;
-			name_len = EXT2_DIR_REC_LEN(de->name_len);
 			rec_len = ext2_rec_len_from_disk(de->rec_len);
-			if (!de->inode && rec_len >= reclen)
-				goto got_it;
-			if (rec_len >= name_len + reclen)
+			if (ifs_ext2_directory_record_can_insert(
+				    rec_len, de->name_len, le32_to_cpu(de->inode),
+				    (ifs_ext2_u32)namelen,
+				    (ifs_ext2_u32 *)&name_len))
 				goto got_it;
 			de = (ext2_dirent *) ((char *) de + rec_len);
 		}
