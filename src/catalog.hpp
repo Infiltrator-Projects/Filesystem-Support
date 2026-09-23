@@ -33,6 +33,7 @@ struct FilesystemDescriptor {
     AccessMode access;
     SupportProvider provider;
     std::string_view note;
+    bool project_native_linux = false;
 };
 
 const std::vector<FilesystemDescriptor>& catalog();
@@ -40,6 +41,8 @@ const char* access_mode_label(AccessMode mode);
 const char* support_provider_label(SupportProvider provider);
 bool package_is_catalogued(std::string_view package);
 bool module_is_catalogued(std::string_view module);
+bool linux_native_module_is_managed(std::string_view filesystem_id,
+                                    std::string_view module);
 std::vector<std::string_view> catalogue_entries_using_package(
     std::string_view package);
 bool catalog_is_valid();
