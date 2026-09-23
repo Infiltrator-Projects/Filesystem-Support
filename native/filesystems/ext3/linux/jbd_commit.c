@@ -74,27 +74,23 @@ static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
  */
 static void release_buffer_page(struct buffer_head *bh)
 {
-	struct page *page;
+	struct folio *folio;
 
 	if (buffer_dirty(bh))
 		goto nope;
 	if (atomic_read(&bh->b_count) != 1)
 		goto nope;
-	page = bh->b_page;
-	if (!page)
+	folio = bh->b_folio;
+	if (folio->mapping)
 		goto nope;
-	if (page->mapping)
-		goto nope;
-
-
-	if (!trylock_page(page))
+	if (!folio_trylock(folio))
 		goto nope;
 
-	page_cache_get(page);
+	folio_get(folio);
 	__brelse(bh);
-	try_to_free_buffers(page);
-	unlock_page(page);
-	page_cache_release(page);
+	try_to_free_buffers(folio);
+	folio_unlock(folio);
+	folio_put(folio);
 	return;
 
 nope:
@@ -178,7 +174,7 @@ static int journal_write_commit_record(journal_t *journal,
 	set_buffer_dirty(bh);
 
 	if (journal->j_flags & JFS_BARRIER)
-		ret = __sync_dirty_buffer(bh, WRITE_SYNC | WRITE_FLUSH_FUA);
+		ret = __sync_dirty_buffer(bh, REQ_SYNC | REQ_PREFLUSH | REQ_FUA);
 	else
 		ret = sync_dirty_buffer(bh);
 
@@ -198,7 +194,7 @@ static int journal_write_commit_record(journal_t *journal,
  * rollback, abort or retry policy.
  */
 static void journal_do_submit_data(struct buffer_head **wbuf, int bufs,
-				   int write_op)
+				   blk_opf_t write_flags)
 {
 	int i;
 
@@ -206,7 +202,7 @@ static void journal_do_submit_data(struct buffer_head **wbuf, int bufs,
 		wbuf[i]->b_end_io = end_buffer_write_sync;
 
 
-		_submit_bh(write_op, wbuf[i], 1 << BIO_SNAP_STABLE);
+		submit_bh(REQ_OP_WRITE | write_flags, wbuf[i]);
 	}
 }
 
@@ -221,7 +217,7 @@ static void journal_do_submit_data(struct buffer_head **wbuf, int bufs,
  */
 static int journal_submit_data_buffers(journal_t *journal,
 				       transaction_t *commit_transaction,
-				       int write_op)
+				       blk_opf_t write_flags)
 {
 	struct journal_head *jh;
 	struct buffer_head *bh;
@@ -249,7 +245,7 @@ write_out_data:
 				BUFFER_TRACE(bh, "needs blocking lock");
 				spin_unlock(&journal->j_list_lock);
 
-				journal_do_submit_data(wbuf, bufs, write_op);
+				journal_do_submit_data(wbuf, bufs, write_flags);
 				bufs = 0;
 				lock_buffer(bh);
 				spin_lock(&journal->j_list_lock);
@@ -280,7 +276,7 @@ write_out_data:
 			jbd_unlock_bh_state(bh);
 			if (bufs == journal->j_wbufsize) {
 				spin_unlock(&journal->j_list_lock);
-				journal_do_submit_data(wbuf, bufs, write_op);
+				journal_do_submit_data(wbuf, bufs, write_flags);
 				bufs = 0;
 				goto write_out_data;
 			}
@@ -306,7 +302,7 @@ write_out_data:
 		}
 	}
 	spin_unlock(&journal->j_list_lock);
-	journal_do_submit_data(wbuf, bufs, write_op);
+	journal_do_submit_data(wbuf, bufs, write_flags);
 
 	return err;
 }
@@ -339,7 +335,7 @@ void journal_commit_transaction(journal_t *journal)
 	int tag_flag;
 	int i;
 	struct blk_plug plug;
-	int write_op = WRITE;
+	blk_opf_t write_flags = 0;
 
 
 	if (journal->j_flags & JFS_FLUSHED) {
@@ -348,7 +344,7 @@ void journal_commit_transaction(journal_t *journal)
 
 
 		journal_update_sb_log_tail(journal, journal->j_tail_sequence,
-					   journal->j_tail, WRITE_SYNC);
+					   journal->j_tail, REQ_SYNC);
 		mutex_unlock(&journal->j_checkpoint_mutex);
 	} else {
 		jbd_debug(3, "superblock not updated\n");
@@ -424,12 +420,12 @@ void journal_commit_transaction(journal_t *journal)
 	jbd_debug (3, "JBD: commit phase 2\n");
 
 	if (tid_geq(journal->j_commit_waited, commit_transaction->t_tid))
-		write_op = WRITE_SYNC;
+		write_flags = REQ_SYNC;
 
 
 	blk_start_plug(&plug);
 	err = journal_submit_data_buffers(journal, commit_transaction,
-					  write_op);
+					  write_flags);
 	blk_finish_plug(&plug);
 
 
@@ -451,11 +447,10 @@ void journal_commit_transaction(journal_t *journal)
 				lock_page(bh->b_page);
 				spin_lock(&journal->j_list_lock);
 			}
-			if (bh->b_page->mapping)
-				set_bit(AS_EIO, &bh->b_page->mapping->flags);
+			if (bh->b_folio->mapping)
+				mapping_set_error(bh->b_folio->mapping, -EIO);
 
 			unlock_page(bh->b_page);
-			SetPageError(bh->b_page);
 			err = -EIO;
 		}
 		if (!inverted_lock(journal, bh)) {
@@ -474,11 +469,9 @@ void journal_commit_transaction(journal_t *journal)
 	spin_unlock(&journal->j_list_lock);
 
 	if (err) {
-		char b[BDEVNAME_SIZE];
-
 		printk(KERN_WARNING
 			"JBD: Detected IO errors while flushing file data "
-			"on %s\n", bdevname(journal->j_fs_dev, b));
+			"on %pg\n", journal->j_fs_dev);
 		if (journal->j_flags & JFS_ABORT_ON_SYNCDATA_ERR)
 			journal_abort(journal, err);
 		err = 0;
@@ -486,7 +479,7 @@ void journal_commit_transaction(journal_t *journal)
 
 	blk_start_plug(&plug);
 
-	journal_write_revoke_records(journal, commit_transaction, write_op);
+	journal_write_revoke_records(journal, commit_transaction, write_flags);
 
 
 	J_ASSERT (commit_transaction->t_sync_datalist == NULL);
@@ -618,7 +611,7 @@ start_journal_io:
 				bh->b_end_io = journal_end_buffer_io_sync;
 
 
-				_submit_bh(write_op, bh, 1 << BIO_SNAP_STABLE);
+				submit_bh(REQ_OP_WRITE | write_flags, bh);
 			}
 			cond_resched();
 
