@@ -147,13 +147,13 @@ IfsExt4LayoutStatus ifs_ext4_validate_layout(
         const ifs_ext4_u64 max_groups =
             0x100000000ULL - descriptors_per_block;
 
+        *group_count = groups;
+
         if (groups > max_groups)
             return IFS_EXT4_LAYOUT_GROUP_COUNT_TOO_LARGE;
 
         if (groups * inodes_per_group != inodes_count)
             return IFS_EXT4_LAYOUT_INVALID_INODE_COUNT;
-
-        *group_count = groups;
     }
 
     return IFS_EXT4_LAYOUT_OK;
