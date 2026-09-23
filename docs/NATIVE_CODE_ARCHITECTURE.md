@@ -345,3 +345,47 @@ adopt the same architecture without rediscovering the platform split.
 If EXT2 exposes a bad abstraction, fix the abstraction rather than preserving
 it for compatibility. The cross-platform native-engine API is still free to
 improve before a stable release contract is declared.
+
+
+## Linux native installation contract
+
+A project-owned Linux filesystem is considered installed only when the
+Filesystem Support manager has installed the project's actual VFS kernel module
+for the running kernel.
+
+For a qualified native Linux filesystem such as EXT3, clicking **Install
+native** means:
+
+1. identify the running kernel release;
+2. require the matching kernel build headers;
+3. compile the filesystem's canonical core plus Linux adapter against that
+   running kernel;
+4. install the resulting `.ko` beneath the running kernel's module tree in
+   an Infiltrator-owned `updates/` location;
+5. run `depmod`;
+6. load the module with `modprobe`;
+7. verify that the module is genuinely available/loaded before reporting
+   success.
+
+Clicking **Remove native** means:
+
+1. refuse removal if the module cannot be unloaded safely, including when it is
+   servicing a mounted/in-use filesystem;
+2. unload the module;
+3. remove the Infiltrator-owned module from the running kernel's module tree;
+4. run `depmod`;
+5. re-probe and report the real resulting state.
+
+Filesystem administration packages remain independent. For example,
+`e2fsprogs` supplies useful EXT formatting/checking tools, but installing
+`e2fsprogs` is not installation of the Infiltrator EXT3 filesystem driver.
+
+If the running kernel already has a same-named built-in or in-use driver that
+cannot safely be replaced, installation must fail closed and explain the
+conflict. Filesystem Support must never report the project-native module as
+active when the stock/built-in implementation is actually servicing the
+filesystem.
+
+The Windows development mounter exception documented in
+[`WINDOWS_FILESYSTEM_ARCHITECTURE.md`](WINDOWS_FILESYSTEM_ARCHITECTURE.md)
+does not weaken this Linux rule.

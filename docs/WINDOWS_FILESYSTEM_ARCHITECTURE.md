@@ -279,3 +279,42 @@ Those Windows mechanisms may be reused and generalised aggressively.
 Ext-specific format semantics from the archived ExtFS core remain migration
 evidence only. They must not be resurrected as a second EXT implementation
 beside the canonical EXT2/EXT3/EXT4 cores.
+
+
+## Qualification-stage Windows exception
+
+The native IFS architecture above is the **production destination**, not the
+current installation mechanism for unqualified development drivers.
+
+Windows will not be asked to install an unqualified Filesystem Support
+filesystem driver merely so development media can be mounted. Until a
+filesystem's Windows `.sys` package has completed the required Windows
+qualification/signing path, Filesystem Support uses the existing temporary
+file/volume-mounter bootstrap as a development compatibility bridge.
+
+That bridge is deliberately a kludge and must be represented as such:
+
+- it exists so the canonical filesystem engine can be exercised from Windows
+  before the native driver is distributable;
+- it is not evidence that the Windows IFS driver is installed;
+- it must not change or duplicate filesystem semantics;
+- it must not be treated as the final mount architecture;
+- the manager must distinguish temporary-mounter availability from a qualified
+  native Windows filesystem driver.
+
+Once a filesystem's Windows driver is properly qualified and installable, the
+temporary bridge for that filesystem can be retired in favour of the native IFS
+path documented above.
+
+The exact third-party/helper mounter identity is an implementation detail and
+must be recorded when the preserved deployment path is reconstructed; the
+architectural contract does not depend on a particular mounter product.
+
+## Linux is not allowed to use the Windows workaround
+
+The qualification-stage Windows exception does **not** apply to Linux.
+
+For a Filesystem Support filesystem that has a project-owned Linux VFS module,
+the Linux manager's Install/Remove control manages that real `.ko`. It must
+not substitute FUSE, a loopback network share, an image mounter, or merely the
+filesystem's administration tools and report that as native support.
