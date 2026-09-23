@@ -86,14 +86,20 @@ static int findbnode(struct super_block *sb, u32 key, struct buffer_head **retur
 int asfs_getextent(struct super_block *sb, u32 key, struct buffer_head **ret_bh, struct fsExtentBNode **ret_ebn)
 {
 	int result;
-	if ((result = findbnode(sb, key, ret_bh, (struct BNode **)ret_ebn)) == 0) 
-		if (be32_to_cpu((*ret_ebn)->key) != key) {
-			brelse(*ret_bh);
-			*ret_bh = NULL;
-			return -ENOENT;
-		}
 
-	return result;
+	*ret_bh = NULL;
+	*ret_ebn = NULL;
+	result = findbnode(sb, key, ret_bh, (struct BNode **)ret_ebn);
+	if (result != 0)
+		return result;
+	if (*ret_ebn == NULL || be32_to_cpu((*ret_ebn)->key) != key) {
+		asfs_brelse(*ret_bh);
+		*ret_bh = NULL;
+		*ret_ebn = NULL;
+		return -ENOENT;
+	}
+
+	return 0;
 }
 
 #ifdef CONFIG_ASFS_RW
@@ -484,16 +490,25 @@ int asfs_deleteextents(struct super_block *sb, u32 key)
 
 	asfs_debug("deleteextents: Entry -- deleting extents from key %d\n", key);
 
-	while (key != 0 && (errorcode = findbnode(sb, key, &bh, (struct BNode **) &ebn)) == 0) {
-		/* node to be deleted located. */
-		key = be32_to_cpu(ebn->next);
-		if ((errorcode = asfs_freespace(sb, be32_to_cpu(ebn->key), be16_to_cpu(ebn->blocks))) != 0)
+	while (key != 0) {
+		u32 next_key;
+		u32 extent_key;
+
+		errorcode = asfs_getextent(sb, key, &bh, &ebn);
+		if (errorcode != 0)
 			break;
 
-		if ((errorcode = asfs_deletebnode(sb, bh, be32_to_cpu(ebn->key))) != 0)
-			break;
+		next_key = be32_to_cpu(ebn->next);
+		extent_key = be32_to_cpu(ebn->key);
+		errorcode = asfs_freespace(
+			sb, extent_key, be16_to_cpu(ebn->blocks));
+		if (errorcode == 0)
+			errorcode = asfs_deletebnode(sb, bh, extent_key);
 
 		asfs_brelse(bh);
+		if (errorcode != 0)
+			break;
+		key = next_key;
 	}
 
 	return (errorcode);

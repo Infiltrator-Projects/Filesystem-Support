@@ -76,6 +76,7 @@ static int parentnodecontainer(struct super_block *sb, struct buffer_head **io_b
 			   which should never happen if the passed-in io_bh had
 			   contained a valid fsNodeContainer. */
 			printk("ASFS: Failed to locate the parent NodeContainer - node tree is corrupted!\n");
+			asfs_brelse(*io_bh);
 			*io_bh = NULL;
 			return -EIO;
 		} else {
@@ -125,7 +126,10 @@ static int markparentfull(struct super_block *sb, struct buffer_head *bh)
 		asfs_bstore(sb, bh);
 
 		if (isfull(sb, nc)) {	/* This container now is full as well!  Mark the next higher up container too then! */
-			return markparentfull(sb, bh);
+			int parent_error = markparentfull(sb, bh);
+
+			asfs_brelse(bh);
+			return parent_error;
 		}
 		asfs_brelse(bh);
 	}
@@ -371,7 +375,10 @@ static int markparentempty(struct super_block *sb, struct buffer_head *bh)
 
 		if (wasfull) {
 			/* This container was completely full before!  Mark the next higher up container too then! */
-			return markparentempty(sb, bh);
+			int parent_error = markparentempty(sb, bh);
+
+			asfs_brelse(bh);
+			return parent_error;
 		}
 		asfs_brelse(bh);
 	}
@@ -400,7 +407,10 @@ static int freecontainer(struct super_block *sb, struct buffer_head *bh)
 					break;
 
 			if (n < 0) {	/* This container is now completely empty!  Free this NodeIndexContainer too then! */
-				return freecontainer(sb, bh);
+				int parent_error = freecontainer(sb, bh);
+
+				asfs_brelse(bh);
+				return parent_error;
 			}
 		}
 		asfs_brelse(bh);
@@ -439,7 +449,7 @@ static int internaldeletenode(struct super_block *sb, struct buffer_head *bh, st
 
 int asfs_deletenode(struct super_block *sb, u32 objectnode)
 {
-	struct buffer_head *bh;
+	struct buffer_head *bh = NULL;
 	struct fsObjectNode *on;
 	int errorcode;
 
@@ -448,7 +458,8 @@ int asfs_deletenode(struct super_block *sb, u32 objectnode)
 	if ((errorcode = asfs_getnode(sb, objectnode, &bh, &on)) == 0)
 		errorcode = internaldeletenode(sb, bh, (struct fsNode *) on);
 
-	asfs_brelse(bh);
+	if (bh)
+		asfs_brelse(bh);
 	return (errorcode);
 }
 
