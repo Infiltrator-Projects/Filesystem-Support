@@ -656,8 +656,8 @@ extern void	 journal_release_buffer (handle_t *, struct buffer_head *);
 extern int	 journal_forget (handle_t *, struct buffer_head *);
 extern void	 journal_sync_buffer (struct buffer_head *);
 extern void	 journal_invalidatepage(journal_t *,
-				struct page *, unsigned int, unsigned int);
-extern int	 journal_try_to_free_buffers(journal_t *, struct page *, gfp_t);
+				struct folio *, size_t, size_t);
+extern int	 journal_try_to_free_buffers(journal_t *, struct folio *, gfp_t);
 extern int	 journal_stop(handle_t *);
 extern int	 journal_flush (journal_t *);
 extern void	 journal_lock_updates (journal_t *);
