@@ -80,6 +80,30 @@ int main(void)
         path.depth != 4U || path.offsets[0] != 14U)
         return fail("triple-indirect block path is wrong");
 
+    if (ifs_ext2_directory_record_required_length(1U) != 12U ||
+        ifs_ext2_directory_record_required_length(4U) != 12U ||
+        ifs_ext2_directory_record_required_length(5U) != 16U ||
+        ifs_ext2_directory_record_required_length(256U) != 0U)
+        return fail("directory record sizing is wrong");
+
+    {
+        ifs_ext2_u32 occupied = 0U;
+
+        if (!ifs_ext2_directory_record_can_insert(
+                32U, 5U, 12U, 8U, &occupied) ||
+            occupied != 16U)
+            return fail("splittable directory record was rejected");
+
+        if (ifs_ext2_directory_record_can_insert(
+                20U, 5U, 12U, 8U, &occupied))
+            return fail("undersized occupied record was accepted");
+
+        if (!ifs_ext2_directory_record_can_insert(
+                16U, 0U, 0U, 8U, &occupied) ||
+            occupied != 0U)
+            return fail("free directory record was rejected");
+    }
+
     if (ifs_ext2_validate_directory_record(
             0U, 12U, 1U, 2U, 1024U, 8192U) !=
         IFS_EXT2_DIRECTORY_RECORD_OK)
