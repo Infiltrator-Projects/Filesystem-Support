@@ -10,13 +10,24 @@
  * qualification tools and the Windows EXT2 driver.
  */
 
-#ifdef __KERNEL__
+#if defined(__KERNEL__)
 #include <linux/types.h>
-#include <linux/stddef.h>
 typedef u8 ifs_ext2_u8;
 typedef u16 ifs_ext2_u16;
 typedef u32 ifs_ext2_u32;
 typedef u64 ifs_ext2_u64;
+typedef size_t ifs_ext2_size_t;
+#elif defined(IFS_EXT2_WINDOWS_KERNEL)
+/*
+ * Keep the canonical engine free of the user-mode MSVC CRT. WDK kernel
+ * translation units define this contract explicitly and use fundamental C
+ * integer types whose widths are fixed by the supported x64/ARM64 ABIs.
+ */
+typedef unsigned char ifs_ext2_u8;
+typedef unsigned short ifs_ext2_u16;
+typedef unsigned int ifs_ext2_u32;
+typedef unsigned long long ifs_ext2_u64;
+typedef unsigned long long ifs_ext2_size_t;
 #else
 #include <stddef.h>
 #include <stdint.h>
@@ -24,6 +35,7 @@ typedef uint8_t ifs_ext2_u8;
 typedef uint16_t ifs_ext2_u16;
 typedef uint32_t ifs_ext2_u32;
 typedef uint64_t ifs_ext2_u64;
+typedef size_t ifs_ext2_size_t;
 #endif
 
 #define IFS_EXT2_SUPERBLOCK_SIZE 1024U
@@ -125,7 +137,7 @@ typedef struct IfsExt2BlockPath {
 
 IfsExt2Status ifs_ext2_decode_superblock(
     const void *raw_superblock,
-    size_t raw_size,
+    ifs_ext2_size_t raw_size,
     IfsExt2Superblock *superblock);
 
 IfsExt2Status ifs_ext2_validate_superblock(
@@ -135,7 +147,7 @@ IfsExt2Status ifs_ext2_validate_superblock(
 
 IfsExt2Status ifs_ext2_decode_group_descriptor(
     const void *raw_descriptor,
-    size_t raw_size,
+    ifs_ext2_size_t raw_size,
     IfsExt2GroupDescriptor *descriptor);
 
 IfsExt2Status ifs_ext2_group_bounds(
