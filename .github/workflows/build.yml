@@ -96,6 +96,22 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+      - name: Verify native Linux install payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n packaging/linux/native-module-helper.sh
+          rm -rf /tmp/filesystem-support-stage
+          DESTDIR=/tmp/filesystem-support-stage cmake --install build --prefix /usr
+          helper=/tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native-module-helper
+          test -x "$helper"
+          for fs in ext2 ext3 ext4 ofs ffs; do
+            base="/tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native/filesystems/$fs"
+            test -f "$base/linux/Makefile"
+            test -d "$base/core"
+          done
+          test ! -e /tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native/filesystems/affs
+
   linux-ext2-module:
     runs-on: ubuntu-24.04
     steps:
