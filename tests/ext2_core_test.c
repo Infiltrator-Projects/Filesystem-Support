@@ -104,6 +104,16 @@ int main(void)
             return fail("free directory record was rejected");
     }
 
+    {
+        ifs_ext2_u32 dot_length = 0U;
+        ifs_ext2_u32 dotdot_length = 0U;
+
+        if (ifs_ext2_directory_initial_layout(
+                1024U, &dot_length, &dotdot_length) != IFS_EXT2_OK ||
+            dot_length != 12U || dotdot_length != 1012U)
+            return fail("initial directory layout is wrong");
+    }
+
     if (ifs_ext2_validate_directory_record(
             0U, 12U, 1U, 2U, 1024U, 8192U) !=
         IFS_EXT2_DIRECTORY_RECORD_OK)
