@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#ifndef EXTFS_WINDOWS_DRIVER_H
-#define EXTFS_WINDOWS_DRIVER_H
+#ifndef FILESYSTEM_SUPPORT_EXT2_WINDOWS_DRIVER_H
+#define FILESYSTEM_SUPPORT_EXT2_WINDOWS_DRIVER_H
 
 #include <ntifs.h>
 #include <ntdddisk.h>
-#include "ext2_compat.h"
+#include "../../../native/filesystems/ext2/core/ext2_engine.h"
 
 #define EXTFS_POOL_TAG 0x53465845U
 #define EXTFS_VCB_SIGNATURE 0x42435645U /* EVCB */
@@ -32,7 +32,7 @@ typedef struct _EXTFS_VCB {
     PDEVICE_OBJECT TargetDeviceObject;
     PVPB Vpb;
     EXTFS_DISK_READER Reader;
-    extfs_volume Volume;
+    IfsExt2Volume Volume;
     ERESOURCE FcbListResource;
     ERESOURCE WriteResource;
     ERESOURCE MetadataResource;
@@ -53,7 +53,7 @@ typedef struct _EXTFS_FCB {
     ULONG Signature;
     LIST_ENTRY Links;
     PEXTFS_VCB Vcb;
-    extfs_inode Inode;
+    IfsExt2Inode Inode;
     SECTION_OBJECT_POINTERS SectionObjectPointers;
     ERESOURCE DataResource;
     ERESOURCE PagingIoResource;
