@@ -66,6 +66,22 @@ int main(void)
         ifs_ext2_validate_group_descriptor(&sb, 0U, &gd) != IFS_EXT2_OK)
         return fail("valid group descriptor was rejected");
 
+    {
+        ifs_ext2_u32 group = 0U;
+        ifs_ext2_u32 offset = 0U;
+
+        if (ifs_ext2_block_group_position(
+                1U, 8192U, 16385U, 8193U,
+                &group, &offset) != IFS_EXT2_OK ||
+            group != 1U || offset != 0U)
+            return fail("block-group position is wrong");
+
+        if (ifs_ext2_block_group_position(
+                1U, 8192U, 16385U, 0U,
+                &group, &offset) != IFS_EXT2_ERROR_RANGE)
+            return fail("pre-data block accepted by group mapping");
+    }
+
     if (ifs_ext2_block_to_path(1024U, 0U, &path) != IFS_EXT2_OK ||
         path.depth != 1U || path.offsets[0] != 0U || path.boundary != 11U)
         return fail("direct block path is wrong");
