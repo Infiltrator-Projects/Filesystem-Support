@@ -1,691 +1,1099 @@
-/*
- *
- * Amiga Smart File System, Linux implementation
- * version: 1.0beta11
- *
- * This file contains some parts of the original amiga version of 
- * SmartFilesystem source code.
- *
- * SmartFilesystem is copyrighted (C) 2003 by: John Hendrikx, 
- * Ralph Schmidt, Emmanuel Lesueur, David Gerber and Marcin Kurek
- * 
- * Adapted and modified by Marek 'March' Szyprowski <marek@amiga.pl>
- *
- */
-
-#include <linux/types.h>
-#include <linux/errno.h>
-#include <linux/slab.h>
-#include <linux/fs.h>
 #include <linux/buffer_head.h>
-#include <linux/vfs.h>
+#include <linux/errno.h>
+#include <linux/overflow.h>
+#include <linux/string.h>
 #include "asfs_fs.h"
 
-#include <asm/byteorder.h>
-
-	/* This function looks for the BNode equal to the key.  If no
-	   exact match is available then the BNode which is slightly
-	   lower than key will be returned.  If no such BNode exists
-	   either, then the first BNode in this block is returned.
-
-	   This function will return the first BNode even if there
-	   are no BNode's at all in this block (this can only happen
-	   for the Root of the tree).  Be sure to check if the Root
-	   is not empty before calling this function. */
-
-static int asfs_validate_btree_layout(
-	struct super_block *sb,
-	const struct BTreeContainer *btc,
-	u32 *capacity)
+static int sfs_validate_btree(
+    struct super_block *sb,
+    const struct BTreeContainer *tree,
+    u32 *capacity)
 {
-	return ifs_sfs_validate_btree_layout(
-		sb->s_blocksize,
-		be16_to_cpu(btc->nodecount),
-		btc->nodesize,
-		btc->isleaf == TRUE,
-		capacity) == 0 ? 0 : -EUCLEAN;
+    return ifs_sfs_validate_btree_layout(
+        sb->s_blocksize,
+        be16_to_cpu(tree->nodecount),
+        tree->nodesize,
+        tree->isleaf == TRUE,
+        capacity) == 0 ? 0 : -EUCLEAN;
 }
 
-static struct BNode *searchforbnode(u32 key, struct BTreeContainer *tc)
+static struct BNode *sfs_bnode_at(
+    struct BTreeContainer *tree,
+    u32 index)
 {
-	struct BNode *tn;
-	s16 n = be16_to_cpu(tc->nodecount) - 1;
-
-	tn = (struct BNode *) ((u8 *) tc->bnode + n * tc->nodesize);
-	for (;;) {
-		if (n <= 0 || key >= be32_to_cpu(tn->key))
-			return tn;
-
-		tn = (struct BNode *) ((u8 *) tn - tc->nodesize);
-		n--;
-	}
+    return (struct BNode *)
+        ((u8 *)tree->bnode +
+         index * tree->nodesize);
 }
 
-/* This function finds the BNode with the given key.  If no exact match can be
-   found then this function will return either the next or previous closest
-   match (don't rely on this).
-
-   If there were no BNode's at all, then *returned_bh will be NULL. */
-
-static int findbnode(struct super_block *sb, u32 key, struct buffer_head **returned_bh, struct BNode **returned_bnode)
+static const struct BNode *sfs_bnode_at_const(
+    const struct BTreeContainer *tree,
+    u32 index)
 {
-	u32 rootblock = ASFS_SB(sb)->extentbnoderoot;
-
-	asfs_debug("findbnode: Looking for BNode with key %d\n", key);
-
-	while ((*returned_bh = asfs_breadcheck(sb, rootblock, ASFS_BNODECONTAINER_ID))) {
-		struct fsBNodeContainer *bnc = (void *) (*returned_bh)->b_data;
-		struct BTreeContainer *btc = &bnc->btc;
-		u32 capacity;
-
-		if (asfs_validate_btree_layout(sb, btc, &capacity) != 0) {
-			asfs_brelse(*returned_bh);
-			*returned_bh = NULL;
-			*returned_bnode = NULL;
-			return -EUCLEAN;
-		}
-
-		if (btc->nodecount == 0) {
-			*returned_bnode = NULL;
-			break;
-		}
-
-		*returned_bnode = searchforbnode(key, btc);
-		if (btc->isleaf == TRUE)
-			break;
-
-		rootblock = be32_to_cpu((*returned_bnode)->data);
-		asfs_brelse(*returned_bh);
-	}
-
-	if (*returned_bh == NULL)
-		return -EIO;
-
-	return 0;
+    return (const struct BNode *)
+        ((const u8 *)tree->bnode +
+         index * tree->nodesize);
 }
 
-int asfs_getextent(struct super_block *sb, u32 key, struct buffer_head **ret_bh, struct fsExtentBNode **ret_ebn)
+static u32 sfs_select_bnode_index(
+    const struct BTreeContainer *tree,
+    u32 key)
 {
-	int result;
+    u32 count = be16_to_cpu(tree->nodecount);
+    u32 index;
 
-	*ret_bh = NULL;
-	*ret_ebn = NULL;
-	result = findbnode(sb, key, ret_bh, (struct BNode **)ret_ebn);
-	if (result != 0)
-		return result;
-	if (*ret_ebn == NULL || be32_to_cpu((*ret_ebn)->key) != key) {
-		asfs_brelse(*ret_bh);
-		*ret_bh = NULL;
-		*ret_ebn = NULL;
-		return -ENOENT;
-	}
-	if (ifs_sfs_validate_extent(
-			be32_to_cpu((*ret_ebn)->key),
-			be32_to_cpu((*ret_ebn)->next),
-			be16_to_cpu((*ret_ebn)->blocks),
-			ASFS_SB(sb)->totalblocks) != 0) {
-		asfs_brelse(*ret_bh);
-		*ret_bh = NULL;
-		*ret_ebn = NULL;
-		return -EUCLEAN;
-	}
+    if (count == 0U)
+        return 0U;
 
-	return 0;
+    for (index = count; index > 0U; --index) {
+        const struct BNode *node =
+            sfs_bnode_at_const(tree, index - 1U);
+
+        if (key >= be32_to_cpu(node->key))
+            return index - 1U;
+    }
+
+    return 0U;
+}
+
+static int sfs_find_leaf(
+    struct super_block *sb,
+    u32 key,
+    struct buffer_head **returned_bh,
+    struct BNode **returned_node)
+{
+    u32 block = ASFS_SB(sb)->extentbnoderoot;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+
+    if (!returned_bh || !returned_node)
+        return -EINVAL;
+
+    *returned_bh = NULL;
+    *returned_node = NULL;
+
+    while (block != 0U) {
+        struct buffer_head *bh;
+        struct fsBNodeContainer *container;
+        struct BTreeContainer *tree;
+        u32 capacity;
+        u32 count;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        bh = asfs_breadcheck(
+            sb, block, ASFS_BNODECONTAINER_ID);
+        if (!bh)
+            return -EIO;
+
+        container =
+            (struct fsBNodeContainer *)bh->b_data;
+        tree = &container->btc;
+
+        if (sfs_validate_btree(
+                sb, tree, &capacity) != 0) {
+            asfs_brelse(bh);
+            return -EUCLEAN;
+        }
+
+        count = be16_to_cpu(tree->nodecount);
+        if (tree->isleaf == TRUE) {
+            *returned_bh = bh;
+            if (count != 0U)
+                *returned_node = sfs_bnode_at(
+                    tree,
+                    sfs_select_bnode_index(
+                        tree, key));
+            return 0;
+        }
+
+        if (count == 0U ||
+            tree->nodesize != sizeof(struct BNode)) {
+            asfs_brelse(bh);
+            return -EUCLEAN;
+        }
+
+        {
+            const struct BNode *node =
+                sfs_bnode_at_const(
+                    tree,
+                    sfs_select_bnode_index(
+                        tree, key));
+            const u32 next =
+                be32_to_cpu(node->data);
+
+            asfs_brelse(bh);
+            if (next == 0U ||
+                next >= ASFS_SB(sb)->totalblocks)
+                return -EUCLEAN;
+            block = next;
+        }
+    }
+
+    return -EUCLEAN;
+}
+
+int asfs_getextent(
+    struct super_block *sb,
+    u32 key,
+    struct buffer_head **returned_bh,
+    struct fsExtentBNode **returned_extent)
+{
+    struct BNode *node = NULL;
+    int result;
+
+    if (!returned_bh || !returned_extent)
+        return -EINVAL;
+
+    *returned_bh = NULL;
+    *returned_extent = NULL;
+
+    result = sfs_find_leaf(
+        sb, key, returned_bh, &node);
+    if (result != 0)
+        return result;
+
+    if (!node || be32_to_cpu(node->key) != key) {
+        asfs_brelse(*returned_bh);
+        *returned_bh = NULL;
+        return -ENOENT;
+    }
+
+    *returned_extent =
+        (struct fsExtentBNode *)node;
+    if (ifs_sfs_validate_extent(
+            be32_to_cpu((*returned_extent)->key),
+            be32_to_cpu((*returned_extent)->next),
+            be16_to_cpu((*returned_extent)->blocks),
+            ASFS_SB(sb)->totalblocks) != 0) {
+        asfs_brelse(*returned_bh);
+        *returned_bh = NULL;
+        *returned_extent = NULL;
+        return -EUCLEAN;
+    }
+
+    return 0;
 }
 
 #ifdef CONFIG_ASFS_RW
 
-	/* This routine inserts a node sorted into a BTreeContainer.  It does
-	   this by starting at the end, and moving the nodes one by one to
-	   a higher slot until the empty slot has the correct position for
-	   this key.  Donot use this function on completely filled
-	   BTreeContainers! */
-
-static struct BNode *insertbnode(u32 key, struct BTreeContainer *btc)
+static struct BNode *sfs_insert_sorted(
+    struct BTreeContainer *tree,
+    u32 capacity,
+    u32 key)
 {
-	struct BNode *bn;
-	bn = (struct BNode *) ((u8 *) btc->bnode + btc->nodesize * (be16_to_cpu(btc->nodecount) - 1));
+    u32 count = be16_to_cpu(tree->nodecount);
+    u32 index;
 
-	for (;;) {
-		if (bn < btc->bnode || key > be32_to_cpu(bn->key)) {
-			bn = (struct BNode *) ((u8 *) bn + btc->nodesize);
-			bn->key = cpu_to_be32(key);
-			btc->nodecount = cpu_to_be16(be16_to_cpu(btc->nodecount) + 1);
-			break;
-		} else 
-			memmove((u8 *)bn + btc->nodesize, bn, btc->nodesize);
+    if (count >= capacity)
+        return NULL;
 
-		bn = (struct BNode *) ((u8 *) bn - btc->nodesize);
-	}
+    index = 0U;
+    while (index < count &&
+           key > be32_to_cpu(
+               sfs_bnode_at(tree, index)->key))
+        index++;
 
-	return bn;
+    if (index < count &&
+        be32_to_cpu(
+            sfs_bnode_at(tree, index)->key) == key)
+        return ERR_PTR(-EEXIST);
+
+    if (index < count) {
+        memmove(
+            (u8 *)sfs_bnode_at(tree, index + 1U),
+            (u8 *)sfs_bnode_at(tree, index),
+            (count - index) * tree->nodesize);
+    }
+
+    memset(
+        sfs_bnode_at(tree, index),
+        0, tree->nodesize);
+    sfs_bnode_at(tree, index)->key =
+        cpu_to_be32(key);
+    tree->nodecount = cpu_to_be16(count + 1U);
+    return sfs_bnode_at(tree, index);
 }
 
-static int getparentbtreecontainer(struct super_block *sb, struct buffer_head *bh, struct buffer_head **parent_bh)
+static int sfs_promote_full_root(
+    struct super_block *sb,
+    struct buffer_head *root_bh)
 {
-	struct fsBNodeContainer *child_bnc = (void *)bh->b_data;
-	struct BTreeContainer *child_btc = &child_bnc->btc;
-	u32 child_capacity;
-	u32 rootblock = ASFS_SB(sb)->extentbnoderoot;
-	u32 childkey;
-	u32 childblock;
+    struct fsBNodeContainer *root =
+        (struct fsBNodeContainer *)root_bh->b_data;
+    struct BTreeContainer *tree = &root->btc;
+    struct buffer_head *copy_bh;
+    struct fsBNodeContainer *copy;
+    const u32 root_block =
+        be32_to_cpu(root->bheader.ownblock);
+    const u32 count =
+        be16_to_cpu(tree->nodecount);
+    u32 first_key;
+    u32 copy_block;
+    int result;
 
-	if (asfs_validate_btree_layout(
-			sb, child_btc, &child_capacity) != 0 ||
-		be16_to_cpu(child_btc->nodecount) == 0)
-		return -EUCLEAN;
+    if (count == 0U)
+        return -EUCLEAN;
 
-	childkey = be32_to_cpu(child_btc->bnode[0].key);
-	childblock = be32_to_cpu(child_bnc->bheader.ownblock);
+    first_key =
+        be32_to_cpu(tree->bnode[0].key);
 
-	asfs_debug("getparentbtreecontainer: Getting parent of block %d\n", childblock);
+    result = asfs_allocadminspace(
+        sb, &copy_block);
+    if (result != 0)
+        return result;
 
-	/* This function gets the BTreeContainer parent of the passed in buffer_head. If
-	   there is no parent this function sets dest_cont io_bh to NULL */
+    copy_bh = asfs_getzeroblk(
+        sb, copy_block);
+    if (!copy_bh) {
+        (void)asfs_freeadminspace(
+            sb, copy_block);
+        return -EIO;
+    }
 
-	if (rootblock != childblock) {
-		while ((*parent_bh = asfs_breadcheck(sb, rootblock, ASFS_BNODECONTAINER_ID))) {
-			struct fsBNodeContainer *bnc = (void *) (*parent_bh)->b_data;
-			struct BTreeContainer *btc = &bnc->btc;
-			struct BNode *bn;
-			u32 capacity;
-			s16 n;
+    copy =
+        (struct fsBNodeContainer *)copy_bh->b_data;
+    memcpy(copy, root, sb->s_blocksize);
+    copy->bheader.ownblock =
+        cpu_to_be32(copy_block);
+    asfs_bstore(sb, copy_bh);
+    asfs_brelse(copy_bh);
 
-			if (asfs_validate_btree_layout(sb, btc, &capacity) != 0 ||
-			    be16_to_cpu(btc->nodecount) == 0) {
-				asfs_brelse(*parent_bh);
-				*parent_bh = NULL;
-				return -EUCLEAN;
-			}
-			n = be16_to_cpu(btc->nodecount);
-
-			if (btc->isleaf == TRUE) {
-				asfs_brelse(*parent_bh);
-				break;
-			}
-
-			while (n-- > 0)
-				if (be32_to_cpu(btc->bnode[n].data) == childblock)
-					return 0;	/* Found parent!! */
-
-			bn = searchforbnode(childkey, btc);	/* This searchforbnode() doesn't have to get EXACT key matches. */
-			rootblock = be32_to_cpu(bn->data);
-			asfs_brelse(*parent_bh);
-		}
-		if (*parent_bh == NULL)
-			return -EIO;
-	}
-
-	*parent_bh = NULL;
-	return 0;
+    memset(root_bh->b_data, 0, sb->s_blocksize);
+    root =
+        (struct fsBNodeContainer *)root_bh->b_data;
+    root->bheader.id =
+        cpu_to_be32(ASFS_BNODECONTAINER_ID);
+    root->bheader.ownblock =
+        cpu_to_be32(root_block);
+    root->btc.isleaf = FALSE;
+    root->btc.nodesize = sizeof(struct BNode);
+    root->btc.nodecount = cpu_to_be16(1U);
+    root->btc.bnode[0].key =
+        cpu_to_be32(first_key);
+    root->btc.bnode[0].data =
+        cpu_to_be32(copy_block);
+    asfs_bstore(sb, root_bh);
+    return 0;
 }
 
-/* Spits a btreecontainer. It realses passed in bh! */
-
-static int splitbtreecontainer(struct super_block *sb, struct buffer_head *bh)
+static int sfs_split_child(
+    struct super_block *sb,
+    struct buffer_head *parent_bh,
+    u32 child_index,
+    struct buffer_head *child_bh,
+    u32 *right_block_out,
+    u32 *right_key_out)
 {
-	struct buffer_head *bhparent;
-	struct BNode *bn;
-	int errorcode;
+    struct fsBNodeContainer *parent_container =
+        (struct fsBNodeContainer *)parent_bh->b_data;
+    struct BTreeContainer *parent =
+        &parent_container->btc;
+    struct fsBNodeContainer *child_container =
+        (struct fsBNodeContainer *)child_bh->b_data;
+    struct BTreeContainer *child =
+        &child_container->btc;
+    struct buffer_head *right_bh;
+    struct fsBNodeContainer *right_container;
+    struct BTreeContainer *right;
+    u32 parent_capacity;
+    u32 child_capacity;
+    u32 child_count;
+    u32 left_count;
+    u32 right_count;
+    u32 right_block;
+    u32 right_key;
+    struct BNode *parent_node;
+    int result;
 
-	asfs_debug("splitbtreecontainer: splitting block %u\n", be32_to_cpu(((struct fsBlockHeader *) bh->b_data)->ownblock));
+    if (!right_block_out || !right_key_out ||
+        sfs_validate_btree(
+            sb, parent, &parent_capacity) != 0 ||
+        sfs_validate_btree(
+            sb, child, &child_capacity) != 0 ||
+        parent->isleaf == TRUE ||
+        child_index >=
+            be16_to_cpu(parent->nodecount) ||
+        be16_to_cpu(parent->nodecount) >=
+            parent_capacity)
+        return -EUCLEAN;
 
-	if ((errorcode = getparentbtreecontainer(sb, bh, &bhparent)) == 0) {
-		if (bhparent == NULL) {
-			u32 newbcontblock;
-			u32 bcontblock;
-			/* We need to create Root tree-container - adding new level to extent tree */
+    child_count =
+        be16_to_cpu(child->nodecount);
+    if (child_count != child_capacity ||
+        child_count < 2U)
+        return -EUCLEAN;
 
-			asfs_debug("splitbtreecontainer: creating root tree-container.\n");
+    left_count = child_count / 2U;
+    right_count = child_count - left_count;
 
-			bhparent = bh;
-			if ((errorcode = asfs_allocadminspace(sb, &newbcontblock)) == 0 && (bh = asfs_getzeroblk(sb, newbcontblock))) {
-				struct fsBNodeContainer *bnc = (void *) bh->b_data;
-				struct fsBNodeContainer *bncparent = (void *) bhparent->b_data;
-				struct BTreeContainer *btcparent = &bncparent->btc;
+    result = asfs_allocadminspace(
+        sb, &right_block);
+    if (result != 0)
+        return result;
 
-				bcontblock = be32_to_cpu(bncparent->bheader.ownblock);
-				memcpy(bh->b_data, bhparent->b_data, sb->s_blocksize);
-				bnc->bheader.ownblock = cpu_to_be32(newbcontblock);
-				asfs_bstore(sb, bh);
+    right_bh = asfs_getzeroblk(
+        sb, right_block);
+    if (!right_bh) {
+        (void)asfs_freeadminspace(
+            sb, right_block);
+        return -EIO;
+    }
 
-				memset(bhparent->b_data, '\0', sb->s_blocksize);	/* Not strictly needed, but makes things more clear. */
-				bncparent->bheader.id = cpu_to_be32(ASFS_BNODECONTAINER_ID);
-				bncparent->bheader.ownblock = cpu_to_be32(bcontblock);
-				btcparent->isleaf = FALSE;
-				btcparent->nodesize = sizeof(struct BNode);
-				btcparent->nodecount = 0;
+    right_container =
+        (struct fsBNodeContainer *)
+            right_bh->b_data;
+    right_container->bheader.id =
+        cpu_to_be32(ASFS_BNODECONTAINER_ID);
+    right_container->bheader.ownblock =
+        cpu_to_be32(right_block);
+    right = &right_container->btc;
+    right->isleaf = child->isleaf;
+    right->nodesize = child->nodesize;
+    right->nodecount =
+        cpu_to_be16(right_count);
+    memcpy(
+        right->bnode,
+        (u8 *)child->bnode +
+            left_count * child->nodesize,
+        right_count * child->nodesize);
 
-				bn = insertbnode(0, btcparent);
-				bn->data = cpu_to_be32(newbcontblock);
+    right_key =
+        be32_to_cpu(right->bnode[0].key);
 
-				asfs_bstore(sb, bhparent);
-			}
-			if (bh == NULL)
-				errorcode = -EIO;
-		}
+    memset(
+        (u8 *)child->bnode +
+            left_count * child->nodesize,
+        0,
+        right_count * child->nodesize);
+    child->nodecount =
+        cpu_to_be16(left_count);
 
-		if (errorcode == 0) {
-			struct fsBNodeContainer *bncparent = (void *) bhparent->b_data;
-			struct BTreeContainer *btcparent = &bncparent->btc;
-			int branches1 = (sb->s_blocksize - sizeof(struct fsBNodeContainer)) / btcparent->nodesize;
+    parent_node = sfs_insert_sorted(
+        parent, parent_capacity, right_key);
+    if (IS_ERR(parent_node) || !parent_node) {
+        asfs_brelse(right_bh);
+        (void)asfs_freeadminspace(
+            sb, right_block);
+        child->nodecount =
+            cpu_to_be16(child_count);
+        return IS_ERR(parent_node)
+            ? PTR_ERR(parent_node) : -EUCLEAN;
+    }
 
-			if (be16_to_cpu(btcparent->nodecount) == branches1) {
-				/* We need to split the parent tree-container first! */
-				if ((errorcode = splitbtreecontainer(sb, bhparent)) == 0) {
-					/* bhparent might have changed after the split and has been released */
-					if ((errorcode = getparentbtreecontainer(sb, bh, &bhparent)) == 0) {	
-						bncparent = (void *) bhparent->b_data;
-						btcparent = &bncparent->btc;
-					}
-				}
-			}
+    parent_node->data =
+        cpu_to_be32(right_block);
+    sfs_bnode_at(parent, child_index)->key =
+        child->bnode[0].key;
 
-			if (errorcode == 0) {
-				u32 newbcontblock;
-				struct buffer_head *bhnew;
+    asfs_bstore(sb, child_bh);
+    asfs_bstore(sb, right_bh);
+    asfs_bstore(sb, parent_bh);
+    asfs_brelse(right_bh);
 
-				/* We can split this container and add it to the parent
-				   because the parent has enough room. */
-
-				if ((errorcode = asfs_allocadminspace(sb, &newbcontblock)) == 0 && (bhnew = asfs_getzeroblk(sb, newbcontblock))) {
-					struct fsBNodeContainer *bncnew = (void *) bhnew->b_data;
-					struct BTreeContainer *btcnew = &bncnew->btc;
-					struct fsBNodeContainer *bnc = (void *) bh->b_data;
-					struct BTreeContainer *btc = &bnc->btc;
-					int branches2 = (sb->s_blocksize - sizeof(struct fsBNodeContainer)) / btc->nodesize;
-					u32 newkey;
-
-					bncnew->bheader.id = cpu_to_be32(ASFS_BNODECONTAINER_ID);
-					bncnew->bheader.ownblock = cpu_to_be32(newbcontblock);
-
-					btcnew->isleaf = btc->isleaf;
-					btcnew->nodesize = btc->nodesize;
-
-					btcnew->nodecount = cpu_to_be16(branches2 - branches2 / 2);
-
-					memcpy(btcnew->bnode, (u8 *) btc->bnode + branches2 / 2 * btc->nodesize, (branches2 - branches2 / 2) * btc->nodesize);
-					newkey = be32_to_cpu(btcnew->bnode[0].key);
-
-					asfs_bstore(sb, bhnew);
-					asfs_brelse(bhnew);
-
-					btc->nodecount = cpu_to_be16(branches2 / 2);
-					asfs_bstore(sb, bh);
-
-					bn = insertbnode(newkey, btcparent);
-					bn->data = cpu_to_be32(newbcontblock);
-					asfs_bstore(sb, bhparent);
-				}
-			}
-		}
-		asfs_brelse(bhparent);
-	}
-	asfs_brelse(bh);
-
-	return errorcode;
+    *right_block_out = right_block;
+    *right_key_out = right_key;
+    return 0;
 }
 
-/* Returns created extentbnode - returned_bh need to saved and realesed in caller funkction! */
-
-static int createextentbnode(struct super_block *sb, u32 key, struct buffer_head **returned_bh, struct BNode **returned_bnode)
+static int sfs_create_extent_node(
+    struct super_block *sb,
+    u32 key,
+    struct buffer_head **returned_bh,
+    struct fsExtentBNode **returned_extent)
 {
-	int errorcode;
+    const u32 root_block =
+        ASFS_SB(sb)->extentbnoderoot;
+    u32 block = root_block;
+    u32 budget = ASFS_SB(sb)->totalblocks;
 
-	asfs_debug("createbnode: Creating BNode with key %d\n", key);
+    if (!returned_bh || !returned_extent)
+        return -EINVAL;
 
-	while ((errorcode = findbnode(sb, key, returned_bh, returned_bnode)) == 0) {
-		struct fsBNodeContainer *bnc = (void *) (*returned_bh)->b_data;
-		struct BTreeContainer *btc = &bnc->btc;
-		int extbranches = (sb->s_blocksize - sizeof(struct fsBNodeContainer)) / btc->nodesize;
+    *returned_bh = NULL;
+    *returned_extent = NULL;
 
-		asfs_debug("createbnode: findbnode found block %d\n", be32_to_cpu(((struct fsBlockHeader *) (*returned_bh)->b_data)->ownblock));
+restart:
+    block = root_block;
 
-		if (be16_to_cpu(btc->nodecount) < extbranches) {
-			/* Simply insert new node in this BTreeContainer */
-			asfs_debug("createbnode: Simple insert\n");
-			*returned_bnode = insertbnode(key, btc);
-			break;
-		} else if ((errorcode = splitbtreecontainer(sb, *returned_bh)) != 0)
-			break;
+    while (block != 0U) {
+        struct buffer_head *bh;
+        struct fsBNodeContainer *container;
+        struct BTreeContainer *tree;
+        u32 capacity;
+        u32 count;
 
-		/* Loop and try insert it the normal way again :-) */
-	}
+        if (budget-- == 0U)
+            return -EUCLEAN;
 
-	return (errorcode);
+        bh = asfs_breadcheck(
+            sb, block, ASFS_BNODECONTAINER_ID);
+        if (!bh)
+            return -EIO;
+
+        container =
+            (struct fsBNodeContainer *)bh->b_data;
+        tree = &container->btc;
+        if (sfs_validate_btree(
+                sb, tree, &capacity) != 0) {
+            asfs_brelse(bh);
+            return -EUCLEAN;
+        }
+
+        count = be16_to_cpu(tree->nodecount);
+        if (count >= capacity) {
+            int result;
+
+            if (block != root_block) {
+                asfs_brelse(bh);
+                return -EUCLEAN;
+            }
+
+            result = sfs_promote_full_root(
+                sb, bh);
+            asfs_brelse(bh);
+            if (result != 0)
+                return result;
+            goto restart;
+        }
+
+        if (tree->isleaf == TRUE) {
+            struct BNode *node =
+                sfs_insert_sorted(
+                    tree, capacity, key);
+
+            if (IS_ERR(node)) {
+                int result = PTR_ERR(node);
+                asfs_brelse(bh);
+                return result;
+            }
+            if (!node) {
+                asfs_brelse(bh);
+                return -EUCLEAN;
+            }
+
+            asfs_bstore(sb, bh);
+            *returned_bh = bh;
+            *returned_extent =
+                (struct fsExtentBNode *)node;
+            return 0;
+        }
+
+        if (count == 0U ||
+            tree->nodesize != sizeof(struct BNode)) {
+            asfs_brelse(bh);
+            return -EUCLEAN;
+        }
+
+        {
+            u32 child_index =
+                sfs_select_bnode_index(
+                    tree, key);
+            struct BNode *child_node =
+                sfs_bnode_at(
+                    tree, child_index);
+            u32 child_block =
+                be32_to_cpu(child_node->data);
+            struct buffer_head *child_bh;
+            struct fsBNodeContainer *child_container;
+            struct BTreeContainer *child_tree;
+            u32 child_capacity;
+            u32 right_block = 0U;
+            u32 right_key = 0U;
+            int result;
+
+            if (child_block == 0U ||
+                child_block >=
+                    ASFS_SB(sb)->totalblocks) {
+                asfs_brelse(bh);
+                return -EUCLEAN;
+            }
+
+            child_bh = asfs_breadcheck(
+                sb, child_block,
+                ASFS_BNODECONTAINER_ID);
+            if (!child_bh) {
+                asfs_brelse(bh);
+                return -EIO;
+            }
+
+            child_container =
+                (struct fsBNodeContainer *)
+                    child_bh->b_data;
+            child_tree =
+                &child_container->btc;
+            if (sfs_validate_btree(
+                    sb, child_tree,
+                    &child_capacity) != 0) {
+                asfs_brelse(child_bh);
+                asfs_brelse(bh);
+                return -EUCLEAN;
+            }
+
+            if (be16_to_cpu(
+                    child_tree->nodecount) >=
+                child_capacity) {
+                result = sfs_split_child(
+                    sb, bh, child_index,
+                    child_bh,
+                    &right_block, &right_key);
+                if (result != 0) {
+                    asfs_brelse(child_bh);
+                    asfs_brelse(bh);
+                    return result;
+                }
+
+                if (key >= right_key)
+                    child_block = right_block;
+            }
+
+            asfs_brelse(child_bh);
+            asfs_brelse(bh);
+            block = child_block;
+        }
+    }
+
+    return -EUCLEAN;
 }
 
-
-/* This routine removes a node from a BTreeContainer indentified
-   by its key.  If no such key exists this routine does nothing.
-   It correctly handles empty BTreeContainers. */
-
-static void removebnode(u32 key, struct BTreeContainer *btc)
+static int sfs_find_parent(
+    struct super_block *sb,
+    u32 child_block,
+    u32 child_first_key,
+    struct buffer_head **parent_bh,
+    u32 *parent_index)
 {
-	struct BNode *bn = btc->bnode;
-	int n = 0;
+    u32 block = ASFS_SB(sb)->extentbnoderoot;
+    u32 budget = ASFS_SB(sb)->totalblocks;
 
-	asfs_debug("removebnode: key %d\n", key);
+    if (!parent_bh || !parent_index)
+        return -EINVAL;
 
-	while (n < be16_to_cpu(btc->nodecount)) {
-		if (be32_to_cpu(bn->key) == key) {
-			btc->nodecount = cpu_to_be16(be16_to_cpu(btc->nodecount) - 1);
-			memmove(bn, (u8 *) bn + btc->nodesize, (be16_to_cpu(btc->nodecount) - n) * btc->nodesize);
-			break;
-		}
-		bn = (struct BNode *) ((u8 *) bn + btc->nodesize);
-		n++;
-	}
+    *parent_bh = NULL;
+    *parent_index = 0U;
+
+    if (child_block == block)
+        return 0;
+
+    while (block != 0U) {
+        struct buffer_head *bh;
+        struct fsBNodeContainer *container;
+        struct BTreeContainer *tree;
+        u32 capacity;
+        u32 count;
+        u32 index;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        bh = asfs_breadcheck(
+            sb, block, ASFS_BNODECONTAINER_ID);
+        if (!bh)
+            return -EIO;
+
+        container =
+            (struct fsBNodeContainer *)bh->b_data;
+        tree = &container->btc;
+        if (sfs_validate_btree(
+                sb, tree, &capacity) != 0 ||
+            tree->isleaf == TRUE) {
+            asfs_brelse(bh);
+            return -EUCLEAN;
+        }
+
+        count = be16_to_cpu(tree->nodecount);
+        for (index = 0U; index < count; ++index) {
+            if (be32_to_cpu(
+                    sfs_bnode_at(
+                        tree, index)->data) ==
+                child_block) {
+                *parent_bh = bh;
+                *parent_index = index;
+                return 0;
+            }
+        }
+
+        if (count == 0U) {
+            asfs_brelse(bh);
+            return -EUCLEAN;
+        }
+
+        index = sfs_select_bnode_index(
+            tree, child_first_key);
+        block = be32_to_cpu(
+            sfs_bnode_at(tree, index)->data);
+        asfs_brelse(bh);
+
+        if (block == 0U ||
+            block >= ASFS_SB(sb)->totalblocks)
+            return -EUCLEAN;
+    }
+
+    return -EUCLEAN;
 }
 
-int asfs_deletebnode(struct super_block *sb, struct buffer_head *bh, u32 key)
+static void sfs_remove_bnode_at(
+    struct BTreeContainer *tree,
+    u32 index)
 {
-	struct fsBNodeContainer *bnc1 = (void *) bh->b_data;
-	struct BTreeContainer *btc = &bnc1->btc;
-	u16 branches = (sb->s_blocksize - sizeof(struct fsBNodeContainer)) / btc->nodesize;
-	int errorcode = 0;
+    u32 count =
+        be16_to_cpu(tree->nodecount);
 
-	/* Deletes specified internal node. */
+    if (index >= count)
+        return;
 
-	removebnode(key, btc);
-	asfs_bstore(sb, bh);
+    if (index + 1U < count) {
+        memmove(
+            sfs_bnode_at(tree, index),
+            sfs_bnode_at(tree, index + 1U),
+            (count - index - 1U) *
+                tree->nodesize);
+    }
 
-	/* Now checks if the container still contains enough nodes,
-	   and takes action accordingly. */
-
-	asfs_debug("deletebnode: branches = %d, btc->nodecount = %d\n", branches, be16_to_cpu(btc->nodecount));
-
-	if (be16_to_cpu(btc->nodecount) < (branches + 1) / 2) {
-		struct buffer_head *bhparent;
-		struct buffer_head *bhsec;
-
-		/* nodecount has become to low.  We need to merge this Container
-		   with a neighbouring Container, or we need to steal a few nodes
-		   from a neighbouring Container. */
-
-		/* We get the parent of the container here, so we can find out what
-		   containers neighbour the container which currently hasn't got enough nodes. */
-
-		if ((errorcode = getparentbtreecontainer(sb, bh, &bhparent)) == 0) {
-			if (bhparent != NULL) {
-				struct fsBNodeContainer *bncparent = (void *) bhparent->b_data;
-				struct BTreeContainer *btcparent = &bncparent->btc;
-				s16 n;
-
-				asfs_debug("deletebnode: get parent returned block %d.\n", be32_to_cpu(((struct fsBlockHeader *) bhparent->b_data)->ownblock));
-
-				for (n = 0; n < be16_to_cpu(btcparent->nodecount); n++)
-					if (btcparent->bnode[n].data == bnc1->bheader.ownblock)
-						break;
-				/* n is now the offset of our own bnode. */
-
-				if (n < be16_to_cpu(btcparent->nodecount) - 1) {	/* Check if we have a next neighbour. */
-					asfs_debug("deletebnode: using next container - merging blocks %d and %d\n", be32_to_cpu(bnc1->bheader.ownblock), be32_to_cpu(btcparent->bnode[n+1].data));
-
-					if ((bhsec = asfs_breadcheck(sb, be32_to_cpu(btcparent->bnode[n + 1].data), ASFS_BNODECONTAINER_ID))) {
-						struct fsBNodeContainer *bnc_next = (void *) bhsec->b_data;
-						struct BTreeContainer *btc_next = &bnc_next->btc;
-						u32 next_capacity;
-
-						if (asfs_validate_btree_layout(
-								sb, btc_next, &next_capacity) != 0 ||
-							btc_next->nodesize != btc->nodesize ||
-							btc_next->isleaf != btc->isleaf) {
-							asfs_brelse(bhsec);
-							asfs_brelse(bhparent);
-							return -EUCLEAN;
-						}
-
-						if (be16_to_cpu(btc_next->nodecount) + be16_to_cpu(btc->nodecount) > branches) {	/* Check if we need to steal nodes. */
-							s16 nodestosteal = (be16_to_cpu(btc_next->nodecount) + be16_to_cpu(btc->nodecount)) / 2 - be16_to_cpu(btc->nodecount);
-
-							/* Merging them is not possible.  Steal a few nodes then. */
-							memcpy((u8 *) btc->bnode + be16_to_cpu(btc->nodecount) * btc->nodesize, btc_next->bnode, nodestosteal * btc->nodesize);
-							btc->nodecount = cpu_to_be16(be16_to_cpu(btc->nodecount) + nodestosteal);
-							asfs_bstore(sb, bh);
-
-							memcpy(btc_next->bnode, (u8 *) btc_next->bnode + btc_next->nodesize * nodestosteal,
-							       btc->nodesize * (be16_to_cpu(btc_next->nodecount) - nodestosteal));
-							btc_next->nodecount = cpu_to_be16(be16_to_cpu(btc_next->nodecount) - nodestosteal);
-							asfs_bstore(sb, bhsec);
-
-							btcparent->bnode[n + 1].key = btc_next->bnode[0].key;
-							asfs_bstore(sb, bhparent);
-						} else {	/* Merging is possible. */
-							memcpy((u8 *) btc->bnode + btc->nodesize * be16_to_cpu(btc->nodecount), btc_next->bnode, btc->nodesize * be16_to_cpu(btc_next->nodecount));
-							btc->nodecount = cpu_to_be16(be16_to_cpu(btc->nodecount) + be16_to_cpu(btc_next->nodecount));
-							asfs_bstore(sb, bh);
-
-							if ((errorcode = asfs_freeadminspace(sb, be32_to_cpu(((struct fsBlockHeader *) bhsec->b_data)->ownblock))) == 0)
-								errorcode = asfs_deletebnode(sb, bhparent, be32_to_cpu(btcparent->bnode[n + 1].key));
-						}
-						asfs_brelse(bhsec);
-					} else {
-						errorcode = -EIO;
-					}
-				} else if (n > 0) {	/* Check if we have a previous neighbour. */
-					asfs_debug("deletebnode: using prev container.\n");
-
-					if ((bhsec = asfs_breadcheck(sb, be32_to_cpu(btcparent->bnode[n - 1].data), ASFS_BNODECONTAINER_ID)) != NULL) {
-						struct fsBNodeContainer *bnc2 = (void *) bhsec->b_data;
-						struct BTreeContainer *btc2 = &bnc2->btc;
-						u32 previous_capacity;
-
-						if (asfs_validate_btree_layout(
-								sb, btc2, &previous_capacity) != 0 ||
-							btc2->nodesize != btc->nodesize ||
-							btc2->isleaf != btc->isleaf) {
-							asfs_brelse(bhsec);
-							asfs_brelse(bhparent);
-							return -EUCLEAN;
-						}
-
-						if (be16_to_cpu(btc2->nodecount) + be16_to_cpu(btc->nodecount) > branches) {
-							/* Merging them is not possible.  Steal a few nodes then. */
-							s16 nodestosteal = (be16_to_cpu(btc2->nodecount) + be16_to_cpu(btc->nodecount)) / 2 - be16_to_cpu(btc->nodecount);
-
-							memmove((u8 *) btc->bnode + nodestosteal * btc->nodesize, btc->bnode, be16_to_cpu(btc->nodecount) * btc->nodesize);
-							btc->nodecount = cpu_to_be16(be16_to_cpu(btc->nodecount) + nodestosteal);
-							memcpy(btc->bnode, (u8 *) btc2->bnode + (be16_to_cpu(btc2->nodecount) - nodestosteal) * btc2->nodesize, nodestosteal * btc->nodesize);
-
-							asfs_bstore(sb, bh);
-
-							btc2->nodecount = cpu_to_be16(be16_to_cpu(btc2->nodecount) - nodestosteal);
-							asfs_bstore(sb, bhsec);
-
-							btcparent->bnode[n].key = btc->bnode[0].key;
-							asfs_bstore(sb, bhparent);
-						} else {	/* Merging is possible. */
-							memcpy((u8 *) btc2->bnode + be16_to_cpu(btc2->nodecount) * btc2->nodesize, btc->bnode, be16_to_cpu(btc->nodecount) * btc->nodesize);
-							btc2->nodecount = cpu_to_be16(be16_to_cpu(btc2->nodecount) + be16_to_cpu(btc->nodecount));
-							asfs_bstore(sb, bhsec);
-
-							if ((errorcode = asfs_freeadminspace(
-									 sb, be32_to_cpu(bnc1->bheader.ownblock))) == 0)
-								errorcode = asfs_deletebnode(
-									sb, bhparent,
-									be32_to_cpu(btcparent->bnode[n].key));
-						}
-						asfs_brelse(bhsec);
-					} else {
-						errorcode = -EIO;
-					}
-				}
-				/*      else    
-				   {
-				   // Never happens, except for root and then we don't care.
-				   } */
-			} else if (be16_to_cpu(btc->nodecount) == 1) {
-				/* No parent, so must be root. */
-
-				asfs_debug("deletebnode: no parent so must be root\n");
-
-				if (btc->isleaf == FALSE) {
-					struct fsBNodeContainer *bnc3 = (void *) bh->b_data;
-
-					/* The current root has only 1 node.  We now copy the data of this node into the
-					   root and promote that data to be the new root.  The rootblock number stays the
-					   same that way. */
-
-					if ((bhsec = asfs_breadcheck(sb, be32_to_cpu(btc->bnode[0].data), ASFS_BNODECONTAINER_ID))) {
-						u32 blockno = be32_to_cpu(((struct fsBlockHeader *) bh->b_data)->ownblock);
-						memcpy(bh->b_data, bhsec->b_data, sb->s_blocksize);
-						bnc3->bheader.ownblock = cpu_to_be32(blockno);
-
-						asfs_bstore(sb, bh);
-						errorcode = asfs_freeadminspace(sb, be32_to_cpu(((struct fsBlockHeader *) bhsec->b_data)->ownblock));
-						asfs_brelse(bhsec);
-					} else
-						errorcode = -EIO;
-				}
-				/* If not, then root contains leafs. */
-			}
-
-			asfs_debug("deletebnode: almost done\n");
-			/* otherwise, it must be the root, and the root is allowed
-			   to contain less than the minimum amount of nodes. */
-
-		}
-		if (bhparent != NULL)
-			asfs_brelse(bhparent);
-	}
-
-	return errorcode;
+    count--;
+    memset(
+        sfs_bnode_at(tree, count),
+        0, tree->nodesize);
+    tree->nodecount = cpu_to_be16(count);
 }
 
-   /* Deletes an fsExtentBNode structure by key and any fsExtentBNodes linked to it.
-      This function DOES NOT fix the next pointer in a possible fsExtentBNode which
-      might have been pointing to the first BNode we are deleting.  Make sure you check
-      this yourself, if needed.
-
-      If key is zero, than this function does nothing. */
-
-int asfs_deleteextents(struct super_block *sb, u32 key)
+static int sfs_update_first_key_upward(
+    struct super_block *sb,
+    u32 child_block,
+    u32 old_key,
+    u32 new_key)
 {
-	struct buffer_head *bh;
-	struct fsExtentBNode *ebn;
-	int errorcode = 0;
+    u32 budget = ASFS_SB(sb)->totalblocks;
 
-	asfs_debug("deleteextents: Entry -- deleting extents from key %d\n", key);
+    while (child_block !=
+           ASFS_SB(sb)->extentbnoderoot) {
+        struct buffer_head *parent_bh = NULL;
+        struct fsBNodeContainer *parent_container;
+        struct BTreeContainer *parent;
+        u32 index;
+        u32 parent_block;
+        u32 parent_old_key;
+        int result;
 
-	while (key != 0) {
-		u32 next_key;
-		u32 extent_key;
+        if (budget-- == 0U)
+            return -EUCLEAN;
 
-		errorcode = asfs_getextent(sb, key, &bh, &ebn);
-		if (errorcode != 0)
-			break;
+        result = sfs_find_parent(
+            sb, child_block, old_key,
+            &parent_bh, &index);
+        if (result != 0)
+            return result;
+        if (!parent_bh)
+            return -EUCLEAN;
 
-		next_key = be32_to_cpu(ebn->next);
-		extent_key = be32_to_cpu(ebn->key);
-		errorcode = asfs_freespace(
-			sb, extent_key, be16_to_cpu(ebn->blocks));
-		if (errorcode == 0)
-			errorcode = asfs_deletebnode(sb, bh, extent_key);
+        parent_container =
+            (struct fsBNodeContainer *)
+                parent_bh->b_data;
+        parent = &parent_container->btc;
+        parent_block =
+            be32_to_cpu(
+                parent_container->
+                    bheader.ownblock);
+        parent_old_key =
+            be32_to_cpu(parent->bnode[0].key);
 
-		asfs_brelse(bh);
-		if (errorcode != 0)
-			break;
-		key = next_key;
-	}
+        sfs_bnode_at(parent, index)->key =
+            cpu_to_be32(new_key);
+        asfs_bstore(sb, parent_bh);
 
-	return (errorcode);
+        if (index != 0U) {
+            asfs_brelse(parent_bh);
+            return 0;
+        }
+
+        asfs_brelse(parent_bh);
+        child_block = parent_block;
+        old_key = parent_old_key;
+    }
+
+    return 0;
 }
 
-   /* This function adds /blocks/ blocks starting at block /newspace/ to a file
-      identified by /objectnode/ and /lastextentbnode/.  /io_lastextentbnode/ can
-      be zero if there is no ExtentBNode chain attached to this file yet.
-      /blocks/ ranges from 1 to 8192.  To be able to extend Extents which are
-      almost full, it is wise to make this value no higher than 8192 blocks.
-      /io_lastextentbnode/ will contain the new lastextentbnode value when this
-      function completes.
-      If there was no chain yet, then this function will create a new one.  */
-
-int asfs_addblocks(struct super_block *sb, u16 blocks, u32 newspace, u32 objectnode, u32 *io_lastextentbnode)
+static int sfs_collapse_root_if_possible(
+    struct super_block *sb)
 {
-	struct buffer_head *bh = NULL;
-	struct fsExtentBNode *ebn = NULL;
-	int errorcode;
+    const u32 root_block =
+        ASFS_SB(sb)->extentbnoderoot;
+    struct buffer_head *root_bh;
+    struct fsBNodeContainer *root;
+    struct BTreeContainer *tree;
+    u32 capacity;
+    u32 child_block;
+    struct buffer_head *child_bh;
 
-	if (!io_lastextentbnode || blocks == 0 ||
-	    ifs_sfs_validate_extent(newspace, 0U, blocks,
-				    ASFS_SB(sb)->totalblocks) != 0)
-		return -EINVAL;
+    root_bh = asfs_breadcheck(
+        sb, root_block,
+        ASFS_BNODECONTAINER_ID);
+    if (!root_bh)
+        return -EIO;
 
-	if (*io_lastextentbnode != 0) {
-		u32 previous_key = *io_lastextentbnode;
-		u32 previous_end;
-		u32 previous_blocks;
+    root =
+        (struct fsBNodeContainer *)
+            root_bh->b_data;
+    tree = &root->btc;
+    if (sfs_validate_btree(
+            sb, tree, &capacity) != 0) {
+        asfs_brelse(root_bh);
+        return -EUCLEAN;
+    }
 
-		asfs_debug("  addblocks: Extending existing ExtentBNode chain.\n");
+    if (tree->isleaf == TRUE ||
+        be16_to_cpu(tree->nodecount) != 1U) {
+        asfs_brelse(root_bh);
+        return 0;
+    }
 
-		errorcode = asfs_getextent(sb, previous_key, &bh, &ebn);
-		if (errorcode != 0)
-			return errorcode;
+    child_block =
+        be32_to_cpu(tree->bnode[0].data);
+    if (child_block == 0U ||
+        child_block >= ASFS_SB(sb)->totalblocks) {
+        asfs_brelse(root_bh);
+        return -EUCLEAN;
+    }
 
-		previous_blocks = be16_to_cpu(ebn->blocks);
-		previous_end = be32_to_cpu(ebn->key) + previous_blocks;
-		if (previous_end == newspace &&
-		    (u32)previous_blocks + blocks <= 0xffffU) {
-			asfs_debug("  addblocks: Extending last ExtentBNode.\n");
-			ebn->blocks = cpu_to_be16(previous_blocks + blocks);
-			asfs_bstore(sb, bh);
-			asfs_brelse(bh);
-			ASFS_SB(sb)->block_rovingblockptr = newspace + blocks;
-			return 0;
-		}
-		asfs_brelse(bh);
-		bh = NULL;
-		ebn = NULL;
+    child_bh = asfs_breadcheck(
+        sb, child_block,
+        ASFS_BNODECONTAINER_ID);
+    if (!child_bh) {
+        asfs_brelse(root_bh);
+        return -EIO;
+    }
 
-		/*
-		 * Insert and fully initialise the new node before publishing a link
-		 * to it from the previous extent.  A failed insertion therefore
-		 * cannot leave the live file chain pointing at a nonexistent node.
-		 */
-		errorcode = createextentbnode(
-			sb, newspace, &bh, (struct BNode **)&ebn);
-		if (errorcode != 0)
-			return errorcode;
+    memcpy(
+        root_bh->b_data,
+        child_bh->b_data,
+        sb->s_blocksize);
+    root =
+        (struct fsBNodeContainer *)
+            root_bh->b_data;
+    root->bheader.ownblock =
+        cpu_to_be32(root_block);
+    asfs_bstore(sb, root_bh);
+    asfs_brelse(child_bh);
+    asfs_brelse(root_bh);
 
-		ebn->key = cpu_to_be32(newspace);
-		ebn->prev = cpu_to_be32(previous_key);
-		ebn->next = 0;
-		ebn->blocks = cpu_to_be16(blocks);
-		asfs_bstore(sb, bh);
-		asfs_brelse(bh);
-		bh = NULL;
-		ebn = NULL;
-
-		errorcode = asfs_getextent(sb, previous_key, &bh, &ebn);
-		if (errorcode != 0)
-			return errorcode;
-
-		ebn->next = cpu_to_be32(newspace);
-		asfs_bstore(sb, bh);
-		asfs_brelse(bh);
-
-		*io_lastextentbnode = newspace;
-		ASFS_SB(sb)->block_rovingblockptr = newspace + blocks;
-		return 0;
-	}
-
-	/* There is no extent chain yet. */
-	errorcode = createextentbnode(
-		sb, newspace, &bh, (struct BNode **)&ebn);
-	if (errorcode != 0)
-		return errorcode;
-
-	ebn->key = cpu_to_be32(newspace);
-	ebn->prev = cpu_to_be32(objectnode | MSB_MASK);
-	ebn->next = 0;
-	ebn->blocks = cpu_to_be16(blocks);
-	asfs_bstore(sb, bh);
-	asfs_brelse(bh);
-
-	*io_lastextentbnode = newspace;
-	ASFS_SB(sb)->block_rovingblockptr = newspace + blocks;
-	asfs_debug("  addblocks: done.\n");
-	return 0;
+    return asfs_freeadminspace(
+        sb, child_block);
 }
+
+static int sfs_remove_empty_container(
+    struct super_block *sb,
+    u32 child_block,
+    u32 old_first_key)
+{
+    const u32 root_block =
+        ASFS_SB(sb)->extentbnoderoot;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+
+    while (child_block != root_block) {
+        struct buffer_head *parent_bh = NULL;
+        struct fsBNodeContainer *parent_container;
+        struct BTreeContainer *parent;
+        u32 parent_index;
+        u32 parent_block;
+        u32 parent_old_key;
+        u32 parent_count;
+        int result;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        result = sfs_find_parent(
+            sb, child_block, old_first_key,
+            &parent_bh, &parent_index);
+        if (result != 0)
+            return result;
+        if (!parent_bh)
+            return -EUCLEAN;
+
+        parent_container =
+            (struct fsBNodeContainer *)
+                parent_bh->b_data;
+        parent = &parent_container->btc;
+        parent_block =
+            be32_to_cpu(
+                parent_container->
+                    bheader.ownblock);
+        parent_old_key =
+            be32_to_cpu(parent->bnode[0].key);
+
+        sfs_remove_bnode_at(
+            parent, parent_index);
+        parent_count =
+            be16_to_cpu(parent->nodecount);
+        asfs_bstore(sb, parent_bh);
+
+        result = asfs_freeadminspace(
+            sb, child_block);
+        if (result != 0) {
+            asfs_brelse(parent_bh);
+            return result;
+        }
+
+        if (parent_block == root_block) {
+            if (parent_count == 0U) {
+                parent->isleaf = TRUE;
+                parent->nodesize =
+                    sizeof(struct fsExtentBNode);
+                asfs_bstore(sb, parent_bh);
+                asfs_brelse(parent_bh);
+                return 0;
+            }
+
+            asfs_brelse(parent_bh);
+            return sfs_collapse_root_if_possible(
+                sb);
+        }
+
+        if (parent_count != 0U) {
+            const u32 new_first_key =
+                be32_to_cpu(
+                    parent->bnode[0].key);
+            const bool first_changed =
+                parent_index == 0U;
+
+            asfs_brelse(parent_bh);
+            if (first_changed)
+                return sfs_update_first_key_upward(
+                    sb, parent_block,
+                    parent_old_key,
+                    new_first_key);
+            return 0;
+        }
+
+        asfs_brelse(parent_bh);
+        child_block = parent_block;
+        old_first_key = parent_old_key;
+    }
+
+    return 0;
+}
+
+int asfs_deletebnode(
+    struct super_block *sb,
+    struct buffer_head *bh,
+    u32 key)
+{
+    struct fsBNodeContainer *container;
+    struct BTreeContainer *tree;
+    u32 capacity;
+    u32 count;
+    u32 index;
+    u32 old_first_key;
+    u32 block;
+
+    if (!bh)
+        return -EINVAL;
+
+    container =
+        (struct fsBNodeContainer *)bh->b_data;
+    tree = &container->btc;
+    if (sfs_validate_btree(
+            sb, tree, &capacity) != 0 ||
+        tree->isleaf != TRUE)
+        return -EUCLEAN;
+
+    count = be16_to_cpu(tree->nodecount);
+    if (count == 0U)
+        return -ENOENT;
+
+    old_first_key =
+        be32_to_cpu(tree->bnode[0].key);
+    block =
+        be32_to_cpu(container->bheader.ownblock);
+
+    for (index = 0U; index < count; ++index) {
+        if (be32_to_cpu(
+                sfs_bnode_at(
+                    tree, index)->key) == key)
+            break;
+    }
+    if (index == count)
+        return -ENOENT;
+
+    sfs_remove_bnode_at(tree, index);
+    asfs_bstore(sb, bh);
+
+    count = be16_to_cpu(tree->nodecount);
+    if (count == 0U) {
+        if (block ==
+            ASFS_SB(sb)->extentbnoderoot)
+            return 0;
+        return sfs_remove_empty_container(
+            sb, block, old_first_key);
+    }
+
+    if (index == 0U) {
+        return sfs_update_first_key_upward(
+            sb, block, old_first_key,
+            be32_to_cpu(tree->bnode[0].key));
+    }
+
+    return 0;
+}
+
+int asfs_deleteextents(
+    struct super_block *sb,
+    u32 key)
+{
+    u32 budget = ASFS_SB(sb)->totalblocks;
+
+    while (key != 0U) {
+        struct buffer_head *bh = NULL;
+        struct fsExtentBNode *extent = NULL;
+        u32 next;
+        u32 extent_key;
+        u16 blocks;
+        int result;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        result = asfs_getextent(
+            sb, key, &bh, &extent);
+        if (result != 0)
+            return result;
+
+        next = be32_to_cpu(extent->next);
+        extent_key = be32_to_cpu(extent->key);
+        blocks = be16_to_cpu(extent->blocks);
+
+        result = asfs_freespace(
+            sb, extent_key, blocks);
+        if (result == 0)
+            result = asfs_deletebnode(
+                sb, bh, extent_key);
+
+        asfs_brelse(bh);
+        if (result != 0)
+            return result;
+
+        key = next;
+    }
+
+    return 0;
+}
+
+int asfs_addblocks(
+    struct super_block *sb,
+    u16 blocks,
+    u32 new_space,
+    u32 object_node,
+    u32 *last_extent)
+{
+    struct buffer_head *bh = NULL;
+    struct fsExtentBNode *extent = NULL;
+    int result;
+
+    if (!last_extent || blocks == 0U ||
+        ifs_sfs_validate_extent(
+            new_space, 0U, blocks,
+            ASFS_SB(sb)->totalblocks) != 0)
+        return -EINVAL;
+
+    if (*last_extent != 0U) {
+        const u32 previous_key =
+            *last_extent;
+        u32 previous_end;
+        u32 previous_blocks;
+
+        result = asfs_getextent(
+            sb, previous_key, &bh, &extent);
+        if (result != 0)
+            return result;
+
+        previous_blocks =
+            be16_to_cpu(extent->blocks);
+        previous_end =
+            be32_to_cpu(extent->key) +
+            previous_blocks;
+
+        if (previous_end == new_space &&
+            previous_blocks + (u32)blocks <=
+                0xffffU) {
+            extent->blocks = cpu_to_be16(
+                previous_blocks + blocks);
+            asfs_bstore(sb, bh);
+            asfs_brelse(bh);
+            ASFS_SB(sb)->
+                block_rovingblockptr =
+                new_space + blocks;
+            return 0;
+        }
+
+        asfs_brelse(bh);
+        bh = NULL;
+        extent = NULL;
+
+        result = sfs_create_extent_node(
+            sb, new_space,
+            &bh, &extent);
+        if (result != 0)
+            return result;
+
+        extent->key = cpu_to_be32(new_space);
+        extent->prev =
+            cpu_to_be32(previous_key);
+        extent->next = 0U;
+        extent->blocks =
+            cpu_to_be16(blocks);
+        asfs_bstore(sb, bh);
+        asfs_brelse(bh);
+        bh = NULL;
+        extent = NULL;
+
+        result = asfs_getextent(
+            sb, previous_key,
+            &bh, &extent);
+        if (result != 0) {
+            struct buffer_head *cleanup_bh = NULL;
+            struct fsExtentBNode *cleanup_extent = NULL;
+
+            if (asfs_getextent(
+                    sb, new_space,
+                    &cleanup_bh,
+                    &cleanup_extent) == 0) {
+                (void)asfs_deletebnode(
+                    sb, cleanup_bh,
+                    new_space);
+                asfs_brelse(cleanup_bh);
+            }
+            return result;
+        }
+
+        extent->next =
+            cpu_to_be32(new_space);
+        asfs_bstore(sb, bh);
+        asfs_brelse(bh);
+
+        *last_extent = new_space;
+        ASFS_SB(sb)->block_rovingblockptr =
+            new_space + blocks;
+        return 0;
+    }
+
+    result = sfs_create_extent_node(
+        sb, new_space, &bh, &extent);
+    if (result != 0)
+        return result;
+
+    extent->key = cpu_to_be32(new_space);
+    extent->prev =
+        cpu_to_be32(object_node | MSB_MASK);
+    extent->next = 0U;
+    extent->blocks = cpu_to_be16(blocks);
+    asfs_bstore(sb, bh);
+    asfs_brelse(bh);
+
+    *last_extent = new_space;
+    ASFS_SB(sb)->block_rovingblockptr =
+        new_space + blocks;
+    return 0;
+}
+
 #endif
