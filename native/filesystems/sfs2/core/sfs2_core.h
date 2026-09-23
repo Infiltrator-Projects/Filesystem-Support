@@ -22,6 +22,19 @@ typedef uint64_t ifs_sfs2_u64;
 #define IFS_SFS2_MAX_FILENAME 107U
 #define IFS_SFS2_BLOCK_HEADER_SIZE 12U
 #define IFS_SFS2_ROOT_BYTES 128U
+#define IFS_SFS2_ROOT_INFO_BYTES 36U
+
+typedef struct IfsSfs2RootInfo {
+    ifs_sfs2_u32 deleted_blocks;
+    ifs_sfs2_u32 deleted_files;
+    ifs_sfs2_u32 free_blocks;
+    ifs_sfs2_u32 date_created;
+    ifs_sfs2_u32 last_allocated_block;
+    ifs_sfs2_u32 last_allocated_adminspace;
+    ifs_sfs2_u32 last_allocated_extent_node;
+    ifs_sfs2_u32 last_allocated_object_node;
+    ifs_sfs2_u32 roving_pointer;
+} IfsSfs2RootInfo;
 
 typedef struct IfsSfs2RootRecord {
     ifs_sfs2_u32 block_id;
@@ -50,6 +63,15 @@ typedef enum IfsSfs2RootStatus {
     IFS_SFS2_ROOT_INVALID_TOTAL_BLOCKS,
     IFS_SFS2_ROOT_BLOCK_REFERENCE_OUT_OF_RANGE
 } IfsSfs2RootStatus;
+
+int ifs_sfs2_decode_root_info(
+    const unsigned char *bytes,
+    ifs_sfs2_u32 byte_count,
+    IfsSfs2RootInfo *root_info);
+
+int ifs_sfs2_validate_root_info(
+    const IfsSfs2RootInfo *root_info,
+    ifs_sfs2_u32 total_blocks);
 
 int ifs_sfs2_decode_root(
     const unsigned char *bytes,

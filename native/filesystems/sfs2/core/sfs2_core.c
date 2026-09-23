@@ -26,6 +26,51 @@ static ifs_sfs2_u64 ifs_sfs2_read_be64(const unsigned char *data)
            ifs_sfs2_read_be32(data + 4U);
 }
 
+int ifs_sfs2_decode_root_info(
+    const unsigned char *const bytes,
+    const ifs_sfs2_u32 byte_count,
+    IfsSfs2RootInfo *const root_info)
+{
+    if (bytes == 0 || root_info == 0 ||
+        byte_count < IFS_SFS2_ROOT_INFO_BYTES)
+        return -1;
+
+    root_info->deleted_blocks = ifs_sfs2_read_be32(bytes + 0U);
+    root_info->deleted_files = ifs_sfs2_read_be32(bytes + 4U);
+    root_info->free_blocks = ifs_sfs2_read_be32(bytes + 8U);
+    root_info->date_created = ifs_sfs2_read_be32(bytes + 12U);
+    root_info->last_allocated_block = ifs_sfs2_read_be32(bytes + 16U);
+    root_info->last_allocated_adminspace = ifs_sfs2_read_be32(bytes + 20U);
+    root_info->last_allocated_extent_node = ifs_sfs2_read_be32(bytes + 24U);
+    root_info->last_allocated_object_node = ifs_sfs2_read_be32(bytes + 28U);
+    root_info->roving_pointer = ifs_sfs2_read_be32(bytes + 32U);
+    return 0;
+}
+
+int ifs_sfs2_validate_root_info(
+    const IfsSfs2RootInfo *const root_info,
+    const ifs_sfs2_u32 total_blocks)
+{
+    if (root_info == 0 || total_blocks == 0U)
+        return -1;
+
+    if (root_info->free_blocks > total_blocks ||
+        root_info->deleted_blocks > total_blocks)
+        return -1;
+
+    if (root_info->last_allocated_block >= total_blocks &&
+        root_info->last_allocated_block != 0U)
+        return -1;
+    if (root_info->last_allocated_adminspace >= total_blocks &&
+        root_info->last_allocated_adminspace != 0U)
+        return -1;
+    if (root_info->roving_pointer >= total_blocks &&
+        root_info->roving_pointer != 0U)
+        return -1;
+
+    return 0;
+}
+
 int ifs_sfs2_decode_root(
     const unsigned char *const bytes,
     const ifs_sfs2_u32 byte_count,

@@ -137,5 +137,34 @@ int main(void)
             return fail("invalid SFS2 bitmap block size accepted");
     }
 
+
+    {
+        unsigned char raw[IFS_SFS2_ROOT_INFO_BYTES] = {0};
+        IfsSfs2RootInfo info;
+
+        raw[3] = 5U;
+        raw[7] = 2U;
+        raw[10] = 0x01U; raw[11] = 0xF4U;
+        raw[19] = 100U;
+        raw[23] = 20U;
+        raw[35] = 30U;
+
+        if (ifs_sfs2_decode_root_info(raw, sizeof(raw), &info) != 0)
+            return fail("SFS2 root-info decoder failed");
+        if (info.deleted_blocks != 5U ||
+            info.deleted_files != 2U ||
+            info.free_blocks != 500U ||
+            info.last_allocated_block != 100U ||
+            info.last_allocated_adminspace != 20U ||
+            info.roving_pointer != 30U)
+            return fail("SFS2 root-info decoder returned wrong fields");
+        if (ifs_sfs2_validate_root_info(&info, 1000U) != 0)
+            return fail("valid SFS2 root-info rejected");
+
+        info.free_blocks = 1001U;
+        if (ifs_sfs2_validate_root_info(&info, 1000U) == 0)
+            return fail("impossible SFS2 free-block count accepted");
+    }
+
     return 0;
 }
