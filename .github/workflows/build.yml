@@ -57,3 +57,29 @@ jobs:
           }
           Write-Host "Manager: $($manager.FullName)"
 
+
+
+  windows-ext2-driver:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build and validate canonical EXT2 driver
+        shell: powershell
+        run: .\windows\build\Build-Ext2Driver.ps1 -Configuration Release -Platform x64 -SkipCodeAnalysis
+
+      - name: Verify staged driver package
+        shell: powershell
+        run: |
+          $driver = 'release\windows\ext2\x64\filesystem_support_ext2.sys'
+          $inf = 'release\windows\ext2\x64\filesystem_support_ext2.inf'
+          $cat = 'release\windows\ext2\x64\filesystem_support_ext2.cat'
+          foreach ($path in @($driver, $inf, $cat)) {
+              if (-not (Test-Path -LiteralPath $path)) {
+                  throw "Expected staged EXT2 driver artifact missing: $path"
+              }
+          }
+          Get-FileHash -Algorithm SHA256 -LiteralPath $driver, $cat | Format-Table
