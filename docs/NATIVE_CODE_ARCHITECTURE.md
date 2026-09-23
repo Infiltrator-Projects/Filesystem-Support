@@ -389,3 +389,21 @@ filesystem.
 The Windows development mounter exception documented in
 [`WINDOWS_FILESYSTEM_ARCHITECTURE.md`](WINDOWS_FILESYSTEM_ARCHITECTURE.md)
 does not weaken this Linux rule.
+
+
+### Secure Boot and project-native Linux modules
+
+Native installation must remain compatible with Secure Boot rather than asking
+the user to disable it.
+
+When Secure Boot is enabled, the privileged native-module helper signs the
+freshly built `.ko` before installation. Ubuntu/Mint systems use the enrolled
+Machine Owner Key under `/var/lib/shim-signed/mok/` when available. The
+helper verifies that a signer is present and refuses to install an unsigned
+module.
+
+If no MOK exists or the existing certificate is not enrolled, installation
+fails closed with instructions to create/enroll the system MOK and retry after
+the required reboot. Filesystem Support must not silently disable Secure Boot,
+enable test signing, or claim the native module is active when the kernel has
+rejected it.
