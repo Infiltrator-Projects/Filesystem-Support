@@ -1,3 +1,3 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* Linux build bridge for shared canonical AmigaDOS primitives. */
-#include "../../amiga_common/core/amiga_dos_core.c"
+/* Linux build bridge for neutral AmigaDOS primitives. */
+#include "../../../primitives/amiga_dos/amiga_dos_core.c"
