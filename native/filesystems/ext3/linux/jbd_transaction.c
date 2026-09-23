@@ -557,13 +557,13 @@ repeat:
 			jbd_unlock_bh_state(bh);
 
 			for ( ; ; ) {
-				prepare_to_wait(wqh, &wait.wait,
+				prepare_to_wait(wqh, &wait.wq_entry,
 						TASK_UNINTERRUPTIBLE);
 				if (jh->b_jlist != BJ_Shadow)
 					break;
 				schedule();
 			}
-			finish_wait(wqh, &wait.wait);
+			finish_wait(wqh, &wait.wq_entry);
 			goto repeat;
 		}
 
