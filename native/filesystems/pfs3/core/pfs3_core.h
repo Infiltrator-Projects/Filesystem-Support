@@ -82,6 +82,16 @@ typedef enum IfsPfs3Format {
     IFS_PFS3_FORMAT_PFS2
 } IfsPfs3Format;
 
+typedef enum IfsPfs3MediaStatus {
+    IFS_PFS3_MEDIA_OK = 0,
+    IFS_PFS3_MEDIA_INVALID_ROOT,
+    IFS_PFS3_MEDIA_INVALID_NAME,
+    IFS_PFS3_MEDIA_INVALID_ALLOCATION_COUNTS,
+    IFS_PFS3_MEDIA_RESERVED_RANGE_OUTSIDE_MEDIA,
+    IFS_PFS3_MEDIA_SIZE_FIELD_MISMATCH,
+    IFS_PFS3_MEDIA_EXTENSION_OUT_OF_RANGE
+} IfsPfs3MediaStatus;
+
 typedef enum IfsPfs3RootStatus {
     IFS_PFS3_ROOT_OK = 0,
     IFS_PFS3_ROOT_BAD_DISK_TYPE,
@@ -112,6 +122,11 @@ int ifs_pfs3_decode_root(
     IfsPfs3RootRecord *root);
 
 IfsPfs3Format ifs_pfs3_classify_disk_type(ifs_pfs3_u32 disk_type);
+
+IfsPfs3MediaStatus ifs_pfs3_validate_root_record(
+    const IfsPfs3RootRecord *root,
+    ifs_pfs3_u32 logical_block_size,
+    ifs_pfs3_u32 media_block_count);
 
 IfsPfs3RootStatus ifs_pfs3_validate_root_geometry(
     ifs_pfs3_u32 disk_type,

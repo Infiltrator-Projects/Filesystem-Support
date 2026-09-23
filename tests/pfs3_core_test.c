@@ -150,5 +150,47 @@ int main(void)
             return fail("out-of-range PFS bitmap roving bit accepted");
     }
 
+
+    {
+        IfsPfs3RootRecord root = {0};
+        root.disk_type = IFS_PFS3_DISK_PFS2;
+        root.options = IFS_PFS3_MODE_HARDDISK |
+                       IFS_PFS3_MODE_SIZEFIELD |
+                       IFS_PFS3_MODE_EXTENSION;
+        root.disk_name[0] = 4U;
+        root.disk_name[1] = 'T'; root.disk_name[2] = 'e';
+        root.disk_name[3] = 's'; root.disk_name[4] = 't';
+        root.first_reserved = 2U;
+        root.last_reserved = 257U;
+        root.reserved_free = 20U;
+        root.reserved_block_size = 1024U;
+        root.root_block_cluster = 2U;
+        root.blocks_free = 3000U;
+        root.always_free = 150U;
+        root.disk_size = 4096U;
+        root.extension = 4U;
+
+        if (ifs_pfs3_validate_root_record(&root, 512U, 4096U) !=
+            IFS_PFS3_MEDIA_OK)
+            return fail("valid PFS root record rejected");
+
+        root.always_free = 3001U;
+        if (ifs_pfs3_validate_root_record(&root, 512U, 4096U) !=
+            IFS_PFS3_MEDIA_INVALID_ALLOCATION_COUNTS)
+            return fail("PFS allocation underflow root accepted");
+        root.always_free = 150U;
+
+        root.disk_size = 4095U;
+        if (ifs_pfs3_validate_root_record(&root, 512U, 4096U) !=
+            IFS_PFS3_MEDIA_SIZE_FIELD_MISMATCH)
+            return fail("PFS size-field mismatch accepted");
+        root.disk_size = 4096U;
+
+        root.extension = 3U;
+        if (ifs_pfs3_validate_root_record(&root, 512U, 4096U) !=
+            IFS_PFS3_MEDIA_EXTENSION_OUT_OF_RANGE)
+            return fail("misaligned PFS extension accepted");
+    }
+
     return 0;
 }

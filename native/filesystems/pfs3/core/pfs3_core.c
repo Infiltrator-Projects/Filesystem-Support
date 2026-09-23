@@ -120,6 +120,50 @@ IfsPfs3Format ifs_pfs3_classify_disk_type(const ifs_pfs3_u32 disk_type)
     }
 }
 
+IfsPfs3MediaStatus ifs_pfs3_validate_root_record(
+    const IfsPfs3RootRecord *const root,
+    const ifs_pfs3_u32 logical_block_size,
+    const ifs_pfs3_u32 media_block_count)
+{
+    ifs_pfs3_u32 sectors_per_reserved_block;
+
+    if (root == 0 || media_block_count == 0U)
+        return IFS_PFS3_MEDIA_INVALID_ROOT;
+
+    if (ifs_pfs3_validate_root_geometry(
+            root->disk_type, root->options, logical_block_size,
+            root->reserved_block_size, root->root_block_cluster,
+            root->first_reserved, root->last_reserved,
+            root->reserved_free) != IFS_PFS3_ROOT_OK)
+        return IFS_PFS3_MEDIA_INVALID_ROOT;
+
+    if (ifs_pfs3_validate_disk_name(root->disk_name) != 0)
+        return IFS_PFS3_MEDIA_INVALID_NAME;
+
+    if (ifs_pfs3_validate_allocation_counts(
+            root->blocks_free, root->always_free) != 0)
+        return IFS_PFS3_MEDIA_INVALID_ALLOCATION_COUNTS;
+
+    if (root->last_reserved >= media_block_count)
+        return IFS_PFS3_MEDIA_RESERVED_RANGE_OUTSIDE_MEDIA;
+
+    if ((root->options & IFS_PFS3_MODE_SIZEFIELD) != 0U &&
+        root->disk_size != media_block_count)
+        return IFS_PFS3_MEDIA_SIZE_FIELD_MISMATCH;
+
+    if ((root->options & IFS_PFS3_MODE_EXTENSION) != 0U) {
+        sectors_per_reserved_block =
+            root->reserved_block_size / logical_block_size;
+        if (root->extension < root->first_reserved ||
+            root->extension > root->last_reserved ||
+            (root->extension - root->first_reserved) %
+                sectors_per_reserved_block != 0U)
+            return IFS_PFS3_MEDIA_EXTENSION_OUT_OF_RANGE;
+    }
+
+    return IFS_PFS3_MEDIA_OK;
+}
+
 IfsPfs3RootStatus ifs_pfs3_validate_root_geometry(
     const ifs_pfs3_u32 disk_type,
     const ifs_pfs3_u32 options,
