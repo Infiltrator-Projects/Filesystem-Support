@@ -8,7 +8,7 @@
 #include <linux/cred.h>
 #include <linux/gfp.h>
 
-static void ifs_amiga_reset_inode_private(struct inode *inode)
+static void ifs_ofs_reset_inode_private(struct inode *inode)
 {
     struct affs_inode_info *info = AFFS_I(inode);
 
@@ -28,7 +28,7 @@ static void ifs_amiga_reset_inode_private(struct inode *inode)
     info->i_pa_cnt = 0;
 }
 
-static time64_t ifs_amiga_inode_time(const struct affs_date *date)
+static time64_t ifs_ofs_inode_time(const struct affs_date *date)
 {
     return (time64_t)be32_to_cpu(date->days) * 86400LL +
            (time64_t)be32_to_cpu(date->mins) * 60LL +
@@ -80,7 +80,7 @@ struct inode *affs_iget(struct super_block *sb, unsigned long inode_number)
     inode->i_size = 0;
     set_nlink(inode, 1);
     inode->i_mode = 0;
-    ifs_amiga_reset_inode_private(inode);
+    ifs_ofs_reset_inode_private(inode);
     AFFS_I(inode)->i_protect = protection;
 
     if (affs_test_opt(sbi->s_flags, SF_SETMODE))
@@ -192,7 +192,7 @@ struct inode *affs_iget(struct super_block *sb, unsigned long inode_number)
         goto bad_inode;
     }
 
-    timestamp = ifs_amiga_inode_time(&tail->change);
+    timestamp = ifs_ofs_inode_time(&tail->change);
     inode_set_ctime(inode, timestamp, 0);
     inode_set_atime(inode, timestamp, 0);
     inode_set_mtime(inode, timestamp, 0);
@@ -366,7 +366,7 @@ struct inode *affs_new_inode(struct inode *dir)
     inode->i_gid = current_fsgid();
     set_nlink(inode, 1);
     simple_inode_init_ts(inode);
-    ifs_amiga_reset_inode_private(inode);
+    ifs_ofs_reset_inode_private(inode);
     insert_inode_hash(inode);
 
     mark_buffer_dirty_inode(bh, inode);
