@@ -115,7 +115,7 @@ static inline struct affs_sb_info *AFFS_SB(struct super_block *sb)
     return sb->s_fs_info;
 }
 
-static inline u32 ifs_amiga_chain_budget(struct super_block *sb)
+static inline u32 ifs_ofs_chain_budget(struct super_block *sb)
 {
     const struct affs_sb_info *sbi = AFFS_SB(sb);
 
