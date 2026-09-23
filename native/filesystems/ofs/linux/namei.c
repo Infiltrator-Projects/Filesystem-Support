@@ -1,7 +1,7 @@
 /*
  * Project-authored Linux namespace adapter for Amiga OFS.
  * Canonical name folding, validation, directory hashing and symlink encoding
- * live in amiga_dos_core.
+ * live in the OFS core.
  */
 
 #include <linux/exportfs.h>
@@ -23,7 +23,7 @@ static int ifs_amiga_name_hash(
     remaining = min_t(u32, (u32)name->len, (u32)AFFSNAMEMAX);
     while (remaining-- != 0U)
         hash = partial_name_hash(
-            ifs_amiga_fold_character(*cursor++, international ? 1 : 0),
+            ifs_ofs_fold_character(*cursor++, international ? 1 : 0),
             hash);
 
     name->hash = end_name_hash(hash);
@@ -68,10 +68,10 @@ static int ifs_amiga_name_compare(
     }
 
     for (index = 0U; index < length; ++index) {
-        if (ifs_amiga_fold_character(
-                (ifs_amiga_u8)existing_name[index],
+        if (ifs_ofs_fold_character(
+                (ifs_ofs_u8)existing_name[index],
                 international ? 1 : 0) !=
-            ifs_amiga_fold_character(
+            ifs_ofs_fold_character(
                 candidate->name[index], international ? 1 : 0))
             return 1;
     }
@@ -113,9 +113,9 @@ static bool ifs_amiga_disk_name_matches(
     }
 
     for (index = 0U; index < length; ++index) {
-        if (ifs_amiga_fold_character(
+        if (ifs_ofs_fold_character(
                 dentry->d_name.name[index], international ? 1 : 0) !=
-            ifs_amiga_fold_character(
+            ifs_ofs_fold_character(
                 disk_name[index + 1U], international ? 1 : 0))
             return false;
     }
@@ -125,9 +125,9 @@ static bool ifs_amiga_disk_name_matches(
 
 int affs_hash_name(struct super_block *sb, const u8 *name, unsigned int length)
 {
-    return (int)ifs_amiga_directory_hash(
-        name, (ifs_amiga_u32)length,
-        (ifs_amiga_u32)AFFS_SB(sb)->s_hashsize,
+    return (int)ifs_ofs_directory_hash(
+        name, (ifs_ofs_u32)length,
+        (ifs_ofs_u32)AFFS_SB(sb)->s_hashsize,
         affs_test_opt(AFFS_SB(sb)->s_flags, SF_INTL) ? 1 : 0);
 }
 
@@ -281,8 +281,8 @@ int affs_symlink(
     struct affs_sb_info *sbi = AFFS_SB(sb);
     struct buffer_head *bh = NULL;
     struct inode *inode;
-    ifs_amiga_u32 encoded_length = 0U;
-    IfsAmigaSymlinkStatus status;
+    ifs_ofs_u32 encoded_length = 0U;
+    IfsOfsSymlinkStatus status;
     size_t target_length;
     size_t volume_length;
     u32 capacity;
@@ -311,17 +311,17 @@ int affs_symlink(
     capacity = (u32)sbi->s_hashsize * sizeof(u32);
     spin_lock(&sbi->symlink_lock);
     volume_length = strnlen(sbi->s_volume, sizeof(sbi->s_volume));
-    status = ifs_amiga_encode_symlink(
-        (const ifs_amiga_u8 *)target,
-        (ifs_amiga_u32)target_length + 1U,
-        (const ifs_amiga_u8 *)sbi->s_volume,
-        (ifs_amiga_u32)volume_length,
-        (ifs_amiga_u8 *)AFFS_HEAD(bh)->table,
+    status = ifs_ofs_encode_symlink(
+        (const ifs_ofs_u8 *)target,
+        (ifs_ofs_u32)target_length + 1U,
+        (const ifs_ofs_u8 *)sbi->s_volume,
+        (ifs_ofs_u32)volume_length,
+        (ifs_ofs_u8 *)AFFS_HEAD(bh)->table,
         capacity, &encoded_length);
     spin_unlock(&sbi->symlink_lock);
 
-    if (status != IFS_AMIGA_SYMLINK_OK) {
-        result = status == IFS_AMIGA_SYMLINK_OUTPUT_TOO_SMALL ?
+    if (status != IFS_OFS_SYMLINK_OK) {
+        result = status == IFS_OFS_SYMLINK_OUTPUT_TOO_SMALL ?
                  -ENAMETOOLONG : -EINVAL;
         goto fail;
     }
