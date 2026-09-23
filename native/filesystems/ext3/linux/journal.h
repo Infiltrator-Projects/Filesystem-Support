@@ -745,6 +745,9 @@ extern void	journal_clear_revoke(journal_t *);
 extern void	journal_switch_revoke_table(journal_t *journal);
 extern void	journal_clear_buffer_revoked_flags(journal_t *journal);
 
+int infiltratr_ext3_jbd_init(void);
+void infiltratr_ext3_jbd_exit(void);
+
 
 int __log_space_left(journal_t *);
 int log_start_commit(journal_t *journal, tid_t tid);
