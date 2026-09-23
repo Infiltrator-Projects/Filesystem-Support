@@ -10,11 +10,14 @@
 #if defined(__KERNEL__)
 #include <linux/types.h>
 typedef u32 ifs_ext4_u32;
+typedef u64 ifs_ext4_u64;
 #elif defined(IFS_EXT4_WINDOWS_KERNEL)
 typedef unsigned int ifs_ext4_u32;
+typedef unsigned long long ifs_ext4_u64;
 #else
 #include <stdint.h>
 typedef uint32_t ifs_ext4_u32;
+typedef uint64_t ifs_ext4_u64;
 #endif
 
 #define IFS_EXT4_FEATURE_INCOMPAT_FILETYPE    0x0002U
@@ -66,5 +69,47 @@ IfsExt4BigallocStatus ifs_ext4_validate_bigalloc(
     ifs_ext4_u32 feature_incompat,
     ifs_ext4_u32 feature_ro_compat,
     ifs_ext4_u32 first_data_block);
+
+typedef enum IfsExt4InodeGeometryStatus {
+    IFS_EXT4_INODE_GEOMETRY_OK = 0,
+    IFS_EXT4_INODE_GEOMETRY_INVALID_FIRST_INODE,
+    IFS_EXT4_INODE_GEOMETRY_INVALID_INODE_SIZE
+} IfsExt4InodeGeometryStatus;
+
+typedef enum IfsExt4GroupGeometryStatus {
+    IFS_EXT4_GROUP_GEOMETRY_OK = 0,
+    IFS_EXT4_GROUP_GEOMETRY_INVALID_DESCRIPTOR_SIZE,
+    IFS_EXT4_GROUP_GEOMETRY_ZERO_VALUE,
+    IFS_EXT4_GROUP_GEOMETRY_INVALID_INODES_PER_GROUP
+} IfsExt4GroupGeometryStatus;
+
+typedef enum IfsExt4ClusterGeometryStatus {
+    IFS_EXT4_CLUSTER_GEOMETRY_OK = 0,
+    IFS_EXT4_CLUSTER_GEOMETRY_CLUSTER_SMALLER_THAN_BLOCK,
+    IFS_EXT4_CLUSTER_GEOMETRY_CLUSTER_BLOCK_MISMATCH,
+    IFS_EXT4_CLUSTER_GEOMETRY_BLOCKS_PER_GROUP_TOO_LARGE,
+    IFS_EXT4_CLUSTER_GEOMETRY_CLUSTERS_PER_GROUP_TOO_LARGE,
+    IFS_EXT4_CLUSTER_GEOMETRY_GROUP_RATIO_MISMATCH
+} IfsExt4ClusterGeometryStatus;
+
+IfsExt4InodeGeometryStatus ifs_ext4_validate_inode_geometry(
+    ifs_ext4_u32 block_size,
+    ifs_ext4_u32 inode_size,
+    ifs_ext4_u32 first_inode);
+
+IfsExt4GroupGeometryStatus ifs_ext4_validate_group_geometry(
+    ifs_ext4_u32 block_size,
+    ifs_ext4_u32 inode_size,
+    ifs_ext4_u32 descriptor_size,
+    int has_64bit,
+    ifs_ext4_u32 blocks_per_group,
+    ifs_ext4_u32 inodes_per_group);
+
+IfsExt4ClusterGeometryStatus ifs_ext4_validate_cluster_geometry(
+    ifs_ext4_u32 block_size,
+    ifs_ext4_u32 cluster_size,
+    int has_bigalloc,
+    ifs_ext4_u32 blocks_per_group,
+    ifs_ext4_u32 clusters_per_group);
 
 #endif
