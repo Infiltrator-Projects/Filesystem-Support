@@ -186,10 +186,8 @@ void run_privileged_async(const std::vector<std::string>& arguments,
     gchar* pkexec = g_find_program_in_path("pkexec");
     gchar* executable = nullptr;
     if (g_path_is_absolute(arguments.front().c_str())) {
-        if (g_file_test(
-                arguments.front().c_str(),
-                static_cast<GFileTest>(G_FILE_TEST_IS_REGULAR |
-                                       G_FILE_TEST_IS_EXECUTABLE))) {
+        if (g_file_test(arguments.front().c_str(), G_FILE_TEST_IS_REGULAR) &&
+            g_file_test(arguments.front().c_str(), G_FILE_TEST_IS_EXECUTABLE)) {
             executable = g_strdup(arguments.front().c_str());
         }
     } else {
@@ -275,10 +273,8 @@ std::string native_module_helper_path()
     };
 
     for (const char* const path : candidates) {
-        if (g_file_test(
-                path,
-                static_cast<GFileTest>(G_FILE_TEST_IS_REGULAR |
-                                       G_FILE_TEST_IS_EXECUTABLE))) {
+        if (g_file_test(path, G_FILE_TEST_IS_REGULAR) &&
+            g_file_test(path, G_FILE_TEST_IS_EXECUTABLE)) {
             return path;
         }
     }
