@@ -57,14 +57,20 @@ yet classified as project-authored implementation. Rewrite it subsystem by
 subsystem while preserving the one-`ext4.ko` architecture, EXT4-only
 registration and complete supported feature set.
 
-## Retired mechanisms
+## Retired EXT mechanisms
 
-The following mechanisms are deliberately removed and must not return:
+The following EXT-specific mechanisms are deliberately removed and must not
+return:
 
-- the GitHub Actions Linux filesystem source-import workflow;
+- any workflow step that imports or overwrites EXT2, EXT3 or EXT4 from upstream;
 - EXT2/EXT3/EXT4 source-shaping scripts;
 - the generic EXT imported-source hardening transformer;
 - the automated inherited-source recommenting tool.
+
+The repository may continue to import or refresh copied upstream source for
+other filesystems that have not yet entered rewrite state. Those trees remain
+reference/import implementations and retain their upstream provenance until
+their own rewrite begins.
 
 ## Promotion rule
 
