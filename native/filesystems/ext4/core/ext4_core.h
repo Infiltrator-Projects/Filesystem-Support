@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef INFILTRATR_EXT4_CORE_H
 #define INFILTRATR_EXT4_CORE_H
 
