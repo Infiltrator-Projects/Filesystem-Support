@@ -1,533 +1,658 @@
-/*
- *
- * Amiga Smart File System, Linux implementation
- * version: 1.0beta7
- *
- * This file contains some parts of the original amiga version of 
- * SmartFilesystem source code.
- *
- * SmartFilesystem is copyrighted (C) 2003 by: John Hendrikx, 
- * Ralph Schmidt, Emmanuel Lesueur, David Gerber, and Marcin Kurek
- * 
- * Adapted and modified by Marek 'March' Szyprowski <marek@amiga.pl>
- *
- */
-
-#include <linux/types.h>
+#include <linux/buffer_head.h>
 #include <linux/errno.h>
 #include <linux/slab.h>
-#include <linux/fs.h>
-#include <linux/buffer_head.h>
-#include <linux/vfs.h>
 #include "asfs_fs.h"
 #include "bitfuncs.h"
 
-#include <asm/byteorder.h>
-
 #ifdef CONFIG_ASFS_RW
 
-static int setfreeblocks(struct super_block *sb, u32 freeblocks)
+static int sfs_set_free_block_count(
+    struct super_block *sb,
+    u32 free_blocks)
 {
-	struct buffer_head *bh;
-	if ((bh = asfs_breadcheck(sb, ASFS_SB(sb)->rootobjectcontainer, ASFS_OBJECTCONTAINER_ID))) {
-		struct fsRootInfo *ri = (struct fsRootInfo *) ((u8 *) bh->b_data + sb->s_blocksize - sizeof(struct fsRootInfo));
-		ASFS_SB(sb)->freeblocks = freeblocks;
-		ri->freeblocks = cpu_to_be32(freeblocks);
-		asfs_bstore(sb, bh);
-		asfs_brelse(bh);
-		return 0;
-	}
-	return -EIO;
+    struct buffer_head *bh;
+    struct fsRootInfo *root_info;
+
+    if (sb->s_blocksize < sizeof(struct fsRootInfo))
+        return -EUCLEAN;
+
+    bh = asfs_breadcheck(
+        sb, ASFS_SB(sb)->rootobjectcontainer,
+        ASFS_OBJECTCONTAINER_ID);
+    if (!bh)
+        return -EIO;
+
+    root_info = (struct fsRootInfo *)
+        ((u8 *)bh->b_data +
+         sb->s_blocksize - sizeof(struct fsRootInfo));
+    root_info->freeblocks = cpu_to_be32(free_blocks);
+    ASFS_SB(sb)->freeblocks = free_blocks;
+    asfs_bstore(sb, bh);
+    asfs_brelse(bh);
+    return 0;
 }
 
-static inline int enoughspace(struct super_block *sb, u32 blocks)
+static bool sfs_has_space(struct super_block *sb, u32 blocks)
 {
-	return ifs_sfs_has_allocation_headroom(
-		ASFS_SB(sb)->freeblocks, blocks, ASFS_ALWAYSFREE) ?
-		TRUE : FALSE;
+    return ifs_sfs_has_allocation_headroom(
+        ASFS_SB(sb)->freeblocks,
+        blocks,
+        ASFS_ALWAYSFREE) != 0;
 }
 
-	/* Determines the amount of free blocks starting from block /block/.
-	   If there are no blocks found or if there was an error -1 is returned,
-	   otherwise this function will count the number of free blocks until
-	   an allocated block is encountered or until maxneeded has been
-	   exceeded. */
-
-static int availablespace(struct super_block *sb, u32 block, u32 maxneeded)
+static int sfs_scan_free_range(
+    struct super_block *sb,
+    u32 start,
+    u32 end,
+    u32 requested,
+    u32 *best_start,
+    u32 *best_length)
 {
-	struct buffer_head *bh = NULL;
-	struct fsBitmap *b;
-	u32 longs = ASFS_SB(sb)->blocks_inbitmap >> 5;
-	u32 maxbitmapblock = ASFS_SB(sb)->bitmapbase + ASFS_SB(sb)->blocks_bitmap;
-	int blocksfound = 0;
-	u32 bitstart;
-	int bitend;
-	u32 nextblock = ASFS_SB(sb)->bitmapbase + block / ASFS_SB(sb)->blocks_inbitmap;
+    const u32 bits_per_bitmap = ASFS_SB(sb)->blocks_inbitmap;
+    const int words = (int)(bits_per_bitmap >> 5);
+    u32 current = start;
+    u32 run_start = 0U;
+    u32 run_length = 0U;
 
-	bitstart = block % ASFS_SB(sb)->blocks_inbitmap;
+    if (bits_per_bitmap == 0U || words <= 0 ||
+        start > end || end > ASFS_SB(sb)->totalblocks)
+        return -EINVAL;
 
-	while (nextblock < maxbitmapblock && (bh = asfs_breadcheck(sb, nextblock++, ASFS_BITMAP_ID))) {
-		b = (void *) bh->b_data;
+    while (current < end) {
+        const u32 bitmap_index = current / bits_per_bitmap;
+        const u32 bitmap_base_block = bitmap_index * bits_per_bitmap;
+        const u32 local_start = current - bitmap_base_block;
+        const u32 local_end = min(
+            bits_per_bitmap, end - bitmap_base_block);
+        struct buffer_head *bh;
+        struct fsBitmap *bitmap;
+        u32 cursor = local_start;
 
-		if ((bitend = bmffz(b->bitmap, longs, bitstart)) >= 0) {
-			blocksfound += bitend - bitstart;
-			asfs_brelse(bh);
-			return blocksfound;
-		}
-		blocksfound += ASFS_SB(sb)->blocks_inbitmap - bitstart;
-		if (blocksfound >= maxneeded) {
-			asfs_brelse(bh);
-			return blocksfound;
-		}
-		bitstart = 0;
-		asfs_brelse(bh);
-	}
+        if (bitmap_index >= ASFS_SB(sb)->blocks_bitmap)
+            return -EUCLEAN;
 
-	if (bh == NULL)
-		return (-1);
+        bh = asfs_breadcheck(
+            sb, ASFS_SB(sb)->bitmapbase + bitmap_index,
+            ASFS_BITMAP_ID);
+        if (!bh)
+            return -EIO;
 
-	return (blocksfound);
+        bitmap = (struct fsBitmap *)bh->b_data;
+
+        while (cursor < local_end) {
+            int free_start = bmffo(
+                bitmap->bitmap, words, (int)cursor);
+            int allocated_start;
+            u32 free_end;
+
+            if (free_start < 0 ||
+                (u32)free_start >= local_end) {
+                run_length = 0U;
+                break;
+            }
+
+            if ((u32)free_start != cursor) {
+                run_length = 0U;
+                run_start =
+                    bitmap_base_block + (u32)free_start;
+            } else if (run_length == 0U) {
+                run_start =
+                    bitmap_base_block + (u32)free_start;
+            }
+
+            allocated_start = bmffz(
+                bitmap->bitmap, words, free_start);
+            free_end = allocated_start < 0
+                ? bits_per_bitmap
+                : (u32)allocated_start;
+            if (free_end > local_end)
+                free_end = local_end;
+
+            run_length += free_end - (u32)free_start;
+            if (run_length > *best_length) {
+                *best_start = run_start;
+                *best_length = run_length;
+                if (*best_length >= requested) {
+                    *best_length = requested;
+                    asfs_brelse(bh);
+                    return 1;
+                }
+            }
+
+            if (free_end >= local_end) {
+                cursor = local_end;
+            } else {
+                run_length = 0U;
+                cursor = free_end + 1U;
+            }
+        }
+
+        asfs_brelse(bh);
+
+        if (local_end != bits_per_bitmap)
+            run_length = 0U;
+        current = bitmap_base_block + local_end;
+    }
+
+    return 0;
 }
 
-int asfs_findspace(struct super_block *sb, u32 maxneeded, u32 start, u32 end, u32 * returned_block, u32 * returned_blocks)
+int asfs_findspace(
+    struct super_block *sb,
+    u32 maxneeded,
+    u32 start,
+    u32 end,
+    u32 *returned_block,
+    u32 *returned_blocks)
 {
-	struct buffer_head *bh;
-	u32 longs = ASFS_SB(sb)->blocks_inbitmap >> 5;
-	u32 space = 0;
-	u32 block;
-	u32 bitmapblock = ASFS_SB(sb)->bitmapbase + start / ASFS_SB(sb)->blocks_inbitmap;
-	u32 breakpoint;
-	int bitstart, bitend;
-	int reads;
+    const u32 total = ASFS_SB(sb)->totalblocks;
+    u32 best_start = 0U;
+    u32 best_length = 0U;
+    int result;
 
-	if (enoughspace(sb, maxneeded) == FALSE) {
-		*returned_block = 0;
-		*returned_blocks = 0;
-		return -ENOSPC;
-	}
+    if (!returned_block || !returned_blocks ||
+        maxneeded == 0U || total == 0U)
+        return -EINVAL;
 
-	if (start >= ASFS_SB(sb)->totalblocks)
-		start -= ASFS_SB(sb)->totalblocks;
+    *returned_block = 0U;
+    *returned_blocks = 0U;
 
-	if (end == 0)
-		end = ASFS_SB(sb)->totalblocks;
+    if (!sfs_has_space(sb, maxneeded))
+        return -ENOSPC;
 
-	reads = ((end - 1) / ASFS_SB(sb)->blocks_inbitmap) + 1 - start / ASFS_SB(sb)->blocks_inbitmap;
+    start %= total;
+    if (end == 0U)
+        end = total;
+    if (end > total)
+        return -EINVAL;
 
-	if (start >= end)
-		reads += (ASFS_SB(sb)->totalblocks - 1) / ASFS_SB(sb)->blocks_inbitmap + 1;
+    if (start < end) {
+        result = sfs_scan_free_range(
+            sb, start, end, maxneeded,
+            &best_start, &best_length);
+        if (result < 0)
+            return result;
+    } else {
+        result = sfs_scan_free_range(
+            sb, start, total, maxneeded,
+            &best_start, &best_length);
+        if (result < 0)
+            return result;
 
-	breakpoint = (start < end ? end : ASFS_SB(sb)->totalblocks);
+        if (best_length < maxneeded) {
+            u32 second_start = 0U;
+            u32 second_length = 0U;
 
-	*returned_block = 0;
-	*returned_blocks = 0;
+            result = sfs_scan_free_range(
+                sb, 0U, end, maxneeded,
+                &second_start, &second_length);
+            if (result < 0)
+                return result;
+            if (second_length > best_length) {
+                best_start = second_start;
+                best_length = second_length;
+            }
+        }
+    }
 
-	bitend = start % ASFS_SB(sb)->blocks_inbitmap;
-	block = start - bitend;
+    if (best_length == 0U)
+        return -ENOSPC;
 
-	while ((bh = asfs_breadcheck(sb, bitmapblock++, ASFS_BITMAP_ID))) {
-		struct fsBitmap *b = (void *) bh->b_data;
-		u32 localbreakpoint = breakpoint - block;
-
-		if (localbreakpoint > ASFS_SB(sb)->blocks_inbitmap)
-			localbreakpoint = ASFS_SB(sb)->blocks_inbitmap;
-
-		/* At this point space contains the amount of free blocks at
-		   the end of the previous bitmap block.  If there are no
-		   free blocks at the start of this bitmap block, space will
-		   be set to zero, since in that case the space isn't adjacent. */
-
-		while ((bitstart = bmffo(b->bitmap, longs, bitend)) < ASFS_SB(sb)->blocks_inbitmap) {
-			/* found the start of an empty space, now find out how large it is */
-
-			if (bitstart >= localbreakpoint)
-				break;
-
-			if (bitstart != 0)
-				space = 0;
-
-			bitend = bmffz(b->bitmap, longs, bitstart);
-
-			if (bitend > localbreakpoint)
-				bitend = localbreakpoint;
-
-			space += bitend - bitstart;
-
-			if (*returned_blocks < space) {
-				*returned_block = block + bitend - space;
-				if (space >= maxneeded) {
-					*returned_blocks = maxneeded;
-					asfs_brelse(bh);
-					return 0;
-				}
-				*returned_blocks = space;
-			}
-
-			if (bitend >= localbreakpoint)
-				break;
-		}
-
-		if (--reads == 0)
-			break;
-
-		/* no (more) empty spaces found in this block */
-
-		if (bitend != ASFS_SB(sb)->blocks_inbitmap)
-			space = 0;
-
-		bitend = 0;
-		block += ASFS_SB(sb)->blocks_inbitmap;
-
-		if (block >= ASFS_SB(sb)->totalblocks) {
-			block = 0;
-			space = 0;
-			breakpoint = end;
-			bitmapblock = ASFS_SB(sb)->bitmapbase;
-		}
-		asfs_brelse(bh);
-	}
-
-	if (bh == NULL)
-		return -EIO;
-
-	asfs_brelse(bh);
-
-	if (*returned_blocks == 0)
-		return -ENOSPC;
-	else
-		return 0;
+    *returned_block = best_start;
+    *returned_blocks = best_length;
+    return 0;
 }
 
-static int asfs_update_bitmap_range(
-	struct super_block *sb, u32 block, u32 blocks, int allocate)
+static int sfs_update_bitmap_range(
+    struct super_block *sb,
+    u32 block,
+    u32 blocks,
+    bool allocate)
 {
-	struct buffer_head **buffers;
-	u32 first_bitmap;
-	u32 last_bitmap;
-	u32 buffer_count;
-	u32 new_freeblocks;
-	u32 index;
-	int errorcode = 0;
+    const u32 bits_per_bitmap = ASFS_SB(sb)->blocks_inbitmap;
+    struct buffer_head **buffers;
+    u32 first_bitmap;
+    u32 last_bitmap;
+    u32 buffer_count;
+    u32 new_free;
+    u32 index;
+    int result = 0;
 
-	if (blocks == 0U || ASFS_SB(sb)->blocks_inbitmap == 0U ||
-	    block >= ASFS_SB(sb)->totalblocks ||
-	    blocks > ASFS_SB(sb)->totalblocks - block)
-		return -EINVAL;
+    if (blocks == 0U || bits_per_bitmap == 0U ||
+        block >= ASFS_SB(sb)->totalblocks ||
+        blocks > ASFS_SB(sb)->totalblocks - block)
+        return -EINVAL;
 
-	first_bitmap = block / ASFS_SB(sb)->blocks_inbitmap;
-	last_bitmap =
-		(block + blocks - 1U) / ASFS_SB(sb)->blocks_inbitmap;
-	if (last_bitmap >= ASFS_SB(sb)->blocks_bitmap)
-		return -EUCLEAN;
-	buffer_count = last_bitmap - first_bitmap + 1U;
+    first_bitmap = block / bits_per_bitmap;
+    last_bitmap = (block + blocks - 1U) / bits_per_bitmap;
+    if (last_bitmap >= ASFS_SB(sb)->blocks_bitmap)
+        return -EUCLEAN;
 
-	buffers = kcalloc(buffer_count, sizeof(*buffers), GFP_NOFS);
-	if (!buffers)
-		return -ENOMEM;
+    buffer_count = last_bitmap - first_bitmap + 1U;
+    buffers = kcalloc(
+        buffer_count, sizeof(*buffers), GFP_NOFS);
+    if (!buffers)
+        return -ENOMEM;
 
-	for (index = 0U; index < buffer_count; ++index) {
-		buffers[index] = asfs_breadcheck(
-			sb, ASFS_SB(sb)->bitmapbase + first_bitmap + index,
-			ASFS_BITMAP_ID);
-		if (!buffers[index]) {
-			errorcode = -EIO;
-			goto out_release;
-		}
-	}
+    for (index = 0U; index < buffer_count; ++index) {
+        buffers[index] = asfs_breadcheck(
+            sb,
+            ASFS_SB(sb)->bitmapbase +
+                first_bitmap + index,
+            ASFS_BITMAP_ID);
+        if (!buffers[index]) {
+            result = -EIO;
+            goto out;
+        }
+    }
 
-	/*
-	 * Verify the complete range before changing any bitmap word. SFS uses
-	 * one for free and zero for allocated, so this also detects double
-	 * allocation and double free without trusting the cached free counter.
-	 */
-	for (index = 0U; index < blocks; ++index) {
-		u32 logical = block + index;
-		u32 bitmap_index =
-			logical / ASFS_SB(sb)->blocks_inbitmap - first_bitmap;
-		u32 bit_index = logical % ASFS_SB(sb)->blocks_inbitmap;
-		u32 word_index = bit_index >> 5;
-		u32 bit_in_word = bit_index & 31U;
-		struct fsBitmap *bitmap =
-			(void *)buffers[bitmap_index]->b_data;
-		u32 word = be32_to_cpu(bitmap->bitmap[word_index]);
-		u32 mask = 1U << (31U - bit_in_word);
-		int is_free = (word & mask) != 0U;
+    for (index = 0U; index < blocks; ++index) {
+        const u32 absolute = block + index;
+        const u32 relative_bitmap =
+            absolute / bits_per_bitmap - first_bitmap;
+        const u32 bit = absolute % bits_per_bitmap;
+        const u32 word_index = bit >> 5;
+        const u32 mask = 1U << (31U - (bit & 31U));
+        struct fsBitmap *bitmap =
+            (struct fsBitmap *)buffers[relative_bitmap]->b_data;
+        const u32 word =
+            be32_to_cpu(bitmap->bitmap[word_index]);
+        const bool is_free = (word & mask) != 0U;
 
-		if ((allocate && !is_free) || (!allocate && is_free)) {
-			errorcode = -EUCLEAN;
-			goto out_release;
-		}
-	}
+        if ((allocate && !is_free) ||
+            (!allocate && is_free)) {
+            result = -EUCLEAN;
+            goto out;
+        }
+    }
 
-	if (allocate) {
-		if (ifs_sfs_free_count_after_allocate(
-				ASFS_SB(sb)->freeblocks, blocks,
-				&new_freeblocks) != 0) {
-			errorcode = -EUCLEAN;
-			goto out_release;
-		}
-	} else {
-		if (ifs_sfs_free_count_after_release(
-				ASFS_SB(sb)->freeblocks, blocks,
-				ASFS_SB(sb)->totalblocks,
-				&new_freeblocks) != 0) {
-			errorcode = -EUCLEAN;
-			goto out_release;
-		}
-	}
+    if (allocate) {
+        if (ifs_sfs_free_count_after_allocate(
+                ASFS_SB(sb)->freeblocks,
+                blocks, &new_free) != 0) {
+            result = -EUCLEAN;
+            goto out;
+        }
+    } else {
+        if (ifs_sfs_free_count_after_release(
+                ASFS_SB(sb)->freeblocks,
+                blocks,
+                ASFS_SB(sb)->totalblocks,
+                &new_free) != 0) {
+            result = -EUCLEAN;
+            goto out;
+        }
+    }
 
-	for (index = 0U; index < blocks; ++index) {
-		u32 logical = block + index;
-		u32 bitmap_index =
-			logical / ASFS_SB(sb)->blocks_inbitmap - first_bitmap;
-		u32 bit_index = logical % ASFS_SB(sb)->blocks_inbitmap;
-		u32 word_index = bit_index >> 5;
-		u32 bit_in_word = bit_index & 31U;
-		struct fsBitmap *bitmap =
-			(void *)buffers[bitmap_index]->b_data;
-		u32 word = be32_to_cpu(bitmap->bitmap[word_index]);
-		u32 mask = 1U << (31U - bit_in_word);
+    for (index = 0U; index < blocks; ++index) {
+        const u32 absolute = block + index;
+        const u32 relative_bitmap =
+            absolute / bits_per_bitmap - first_bitmap;
+        const u32 bit = absolute % bits_per_bitmap;
+        const u32 word_index = bit >> 5;
+        const u32 mask = 1U << (31U - (bit & 31U));
+        struct fsBitmap *bitmap =
+            (struct fsBitmap *)buffers[relative_bitmap]->b_data;
+        u32 word =
+            be32_to_cpu(bitmap->bitmap[word_index]);
 
-		if (allocate)
-			word &= ~mask;
-		else
-			word |= mask;
-		bitmap->bitmap[word_index] = cpu_to_be32(word);
-	}
-	for (index = 0U; index < buffer_count; ++index)
-		asfs_bstore(sb, buffers[index]);
+        word = allocate ? word & ~mask : word | mask;
+        bitmap->bitmap[word_index] = cpu_to_be32(word);
+    }
 
-	errorcode = setfreeblocks(sb, new_freeblocks);
-	if (errorcode != 0) {
-		/* Roll the in-memory/dirtied bitmap back while all buffers are held. */
-		for (index = 0U; index < blocks; ++index) {
-			u32 logical = block + index;
-			u32 bitmap_index =
-				logical / ASFS_SB(sb)->blocks_inbitmap - first_bitmap;
-			u32 bit_index = logical % ASFS_SB(sb)->blocks_inbitmap;
-			u32 word_index = bit_index >> 5;
-			u32 bit_in_word = bit_index & 31U;
-			struct fsBitmap *bitmap =
-				(void *)buffers[bitmap_index]->b_data;
-			u32 word = be32_to_cpu(bitmap->bitmap[word_index]);
-			u32 mask = 1U << (31U - bit_in_word);
+    for (index = 0U; index < buffer_count; ++index)
+        asfs_bstore(sb, buffers[index]);
 
-			if (allocate)
-				word |= mask;
-			else
-				word &= ~mask;
-			bitmap->bitmap[word_index] = cpu_to_be32(word);
-		}
-		for (index = 0U; index < buffer_count; ++index)
-			asfs_bstore(sb, buffers[index]);
-	}
+    result = sfs_set_free_block_count(sb, new_free);
+    if (result != 0) {
+        for (index = 0U; index < blocks; ++index) {
+            const u32 absolute = block + index;
+            const u32 relative_bitmap =
+                absolute / bits_per_bitmap - first_bitmap;
+            const u32 bit = absolute % bits_per_bitmap;
+            const u32 word_index = bit >> 5;
+            const u32 mask = 1U << (31U - (bit & 31U));
+            struct fsBitmap *bitmap =
+                (struct fsBitmap *)
+                    buffers[relative_bitmap]->b_data;
+            u32 word =
+                be32_to_cpu(bitmap->bitmap[word_index]);
 
-out_release:
-	for (index = 0U; index < buffer_count; ++index)
-		if (buffers[index])
-			asfs_brelse(buffers[index]);
-	kfree(buffers);
-	return errorcode;
+            word = allocate ? word | mask : word & ~mask;
+            bitmap->bitmap[word_index] =
+                cpu_to_be32(word);
+        }
+        for (index = 0U; index < buffer_count; ++index)
+            asfs_bstore(sb, buffers[index]);
+    }
+
+out:
+    for (index = 0U; index < buffer_count; ++index)
+        asfs_brelse(buffers[index]);
+    kfree(buffers);
+    return result;
 }
 
-int asfs_markspace(struct super_block *sb, u32 block, u32 blocks)
+int asfs_markspace(
+    struct super_block *sb,
+    u32 block,
+    u32 blocks)
 {
-	asfs_debug("markspace: Marking %u blocks from block %u\n",
-		   blocks, block);
+    if (!sfs_has_space(sb, blocks))
+        return -ENOSPC;
 
-	if (!ifs_sfs_has_allocation_headroom(
-			ASFS_SB(sb)->freeblocks, blocks, ASFS_ALWAYSFREE))
-		return -ENOSPC;
-
-	return asfs_update_bitmap_range(sb, block, blocks, TRUE);
-}
-	/* This function checks the bitmap and tries to locate at least /blocksneeded/
-	   adjacent unused blocks.  If found it sets returned_block to the start block
-	   and returns no error.  If not found, ERROR_DISK_IS_FULL is returned and
-	   returned_block is set to zero.  Any other errors are returned as well. */
-
-static inline int internalfindspace(struct super_block *sb, u32 blocksneeded, u32 startblock, u32 endblock, u32 * returned_block)
-{
-	u32 blocks;
-	int errorcode;
-
-	if ((errorcode = asfs_findspace(sb, blocksneeded, startblock, endblock, returned_block, &blocks)) == 0)
-		if (blocks != blocksneeded)
-			return -ENOSPC;
-
-	return errorcode;
+    return sfs_update_bitmap_range(
+        sb, block, blocks, true);
 }
 
-static int findandmarkspace(struct super_block *sb, u32 blocksneeded, u32 * returned_block)
+int asfs_freespace(
+    struct super_block *sb,
+    u32 block,
+    u32 blocks)
 {
-	int errorcode;
-
-	if (enoughspace(sb, blocksneeded) != FALSE) {
-		if ((errorcode = internalfindspace(sb, blocksneeded, 0, ASFS_SB(sb)->totalblocks, returned_block)) == 0)
-			errorcode = asfs_markspace(sb, *returned_block, blocksneeded);
-	} else
-		errorcode = -ENOSPC;
-
-	return (errorcode);
+    return sfs_update_bitmap_range(
+        sb, block, blocks, false);
 }
 
-/* ************************** */
-
-int asfs_freespace(struct super_block *sb, u32 block, u32 blocks)
+static int sfs_find_and_mark(
+    struct super_block *sb,
+    u32 blocks,
+    u32 *start)
 {
-	asfs_debug("freespace: Freeing %u blocks from block %u\n",
-		   blocks, block);
-	return asfs_update_bitmap_range(sb, block, blocks, FALSE);
-}
-/*************** admin space containers ****************/
+    u32 found = 0U;
+    int result;
 
-int asfs_allocadminspace(struct super_block *sb, u32 *returned_block)
-{
-	struct buffer_head *bh;
-	u32 adminspaceblock = ASFS_SB(sb)->adminspacecontainer;
-	int errorcode = -EIO;
+    if (!start || !sfs_has_space(sb, blocks))
+        return -ENOSPC;
 
-	asfs_debug("allocadminspace: allocating new block\n");
+    result = asfs_findspace(
+        sb, blocks, 0U,
+        ASFS_SB(sb)->totalblocks,
+        start, &found);
+    if (result != 0)
+        return result;
+    if (found != blocks)
+        return -ENOSPC;
 
-	while ((bh = asfs_breadcheck(sb, adminspaceblock, ASFS_ADMINSPACECONTAINER_ID))) {
-		struct fsAdminSpaceContainer *asc1 = (void *) bh->b_data;
-		struct fsAdminSpace *as1 = asc1->adminspace;
-		int adminspaces1 = (sb->s_blocksize - sizeof(struct fsAdminSpaceContainer)) / sizeof(struct fsAdminSpace);
-
-		while (adminspaces1-- > 0) {
-			s16 bitoffset;
-
-			if (as1->space != 0 && (bitoffset = bfffz(be32_to_cpu(as1->bits), 0)) >= 0) {
-				u32 emptyadminblock = be32_to_cpu(as1->space) + bitoffset;
-				as1->bits |= cpu_to_be32(1U << (31 - bitoffset));
-				asfs_bstore(sb, bh);
-				*returned_block = emptyadminblock;
-				asfs_brelse(bh);
-				asfs_debug("allocadminspace: found block %d\n", *returned_block);
-				return 0;
-			}
-			as1++;
-		}
-
-		adminspaceblock = be32_to_cpu(asc1->next);
-		asfs_brelse(bh);
-
-		if (adminspaceblock == 0) {
-			u32 startblock;
-
-			asfs_debug("allocadminspace: allocating new adminspace area\n");
-
-			/* If we get here it means current adminspace areas are all filled.
-			   We would now need to find a new area and create a fsAdminSpace
-			   structure in one of the AdminSpaceContainer blocks.  If these
-			   don't have any room left for new adminspace areas a new
-			   AdminSpaceContainer would have to be created first which is
-			   placed as the first block in the newly found admin area. */
-
-			adminspaceblock = ASFS_SB(sb)->adminspacecontainer;
-
-			if ((errorcode = findandmarkspace(sb, 32, &startblock)))
-				return errorcode;
-
-			while ((bh = asfs_breadcheck(sb, adminspaceblock, ASFS_ADMINSPACECONTAINER_ID))) {
-				struct fsAdminSpaceContainer *asc2 = (void *) bh->b_data;
-				struct fsAdminSpace *as2 = asc2->adminspace;
-				int adminspaces2 = (sb->s_blocksize - sizeof(struct fsAdminSpaceContainer)) / sizeof(struct fsAdminSpace);
-
-				while (adminspaces2-- > 0 && as2->space != 0)
-					as2++;
-
-				if (adminspaces2 >= 0) {	/* Found a unused AdminSpace in this AdminSpaceContainer! */
-					as2->space = cpu_to_be32(startblock);
-					as2->bits = 0;
-					asfs_bstore(sb, bh);
-					asfs_brelse(bh);
-					break;
-				}
-
-				if (asc2->next == 0) {
-					/* Oh-oh... we marked our new adminspace area in use, but we couldn't
-					   find space to store a fsAdminSpace structure in the existing
-					   fsAdminSpaceContainer blocks.  This means we need to create and
-					   link a new fsAdminSpaceContainer as the first block in our newly
-					   marked adminspace. */
-
-					asc2->next = cpu_to_be32(startblock);
-					asfs_bstore(sb, bh);
-					asfs_brelse(bh);
-
-					/* Now preparing new AdminSpaceContainer */
-
-					if ((bh = asfs_getzeroblk(sb, startblock)) == NULL)
-						return -EIO;
-
-					asc2 = (void *) bh->b_data;
-					asc2->bheader.id = cpu_to_be32(ASFS_ADMINSPACECONTAINER_ID);
-					asc2->bheader.ownblock = cpu_to_be32(startblock);
-					asc2->previous = cpu_to_be32(adminspaceblock);
-					asc2->adminspace[0].space = cpu_to_be32(startblock);
-					asc2->adminspace[0].bits = cpu_to_be32(0x80000000);
-					asc2->bits = 32;
-
-					asfs_bstore(sb, bh);
-					asfs_brelse(bh);
-
-					adminspaceblock = startblock;
-					break;	/* Breaks through to outer loop! */
-				}
-				adminspaceblock = be32_to_cpu(asc2->next);
-				asfs_brelse(bh);
-			}
-		}
-	}
-	return errorcode;
+    return asfs_markspace(sb, *start, blocks);
 }
 
-int asfs_freeadminspace(struct super_block *sb, u32 block)
+static u32 sfs_admin_entries_per_container(
+    struct super_block *sb)
 {
-	struct buffer_head *bh;
-	u32 adminspaceblock = ASFS_SB(sb)->adminspacecontainer;
+    if (sb->s_blocksize <
+        sizeof(struct fsAdminSpaceContainer))
+        return 0U;
 
-	asfs_debug("freeadminspace: Entry -- freeing block %d\n", block);
+    return (sb->s_blocksize -
+            sizeof(struct fsAdminSpaceContainer)) /
+           sizeof(struct fsAdminSpace);
+}
 
-	while ((bh = asfs_breadcheck(sb, adminspaceblock, ASFS_ADMINSPACECONTAINER_ID))) {
-		struct fsAdminSpaceContainer *asc = (void *) bh->b_data;
-		struct fsAdminSpace *as = asc->adminspace;
-		int adminspaces = (sb->s_blocksize - sizeof(struct fsAdminSpaceContainer)) / sizeof(struct fsAdminSpace);
+static int sfs_find_admin_descriptor_slot(
+    struct super_block *sb,
+    struct buffer_head **returned_bh,
+    struct fsAdminSpace **returned_entry,
+    u32 *tail_block)
+{
+    u32 block = ASFS_SB(sb)->adminspacecontainer;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 last = 0U;
 
-		while (adminspaces-- > 0) {
-			u32 mask;
+    if (!returned_bh || !returned_entry || !tail_block)
+        return -EINVAL;
 
-			if (ifs_sfs_adminspace_block_mask(
-					be32_to_cpu(as->space), block, &mask) == 0) {
-				u32 bits = be32_to_cpu(as->bits);
+    *returned_bh = NULL;
+    *returned_entry = NULL;
+    *tail_block = 0U;
 
-				if ((bits & mask) == 0U) {
-					asfs_brelse(bh);
-					return -EUCLEAN;
-				}
-				asfs_debug("freeadminspace: Block to be freed is located in AdminSpaceContainer block at %d\n", adminspaceblock);
-				as->bits = cpu_to_be32(bits & ~mask);
-				asfs_bstore(sb, bh);
-				asfs_brelse(bh);
-				return 0;
-			}
-			as++;
-		}
+    while (block != 0U) {
+        struct buffer_head *bh;
+        struct fsAdminSpaceContainer *container;
+        u32 count;
+        u32 index;
+        u32 next;
 
-		if ((adminspaceblock = be32_to_cpu(asc->next)) == 0)
-			break;
+        if (budget-- == 0U)
+            return -EUCLEAN;
 
-		asfs_brelse(bh);
-	}
+        bh = asfs_breadcheck(
+            sb, block, ASFS_ADMINSPACECONTAINER_ID);
+        if (!bh)
+            return -EIO;
 
-	if (bh != NULL) {
-		asfs_brelse(bh);
-		printk("ASFS: Unable to free an administration block. The block cannot be found.");
-		return -ENOENT;
-	}
+        container =
+            (struct fsAdminSpaceContainer *)bh->b_data;
+        count = sfs_admin_entries_per_container(sb);
+        for (index = 0U; index < count; ++index) {
+            if (container->adminspace[index].space == 0U) {
+                *returned_bh = bh;
+                *returned_entry =
+                    &container->adminspace[index];
+                *tail_block = block;
+                return 0;
+            }
+        }
 
-	return -EIO;
+        next = be32_to_cpu(container->next);
+        last = block;
+        asfs_brelse(bh);
+        block = next;
+    }
+
+    *tail_block = last;
+    return -ENOSPC;
+}
+
+int asfs_allocadminspace(
+    struct super_block *sb,
+    u32 *returned_block)
+{
+    u32 container_block =
+        ASFS_SB(sb)->adminspacecontainer;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+
+    if (!returned_block)
+        return -EINVAL;
+    *returned_block = 0U;
+
+    while (container_block != 0U) {
+        struct buffer_head *bh;
+        struct fsAdminSpaceContainer *container;
+        u32 count;
+        u32 index;
+        u32 next;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        bh = asfs_breadcheck(
+            sb, container_block,
+            ASFS_ADMINSPACECONTAINER_ID);
+        if (!bh)
+            return -EIO;
+
+        container =
+            (struct fsAdminSpaceContainer *)bh->b_data;
+        count = sfs_admin_entries_per_container(sb);
+
+        for (index = 0U; index < count; ++index) {
+            struct fsAdminSpace *entry =
+                &container->adminspace[index];
+            const u32 area = be32_to_cpu(entry->space);
+            const u32 bits = be32_to_cpu(entry->bits);
+            const int bit = area != 0U
+                ? ifs_sfs_bitmap_word_find_zero(bits, 0U)
+                : -1;
+
+            if (bit >= 0) {
+                const u32 mask =
+                    1U << (31U - (u32)bit);
+                const u32 block = area + (u32)bit;
+
+                if (block >= ASFS_SB(sb)->totalblocks) {
+                    asfs_brelse(bh);
+                    return -EUCLEAN;
+                }
+
+                entry->bits = cpu_to_be32(bits | mask);
+                asfs_bstore(sb, bh);
+                asfs_brelse(bh);
+                *returned_block = block;
+                return 0;
+            }
+        }
+
+        next = be32_to_cpu(container->next);
+        asfs_brelse(bh);
+        container_block = next;
+    }
+
+    {
+        struct buffer_head *slot_bh = NULL;
+        struct fsAdminSpace *slot = NULL;
+        u32 tail_block = 0U;
+        u32 area_start = 0U;
+        int result;
+
+        result = sfs_find_and_mark(
+            sb, 32U, &area_start);
+        if (result != 0)
+            return result;
+
+        result = sfs_find_admin_descriptor_slot(
+            sb, &slot_bh, &slot, &tail_block);
+        if (result == 0) {
+            slot->space = cpu_to_be32(area_start);
+            slot->bits = cpu_to_be32(0x80000000U);
+            asfs_bstore(sb, slot_bh);
+            asfs_brelse(slot_bh);
+            *returned_block = area_start;
+            return 0;
+        }
+
+        if (result != -ENOSPC || tail_block == 0U) {
+            (void)asfs_freespace(sb, area_start, 32U);
+            return result;
+        }
+
+        {
+            struct buffer_head *new_bh;
+            struct buffer_head *tail_bh;
+            struct fsAdminSpaceContainer *new_container;
+            struct fsAdminSpaceContainer *tail;
+
+            new_bh = asfs_getzeroblk(sb, area_start);
+            if (!new_bh) {
+                (void)asfs_freespace(
+                    sb, area_start, 32U);
+                return -EIO;
+            }
+
+            new_container =
+                (struct fsAdminSpaceContainer *)
+                    new_bh->b_data;
+            new_container->bheader.id =
+                cpu_to_be32(
+                    ASFS_ADMINSPACECONTAINER_ID);
+            new_container->bheader.ownblock =
+                cpu_to_be32(area_start);
+            new_container->previous =
+                cpu_to_be32(tail_block);
+            new_container->bits = 32U;
+            new_container->adminspace[0].space =
+                cpu_to_be32(area_start);
+            new_container->adminspace[0].bits =
+                cpu_to_be32(0x80000000U);
+            asfs_bstore(sb, new_bh);
+            asfs_brelse(new_bh);
+
+            tail_bh = asfs_breadcheck(
+                sb, tail_block,
+                ASFS_ADMINSPACECONTAINER_ID);
+            if (!tail_bh) {
+                (void)asfs_freespace(
+                    sb, area_start, 32U);
+                return -EIO;
+            }
+
+            tail =
+                (struct fsAdminSpaceContainer *)
+                    tail_bh->b_data;
+            if (tail->next != 0U) {
+                asfs_brelse(tail_bh);
+                (void)asfs_freespace(
+                    sb, area_start, 32U);
+                return -EUCLEAN;
+            }
+
+            tail->next = cpu_to_be32(area_start);
+            asfs_bstore(sb, tail_bh);
+            asfs_brelse(tail_bh);
+            *returned_block = area_start;
+            return 0;
+        }
+    }
+}
+
+int asfs_freeadminspace(
+    struct super_block *sb,
+    u32 block)
+{
+    u32 container_block =
+        ASFS_SB(sb)->adminspacecontainer;
+    u32 budget = ASFS_SB(sb)->totalblocks;
+
+    while (container_block != 0U) {
+        struct buffer_head *bh;
+        struct fsAdminSpaceContainer *container;
+        u32 count;
+        u32 index;
+        u32 next;
+
+        if (budget-- == 0U)
+            return -EUCLEAN;
+
+        bh = asfs_breadcheck(
+            sb, container_block,
+            ASFS_ADMINSPACECONTAINER_ID);
+        if (!bh)
+            return -EIO;
+
+        container =
+            (struct fsAdminSpaceContainer *)bh->b_data;
+        count = sfs_admin_entries_per_container(sb);
+
+        for (index = 0U; index < count; ++index) {
+            struct fsAdminSpace *entry =
+                &container->adminspace[index];
+            u32 mask;
+
+            if (ifs_sfs_adminspace_block_mask(
+                    be32_to_cpu(entry->space),
+                    block, &mask) == 0) {
+                const u32 bits =
+                    be32_to_cpu(entry->bits);
+
+                if ((bits & mask) == 0U) {
+                    asfs_brelse(bh);
+                    return -EUCLEAN;
+                }
+
+                entry->bits =
+                    cpu_to_be32(bits & ~mask);
+                asfs_bstore(sb, bh);
+                asfs_brelse(bh);
+                return 0;
+            }
+        }
+
+        next = be32_to_cpu(container->next);
+        asfs_brelse(bh);
+        container_block = next;
+    }
+
+    return -ENOENT;
 }
 
 #endif
