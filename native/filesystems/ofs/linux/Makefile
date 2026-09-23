@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 #
 # Out-of-tree Linux OFS filesystem module.
 # Based on the pinned Linux v6.12.107 fs/affs implementation while OFS and FFS
