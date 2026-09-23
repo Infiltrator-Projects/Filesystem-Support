@@ -20,6 +20,52 @@ static ifs_pfs3_u32 ifs_pfs3_read_be32(const unsigned char *data)
            (ifs_pfs3_u32)data[3];
 }
 
+int ifs_pfs3_decode_directory_block(
+    const unsigned char *const bytes,
+    const ifs_pfs3_u32 block_bytes,
+    const int directory_extensions,
+    IfsPfs3DirBlockView *const block,
+    ifs_pfs3_u32 *const entry_count)
+{
+    ifs_pfs3_u32 offset;
+    ifs_pfs3_u32 count = 0U;
+
+    if (bytes == 0 || block == 0 || entry_count == 0 ||
+        block_bytes <= IFS_PFS3_DIRBLOCK_HEADER_BYTES)
+        return -1;
+
+    if (ifs_pfs3_read_be16(bytes) != IFS_PFS3_DIRBLOCK_ID)
+        return -1;
+
+    block->datestamp = ifs_pfs3_read_be32(bytes + 4U);
+    block->directory_anode = ifs_pfs3_read_be32(bytes + 12U);
+    block->parent_anode = ifs_pfs3_read_be32(bytes + 16U);
+
+    offset = IFS_PFS3_DIRBLOCK_HEADER_BYTES;
+    while (offset < block_bytes) {
+        IfsPfs3DirEntryView entry;
+        IfsPfs3DirEntryStatus status =
+            ifs_pfs3_decode_directory_entry(
+                bytes + offset, block_bytes - offset,
+                directory_extensions, &entry);
+
+        if (status == IFS_PFS3_DIRENTRY_END) {
+            *entry_count = count;
+            return 0;
+        }
+        if (status != IFS_PFS3_DIRENTRY_OK)
+            return -1;
+        if (entry.record_bytes == 0U ||
+            entry.record_bytes > block_bytes - offset)
+            return -1;
+
+        offset += entry.record_bytes;
+        count++;
+    }
+
+    return -1;
+}
+
 static ifs_pfs3_u16 ifs_pfs3_popcount16(ifs_pfs3_u16 value)
 {
     ifs_pfs3_u16 count = 0U;

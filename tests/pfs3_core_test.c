@@ -242,5 +242,42 @@ int main(void)
             return fail("unknown PFS extra fields accepted");
     }
 
+
+    {
+        unsigned char raw[64] = {0};
+        IfsPfs3DirBlockView block;
+        ifs_pfs3_u32 entries = 0U;
+
+        raw[0] = 0x44U; raw[1] = 0x42U;
+        raw[7] = 9U;
+        raw[15] = 7U;
+        raw[19] = 3U;
+
+        raw[20] = 26U;
+        raw[21] = 2U;
+        raw[25] = 8U;
+        raw[29] = 10U;
+        raw[37] = 4U;
+        raw[38] = 'T'; raw[39] = 'e';
+        raw[40] = 's'; raw[41] = 't';
+        raw[42] = 1U; raw[43] = 'x';
+        raw[44] = 0U; raw[45] = 0U;
+        raw[46] = 0U;
+
+        if (ifs_pfs3_decode_directory_block(
+                raw, sizeof(raw), 1, &block, &entries) != 0)
+            return fail("valid PFS directory block rejected");
+        if (block.datestamp != 9U ||
+            block.directory_anode != 7U ||
+            block.parent_anode != 3U ||
+            entries != 1U)
+            return fail("PFS directory block decoded incorrectly");
+
+        raw[0] = 0x00U;
+        if (ifs_pfs3_decode_directory_block(
+                raw, sizeof(raw), 1, &block, &entries) == 0)
+            return fail("bad PFS directory block id accepted");
+    }
+
     return 0;
 }

@@ -29,6 +29,8 @@ typedef uint32_t ifs_pfs3_u32;
 #define IFS_PFS3_DIRENTRY_BYTES 20U
 #define IFS_PFS3_DIRENTRY_NAME_OFFSET 18U
 #define IFS_PFS3_EXTRA_FIELD_WORDS 11U
+#define IFS_PFS3_DIRBLOCK_ID 0x4442U
+#define IFS_PFS3_DIRBLOCK_HEADER_BYTES 20U
 
 #define IFS_PFS3_MODE_HARDDISK        0x0001U
 #define IFS_PFS3_MODE_SPLITTED_ANODES 0x0002U
@@ -90,6 +92,12 @@ typedef enum IfsPfs3DirEntryStatus {
     IFS_PFS3_DIRENTRY_UNKNOWN_EXTRA_FIELDS
 } IfsPfs3DirEntryStatus;
 
+typedef struct IfsPfs3DirBlockView {
+    ifs_pfs3_u32 datestamp;
+    ifs_pfs3_u32 directory_anode;
+    ifs_pfs3_u32 parent_anode;
+} IfsPfs3DirBlockView;
+
 typedef struct IfsPfs3DirEntryView {
     ifs_pfs3_u16 record_bytes;
     signed char type;
@@ -134,6 +142,13 @@ typedef enum IfsPfs3RootStatus {
     IFS_PFS3_ROOT_INVALID_ROOT_CLUSTER_ALIGNMENT,
     IFS_PFS3_ROOT_RESERVED_FREE_OUT_OF_RANGE
 } IfsPfs3RootStatus;
+
+int ifs_pfs3_decode_directory_block(
+    const unsigned char *bytes,
+    ifs_pfs3_u32 block_bytes,
+    int directory_extensions,
+    IfsPfs3DirBlockView *block,
+    ifs_pfs3_u32 *entry_count);
 
 IfsPfs3DirEntryStatus ifs_pfs3_decode_directory_entry(
     const unsigned char *bytes,
