@@ -13,7 +13,7 @@
 
 obj-m += ext3.o
 
-ext3-y := balloc.o dir.o file.o ialloc.o inode.o namei.o resize.o super.o \
+ext3-y := canonical.o balloc.o dir.o file.o ialloc.o inode.o namei.o resize.o super.o \
           xattr.o jbd_checkpoint.o jbd_commit.o jbd_journal.o \
           jbd_recovery.o jbd_revoke.o jbd_transaction.o
 
