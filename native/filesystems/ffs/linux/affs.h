@@ -13,7 +13,7 @@
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
 #include <linux/errno.h>
-#include "../../../primitives/amiga_dos/amiga_dos_core.h"
+#include "../core/ffs_primitives.h"
 
 #define AFFS_HEAD(bh)     ((struct affs_head *)(bh)->b_data)
 #define AFFS_TAIL(sb, bh)     ((struct affs_tail *)((bh)->b_data + (sb)->s_blocksize -                          sizeof(struct affs_tail)))
@@ -28,7 +28,7 @@
 #define AFFS_AC_SIZE (AFFS_CACHE_SIZE / sizeof(struct affs_ext_key) / 2U)
 #define AFFS_AC_MASK (AFFS_AC_SIZE - 1U)
 
-#define AFFSNAMEMAX IFS_AMIGA_DOS_NAME_MAX
+#define AFFSNAMEMAX IFS_FFS_DOS_NAME_MAX
 
 struct affs_ext_key {
     u32 ext;
@@ -206,10 +206,10 @@ static inline bool affs_validblock(struct super_block *sb, int block)
     if (block < 0)
         return false;
 
-    return ifs_amiga_data_block_valid(
-        (ifs_amiga_u32)block,
-        (ifs_amiga_u32)AFFS_SB(sb)->s_reserved,
-        (ifs_amiga_u32)AFFS_SB(sb)->s_partition_size) != 0;
+    return ifs_ffs_data_block_valid(
+        (ifs_ffs_u32)block,
+        (ifs_ffs_u32)AFFS_SB(sb)->s_reserved,
+        (ifs_ffs_u32)AFFS_SB(sb)->s_partition_size) != 0;
 }
 
 static inline void affs_set_blocksize(struct super_block *sb, int size)
