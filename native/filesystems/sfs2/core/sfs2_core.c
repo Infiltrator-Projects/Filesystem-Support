@@ -94,6 +94,33 @@ IfsSfs2RootStatus ifs_sfs2_validate_root_layout(
     return IFS_SFS2_ROOT_OK;
 }
 
+int ifs_sfs2_compute_bitmap_layout(
+    const ifs_sfs2_u32 block_size,
+    const ifs_sfs2_u32 total_blocks,
+    ifs_sfs2_u32 *const blocks_per_bitmap,
+    ifs_sfs2_u32 *const bitmap_block_count)
+{
+    ifs_sfs2_u64 capacity;
+
+    if (blocks_per_bitmap == 0 || bitmap_block_count == 0 ||
+        block_size <= IFS_SFS2_BLOCK_HEADER_SIZE ||
+        !ifs_sfs2_is_power_of_two(block_size) ||
+        (block_size & 3U) != 0U ||
+        total_blocks == 0U)
+        return -1;
+
+    capacity =
+        ((ifs_sfs2_u64)block_size - IFS_SFS2_BLOCK_HEADER_SIZE) * 8U;
+    if (capacity == 0U || capacity > 0xffffffffULL)
+        return -1;
+
+    *blocks_per_bitmap = (ifs_sfs2_u32)capacity;
+    *bitmap_block_count =
+        total_blocks / *blocks_per_bitmap +
+        (total_blocks % *blocks_per_bitmap != 0U ? 1U : 0U);
+    return 0;
+}
+
 ifs_sfs2_u64 ifs_sfs2_decode_file_size(
     const ifs_sfs2_u32 high_32,
     const ifs_sfs2_u16 low_16)

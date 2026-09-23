@@ -112,5 +112,30 @@ int main(void)
             return fail("decoded SFS2 root rejected");
     }
 
+
+    {
+        ifs_sfs2_u32 blocks_per_bitmap = 0U;
+        ifs_sfs2_u32 bitmap_blocks = 0U;
+
+        if (ifs_sfs2_compute_bitmap_layout(
+                512U, 100000U,
+                &blocks_per_bitmap, &bitmap_blocks) != 0)
+            return fail("valid SFS2 bitmap geometry rejected");
+        if (blocks_per_bitmap != 4000U || bitmap_blocks != 25U)
+            return fail("SFS2 bitmap geometry wrong");
+
+        if (ifs_sfs2_compute_bitmap_layout(
+                4096U, 100000U,
+                &blocks_per_bitmap, &bitmap_blocks) != 0)
+            return fail("valid 4K SFS2 bitmap geometry rejected");
+        if (blocks_per_bitmap != 32672U || bitmap_blocks != 4U)
+            return fail("4K SFS2 bitmap geometry wrong");
+
+        if (ifs_sfs2_compute_bitmap_layout(
+                768U, 100000U,
+                &blocks_per_bitmap, &bitmap_blocks) == 0)
+            return fail("invalid SFS2 bitmap block size accepted");
+    }
+
     return 0;
 }

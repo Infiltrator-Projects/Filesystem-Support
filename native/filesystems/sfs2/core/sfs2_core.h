@@ -69,6 +69,12 @@ IfsSfs2RootStatus ifs_sfs2_validate_root_layout(
     ifs_sfs2_u32 extent_bnode_root,
     ifs_sfs2_u32 object_node_root);
 
+int ifs_sfs2_compute_bitmap_layout(
+    ifs_sfs2_u32 block_size,
+    ifs_sfs2_u32 total_blocks,
+    ifs_sfs2_u32 *blocks_per_bitmap,
+    ifs_sfs2_u32 *bitmap_block_count);
+
 ifs_sfs2_u64 ifs_sfs2_decode_file_size(
     ifs_sfs2_u32 high_32,
     ifs_sfs2_u16 low_16);
