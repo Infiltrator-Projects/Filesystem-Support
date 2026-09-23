@@ -159,7 +159,7 @@ struct dentry *asfs_lookup(struct inode *dir, struct dentry *dentry,
 		asfs_debug("(quick search) ");
 
 		if (!(bh = asfs_breadcheck(sb, ASFS_I(dir)->hashtable, ASFS_HASHTABLE_ID))) {
-			unmutex_lock(&ASFS_SB(sb)->lock);
+			mutex_unlock(&ASFS_SB(sb)->lock);
 			return ERR_PTR(res);
 		}
 		hash16 = asfs_hash(bufname, ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE); 
@@ -172,7 +172,7 @@ struct dentry *asfs_lookup(struct inode *dir, struct dentry *dentry,
 			if (be16_to_cpu(node_p->hash16) == hash16) {
 				if (!(bh = asfs_breadcheck(sb, be32_to_cpu(node_p->node.data), ASFS_OBJECTCONTAINER_ID))) {
 					asfs_brelse(node_bh);
-					unmutex_lock(&ASFS_SB(sb)->lock);
+					mutex_unlock(&ASFS_SB(sb)->lock);
 					return ERR_PTR(res);
 				}
 				if ((obj = asfs_find_obj_by_name(sb, (struct fsObjectContainer *) bh->b_data, bufname)) != NULL) {
@@ -192,7 +192,7 @@ struct dentry *asfs_lookup(struct inode *dir, struct dentry *dentry,
 		block = ASFS_I(dir)->firstblock;
 		while (block != 0) {
 			if (!(bh = asfs_breadcheck(sb, block, ASFS_OBJECTCONTAINER_ID))) {
-				unmutex_lock(&ASFS_SB(sb)->lock);
+				mutex_unlock(&ASFS_SB(sb)->lock);
 				return ERR_PTR(res);
 			}
 			objcont = (struct fsObjectContainer *) bh->b_data;
@@ -204,12 +204,12 @@ struct dentry *asfs_lookup(struct inode *dir, struct dentry *dentry,
 	}
 
 not_found:
-	unmutex_lock(&ASFS_SB(sb)->lock);
+	mutex_unlock(&ASFS_SB(sb)->lock);
 	inode = NULL;
 	asfs_debug("object not found.\n");
 	if (0) {
 found_inode:
-		unmutex_lock(&ASFS_SB(sb)->lock);
+		mutex_unlock(&ASFS_SB(sb)->lock);
 		if (!(inode = iget_locked(sb, be32_to_cpu(obj->objectnode)))) {
 			asfs_debug("ASFS: Strange - no inode allocated.\n");
 			return ERR_PTR(res);
