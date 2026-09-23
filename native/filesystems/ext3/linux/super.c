@@ -48,6 +48,7 @@
 #include <linux/quotaops.h>
 #include <linux/seq_file.h>
 #include <linux/log2.h>
+#include <linux/iversion.h>
 #include <linux/namei.h>
 
 #include <asm/uaccess.h>
@@ -95,7 +96,7 @@ handle_t *ext3_journal_start_sb(struct super_block *sb, int nblocks)
 {
 	journal_t *journal;
 
-	if (sb->s_flags & MS_RDONLY)
+	if (sb->s_flags & SB_RDONLY)
 		return ERR_PTR(-EROFS);
 
 
@@ -206,7 +207,7 @@ static void ext3_handle_error(struct super_block *sb)
 	EXT3_SB(sb)->s_mount_state |= EXT3_ERROR_FS;
 	es->s_state |= cpu_to_le16(EXT3_ERROR_FS);
 
-	if (sb->s_flags & MS_RDONLY)
+	if (sb->s_flags & SB_RDONLY)
 		return;
 
 	if (!test_opt (sb, ERRORS_CONT)) {
@@ -216,14 +217,9 @@ static void ext3_handle_error(struct super_block *sb)
 		if (journal)
 			journal_abort(journal, -EIO);
 	}
-	if (test_opt (sb, ERRORS_RO)) {
+	if (test_opt(sb, ERRORS_RO))
 		ext3_msg(sb, KERN_CRIT,
-			"error: remounting filesystem read-only");
-
-
-		smp_wmb();
-		sb->s_flags |= MS_RDONLY;
-	}
+			 "error: aborting filesystem after error; writes disabled");
 	ext3_commit_super(sb, es, 1);
 	if (test_opt(sb, ERRORS_PANIC))
 		panic("EXT3-fs (%s): panic forced after error\n",
@@ -316,7 +312,7 @@ void __ext3_std_error (struct super_block * sb, const char * function,
 
 
 	if (errno == -EROFS && journal_current_handle() == NULL &&
-	    (sb->s_flags & MS_RDONLY))
+	    (sb->s_flags & SB_RDONLY))
 		return;
 
 	errstr = ext3_decode_error(sb, errno, nbuf);
@@ -353,17 +349,13 @@ void ext3_abort(struct super_block *sb, const char *function,
 	if (test_opt(sb, ERRORS_PANIC))
 		panic("EXT3-fs: panic from previous error\n");
 
-	if (sb->s_flags & MS_RDONLY)
+	if (sb->s_flags & SB_RDONLY)
 		return;
 
 	ext3_msg(sb, KERN_CRIT,
-		"error: remounting filesystem read-only");
+		 "error: aborting filesystem; writes disabled");
 	EXT3_SB(sb)->s_mount_state |= EXT3_ERROR_FS;
 	set_opt(EXT3_SB(sb)->s_mount_opt, ABORT);
-
-
-	smp_wmb();
-	sb->s_flags |= MS_RDONLY;
 
 	if (EXT3_SB(sb)->s_journal)
 		journal_abort(EXT3_SB(sb)->s_journal, -EIO);
@@ -432,35 +424,23 @@ void ext3_update_dynamic_rev(struct super_block *sb)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static struct block_device *ext3_blkdev_get(dev_t dev, struct super_block *sb)
+static struct file *ext3_blkdev_get(dev_t dev, struct super_block *sb)
 {
-	struct block_device *bdev;
-	char b[BDEVNAME_SIZE];
+	struct file *bdev_file;
 
-	bdev = blkdev_get_by_dev(dev, FMODE_READ|FMODE_WRITE|FMODE_EXCL, sb);
-	if (IS_ERR(bdev))
-		goto fail;
-	return bdev;
-
-fail:
-	ext3_msg(sb, KERN_ERR, "error: failed to open journal device %s: %ld",
-		__bdevname(dev, b), PTR_ERR(bdev));
-
-	return NULL;
+	bdev_file = bdev_file_open_by_dev(dev,
+		BLK_OPEN_READ | BLK_OPEN_WRITE | BLK_OPEN_RESTRICT_WRITES,
+		sb, &fs_holder_ops);
+	if (IS_ERR(bdev_file))
+		ext3_msg(sb, KERN_ERR,
+			 "error: failed to open journal device unknown-block(%u,%u): %ld",
+			 MAJOR(dev), MINOR(dev), PTR_ERR(bdev_file));
+	return bdev_file;
 }
 
-
-/**
- * ext3_blkdev_put - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void ext3_blkdev_put(struct block_device *bdev)
+static void ext3_blkdev_put(struct file *bdev_file)
 {
-	blkdev_put(bdev, FMODE_READ|FMODE_WRITE|FMODE_EXCL);
+	bdev_fput(bdev_file);
 }
 
 
@@ -474,12 +454,11 @@ static void ext3_blkdev_put(struct block_device *bdev)
  */
 static void ext3_blkdev_remove(struct ext3_sb_info *sbi)
 {
-	struct block_device *bdev;
-	bdev = sbi->journal_bdev;
-	if (bdev) {
-		ext3_blkdev_put(bdev);
-		sbi->journal_bdev = NULL;
+	if (sbi->journal_bdev_file) {
+		ext3_blkdev_put(sbi->journal_bdev_file);
+		sbi->journal_bdev_file = NULL;
 	}
+	sbi->journal_bdev = NULL;
 }
 
 
@@ -545,7 +524,7 @@ static void ext3_put_super (struct super_block * sb)
 	if (err < 0)
 		ext3_abort(sb, __func__, "Couldn't clean up the journal");
 
-	if (!(sb->s_flags & MS_RDONLY)) {
+	if (!(sb->s_flags & SB_RDONLY)) {
 		EXT3_CLEAR_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER);
 		es->s_state = cpu_to_le16(sbi->s_mount_state);
 		BUFFER_TRACE(sbi->s_sbh, "marking dirty");
@@ -604,7 +583,7 @@ static struct inode *ext3_alloc_inode(struct super_block *sb)
 	if (!ei)
 		return NULL;
 	ei->i_block_alloc_info = NULL;
-	ei->vfs_inode.i_version = 1;
+	inode_set_iversion(&ei->vfs_inode, 1);
 	atomic_set(&ei->i_datasync_tid, 0);
 	atomic_set(&ei->i_sync_tid, 0);
 #ifdef CONFIG_QUOTA
@@ -702,8 +681,7 @@ static int __init init_inodecache(void)
 {
 	ext3_inode_cachep = kmem_cache_create("ext3_inode_cache",
 					     sizeof(struct ext3_inode_info),
-					     0, (SLAB_RECLAIM_ACCOUNT|
-						SLAB_MEM_SPREAD),
+					     0, SLAB_RECLAIM_ACCOUNT,
 					     init_once);
 	if (ext3_inode_cachep == NULL)
 		return -ENOMEM;
@@ -946,27 +924,6 @@ static struct dentry *ext3_fh_to_parent(struct super_block *sb, struct fid *fid,
 }
 
 
-/**
- * bdev_try_to_free_page - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int bdev_try_to_free_page(struct super_block *sb, struct page *page,
-				 gfp_t wait)
-{
-	journal_t *journal = EXT3_SB(sb)->s_journal;
-
-	WARN_ON(PageChecked(page));
-	if (!page_has_buffers(page))
-		return 0;
-	if (journal)
-		return journal_try_to_free_buffers(journal, page,
-						   wait & ~__GFP_WAIT);
-	return try_to_free_buffers(page);
-}
 
 #ifdef CONFIG_QUOTA
 #define QTYPE2NAME(t) ((t)==USRQUOTA?"user":"group")
@@ -978,7 +935,7 @@ static int ext3_release_dquot(struct dquot *dquot);
 static int ext3_mark_dquot_dirty(struct dquot *dquot);
 static int ext3_write_info(struct super_block *sb, int type);
 static int ext3_quota_on(struct super_block *sb, int type, int format_id,
-			 struct path *path);
+			 const struct path *path);
 static int ext3_quota_on_mount(struct super_block *sb, int type);
 static ssize_t ext3_quota_read(struct super_block *sb, int type, char *data,
 			       size_t len, loff_t off);
@@ -1039,7 +996,6 @@ static const struct super_operations ext3_sops = {
 	.quota_write	= ext3_quota_write,
 	.get_dquots	= ext3_get_dquots,
 #endif
-	.bdev_try_to_free_page = bdev_try_to_free_page,
 };
 
 static const struct export_operations ext3_export_ops = {
@@ -1645,7 +1601,7 @@ static int ext3_setup_super(struct super_block *sb, struct ext3_super_block *es,
 		ext3_msg(sb, KERN_ERR,
 			"error: revision level too high, "
 			"forcing read-only mode");
-		res = MS_RDONLY;
+		res = SB_RDONLY;
 	}
 	if (read_only)
 		return res;
@@ -1665,7 +1621,7 @@ static int ext3_setup_super(struct super_block *sb, struct ext3_super_block *es,
 			"running e2fsck is recommended");
 	else if (le32_to_cpu(es->s_checkinterval) &&
 		(le32_to_cpu(es->s_lastcheck) +
-			le32_to_cpu(es->s_checkinterval) <= get_seconds()))
+			le32_to_cpu(es->s_checkinterval) <= ktime_get_real_seconds()))
 		ext3_msg(sb, KERN_WARNING,
 			"warning: checktime reached, "
 			"running e2fsck is recommended");
@@ -1677,7 +1633,7 @@ static int ext3_setup_super(struct super_block *sb, struct ext3_super_block *es,
 	if (!le16_to_cpu(es->s_max_mnt_count))
 		es->s_max_mnt_count = cpu_to_le16(EXT3_DFL_MAX_MNT_COUNT);
 	le16_add_cpu(&es->s_mnt_count, 1);
-	es->s_mtime = cpu_to_le32(get_seconds());
+	es->s_mtime = cpu_to_le32(ktime_get_real_seconds());
 	ext3_update_dynamic_rev(sb);
 	EXT3_SET_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER);
 
@@ -1692,9 +1648,8 @@ static int ext3_setup_super(struct super_block *sb, struct ext3_super_block *es,
 			sbi->s_mount_opt);
 
 	if (EXT3_SB(sb)->s_journal->j_inode == NULL) {
-		char b[BDEVNAME_SIZE];
-		ext3_msg(sb, KERN_INFO, "using external journal on %s",
-			bdevname(EXT3_SB(sb)->s_journal->j_dev, b));
+		ext3_msg(sb, KERN_INFO, "using external journal on %pg",
+			 EXT3_SB(sb)->s_journal->j_dev);
 	} else {
 		ext3_msg(sb, KERN_INFO, "using internal journal");
 	}
@@ -1805,7 +1760,7 @@ static void ext3_orphan_cleanup (struct super_block * sb,
 
 	if (EXT3_SB(sb)->s_mount_state & EXT3_ERROR_FS) {
 
-		if (es->s_last_orphan && !(s_flags & MS_RDONLY)) {
+		if (es->s_last_orphan && !(s_flags & SB_RDONLY)) {
 			jbd_debug(1, "Errors on filesystem, "
 				  "clearing orphan list.\n");
 			es->s_last_orphan = 0;
@@ -1814,13 +1769,13 @@ static void ext3_orphan_cleanup (struct super_block * sb,
 		return;
 	}
 
-	if (s_flags & MS_RDONLY) {
+	if (s_flags & SB_RDONLY) {
 		ext3_msg(sb, KERN_INFO, "orphan cleanup on readonly fs");
-		sb->s_flags &= ~MS_RDONLY;
+		sb->s_flags &= ~SB_RDONLY;
 	}
 #ifdef CONFIG_QUOTA
 
-	sb->s_flags |= MS_ACTIVE;
+	sb->s_flags |= SB_ACTIVE;
 
 	for (i = 0; i < EXT3_MAXQUOTAS; i++) {
 		if (EXT3_SB(sb)->s_qf_names[i]) {
@@ -2064,8 +2019,8 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 			    NULL, 0))
 		goto failed_mount;
 
-	sb->s_flags = (sb->s_flags & ~MS_POSIXACL) |
-		(test_opt(sb, POSIX_ACL) ? MS_POSIXACL : 0);
+	sb->s_flags = (sb->s_flags & ~SB_POSIXACL) |
+		(test_opt(sb, POSIX_ACL) ? SB_POSIXACL : 0);
 
 	if (le32_to_cpu(es->s_rev_level) == EXT3_GOOD_OLD_REV &&
 	    (EXT3_HAS_COMPAT_FEATURE(sb, ~0U) ||
@@ -2086,7 +2041,7 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	}
 	features = ifs_ext3_unsupported_ro_compat_features(
 		le32_to_cpu(es->s_feature_ro_compat));
-	if (!(sb->s_flags & MS_RDONLY) && features) {
+	if (!(sb->s_flags & SB_RDONLY) && features) {
 		ext3_msg(sb, KERN_ERR,
 			"error: couldn't mount RDWR because of unsupported "
 			"optional features (%x)", features);
@@ -2279,7 +2234,7 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	sb->dq_op = &ext3_quota_operations;
 	sb->s_quota_types = QTYPE_MASK_USR | QTYPE_MASK_GRP;
 #endif
-	memcpy(sb->s_uuid, es->s_uuid, sizeof(es->s_uuid));
+	super_set_uuid(sb, es->s_uuid, sizeof(es->s_uuid));
 	INIT_LIST_HEAD(&sbi->s_orphan);
 	mutex_init(&sbi->s_orphan_lock);
 	mutex_init(&sbi->s_resize_lock);
@@ -2365,8 +2320,8 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 		goto failed_mount3;
 	}
 
-	if (ext3_setup_super(sb, es, sb->s_flags & MS_RDONLY))
-		sb->s_flags |= MS_RDONLY;
+	if (ext3_setup_super(sb, es, sb->s_flags & SB_RDONLY))
+		sb->s_flags |= SB_RDONLY;
 
 	EXT3_SB(sb)->s_mount_state |= EXT3_ORPHAN_FS;
 	ext3_orphan_cleanup(sb, es);
@@ -2509,10 +2464,12 @@ static journal_t *ext3_get_dev_journal(struct super_block *sb,
 	unsigned long offset;
 	struct ext3_super_block * es;
 	struct block_device *bdev;
+	struct file *bdev_file;
 
-	bdev = ext3_blkdev_get(j_dev, sb);
-	if (bdev == NULL)
+	bdev_file = ext3_blkdev_get(j_dev, sb);
+	if (IS_ERR(bdev_file))
 		return NULL;
+	bdev = file_bdev(bdev_file);
 
 	blocksize = sb->s_blocksize;
 	hblock = bdev_logical_block_size(bdev);
@@ -2524,7 +2481,7 @@ static journal_t *ext3_get_dev_journal(struct super_block *sb,
 
 	sb_block = EXT3_MIN_BLOCK_SIZE / blocksize;
 	offset = EXT3_MIN_BLOCK_SIZE % blocksize;
-	set_blocksize(bdev, blocksize);
+	set_blocksize(bdev_file, blocksize);
 	if (!(bh = __bread(bdev, sb_block, blocksize))) {
 		ext3_msg(sb, KERN_ERR, "error: couldn't read superblock of "
 			"external journal");
@@ -2560,7 +2517,7 @@ static journal_t *ext3_get_dev_journal(struct super_block *sb,
 	}
 	journal->j_private = sb;
 	if (!bh_uptodate_or_lock(journal->j_sb_buffer)) {
-		if (bh_submit_read(journal->j_sb_buffer)) {
+		if (bh_read(journal->j_sb_buffer, 0)) {
 			ext3_msg(sb, KERN_ERR, "I/O error on journal device");
 			goto out_journal;
 		}
@@ -2573,12 +2530,13 @@ static journal_t *ext3_get_dev_journal(struct super_block *sb,
 		goto out_journal;
 	}
 	EXT3_SB(sb)->journal_bdev = bdev;
+	EXT3_SB(sb)->journal_bdev_file = bdev_file;
 	ext3_init_journal_params(sb, journal);
 	return journal;
 out_journal:
 	journal_destroy(journal);
 out_bdev:
-	ext3_blkdev_put(bdev);
+	ext3_blkdev_put(bdev_file);
 	return NULL;
 }
 
@@ -2613,7 +2571,7 @@ static int ext3_load_journal(struct super_block *sb,
 
 
 	if (EXT3_HAS_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER)) {
-		if (sb->s_flags & MS_RDONLY) {
+		if (sb->s_flags & SB_RDONLY) {
 			ext3_msg(sb, KERN_INFO,
 				"recovery required on readonly filesystem");
 			if (really_read_only) {
@@ -2693,7 +2651,7 @@ static int ext3_create_journal(struct super_block *sb,
 	journal_t *journal;
 	int err;
 
-	if (sb->s_flags & MS_RDONLY) {
+	if (sb->s_flags & SB_RDONLY) {
 		ext3_msg(sb, KERN_ERR,
 			"error: readonly filesystem when trying to "
 			"create journal");
@@ -2757,8 +2715,8 @@ static int ext3_commit_super(struct super_block *sb,
 	}
 
 
-	if (!(sb->s_flags & MS_RDONLY))
-		es->s_wtime = cpu_to_le32(get_seconds());
+	if (!(sb->s_flags & SB_RDONLY))
+		es->s_wtime = cpu_to_le32(ktime_get_real_seconds());
 	es->s_free_blocks_count = cpu_to_le32(ext3_count_free_blocks(sb));
 	es->s_free_inodes_count = cpu_to_le32(ext3_count_free_inodes(sb));
 	BUFFER_TRACE(sbh, "marking dirty");
@@ -2794,7 +2752,7 @@ static void ext3_mark_recovery_complete(struct super_block * sb,
 		goto out;
 
 	if (EXT3_HAS_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER) &&
-	    sb->s_flags & MS_RDONLY) {
+	    sb->s_flags & SB_RDONLY) {
 		EXT3_CLEAR_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER);
 		ext3_commit_super(sb, es, 1);
 	}
@@ -2854,7 +2812,7 @@ int ext3_force_commit(struct super_block *sb)
 	journal_t *journal;
 	int ret;
 
-	if (sb->s_flags & MS_RDONLY)
+	if (sb->s_flags & SB_RDONLY)
 		return 0;
 
 	journal = EXT3_SB(sb)->s_journal;
@@ -2900,7 +2858,7 @@ static int ext3_freeze(struct super_block *sb)
 	int error = 0;
 	journal_t *journal;
 
-	if (!(sb->s_flags & MS_RDONLY)) {
+	if (!(sb->s_flags & SB_RDONLY)) {
 		journal = EXT3_SB(sb)->s_journal;
 
 
@@ -2935,7 +2893,7 @@ out:
  */
 static int ext3_unfreeze(struct super_block *sb)
 {
-	if (!(sb->s_flags & MS_RDONLY)) {
+	if (!(sb->s_flags & SB_RDONLY)) {
 
 		EXT3_SET_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER);
 		ext3_commit_super(sb, EXT3_SB(sb)->s_es, 1);
@@ -3000,27 +2958,27 @@ static int ext3_remount (struct super_block * sb, int * flags, char * data)
 	if (test_opt(sb, ABORT))
 		ext3_abort(sb, __func__, "Abort forced by user");
 
-	sb->s_flags = (sb->s_flags & ~MS_POSIXACL) |
-		(test_opt(sb, POSIX_ACL) ? MS_POSIXACL : 0);
+	sb->s_flags = (sb->s_flags & ~SB_POSIXACL) |
+		(test_opt(sb, POSIX_ACL) ? SB_POSIXACL : 0);
 
 	es = sbi->s_es;
 
 	ext3_init_journal_params(sb, sbi->s_journal);
 
-	if ((*flags & MS_RDONLY) != (sb->s_flags & MS_RDONLY) ||
+	if ((*flags & SB_RDONLY) != (sb->s_flags & SB_RDONLY) ||
 		n_blocks_count > le32_to_cpu(es->s_blocks_count)) {
 		if (test_opt(sb, ABORT)) {
 			err = -EROFS;
 			goto restore_opts;
 		}
 
-		if (*flags & MS_RDONLY) {
+		if (*flags & SB_RDONLY) {
 			err = dquot_suspend(sb, -1);
 			if (err < 0)
 				goto restore_opts;
 
 
-			sb->s_flags |= MS_RDONLY;
+			sb->s_flags |= SB_RDONLY;
 
 
 			if (!(es->s_state & cpu_to_le16(EXT3_VALID_FS)) &&
@@ -3059,7 +3017,7 @@ static int ext3_remount (struct super_block * sb, int * flags, char * data)
 			if ((err = ext3_group_extend(sb, es, n_blocks_count)))
 				goto restore_opts;
 			if (!ext3_setup_super (sb, es, 0))
-				sb->s_flags &= ~MS_RDONLY;
+				sb->s_flags &= ~SB_RDONLY;
 			enable_quota = 1;
 		}
 	}
@@ -3317,7 +3275,7 @@ static int ext3_quota_on_mount(struct super_block *sb, int type)
  * rollback, abort or retry policy.
  */
 static int ext3_quota_on(struct super_block *sb, int type, int format_id,
-			 struct path *path)
+			 const struct path *path)
 {
 	int err;
 
@@ -3459,8 +3417,8 @@ out:
 		i_size_write(inode, off + len);
 		EXT3_I(inode)->i_disksize = inode->i_size;
 	}
-	inode->i_version++;
-	inode->i_mtime = inode->i_ctime = CURRENT_TIME;
+	inode_inc_iversion(inode);
+	inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
 	ext3_mark_inode_dirty(handle, inode);
 	return len;
 }
