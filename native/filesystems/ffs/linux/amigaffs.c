@@ -8,7 +8,7 @@
 #include <linux/math64.h>
 #include <linux/iversion.h>
 
-static int ifs_amiga_hash_slot(
+static int ifs_ffs_hash_slot(
     struct super_block *sb, const unsigned char *name, unsigned int length)
 {
     const int slot = affs_hash_name(sb, name, length);
@@ -25,10 +25,10 @@ int affs_insert_hash(struct inode *dir, struct buffer_head *entry_bh)
     struct affs_tail *entry_tail = AFFS_TAIL(sb, entry_bh);
     const u32 entry_block = (u32)entry_bh->b_blocknr;
     u32 next;
-    u32 budget = ifs_amiga_chain_budget(sb);
+    u32 budget = ifs_ffs_chain_budget(sb);
     int slot;
 
-    slot = ifs_amiga_hash_slot(
+    slot = ifs_ffs_hash_slot(
         sb, entry_tail->name + 1, entry_tail->name[0]);
     if (slot < 0)
         return slot;
@@ -83,11 +83,11 @@ int affs_remove_hash(struct inode *dir, struct buffer_head *remove_bh)
     const u32 remove_block = (u32)remove_bh->b_blocknr;
     const __be32 replacement = remove_tail->hash_chain;
     u32 next;
-    u32 budget = ifs_amiga_chain_budget(sb);
+    u32 budget = ifs_ffs_chain_budget(sb);
     int slot;
     int result = -ENOENT;
 
-    slot = ifs_amiga_hash_slot(
+    slot = ifs_ffs_hash_slot(
         sb, remove_tail->name + 1, remove_tail->name[0]);
     if (slot < 0)
         return slot;
@@ -139,7 +139,7 @@ int affs_remove_hash(struct inode *dir, struct buffer_head *remove_bh)
     return result;
 }
 
-static void ifs_amiga_retarget_cached_dentry(
+static void ifs_ffs_retarget_cached_dentry(
     struct inode *inode, const u32 old_block)
 {
     struct dentry *alias;
@@ -154,7 +154,7 @@ static void ifs_amiga_retarget_cached_dentry(
     spin_unlock(&inode->i_lock);
 }
 
-static int ifs_amiga_directory_empty(struct inode *inode)
+static int ifs_ffs_directory_empty(struct inode *inode)
 {
     struct super_block *sb = inode->i_sb;
     struct buffer_head *bh;
@@ -176,7 +176,7 @@ static int ifs_amiga_directory_empty(struct inode *inode)
     return result;
 }
 
-static int ifs_amiga_promote_link_head(
+static int ifs_ffs_promote_link_head(
     struct inode *inode,
     struct buffer_head *head_bh,
     const u32 promoted_block,
@@ -204,7 +204,7 @@ static int ifs_amiga_promote_link_head(
            sizeof(original_name));
 
     affs_lock_dir(dir);
-    ifs_amiga_retarget_cached_dentry(inode, promoted_block);
+    ifs_ffs_retarget_cached_dentry(inode, promoted_block);
 
     result = affs_remove_hash(dir, promoted_bh);
     if (result != 0)
@@ -220,7 +220,7 @@ static int ifs_amiga_promote_link_head(
                original_name, sizeof(original_name));
         affs_fix_checksum(sb, head_bh);
         if (affs_insert_hash(dir, promoted_bh) != 0)
-            affs_error(sb, "ifs_amiga_promote_link_head",
+            affs_error(sb, "ifs_ffs_promote_link_head",
                        "Could not restore link after promotion failure");
         goto out_unlock;
     }
@@ -241,7 +241,7 @@ out_unlock:
     return 0;
 }
 
-static int ifs_amiga_remove_link(struct dentry *dentry)
+static int ifs_ffs_remove_link(struct dentry *dentry)
 {
     struct inode *inode = d_inode(dentry);
     struct super_block *sb = inode->i_sb;
@@ -249,7 +249,7 @@ static int ifs_amiga_remove_link(struct dentry *dentry)
     struct buffer_head *link_bh = NULL;
     u32 link_block = (u32)(unsigned long)dentry->d_fsdata;
     u32 next;
-    u32 budget = ifs_amiga_chain_budget(sb);
+    u32 budget = ifs_ffs_chain_budget(sb);
     int result = -ENOENT;
 
     cursor = affs_bread(sb, (u32)inode->i_ino);
@@ -263,7 +263,7 @@ static int ifs_amiga_remove_link(struct dentry *dentry)
             goto out;
         }
 
-        result = ifs_amiga_promote_link_head(
+        result = ifs_ffs_promote_link_head(
             inode, cursor, link_block, &link_bh);
         if (result != 0)
             goto out;
@@ -344,7 +344,7 @@ int affs_remove_header(struct dentry *dentry)
 
     if (be32_to_cpu(AFFS_TAIL(sb, bh)->stype) == ST_USERDIR) {
         affs_lock_dir(inode);
-        result = ifs_amiga_directory_empty(inode);
+        result = ifs_ffs_directory_empty(inode);
         affs_unlock_dir(inode);
         if (result != 0)
             goto out_locked;
@@ -358,7 +358,7 @@ int affs_remove_header(struct dentry *dentry)
     affs_unlock_dir(dir);
 
     if (inode->i_nlink > 1)
-        result = ifs_amiga_remove_link(dentry);
+        result = ifs_ffs_remove_link(dentry);
     else {
         clear_nlink(inode);
         result = 0;
