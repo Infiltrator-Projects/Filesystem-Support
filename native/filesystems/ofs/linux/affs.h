@@ -222,8 +222,13 @@ extern const struct dentry_operations	 affs_intl_dentry_operations;
 
 static inline bool affs_validblock(struct super_block *sb, int block)
 {
-	return(block >= AFFS_SB(sb)->s_reserved &&
-	       block < AFFS_SB(sb)->s_partition_size);
+	if (block < 0)
+		return false;
+
+	return ifs_amiga_data_block_valid(
+		(ifs_amiga_u32)block,
+		(ifs_amiga_u32)AFFS_SB(sb)->s_reserved,
+		(ifs_amiga_u32)AFFS_SB(sb)->s_partition_size) != 0;
 }
 
 static inline void

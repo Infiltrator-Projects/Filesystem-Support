@@ -66,7 +66,7 @@ affs_free_block(struct super_block *sb, u32 block)
 		sbi->s_last_bmap = bmap;
 	}
 
-	mask = 1U << (bit & 31);
+	mask = ifs_amiga_bitmap_bit_mask(bit);
 	data = (__be32 *)bh->b_data + bit / 32 + 1;
 
 	/* mark block free */
@@ -182,7 +182,7 @@ find_bmap_bit:
 	bit = blk % sbi->s_bmap_bits;
 	data = (__be32 *)bh->b_data + bit / 32 + 1;
 	enddata = (__be32 *)((u8 *)bh->b_data + sb->s_blocksize);
-	mask = ~0U << (bit & 31);
+	mask = ifs_amiga_bitmap_scan_mask(bit);
 	blk &= ~31U;
 
 	tmp = be32_to_cpu(*data);
@@ -205,7 +205,7 @@ find_bit:
 	/* finally look for a free bit in the word */
 	bit = ffs(tmp & mask) - 1;
 	blk += bit + sbi->s_reserved;
-	mask2 = mask = 1U << (bit & 31);
+	mask2 = mask = ifs_amiga_bitmap_bit_mask(bit);
 	AFFS_I(inode)->i_lastalloc = blk;
 
 	/* prealloc as much as possible within this word */
@@ -261,9 +261,14 @@ int affs_init_bitmap(struct super_block *sb, int *flags)
 
 	sbi->s_last_bmap = ~0;
 	sbi->s_bmap_bh = NULL;
-	sbi->s_bmap_bits = sb->s_blocksize * 8 - 32;
-	sbi->s_bmap_count = (sbi->s_partition_size - sbi->s_reserved +
-				 sbi->s_bmap_bits - 1) / sbi->s_bmap_bits;
+	if (ifs_amiga_bitmap_geometry(
+			(ifs_amiga_u32)sb->s_blocksize,
+			(ifs_amiga_u32)sbi->s_reserved,
+			(ifs_amiga_u32)sbi->s_partition_size,
+			&sbi->s_bmap_bits, &sbi->s_bmap_count) != 0) {
+		pr_err("Invalid AFFS bitmap geometry\n");
+		return -EINVAL;
+	}
 	size = sbi->s_bmap_count * sizeof(*bm);
 	bm = sbi->s_bitmap = kzalloc(size, GFP_KERNEL);
 	if (!sbi->s_bitmap) {
