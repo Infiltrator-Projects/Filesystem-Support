@@ -1,910 +1,795 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
- *  linux/fs/ext2/dir.c
+ * Infiltrator Filesystem Support — EXT2 Linux directory adapter.
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  from
- *
- *  linux/fs/minix/dir.c
- *
- *  Copyright (C) 1991, 1992  Linus Torvalds
- *
- *  ext2 directory handling functions
- *
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
- *
- * All code that works with directory layout had been switched to pagecache
- * and moved here. AV
- */
-
-/*
- * EXT2 — Directory representation
- *
- * Purpose:
- *   Parses, validates and iterates directory records and implements directory lookup-side mechanics, including indexed-directory hashing where applicable.
- *
- * Filesystem model:
- *   This file belongs to a deliberately strict, non-journalled EXT2 VFS implementation.
- *
- * Correctness focus:
- *   Directory record lengths, alignment and bounds are untrusted on-disk input and must be validated before pointer arithmetic or publication to VFS.
- *
- * Project rules:
- *   - Do not accept a journalled EXT3 volume as EXT2.
- *   - Keep on-disk compatibility fields when they are required to parse or reject media correctly.
- *   - Keep xattr/ACL/cache code inside ext2.ko rather than creating helper modules.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
+ * On-disk record geometry and validation are owned by the canonical EXT2 core.
+ * This file binds those rules to Linux folios, VFS enumeration and mutation.
  */
 
 #include "ext2.h"
+
 #include <linux/buffer_head.h>
+#include <linux/iversion.h>
 #include <linux/pagemap.h>
 #include <linux/swap.h>
-#include <linux/iversion.h>
 
 typedef struct ext2_dir_entry_2 ext2_dirent;
 
-
-/**
- * ext2_rec_len_from_disk - Implements the rec len from disk operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline unsigned ext2_rec_len_from_disk(__le16 dlen)
+static unsigned ext2_dir_decode_length(__le16 disk_length)
 {
 	return ifs_ext2_directory_record_length_from_disk(
-		le16_to_cpu(dlen), PAGE_SIZE);
+		le16_to_cpu(disk_length), PAGE_SIZE);
 }
 
-
-/**
- * ext2_rec_len_to_disk - Implements the rec len to disk operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline __le16 ext2_rec_len_to_disk(unsigned len)
+static __le16 ext2_dir_encode_length(unsigned length)
 {
 	ifs_ext2_u16 encoded = 0U;
 	IfsExt2Status status;
 
 	status = ifs_ext2_directory_record_length_to_disk(
-		len, PAGE_SIZE, &encoded);
+		length, PAGE_SIZE, &encoded);
 	BUG_ON(status != IFS_EXT2_OK);
 	return cpu_to_le16(encoded);
 }
 
-
-/**
- * ext2_chunk_size - Implements the chunk size operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline unsigned ext2_chunk_size(struct inode *inode)
+static unsigned ext2_dir_chunk_size(const struct inode *inode)
 {
 	return inode->i_sb->s_blocksize;
 }
 
-
-/**
- * ext2_last_byte - Implements the last byte operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned
-ext2_last_byte(struct inode *inode, unsigned long page_nr)
+static unsigned ext2_dir_page_bytes(
+	const struct inode *inode, unsigned long page_index)
 {
-	unsigned last_byte = inode->i_size;
+	loff_t start = (loff_t)page_index << PAGE_SHIFT;
+	loff_t remaining;
 
-	last_byte -= page_nr << PAGE_SHIFT;
-	if (last_byte > PAGE_SIZE)
-		last_byte = PAGE_SIZE;
-	return last_byte;
+	if (start >= inode->i_size)
+		return 0;
+
+	remaining = inode->i_size - start;
+	return remaining < PAGE_SIZE ? (unsigned)remaining : PAGE_SIZE;
 }
 
-
-/**
- * ext2_commit_chunk - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void ext2_commit_chunk(struct folio *folio, loff_t pos, unsigned len)
+static ext2_dirent *ext2_dir_next(ext2_dirent *entry)
 {
-	struct address_space *mapping = folio->mapping;
-	struct inode *dir = mapping->host;
+	return (ext2_dirent *)((char *)entry +
+		ext2_dir_decode_length(entry->rec_len));
+}
+
+static bool ext2_dir_name_matches(
+	const ext2_dirent *entry, const char *name, unsigned int length)
+{
+	return entry->inode != 0 &&
+	       entry->name_len == length &&
+	       memcmp(entry->name, name, length) == 0;
+}
+
+static void ext2_dir_set_type(ext2_dirent *entry, const struct inode *inode)
+{
+	if (EXT2_HAS_INCOMPAT_FEATURE(
+		    inode->i_sb, EXT2_FEATURE_INCOMPAT_FILETYPE))
+		entry->file_type = fs_umode_to_ftype(inode->i_mode);
+	else
+		entry->file_type = 0;
+}
+
+static void ext2_dir_commit(
+	struct folio *folio, loff_t position, unsigned int length)
+{
+	struct inode *dir = folio->mapping->host;
 
 	inode_inc_iversion(dir);
-	block_write_end(NULL, mapping, pos, len, len, folio, NULL);
+	block_write_end(
+		NULL, folio->mapping,
+		position, length, length, folio, NULL);
 
-	if (pos+len > dir->i_size) {
-		i_size_write(dir, pos+len);
+	if (position + length > dir->i_size) {
+		i_size_write(dir, position + length);
 		mark_inode_dirty(dir);
 	}
+
 	folio_unlock(folio);
 }
 
-
-/**
- * ext2_check_folio - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static bool ext2_check_folio(struct folio *folio, int quiet, char *kaddr)
+static bool ext2_dir_validate_folio(
+	struct folio *folio, bool quiet, char *base)
 {
 	struct inode *dir = folio->mapping->host;
 	struct super_block *sb = dir->i_sb;
-	unsigned chunk_size = ext2_chunk_size(dir);
-	u32 max_inumber = le32_to_cpu(EXT2_SB(sb)->s_es->s_inodes_count);
-	unsigned offs, rec_len;
-	unsigned limit = folio_size(folio);
-	ext2_dirent *p;
-	const char *error;
-	IfsExt2DirectoryRecordStatus record_status;
+	const unsigned int chunk = ext2_dir_chunk_size(dir);
+	const u32 max_inode =
+		le32_to_cpu(EXT2_SB(sb)->s_es->s_inodes_count);
+	unsigned int limit = folio_size(folio);
+	unsigned int offset = 0;
 
 	if (dir->i_size < folio_pos(folio) + limit) {
 		limit = offset_in_folio(folio, dir->i_size);
-		if (limit & (chunk_size - 1))
-			goto Ebadsize;
-		if (!limit)
-			goto out;
-	}
-	for (offs = 0; offs <= limit - EXT2_DIR_REC_LEN(1); offs += rec_len) {
-		p = (ext2_dirent *)(kaddr + offs);
-		rec_len = ext2_rec_len_from_disk(p->rec_len);
-
-		record_status = ifs_ext2_validate_directory_record(
-			offs, rec_len, p->name_len, le32_to_cpu(p->inode),
-			chunk_size, max_inumber);
-		if (unlikely(record_status != IFS_EXT2_DIRECTORY_RECORD_OK)) {
-			error = ifs_ext2_directory_record_status_string(record_status);
-			goto bad_entry;
+		if ((limit & (chunk - 1U)) != 0U) {
+			if (!quiet)
+				ext2_error(sb, __func__,
+					   "directory %lu size is not block aligned",
+					   dir->i_ino);
+			return false;
 		}
 	}
-	if (offs != limit)
-		goto Eend;
-out:
+
+	while (offset < limit) {
+		ext2_dirent *entry;
+		unsigned int record_length;
+		IfsExt2DirectoryRecordStatus status;
+
+		if (limit - offset <
+		    ifs_ext2_directory_record_required_length(1U)) {
+			if (!quiet)
+				ext2_error(sb, __func__,
+					   "directory %lu ends inside a record",
+					   dir->i_ino);
+			return false;
+		}
+
+		entry = (ext2_dirent *)(base + offset);
+		record_length =
+			ext2_dir_decode_length(entry->rec_len);
+
+		status = ifs_ext2_validate_directory_record(
+			offset, record_length,
+			entry->name_len, le32_to_cpu(entry->inode),
+			chunk, max_inode);
+		if (status != IFS_EXT2_DIRECTORY_RECORD_OK) {
+			if (!quiet)
+				ext2_error(
+					sb, __func__,
+					"directory %lu record at %llu is corrupt: %s",
+					dir->i_ino,
+					(unsigned long long)(
+						folio_pos(folio) + offset),
+					ifs_ext2_directory_record_status_string(
+						status));
+			return false;
+		}
+
+		offset += record_length;
+	}
+
+	if (offset != limit)
+		return false;
+
 	folio_set_checked(folio);
 	return true;
-
-
-Ebadsize:
-	if (!quiet)
-		ext2_error(sb, __func__,
-			"size of directory #%lu is not a multiple "
-			"of chunk size", dir->i_ino);
-	goto fail;
-bad_entry:
-	if (!quiet)
-		ext2_error(sb, __func__, "bad entry in directory #%lu: : %s - "
-			"offset=%llu, inode=%lu, rec_len=%d, name_len=%d",
-			dir->i_ino, error, folio_pos(folio) + offs,
-			(unsigned long) le32_to_cpu(p->inode),
-			rec_len, p->name_len);
-	goto fail;
-Eend:
-	if (!quiet) {
-		p = (ext2_dirent *)(kaddr + offs);
-		ext2_error(sb, "ext2_check_folio",
-			"entry in directory #%lu spans the page boundary"
-			"offset=%llu, inode=%lu",
-			dir->i_ino, folio_pos(folio) + offs,
-			(unsigned long) le32_to_cpu(p->inode));
-	}
-fail:
-	return false;
 }
 
-
-/**
- * ext2_get_folio - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void *ext2_get_folio(struct inode *dir, unsigned long n,
-				   int quiet, struct folio **foliop)
+static void *ext2_dir_map_folio(
+	struct inode *dir, unsigned long page_index,
+	bool quiet, struct folio **folio_out)
 {
-	struct address_space *mapping = dir->i_mapping;
-	struct folio *folio = read_mapping_folio(mapping, n, NULL);
-	void *kaddr;
+	struct folio *folio;
+	void *base;
 
+	folio = read_mapping_folio(
+		dir->i_mapping, page_index, NULL);
 	if (IS_ERR(folio))
 		return ERR_CAST(folio);
-	kaddr = kmap_local_folio(folio, 0);
-	if (unlikely(!folio_test_checked(folio))) {
-		if (!ext2_check_folio(folio, quiet, kaddr))
-			goto fail;
+
+	base = kmap_local_folio(folio, 0);
+	if (!folio_test_checked(folio) &&
+	    !ext2_dir_validate_folio(folio, quiet, base)) {
+		folio_release_kmap(folio, base);
+		return ERR_PTR(-EIO);
 	}
-	*foliop = folio;
-	return kaddr;
 
-fail:
-	folio_release_kmap(folio, kaddr);
-	return ERR_PTR(-EIO);
+	*folio_out = folio;
+	return base;
 }
 
-
-/**
- * ext2_match - Implements the match operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int ext2_match (int len, const char * const name,
-					struct ext2_dir_entry_2 * de)
+static unsigned int ext2_dir_resume_offset(
+	char *base, unsigned int requested, unsigned int chunk_mask)
 {
-	if (len != de->name_len)
-		return 0;
-	if (!de->inode)
-		return 0;
-	return !memcmp(name, de->name, len);
-}
+	ext2_dirent *target =
+		(ext2_dirent *)(base + requested);
+	ext2_dirent *entry =
+		(ext2_dirent *)(base + (requested & chunk_mask));
 
+	while ((char *)entry < (char *)target) {
+		unsigned int length =
+			ext2_dir_decode_length(entry->rec_len);
 
-/**
- * ext2_next_entry - Implements the next entry operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline ext2_dirent *ext2_next_entry(ext2_dirent *p)
-{
-	return (ext2_dirent *)((char *)p +
-			ext2_rec_len_from_disk(p->rec_len));
-}
-
-
-/**
- * ext2_validate_entry - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline unsigned
-ext2_validate_entry(char *base, unsigned offset, unsigned mask)
-{
-	ext2_dirent *de = (ext2_dirent*)(base + offset);
-	ext2_dirent *p = (ext2_dirent*)(base + (offset&mask));
-	while ((char*)p < (char*)de) {
-		if (p->rec_len == 0)
+		if (length == 0U)
 			break;
-		p = ext2_next_entry(p);
+		entry = (ext2_dirent *)((char *)entry + length);
 	}
-	return offset_in_page(p);
+
+	return offset_in_page(entry);
 }
 
-
-/**
- * ext2_set_de_type - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline void ext2_set_de_type(ext2_dirent *de, struct inode *inode)
+static int ext2_readdir(struct file *file, struct dir_context *ctx)
 {
-	if (EXT2_HAS_INCOMPAT_FEATURE(inode->i_sb, EXT2_FEATURE_INCOMPAT_FILETYPE))
-		de->file_type = fs_umode_to_ftype(inode->i_mode);
-	else
-		de->file_type = 0;
-}
-
-
-/**
- * ext2_readdir - Implements the readdir operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int
-ext2_readdir(struct file *file, struct dir_context *ctx)
-{
-	loff_t pos = ctx->pos;
 	struct inode *inode = file_inode(file);
 	struct super_block *sb = inode->i_sb;
-	unsigned int offset = pos & ~PAGE_MASK;
-	unsigned long n = pos >> PAGE_SHIFT;
-	unsigned long npages = dir_pages(inode);
-	unsigned chunk_mask = ~(ext2_chunk_size(inode)-1);
-	bool need_revalidate = !inode_eq_iversion(inode, *(u64 *)file->private_data);
-	bool has_filetype;
+	const bool has_filetype =
+		EXT2_HAS_INCOMPAT_FEATURE(
+			sb, EXT2_FEATURE_INCOMPAT_FILETYPE);
+	const unsigned int chunk_mask =
+		~(ext2_dir_chunk_size(inode) - 1U);
+	unsigned long page_index;
+	unsigned long pages;
+	unsigned int offset;
+	bool revalidate;
 
-	if (pos > inode->i_size - EXT2_DIR_REC_LEN(1))
+	if (ctx->pos < 0)
+		return -EINVAL;
+	if (ctx->pos >
+	    inode->i_size -
+		(loff_t)ifs_ext2_directory_record_required_length(1U))
 		return 0;
 
-	has_filetype =
-		EXT2_HAS_INCOMPAT_FEATURE(sb, EXT2_FEATURE_INCOMPAT_FILETYPE);
+	page_index = ctx->pos >> PAGE_SHIFT;
+	offset = ctx->pos & ~PAGE_MASK;
+	pages = dir_pages(inode);
+	revalidate =
+		!inode_eq_iversion(
+			inode, *(u64 *)file->private_data);
 
-	for ( ; n < npages; n++, offset = 0) {
-		ext2_dirent *de;
+	for (; page_index < pages;
+	     ++page_index, offset = 0U) {
 		struct folio *folio;
-		char *kaddr = ext2_get_folio(inode, n, 0, &folio);
-		char *limit;
+		char *base = ext2_dir_map_folio(
+			inode, page_index, false, &folio);
+		char *end;
+		ext2_dirent *entry;
 
-		if (IS_ERR(kaddr)) {
+		if (IS_ERR(base)) {
 			ext2_error(sb, __func__,
-				   "bad page in #%lu",
-				   inode->i_ino);
+				   "cannot read directory page %lu for inode %lu",
+				   page_index, inode->i_ino);
 			ctx->pos += PAGE_SIZE - offset;
-			return PTR_ERR(kaddr);
+			return PTR_ERR(base);
 		}
-		if (unlikely(need_revalidate)) {
-			if (offset) {
-				offset = ext2_validate_entry(kaddr, offset, chunk_mask);
-				ctx->pos = (n<<PAGE_SHIFT) + offset;
+
+		if (revalidate) {
+			if (offset != 0U) {
+				offset = ext2_dir_resume_offset(
+					base, offset, chunk_mask);
+				ctx->pos =
+					((loff_t)page_index << PAGE_SHIFT) +
+					offset;
 			}
-			*(u64 *)file->private_data = inode_query_iversion(inode);
-			need_revalidate = false;
+			*(u64 *)file->private_data =
+				inode_query_iversion(inode);
+			revalidate = false;
 		}
-		de = (ext2_dirent *)(kaddr+offset);
-		limit = kaddr + ext2_last_byte(inode, n) - EXT2_DIR_REC_LEN(1);
-		for ( ;(char*)de <= limit; de = ext2_next_entry(de)) {
-			if (de->rec_len == 0) {
+
+		end = base + ext2_dir_page_bytes(
+			inode, page_index);
+		entry = (ext2_dirent *)(base + offset);
+
+		while ((char *)entry +
+		       ifs_ext2_directory_record_required_length(1U)
+		       <= end) {
+			unsigned int length =
+				ext2_dir_decode_length(entry->rec_len);
+
+			if (length == 0U ||
+			    (char *)entry + length > end) {
 				ext2_error(sb, __func__,
-					"zero-length directory entry");
-				folio_release_kmap(folio, de);
+					   "corrupt directory record in inode %lu",
+					   inode->i_ino);
+				folio_release_kmap(folio, base);
 				return -EIO;
 			}
-			if (de->inode) {
-				unsigned char d_type = DT_UNKNOWN;
+
+			if (entry->inode != 0) {
+				unsigned char type = DT_UNKNOWN;
 
 				if (has_filetype)
-					d_type = fs_ftype_to_dtype(de->file_type);
-
-				if (!dir_emit(ctx, de->name, de->name_len,
-						le32_to_cpu(de->inode),
-						d_type)) {
-					folio_release_kmap(folio, de);
+					type = fs_ftype_to_dtype(
+						entry->file_type);
+				if (!dir_emit(
+					    ctx, entry->name, entry->name_len,
+					    le32_to_cpu(entry->inode), type)) {
+					folio_release_kmap(folio, base);
 					return 0;
 				}
 			}
-			ctx->pos += ext2_rec_len_from_disk(de->rec_len);
+
+			ctx->pos += length;
+			entry = (ext2_dirent *)((char *)entry + length);
 		}
-		folio_release_kmap(folio, kaddr);
+
+		folio_release_kmap(folio, base);
 	}
+
 	return 0;
 }
 
-
-/**
- * ext2_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-struct ext2_dir_entry_2 *ext2_find_entry (struct inode *dir,
-			const struct qstr *child, struct folio **foliop)
+struct ext2_dir_entry_2 *ext2_find_entry(
+	struct inode *dir, const struct qstr *child,
+	struct folio **folio_out)
 {
-	const char *name = child->name;
-	int namelen = child->len;
-	unsigned reclen =
-		ifs_ext2_directory_record_required_length((ifs_ext2_u32)namelen);
-	unsigned long start, n;
-	unsigned long npages = dir_pages(dir);
-	struct ext2_inode_info *ei = EXT2_I(dir);
-	ext2_dirent * de;
+	struct ext2_inode_info *info = EXT2_I(dir);
+	const unsigned int needed =
+		ifs_ext2_directory_record_required_length(
+			(ifs_ext2_u32)child->len);
+	const unsigned long pages = dir_pages(dir);
+	unsigned long start;
+	unsigned long page_index;
 
-	if (npages == 0)
-		goto out;
+	if (needed == 0U || pages == 0U)
+		return ERR_PTR(-ENOENT);
 
-	start = ei->i_dir_start_lookup;
-	if (start >= npages)
+	start = info->i_dir_start_lookup;
+	if (start >= pages)
 		start = 0;
-	n = start;
+	page_index = start;
+
 	do {
-		char *kaddr = ext2_get_folio(dir, n, 0, foliop);
-		if (IS_ERR(kaddr))
-			return ERR_CAST(kaddr);
+		struct folio *folio;
+		char *base =
+			ext2_dir_map_folio(
+				dir, page_index, false, &folio);
+		char *end;
+		ext2_dirent *entry;
 
-		de = (ext2_dirent *) kaddr;
-		kaddr += ext2_last_byte(dir, n) - reclen;
-		while ((char *) de <= kaddr) {
-			if (de->rec_len == 0) {
+		if (IS_ERR(base))
+			return ERR_CAST(base);
+
+		end = base + ext2_dir_page_bytes(dir, page_index);
+		entry = (ext2_dirent *)base;
+
+		while ((char *)entry + needed <= end) {
+			unsigned int length =
+				ext2_dir_decode_length(entry->rec_len);
+
+			if (length == 0U ||
+			    (char *)entry + length > end) {
 				ext2_error(dir->i_sb, __func__,
-					"zero-length directory entry");
-				folio_release_kmap(*foliop, de);
-				goto out;
+					   "corrupt directory record in inode %lu",
+					   dir->i_ino);
+				folio_release_kmap(folio, base);
+				return ERR_PTR(-EIO);
 			}
-			if (ext2_match(namelen, name, de))
-				goto found;
-			de = ext2_next_entry(de);
+
+			if (ext2_dir_name_matches(
+				    entry, child->name, child->len)) {
+				info->i_dir_start_lookup = page_index;
+				*folio_out = folio;
+				return entry;
+			}
+
+			entry = (ext2_dirent *)((char *)entry + length);
 		}
-		folio_release_kmap(*foliop, kaddr);
 
-		if (++n >= npages)
-			n = 0;
+		folio_release_kmap(folio, base);
+		if (++page_index >= pages)
+			page_index = 0;
 
-		if (unlikely(n > (dir->i_blocks >> (PAGE_SHIFT - 9)))) {
-			ext2_error(dir->i_sb, __func__,
-				"dir %lu size %lld exceeds block count %llu",
+		if (page_index >
+		    (dir->i_blocks >> (PAGE_SHIFT - 9))) {
+			ext2_error(
+				dir->i_sb, __func__,
+				"directory %lu size %lld exceeds block count %llu",
 				dir->i_ino, dir->i_size,
 				(unsigned long long)dir->i_blocks);
-			goto out;
+			return ERR_PTR(-EUCLEAN);
 		}
-	} while (n != start);
-out:
+	} while (page_index != start);
+
 	return ERR_PTR(-ENOENT);
-
-found:
-	ei->i_dir_start_lookup = n;
-	return de;
 }
 
-
-/**
- * ext2_dotdot - Implements the dotdot operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-struct ext2_dir_entry_2 *ext2_dotdot(struct inode *dir, struct folio **foliop)
+struct ext2_dir_entry_2 *ext2_dotdot(
+	struct inode *dir, struct folio **folio_out)
 {
-	ext2_dirent *de = ext2_get_folio(dir, 0, 0, foliop);
-
-	if (!IS_ERR(de))
-		return ext2_next_entry(de);
-	return NULL;
-}
-
-
-/**
- * ext2_inode_by_name - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext2_inode_by_name(struct inode *dir, const struct qstr *child, ino_t *ino)
-{
-	struct ext2_dir_entry_2 *de;
 	struct folio *folio;
+	char *base =
+		ext2_dir_map_folio(dir, 0, false, &folio);
+	ext2_dirent *first;
+	ext2_dirent *second;
 
-	de = ext2_find_entry(dir, child, &folio);
-	if (IS_ERR(de))
-		return PTR_ERR(de);
+	if (IS_ERR(base))
+		return NULL;
 
-	*ino = le32_to_cpu(de->inode);
-	folio_release_kmap(folio, de);
+	first = (ext2_dirent *)base;
+	second = ext2_dir_next(first);
+	if ((char *)second >=
+	    base + ext2_dir_page_bytes(dir, 0)) {
+		folio_release_kmap(folio, base);
+		return NULL;
+	}
+
+	*folio_out = folio;
+	return second;
+}
+
+int ext2_inode_by_name(
+	struct inode *dir, const struct qstr *child, ino_t *ino)
+{
+	struct folio *folio;
+	ext2_dirent *entry =
+		ext2_find_entry(dir, child, &folio);
+
+	if (IS_ERR(entry))
+		return PTR_ERR(entry);
+
+	*ino = le32_to_cpu(entry->inode);
+	folio_release_kmap(folio, entry);
 	return 0;
 }
 
-
-/**
- * ext2_prepare_chunk - Implements the prepare chunk operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_prepare_chunk(struct folio *folio, loff_t pos, unsigned len)
+static int ext2_dir_prepare(
+	struct folio *folio, loff_t position, unsigned int length)
 {
-	return __block_write_begin(folio, pos, len, ext2_get_block);
+	return __block_write_begin(
+		folio, position, length, ext2_get_block);
 }
 
-
-/**
- * ext2_handle_dirsync - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_handle_dirsync(struct inode *dir)
+static int ext2_dir_sync(struct inode *dir)
 {
-	int err;
+	int result =
+		filemap_write_and_wait(dir->i_mapping);
 
-	err = filemap_write_and_wait(dir->i_mapping);
-	if (!err)
-		err = sync_inode_metadata(dir, 1);
-	return err;
+	if (result == 0)
+		result = sync_inode_metadata(dir, 1);
+	return result;
 }
 
-
-/**
- * ext2_set_link - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext2_set_link(struct inode *dir, struct ext2_dir_entry_2 *de,
-		struct folio *folio, struct inode *inode, bool update_times)
+int ext2_set_link(
+	struct inode *dir, struct ext2_dir_entry_2 *entry,
+	struct folio *folio, struct inode *inode, bool update_times)
 {
-	loff_t pos = folio_pos(folio) + offset_in_folio(folio, de);
-	unsigned len = ext2_rec_len_from_disk(de->rec_len);
-	int err;
+	const loff_t position =
+		folio_pos(folio) + offset_in_folio(folio, entry);
+	const unsigned int length =
+		ext2_dir_decode_length(entry->rec_len);
+	int result;
 
 	folio_lock(folio);
-	err = ext2_prepare_chunk(folio, pos, len);
-	if (err) {
+	result = ext2_dir_prepare(folio, position, length);
+	if (result != 0) {
 		folio_unlock(folio);
-		return err;
+		return result;
 	}
-	de->inode = cpu_to_le32(inode->i_ino);
-	ext2_set_de_type(de, inode);
-	ext2_commit_chunk(folio, pos, len);
+
+	entry->inode = cpu_to_le32(inode->i_ino);
+	ext2_dir_set_type(entry, inode);
+	ext2_dir_commit(folio, position, length);
+
 	if (update_times)
-		inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
+		inode_set_mtime_to_ts(
+			dir, inode_set_ctime_current(dir));
 	EXT2_I(dir)->i_flags &= ~EXT2_BTREE_FL;
 	mark_inode_dirty(dir);
-	return ext2_handle_dirsync(dir);
+	return ext2_dir_sync(dir);
 }
 
-
-/**
- * ext2_add_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext2_add_link (struct dentry *dentry, struct inode *inode)
+int ext2_add_link(struct dentry *dentry, struct inode *inode)
 {
 	struct inode *dir = d_inode(dentry->d_parent);
 	const char *name = dentry->d_name.name;
-	int namelen = dentry->d_name.len;
-	unsigned chunk_size = ext2_chunk_size(dir);
-	unsigned reclen = EXT2_DIR_REC_LEN(namelen);
-	unsigned rec_len;
-	ifs_ext2_u32 name_len;
-	struct folio *folio = NULL;
-	ext2_dirent * de;
-	unsigned long npages = dir_pages(dir);
-	unsigned long n;
-	loff_t pos;
-	int err;
+	const unsigned int name_length = dentry->d_name.len;
+	const unsigned int needed =
+		ifs_ext2_directory_record_required_length(name_length);
+	const unsigned int chunk = ext2_dir_chunk_size(dir);
+	const unsigned long pages = dir_pages(dir);
+	unsigned long page_index;
 
+	if (needed == 0U)
+		return -ENAMETOOLONG;
 
-	for (n = 0; n <= npages; n++) {
-		char *kaddr = ext2_get_folio(dir, n, 0, &folio);
-		char *dir_end;
+	for (page_index = 0; page_index <= pages; ++page_index) {
+		struct folio *folio;
+		char *base =
+			ext2_dir_map_folio(
+				dir, page_index, false, &folio);
+		char *end;
+		char *scan_end;
+		ext2_dirent *entry;
 
-		if (IS_ERR(kaddr))
-			return PTR_ERR(kaddr);
+		if (IS_ERR(base))
+			return PTR_ERR(base);
+
 		folio_lock(folio);
-		dir_end = kaddr + ext2_last_byte(dir, n);
-		de = (ext2_dirent *)kaddr;
-		kaddr += folio_size(folio) - reclen;
-		while ((char *)de <= kaddr) {
-			if ((char *)de == dir_end) {
+		end = base + ext2_dir_page_bytes(dir, page_index);
+		scan_end = base + folio_size(folio) - needed;
+		entry = (ext2_dirent *)base;
 
-				name_len = 0;
-				rec_len = chunk_size;
-				de->rec_len = ext2_rec_len_to_disk(chunk_size);
-				de->inode = 0;
-				goto got_it;
+		while ((char *)entry <= scan_end) {
+			unsigned int record_length;
+			ifs_ext2_u32 occupied_length = 0U;
+
+			if ((char *)entry == end) {
+				record_length = chunk;
+				entry->rec_len =
+					ext2_dir_encode_length(chunk);
+				entry->inode = 0;
+				occupied_length = 0U;
+				goto found;
 			}
-			if (de->rec_len == 0) {
+
+			record_length =
+				ext2_dir_decode_length(entry->rec_len);
+			if (record_length == 0U) {
 				ext2_error(dir->i_sb, __func__,
-					"zero-length directory entry");
-				err = -EIO;
-				goto out_unlock;
+					   "zero-length directory record");
+				folio_unlock(folio);
+				folio_release_kmap(folio, base);
+				return -EIO;
 			}
-			err = -EEXIST;
-			if (ext2_match (namelen, name, de))
-				goto out_unlock;
-			rec_len = ext2_rec_len_from_disk(de->rec_len);
+
+			if (ext2_dir_name_matches(
+				    entry, name, name_length)) {
+				folio_unlock(folio);
+				folio_release_kmap(folio, base);
+				return -EEXIST;
+			}
+
 			if (ifs_ext2_directory_record_can_insert(
-				    rec_len, de->name_len, le32_to_cpu(de->inode),
-				    (ifs_ext2_u32)namelen,
-				    &name_len))
-				goto got_it;
-			de = (ext2_dirent *) ((char *) de + rec_len);
+				    record_length,
+				    entry->name_len,
+				    le32_to_cpu(entry->inode),
+				    name_length,
+				    &occupied_length)) {
+found:
+				{
+					loff_t position =
+						folio_pos(folio) +
+						offset_in_folio(folio, entry);
+					int result =
+						ext2_dir_prepare(
+							folio, position,
+							record_length);
+
+					if (result != 0) {
+						folio_unlock(folio);
+						folio_release_kmap(
+							folio, base);
+						return result;
+					}
+
+					if (entry->inode != 0) {
+						ext2_dirent *new_entry =
+							(ext2_dirent *)(
+								(char *)entry +
+								occupied_length);
+						new_entry->rec_len =
+							ext2_dir_encode_length(
+								record_length -
+								occupied_length);
+						entry->rec_len =
+							ext2_dir_encode_length(
+								occupied_length);
+						entry = new_entry;
+					}
+
+					entry->name_len = name_length;
+					memcpy(entry->name, name, name_length);
+					entry->inode =
+						cpu_to_le32(inode->i_ino);
+					ext2_dir_set_type(entry, inode);
+					ext2_dir_commit(
+						folio, position,
+						record_length);
+					inode_set_mtime_to_ts(
+						dir,
+						inode_set_ctime_current(dir));
+					EXT2_I(dir)->i_flags &=
+						~EXT2_BTREE_FL;
+					mark_inode_dirty(dir);
+					result = ext2_dir_sync(dir);
+					folio_release_kmap(
+						folio, base);
+					return result;
+				}
+			}
+
+			entry = (ext2_dirent *)(
+				(char *)entry + record_length);
 		}
+
 		folio_unlock(folio);
-		folio_release_kmap(folio, kaddr);
+		folio_release_kmap(folio, base);
 	}
-	BUG();
-	return -EINVAL;
 
-got_it:
-	pos = folio_pos(folio) + offset_in_folio(folio, de);
-	err = ext2_prepare_chunk(folio, pos, rec_len);
-	if (err)
-		goto out_unlock;
-	if (de->inode) {
-		ext2_dirent *de1 = (ext2_dirent *) ((char *) de + name_len);
-		de1->rec_len = ext2_rec_len_to_disk(rec_len - name_len);
-		de->rec_len = ext2_rec_len_to_disk(name_len);
-		de = de1;
-	}
-	de->name_len = namelen;
-	memcpy(de->name, name, namelen);
-	de->inode = cpu_to_le32(inode->i_ino);
-	ext2_set_de_type (de, inode);
-	ext2_commit_chunk(folio, pos, rec_len);
-	inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
-	EXT2_I(dir)->i_flags &= ~EXT2_BTREE_FL;
-	mark_inode_dirty(dir);
-	err = ext2_handle_dirsync(dir);
-
-out_put:
-	folio_release_kmap(folio, de);
-	return err;
-out_unlock:
-	folio_unlock(folio);
-	goto out_put;
+	return -ENOSPC;
 }
 
-
-/**
- * ext2_delete_entry - Implements the delete entry operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext2_delete_entry(struct ext2_dir_entry_2 *dir, struct folio *folio)
+int ext2_delete_entry(
+	struct ext2_dir_entry_2 *target, struct folio *folio)
 {
-	struct inode *inode = folio->mapping->host;
-	size_t from, to;
-	ifs_ext2_u32 span_offset = 0U;
-	ifs_ext2_u32 span_length = 0U;
-	char *kaddr;
-	loff_t pos;
-	ext2_dirent *de, *pde = NULL;
-	int err;
+	struct inode *dir = folio->mapping->host;
+	const unsigned int chunk = ext2_dir_chunk_size(dir);
+	const unsigned int target_offset =
+		offset_in_folio(folio, target);
+	char *base = (char *)target - target_offset;
+	unsigned int chunk_start =
+		target_offset & ~(chunk - 1U);
+	ext2_dirent *entry =
+		(ext2_dirent *)(base + chunk_start);
+	ext2_dirent *previous = NULL;
+	ifs_ext2_u32 span_offset;
+	ifs_ext2_u32 span_length;
+	loff_t position;
+	int result;
 
-	from = offset_in_folio(folio, dir);
-	to = from + ext2_rec_len_from_disk(dir->rec_len);
-	kaddr = (char *)dir - from;
-	from &= ~(ext2_chunk_size(inode)-1);
-	de = (ext2_dirent *)(kaddr + from);
+	while ((char *)entry < (char *)target) {
+		unsigned int length =
+			ext2_dir_decode_length(entry->rec_len);
 
-	while ((char*)de < (char*)dir) {
-		if (de->rec_len == 0) {
-			ext2_error(inode->i_sb, __func__,
-				"zero-length directory entry");
-			return -EIO;
-		}
-		pde = de;
-		de = ext2_next_entry(de);
+		if (length == 0U)
+			return -EUCLEAN;
+		previous = entry;
+		entry = (ext2_dirent *)((char *)entry + length);
 	}
-	err = ifs_ext2_directory_delete_span(
-		(ifs_ext2_u32)offset_in_folio(folio, dir),
-		(ifs_ext2_u32)ext2_rec_len_from_disk(dir->rec_len),
-		pde != NULL,
-		pde ? (ifs_ext2_u32)offset_in_folio(folio, pde) : 0U,
-		(ifs_ext2_u32)ext2_chunk_size(inode),
-		&span_offset, &span_length);
-	if (err != IFS_EXT2_OK)
+
+	result = ifs_ext2_directory_delete_span(
+		target_offset,
+		ext2_dir_decode_length(target->rec_len),
+		previous != NULL,
+		previous ? offset_in_folio(folio, previous) : 0U,
+		chunk, &span_offset, &span_length);
+	if (result != IFS_EXT2_OK)
 		return -EFSCORRUPTED;
 
-	from = span_offset;
-	to = from + span_length;
-	pos = folio_pos(folio) + from;
+	position = folio_pos(folio) + span_offset;
 	folio_lock(folio);
-	err = ext2_prepare_chunk(folio, pos, span_length);
-	if (err) {
+	result = ext2_dir_prepare(
+		folio, position, span_length);
+	if (result != 0) {
 		folio_unlock(folio);
-		return err;
+		return result;
 	}
-	if (pde)
-		pde->rec_len = ext2_rec_len_to_disk(to - from);
-	dir->inode = 0;
-	ext2_commit_chunk(folio, pos, span_length);
-	inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
-	EXT2_I(inode)->i_flags &= ~EXT2_BTREE_FL;
-	mark_inode_dirty(inode);
-	return ext2_handle_dirsync(inode);
+
+	if (previous)
+		previous->rec_len =
+			ext2_dir_encode_length(span_length);
+	target->inode = 0;
+	ext2_dir_commit(folio, position, span_length);
+
+	inode_set_mtime_to_ts(
+		dir, inode_set_ctime_current(dir));
+	EXT2_I(dir)->i_flags &= ~EXT2_BTREE_FL;
+	mark_inode_dirty(dir);
+	return ext2_dir_sync(dir);
 }
 
-
-/**
- * ext2_make_empty - Implements the make empty operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext2_make_empty(struct inode *inode, struct inode *parent)
 {
-	struct folio *folio = filemap_grab_folio(inode->i_mapping, 0);
-	unsigned chunk_size = ext2_chunk_size(inode);
-	ifs_ext2_u32 dot_record_length = 0U;
-	ifs_ext2_u32 dotdot_record_length = 0U;
-	struct ext2_dir_entry_2 * de;
-	int err;
-	void *kaddr;
+	struct folio *folio =
+		filemap_grab_folio(inode->i_mapping, 0);
+	const unsigned int chunk = ext2_dir_chunk_size(inode);
+	ifs_ext2_u32 dot_length;
+	ifs_ext2_u32 dotdot_length;
+	ext2_dirent *dot;
+	ext2_dirent *dotdot;
+	void *base;
+	int result;
 
 	if (IS_ERR(folio))
 		return PTR_ERR(folio);
 
-	err = ifs_ext2_directory_initial_layout(
-		chunk_size, &dot_record_length, &dotdot_record_length);
-	if (err != IFS_EXT2_OK) {
+	result = ifs_ext2_directory_initial_layout(
+		chunk, &dot_length, &dotdot_length);
+	if (result != IFS_EXT2_OK) {
 		folio_unlock(folio);
-		err = -EFSCORRUPTED;
-		goto fail;
+		folio_put(folio);
+		return -EFSCORRUPTED;
 	}
 
-	err = ext2_prepare_chunk(folio, 0, chunk_size);
-	if (err) {
+	result = ext2_dir_prepare(folio, 0, chunk);
+	if (result != 0) {
 		folio_unlock(folio);
-		goto fail;
+		folio_put(folio);
+		return result;
 	}
-	kaddr = kmap_local_folio(folio, 0);
-	memset(kaddr, 0, chunk_size);
-	de = (struct ext2_dir_entry_2 *)kaddr;
-	de->name_len = 1;
-	de->rec_len = ext2_rec_len_to_disk(dot_record_length);
-	memcpy (de->name, ".\0\0", 4);
-	de->inode = cpu_to_le32(inode->i_ino);
-	ext2_set_de_type (de, inode);
 
-	de = (struct ext2_dir_entry_2 *)(kaddr + dot_record_length);
-	de->name_len = 2;
-	de->rec_len = ext2_rec_len_to_disk(dotdot_record_length);
-	de->inode = cpu_to_le32(parent->i_ino);
-	memcpy (de->name, "..\0", 4);
-	ext2_set_de_type (de, inode);
-	kunmap_local(kaddr);
-	ext2_commit_chunk(folio, 0, chunk_size);
-	err = ext2_handle_dirsync(inode);
-fail:
+	base = kmap_local_folio(folio, 0);
+	memset(base, 0, chunk);
+
+	dot = (ext2_dirent *)base;
+	dot->inode = cpu_to_le32(inode->i_ino);
+	dot->name_len = 1;
+	dot->rec_len = ext2_dir_encode_length(dot_length);
+	memcpy(dot->name, ".\0\0", 4);
+	ext2_dir_set_type(dot, inode);
+
+	dotdot = (ext2_dirent *)((char *)base + dot_length);
+	dotdot->inode = cpu_to_le32(parent->i_ino);
+	dotdot->name_len = 2;
+	dotdot->rec_len = ext2_dir_encode_length(dotdot_length);
+	memcpy(dotdot->name, "..\0", 4);
+	ext2_dir_set_type(dotdot, inode);
+
+	kunmap_local(base);
+	ext2_dir_commit(folio, 0, chunk);
+	result = ext2_dir_sync(inode);
 	folio_put(folio);
-	return err;
+	return result;
 }
 
-
-/**
- * ext2_empty_dir - Implements the empty dir operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext2_empty_dir(struct inode *inode)
 {
-	struct folio *folio;
-	char *kaddr;
-	unsigned long i, npages = dir_pages(inode);
+	unsigned long page_index;
+	const unsigned long pages = dir_pages(inode);
 
-	for (i = 0; i < npages; i++) {
-		ext2_dirent *de;
+	for (page_index = 0; page_index < pages; ++page_index) {
+		struct folio *folio;
+		char *base =
+			ext2_dir_map_folio(
+				inode, page_index, false, &folio);
+		char *end;
+		ext2_dirent *entry;
 
-		kaddr = ext2_get_folio(inode, i, 0, &folio);
-		if (IS_ERR(kaddr))
+		if (IS_ERR(base))
 			return 0;
 
-		de = (ext2_dirent *)kaddr;
-		kaddr += ext2_last_byte(inode, i) - EXT2_DIR_REC_LEN(1);
+		end = base + ext2_dir_page_bytes(inode, page_index);
+		entry = (ext2_dirent *)base;
 
-		while ((char *)de <= kaddr) {
-			if (de->rec_len == 0) {
-				ext2_error(inode->i_sb, __func__,
-					"zero-length directory entry");
-				printk("kaddr=%p, de=%p\n", kaddr, de);
-				goto not_empty;
-			}
-			if (de->inode != 0) {
+		while ((char *)entry +
+		       ifs_ext2_directory_record_required_length(1U)
+		       <= end) {
+			unsigned int length =
+				ext2_dir_decode_length(entry->rec_len);
 
-				if (de->name[0] != '.')
-					goto not_empty;
-				if (de->name_len > 2)
-					goto not_empty;
-				if (de->name_len < 2) {
-					if (de->inode !=
-					    cpu_to_le32(inode->i_ino))
-						goto not_empty;
-				} else if (de->name[1] != '.')
-					goto not_empty;
+			if (length == 0U ||
+			    (char *)entry + length > end) {
+				folio_release_kmap(folio, base);
+				return 0;
 			}
-			de = ext2_next_entry(de);
+
+			if (entry->inode != 0) {
+				if (entry->name_len == 1 &&
+				    entry->name[0] == '.' &&
+				    entry->inode ==
+					cpu_to_le32(inode->i_ino)) {
+					/* self */
+				} else if (entry->name_len == 2 &&
+					   entry->name[0] == '.' &&
+					   entry->name[1] == '.') {
+					/* parent */
+				} else {
+					folio_release_kmap(folio, base);
+					return 0;
+				}
+			}
+
+			entry = (ext2_dirent *)((char *)entry + length);
 		}
-		folio_release_kmap(folio, kaddr);
-	}
-	return 1;
 
-not_empty:
-	folio_release_kmap(folio, kaddr);
-	return 0;
+		folio_release_kmap(folio, base);
+	}
+
+	return 1;
 }
 
-
-/**
- * ext2_dir_open - Implements the dir open operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 static int ext2_dir_open(struct inode *inode, struct file *file)
 {
 	file->private_data = kzalloc(sizeof(u64), GFP_KERNEL);
-	if (!file->private_data)
-		return -ENOMEM;
-	return 0;
+	return file->private_data ? 0 : -ENOMEM;
 }
 
-
-/**
- * ext2_dir_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 static int ext2_dir_release(struct inode *inode, struct file *file)
 {
 	kfree(file->private_data);
+	file->private_data = NULL;
 	return 0;
 }
 
-
-/**
- * ext2_dir_llseek - Implements the dir llseek operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static loff_t ext2_dir_llseek(struct file *file, loff_t offset, int whence)
+static loff_t ext2_dir_llseek(
+	struct file *file, loff_t offset, int whence)
 {
-	return generic_llseek_cookie(file, offset, whence,
-				     (u64 *)file->private_data);
+	return generic_llseek_cookie(
+		file, offset, whence,
+		(u64 *)file->private_data);
 }
 
 const struct file_operations ext2_dir_operations = {
-	.open		= ext2_dir_open,
-	.release	= ext2_dir_release,
-	.llseek		= ext2_dir_llseek,
-	.read		= generic_read_dir,
-	.iterate_shared	= ext2_readdir,
+	.open = ext2_dir_open,
+	.release = ext2_dir_release,
+	.llseek = ext2_dir_llseek,
+	.read = generic_read_dir,
+	.iterate_shared = ext2_readdir,
 	.unlocked_ioctl = ext2_ioctl,
 #ifdef CONFIG_COMPAT
-	.compat_ioctl	= ext2_compat_ioctl,
+	.compat_ioctl = ext2_compat_ioctl,
 #endif
-	.fsync		= ext2_fsync,
+	.fsync = ext2_fsync,
 };
