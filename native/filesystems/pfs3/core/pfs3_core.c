@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "pfs3_core.h"
 
 static int ifs_pfs3_is_power_of_two(const ifs_pfs3_u32 value)
