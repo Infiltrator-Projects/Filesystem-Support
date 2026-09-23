@@ -95,6 +95,22 @@ target_include_directories(infiltratr-fs-ext2-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext2/core")
 filesystem_support_configure(infiltratr-fs-ext2-core)
 
+
+# Canonical EXT3 feature/format policy. Linux and future Windows adapters
+# consume this exact implementation rather than maintaining independent rules.
+add_library(infiltratr-fs-ext3-core STATIC
+    native/filesystems/ext3/core/ext3_core.c)
+target_include_directories(infiltratr-fs-ext3-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext3/core")
+filesystem_support_configure(infiltratr-fs-ext3-core)
+
+# Canonical EXT4 feature/format policy shared by every host adapter.
+add_library(infiltratr-fs-ext4-core STATIC
+    native/filesystems/ext4/core/ext4_core.c)
+target_include_directories(infiltratr-fs-ext4-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext4/core")
+filesystem_support_configure(infiltratr-fs-ext4-core)
+
 # The catalogue is intentionally platform-neutral. Linux package/probe policy
 # is layered on top of it; the Windows manager consumes the same identities.
 add_library(filesystem-support-catalog STATIC
@@ -209,6 +225,24 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-ext2-engine
         COMMAND filesystem-support-ext2-engine-test)
+
+    add_executable(filesystem-support-ext3-core-test
+        tests/ext3_core_test.c)
+    target_link_libraries(filesystem-support-ext3-core-test
+        PRIVATE infiltratr-fs-ext3-core)
+    filesystem_support_configure(filesystem-support-ext3-core-test)
+    add_test(
+        NAME filesystem-support-ext3-core
+        COMMAND filesystem-support-ext3-core-test)
+
+    add_executable(filesystem-support-ext4-core-test
+        tests/ext4_core_test.c)
+    target_link_libraries(filesystem-support-ext4-core-test
+        PRIVATE infiltratr-fs-ext4-core)
+    filesystem_support_configure(filesystem-support-ext4-core-test)
+    add_test(
+        NAME filesystem-support-ext4-core
+        COMMAND filesystem-support-ext4-core-test)
 
     add_executable(filesystem-support-windows-catalog-test
         tests/windows_catalog_test.cpp)
