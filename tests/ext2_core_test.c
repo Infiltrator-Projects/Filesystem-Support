@@ -82,6 +82,20 @@ int main(void)
             return fail("pre-data block accepted by group mapping");
     }
 
+    if (!ifs_ext2_sparse_super_group(0U) ||
+        !ifs_ext2_sparse_super_group(1U) ||
+        !ifs_ext2_sparse_super_group(3U) ||
+        !ifs_ext2_sparse_super_group(9U) ||
+        !ifs_ext2_sparse_super_group(25U) ||
+        !ifs_ext2_sparse_super_group(49U) ||
+        ifs_ext2_sparse_super_group(2U) ||
+        ifs_ext2_sparse_super_group(6U))
+        return fail("sparse-super group selection is wrong");
+
+    if (!ifs_ext2_group_has_super(0, 2U) ||
+        ifs_ext2_group_has_super(1, 2U))
+        return fail("sparse-super feature policy is wrong");
+
     if (ifs_ext2_block_to_path(1024U, 0U, &path) != IFS_EXT2_OK ||
         path.depth != 1U || path.offsets[0] != 0U || path.boundary != 11U)
         return fail("direct block path is wrong");
