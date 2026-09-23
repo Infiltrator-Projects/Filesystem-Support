@@ -1025,7 +1025,7 @@ static NTSTATUS ExtfsResolveFileName(PEXTFS_VCB Vcb,
             --characters;
             continue;
         }
-        if (IfsExt2Inode_type(Inode) != IFS_EXT2_NODE_DIRECTORY) {
+        if (ifs_ext2_inode_type(Inode) != IFS_EXT2_NODE_DIRECTORY) {
             return STATUS_NOT_A_DIRECTORY;
         }
         status = ExtfsUnicodeToUtf8(start, componentChars, utf8,
@@ -1050,10 +1050,10 @@ static NTSTATUS ExtfsResolveFileName(PEXTFS_VCB Vcb,
 static ULONG ExtfsFileAttributes(PEXTFS_VCB Vcb, const IfsExt2Inode *Inode)
 {
     ULONG attributes = 0U;
-    if (IfsExt2Inode_type(Inode) == IFS_EXT2_NODE_DIRECTORY)
+    if (ifs_ext2_inode_type(Inode) == IFS_EXT2_NODE_DIRECTORY)
         attributes |= FILE_ATTRIBUTE_DIRECTORY;
     if (Vcb == NULL || !Vcb->WriteEnabled ||
-        IfsExt2Inode_write_assess(&Vcb->Volume, Inode) != IFS_EXT2_OK)
+        ifs_ext2_inode_write_assess(&Vcb->Volume, Inode) != IFS_EXT2_OK)
         attributes |= FILE_ATTRIBUTE_READONLY;
     if (attributes == 0U) attributes = FILE_ATTRIBUTE_NORMAL;
     return attributes;
@@ -1121,7 +1121,7 @@ static VOID ExtfsFillStandardInformation(PEXTFS_VCB Vcb,
     Buffer->AllocationSize.QuadPart = (LONGLONG)rounded;
     Buffer->NumberOfLinks = Inode->links_count;
     Buffer->DeletePending = FALSE;
-    Buffer->Directory = IfsExt2Inode_type(Inode) == IFS_EXT2_NODE_DIRECTORY;
+    Buffer->Directory = ifs_ext2_inode_type(Inode) == IFS_EXT2_NODE_DIRECTORY;
 }
 
 /*
@@ -1290,7 +1290,7 @@ NTSTATUS ExtfsDispatchCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     }
 
     if (!volumeOpen) {
-        nodeType = IfsExt2Inode_type(&resolved);
+        nodeType = ifs_ext2_inode_type(&resolved);
         if (nodeType != IFS_EXT2_NODE_REGULAR &&
             nodeType != IFS_EXT2_NODE_DIRECTORY &&
             nodeType != IFS_EXT2_NODE_SYMLINK) {
@@ -1313,7 +1313,7 @@ NTSTATUS ExtfsDispatchCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         }
         if ((access & (FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA |
                        FILE_WRITE_ATTRIBUTES)) != 0U &&
-            IfsExt2Inode_write_assess(&vcb->Volume, &resolved) != IFS_EXT2_OK) {
+            ifs_ext2_inode_write_assess(&vcb->Volume, &resolved) != IFS_EXT2_OK) {
             status = STATUS_MEDIA_WRITE_PROTECTED;
             goto Exit;
         }
@@ -1412,7 +1412,7 @@ NTSTATUS ExtfsDispatchRead(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     }
     if (fcb->Vcb->Dismounted)
         return ExtfsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED, 0U);
-    if (IfsExt2Inode_type(&fcb->Inode) == IFS_EXT2_NODE_DIRECTORY) {
+    if (ifs_ext2_inode_type(&fcb->Inode) == IFS_EXT2_NODE_DIRECTORY) {
         return ExtfsCompleteIrp(Irp, STATUS_FILE_IS_A_DIRECTORY, 0U);
     }
     if (length == 0U) return ExtfsCompleteIrp(Irp, STATUS_SUCCESS, 0U);
@@ -1496,7 +1496,7 @@ NTSTATUS ExtfsDispatchWrite(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         return ExtfsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED, 0U);
     if (!fcb->Vcb->WriteEnabled)
         return ExtfsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED, 0U);
-    if (IfsExt2Inode_type(&fcb->Inode) != IFS_EXT2_NODE_REGULAR)
+    if (ifs_ext2_inode_type(&fcb->Inode) != IFS_EXT2_NODE_REGULAR)
         return ExtfsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED, 0U);
     if ((ccb->GrantedAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) == 0U)
         return ExtfsCompleteIrp(Irp, STATUS_ACCESS_DENIED, 0U);
@@ -1600,7 +1600,7 @@ NTSTATUS ExtfsDispatchSetInformation(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         return ExtfsCompleteIrp(Irp, STATUS_MEDIA_WRITE_PROTECTED, 0U);
     if ((ccb->GrantedAccess & FILE_WRITE_DATA) == 0U)
         return ExtfsCompleteIrp(Irp, STATUS_ACCESS_DENIED, 0U);
-    if (IfsExt2Inode_type(&fcb->Inode) != IFS_EXT2_NODE_REGULAR)
+    if (ifs_ext2_inode_type(&fcb->Inode) != IFS_EXT2_NODE_REGULAR)
         return ExtfsCompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST, 0U);
     if (buffer == NULL || stack->Parameters.SetFile.Length <
                           sizeof(FILE_END_OF_FILE_INFORMATION)) {
@@ -2118,7 +2118,7 @@ NTSTATUS ExtfsDispatchDirectoryControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     if (fcb != NULL && fcb->Vcb->Dismounted)
         return ExtfsCompleteIrp(Irp, STATUS_VOLUME_DISMOUNTED, 0U);
     if (fcb == NULL || ccb == NULL ||
-        IfsExt2Inode_type(&fcb->Inode) != IFS_EXT2_NODE_DIRECTORY ||
+        ifs_ext2_inode_type(&fcb->Inode) != IFS_EXT2_NODE_DIRECTORY ||
         ExtfsDirectoryBaseLength(informationClass) == 0U) {
         return ExtfsCompleteIrp(Irp, STATUS_INVALID_INFO_CLASS, 0U);
     }
