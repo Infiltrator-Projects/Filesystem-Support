@@ -72,6 +72,7 @@
 #include <linux/fs_parser.h>
 
 #include "ext4.h"
+#include "../core/ext4_core.h"
 #include "ext4_extents.h"
 #include "ext4_jbd2.h"
 #include "xattr.h"
@@ -4282,15 +4283,24 @@ static unsigned long ext4_get_stripe_size(struct ext4_sb_info *sbi)
  */
 int ext4_feature_set_ok(struct super_block *sb, int readonly)
 {
-	if (ext4_has_unknown_ext4_incompat_features(sb)) {
+	struct ext4_super_block *es = EXT4_SB(sb)->s_es;
+	ifs_ext4_u32 unsupported;
+	IfsExt4BigallocStatus bigalloc_status;
+
+	unsupported = ifs_ext4_unsupported_incompat_features(
+		le32_to_cpu(es->s_feature_incompat));
+	if (unsupported) {
 		ext4_msg(sb, KERN_ERR,
 			"Couldn't mount because of "
 			"unsupported optional features (%x)",
-			(le32_to_cpu(EXT4_SB(sb)->s_es->s_feature_incompat) &
-			~EXT4_FEATURE_INCOMPAT_SUPP));
+			unsupported);
 		return 0;
 	}
 
+	/*
+	 * Whether the host kernel can implement a recognised feature belongs to
+	 * the Linux wrapper. The feature's on-disk identity remains core-owned.
+	 */
 	if (!IS_ENABLED(CONFIG_UNICODE) && ext4_has_feature_casefold(sb)) {
 		ext4_msg(sb, KERN_ERR,
 			 "Filesystem with casefold feature cannot be "
@@ -4301,28 +4311,32 @@ int ext4_feature_set_ok(struct super_block *sb, int readonly)
 	if (readonly)
 		return 1;
 
-	if (ext4_has_feature_readonly(sb)) {
+	if (ifs_ext4_requires_readonly(le32_to_cpu(es->s_feature_ro_compat))) {
 		ext4_msg(sb, KERN_INFO, "filesystem is read-only");
 		sb->s_flags |= SB_RDONLY;
 		return 1;
 	}
 
-
-	if (ext4_has_unknown_ext4_ro_compat_features(sb)) {
+	unsupported = ifs_ext4_unsupported_ro_compat_features(
+		le32_to_cpu(es->s_feature_ro_compat));
+	if (unsupported) {
 		ext4_msg(sb, KERN_ERR, "couldn't mount RDWR because of "
 			 "unsupported optional features (%x)",
-			 (le32_to_cpu(EXT4_SB(sb)->s_es->s_feature_ro_compat) &
-				~EXT4_FEATURE_RO_COMPAT_SUPP));
+			 unsupported);
 		return 0;
 	}
-	if (ext4_has_feature_bigalloc(sb) && !ext4_has_feature_extents(sb)) {
+
+	bigalloc_status = ifs_ext4_validate_bigalloc(
+		le32_to_cpu(es->s_feature_incompat),
+		le32_to_cpu(es->s_feature_ro_compat),
+		le32_to_cpu(es->s_first_data_block));
+	if (bigalloc_status == IFS_EXT4_BIGALLOC_REQUIRES_EXTENTS) {
 		ext4_msg(sb, KERN_ERR,
 			 "Can't support bigalloc feature without "
 			 "extents feature\n");
 		return 0;
 	}
-	if (ext4_has_feature_bigalloc(sb) &&
-	    le32_to_cpu(EXT4_SB(sb)->s_es->s_first_data_block)) {
+	if (bigalloc_status == IFS_EXT4_BIGALLOC_INVALID_FIRST_DATA_BLOCK) {
 		ext4_msg(sb, KERN_WARNING,
 			 "bad geometry: bigalloc file system with non-zero "
 			 "first_data_block\n");
@@ -4339,7 +4353,6 @@ int ext4_feature_set_ok(struct super_block *sb, int readonly)
 #endif
 	return 1;
 }
-
 
 /**
  * print_daily_error_info - Implements the print daily error info operation within the mount, superblock and module lifecycle subsystem.
