@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "ffs_primitives.h"
 
 static ifs_ffs_u32 ifs_ffs_read_be32(const ifs_ffs_u8 *data)
