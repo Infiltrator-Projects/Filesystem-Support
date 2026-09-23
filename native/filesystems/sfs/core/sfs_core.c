@@ -396,7 +396,7 @@ int ifs_sfs_validate_extent(
 }
 
 int ifs_sfs_adjust_counter(
-    const ifs_sfs_u32 current,
+    const ifs_sfs_u32 current_value,
     const ifs_sfs_i32 delta,
     ifs_sfs_u32 *const result)
 {
