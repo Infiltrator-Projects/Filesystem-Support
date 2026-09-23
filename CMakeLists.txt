@@ -111,6 +111,19 @@ target_include_directories(infiltratr-fs-ext4-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext4/core")
 filesystem_support_configure(infiltratr-fs-ext4-core)
 
+# Canonical Amiga OFS and FFS format classification.
+add_library(infiltratr-fs-ofs-core STATIC
+    native/filesystems/ofs/core/ofs_core.c)
+target_include_directories(infiltratr-fs-ofs-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ofs/core")
+filesystem_support_configure(infiltratr-fs-ofs-core)
+
+add_library(infiltratr-fs-ffs-core STATIC
+    native/filesystems/ffs/core/ffs_core.c)
+target_include_directories(infiltratr-fs-ffs-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ffs/core")
+filesystem_support_configure(infiltratr-fs-ffs-core)
+
 # Canonical Amiga SFS format/layout policy shared by host adapters.
 add_library(infiltratr-fs-sfs-core STATIC
     native/filesystems/sfs/core/sfs_core.c)
@@ -271,6 +284,20 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-ext4-core
         COMMAND filesystem-support-ext4-core-test)
+
+    add_executable(filesystem-support-ofs-core-test
+        tests/ofs_core_test.c)
+    target_link_libraries(filesystem-support-ofs-core-test
+        PRIVATE infiltratr-fs-ofs-core)
+    filesystem_support_configure(filesystem-support-ofs-core-test)
+    add_test(NAME filesystem-support-ofs-core COMMAND filesystem-support-ofs-core-test)
+
+    add_executable(filesystem-support-ffs-core-test
+        tests/ffs_core_test.c)
+    target_link_libraries(filesystem-support-ffs-core-test
+        PRIVATE infiltratr-fs-ffs-core)
+    filesystem_support_configure(filesystem-support-ffs-core-test)
+    add_test(NAME filesystem-support-ffs-core COMMAND filesystem-support-ffs-core-test)
 
     add_executable(filesystem-support-sfs-core-test
         tests/sfs_core_test.c)

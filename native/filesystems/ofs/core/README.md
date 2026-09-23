@@ -1,9 +1,6 @@
 # Canonical OFS core
 
-This directory is the destination for host-neutral OFS
-filesystem semantics extracted from the real upstream Linux AFFS implementation.
-
-It is intentionally not populated with speculative replacement code. A
-subsystem moves here only when upstream-backed behaviour has been preserved and
-independently qualified. Linux and Windows will consume the same canonical
-implementation.
+This directory owns host-neutral OFS format semantics. DOS-type classification
+for OFS, international OFS, directory-cache OFS and their multi-user variants
+is canonical here. Host adapters consume these rules instead of maintaining
+their own format switches.
