@@ -40,9 +40,10 @@ int bmffo(u32 *bitmap, int longs, int bitoffset)
 	}
 
 	while (longs-- > 0) {
-		if (*scan++ != 0) {
-			return (bfffo(be32_to_cpu(*--scan), 0) + ((scan - bitmap) << 5));
-		}
+		if (*scan != 0)
+			return bfffo(be32_to_cpu(*scan), 0) +
+			       ((scan - bitmap) << 5);
+		scan++;
 	}
 
 	return (-1);
@@ -72,9 +73,10 @@ int bmffz(u32 *bitmap, int longs, int bitoffset)
 	}
 
 	while (longs-- > 0) {
-		if (*scan++ != 0xFFFFFFFF) {
-			return (bfffz(be32_to_cpu(*--scan), 0) + ((scan - bitmap) << 5));
-		}
+		if (*scan != 0xFFFFFFFF)
+			return bfffz(be32_to_cpu(*scan), 0) +
+			       ((scan - bitmap) << 5);
+		scan++;
 	}
 
 	return (-1);
