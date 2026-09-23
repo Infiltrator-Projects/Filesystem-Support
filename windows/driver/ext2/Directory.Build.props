@@ -1,0 +1,24 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<Project>
+  <PropertyGroup>
+    <FilesystemSupportWdkPackagesDir Condition="'$(FilesystemSupportWdkPackagesDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\build\windows-wdk-packages</FilesystemSupportWdkPackagesDir>
+    <FilesystemSupportWdkVersion>10.0.28000.2526</FilesystemSupportWdkVersion>
+  </PropertyGroup>
+
+  <Import
+    Project="$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.WDK.x64.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.WDK.x64.props"
+    Condition="'$(Platform)' == 'x64' and Exists('$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.WDK.x64.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.WDK.x64.props')" />
+  <Import
+    Project="$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.WDK.ARM64.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.WDK.ARM64.props"
+    Condition="'$(Platform)' == 'ARM64' and Exists('$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.WDK.ARM64.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.WDK.ARM64.props')" />
+
+  <Import
+    Project="$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.SDK.CPP.x64.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.SDK.cpp.x64.props"
+    Condition="'$(Platform)' == 'x64' and Exists('$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.SDK.CPP.x64.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.SDK.cpp.x64.props')" />
+  <Import
+    Project="$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.SDK.CPP.arm64.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.SDK.cpp.arm64.props"
+    Condition="'$(Platform)' == 'ARM64' and Exists('$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.SDK.CPP.arm64.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.SDK.cpp.arm64.props')" />
+  <Import
+    Project="$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.SDK.CPP.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.SDK.cpp.props"
+    Condition="Exists('$(FilesystemSupportWdkPackagesDir)\Microsoft.Windows.SDK.CPP.$(FilesystemSupportWdkVersion)\build\native\Microsoft.Windows.SDK.cpp.props')" />
+</Project>
