@@ -44,6 +44,7 @@
  */
 
 #include <linux/compat.h>
+#include <linux/iversion.h>
 #include "ext3.h"
 
 static unsigned char ext3_filetype_table[] = {
@@ -148,6 +149,7 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 	struct ext3_dir_entry_2 *de;
 	int err;
 	struct inode *inode = file_inode(file);
+	struct dir_private_info *info = file->private_data;
 	struct super_block *sb = inode->i_sb;
 	int dir_has_error = 0;
 
@@ -173,7 +175,7 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 					(PAGE_SHIFT - inode->i_blkbits);
 			if (!ra_has_index(&file->f_ra, index))
 				page_cache_sync_readahead(
-					sb->s_bdev->bd_inode->i_mapping,
+					sb->s_bdev->bd_mapping,
 					&file->f_ra, file,
 					index, 1);
 			file->f_ra.prev_pos = (loff_t)index << PAGE_SHIFT;
@@ -196,7 +198,7 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 		}
 
 
-		if (offset && file->f_version != inode->i_version) {
+		if (offset && info && !inode_eq_iversion(inode, info->cookie)) {
 			for (i = 0; i < sb->s_blocksize && i < offset; ) {
 				de = (struct ext3_dir_entry_2 *)
 					(bh->b_data + i);
@@ -210,7 +212,7 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 			offset = i;
 			ctx->pos = (ctx->pos & ~(sb->s_blocksize - 1))
 				| offset;
-			file->f_version = inode->i_version;
+			info->cookie = inode_query_iversion(inode);
 		}
 
 		while (ctx->pos < inode->i_size
@@ -256,7 +258,7 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 static inline int is_32bit_api(void)
 {
 #ifdef CONFIG_COMPAT
-	return is_compat_task();
+	return in_compat_syscall();
 #else
 	return (BITS_PER_LONG == 32);
 #endif
@@ -416,6 +418,7 @@ static struct dir_private_info *ext3_htree_create_dir_info(struct file *filp,
 		return NULL;
 	p->curr_hash = pos2maj_hash(filp, pos);
 	p->curr_minor_hash = pos2min_hash(filp, pos);
+	p->cookie = inode_query_iversion(file_inode(filp));
 	return p;
 }
 
@@ -576,10 +579,10 @@ static int ext3_dx_readdir(struct file *file, struct dir_context *ctx)
 
 
 		if ((!info->curr_node) ||
-		    (file->f_version != inode->i_version)) {
+		    !inode_eq_iversion(inode, info->cookie)) {
 			info->curr_node = NULL;
 			free_rb_tree_fname(&info->root);
-			file->f_version = inode->i_version;
+			info->cookie = inode_query_iversion(inode);
 			ret = ext3_htree_fill_tree(file, info->curr_hash,
 						   info->curr_minor_hash,
 						   &info->next_hash);
@@ -620,6 +623,26 @@ finished:
 
 
 /**
+ * ext3_dir_open - Allocates per-open directory iteration state.
+ *
+ * Linux no longer stores filesystem directory-version state in struct file.
+ * Keep the cache cookie private to this wrapper and derive it from the inode
+ * i_version so both linear and indexed iteration detect namespace changes.
+ */
+static int ext3_dir_open(struct inode *inode, struct file *file)
+{
+	struct dir_private_info *info;
+
+	info = ext3_htree_create_dir_info(file, 0);
+	if (!info)
+		return -ENOMEM;
+	info->cookie = inode_query_iversion(inode);
+	file->private_data = info;
+	return 0;
+}
+
+
+/**
  * ext3_release_dir - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
@@ -636,9 +659,10 @@ static int ext3_release_dir (struct inode * inode, struct file * filp)
 }
 
 const struct file_operations ext3_dir_operations = {
+	.open		= ext3_dir_open,
 	.llseek		= ext3_dir_llseek,
 	.read		= generic_read_dir,
-	.iterate	= ext3_readdir,
+	.iterate_shared	= ext3_readdir,
 	.unlocked_ioctl = ext3_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= ext3_compat_ioctl,
@@ -647,6 +671,61 @@ const struct file_operations ext3_dir_operations = {
 	.release	= ext3_release_dir,
 };
 
+
+#define EXT3_MD4_F(x, y, z) ((z) ^ ((x) & ((y) ^ (z))))
+#define EXT3_MD4_G(x, y, z) (((x) & (y)) + (((x) ^ (y)) & (z)))
+#define EXT3_MD4_H(x, y, z) ((x) ^ (y) ^ (z))
+#define EXT3_MD4_ROUND(f, a, b, c, d, x, s) \
+	(a += f(b, c, d) + x, a = rol32(a, s))
+
+static __u32 ext3_half_md4_transform(__u32 buf[4], const __u32 in[8])
+{
+	__u32 a = buf[0], b = buf[1], c = buf[2], d = buf[3];
+
+#define K1 0
+#define K2 013240474631UL
+#define K3 015666365641UL
+	EXT3_MD4_ROUND(EXT3_MD4_F, a, b, c, d, in[0] + K1, 3);
+	EXT3_MD4_ROUND(EXT3_MD4_F, d, a, b, c, in[1] + K1, 7);
+	EXT3_MD4_ROUND(EXT3_MD4_F, c, d, a, b, in[2] + K1, 11);
+	EXT3_MD4_ROUND(EXT3_MD4_F, b, c, d, a, in[3] + K1, 19);
+	EXT3_MD4_ROUND(EXT3_MD4_F, a, b, c, d, in[4] + K1, 3);
+	EXT3_MD4_ROUND(EXT3_MD4_F, d, a, b, c, in[5] + K1, 7);
+	EXT3_MD4_ROUND(EXT3_MD4_F, c, d, a, b, in[6] + K1, 11);
+	EXT3_MD4_ROUND(EXT3_MD4_F, b, c, d, a, in[7] + K1, 19);
+
+	EXT3_MD4_ROUND(EXT3_MD4_G, a, b, c, d, in[1] + K2, 3);
+	EXT3_MD4_ROUND(EXT3_MD4_G, d, a, b, c, in[3] + K2, 5);
+	EXT3_MD4_ROUND(EXT3_MD4_G, c, d, a, b, in[5] + K2, 9);
+	EXT3_MD4_ROUND(EXT3_MD4_G, b, c, d, a, in[7] + K2, 13);
+	EXT3_MD4_ROUND(EXT3_MD4_G, a, b, c, d, in[0] + K2, 3);
+	EXT3_MD4_ROUND(EXT3_MD4_G, d, a, b, c, in[2] + K2, 5);
+	EXT3_MD4_ROUND(EXT3_MD4_G, c, d, a, b, in[4] + K2, 9);
+	EXT3_MD4_ROUND(EXT3_MD4_G, b, c, d, a, in[6] + K2, 13);
+
+	EXT3_MD4_ROUND(EXT3_MD4_H, a, b, c, d, in[3] + K3, 3);
+	EXT3_MD4_ROUND(EXT3_MD4_H, d, a, b, c, in[7] + K3, 9);
+	EXT3_MD4_ROUND(EXT3_MD4_H, c, d, a, b, in[2] + K3, 11);
+	EXT3_MD4_ROUND(EXT3_MD4_H, b, c, d, a, in[6] + K3, 15);
+	EXT3_MD4_ROUND(EXT3_MD4_H, a, b, c, d, in[1] + K3, 3);
+	EXT3_MD4_ROUND(EXT3_MD4_H, d, a, b, c, in[5] + K3, 9);
+	EXT3_MD4_ROUND(EXT3_MD4_H, c, d, a, b, in[0] + K3, 11);
+	EXT3_MD4_ROUND(EXT3_MD4_H, b, c, d, a, in[4] + K3, 15);
+#undef K1
+#undef K2
+#undef K3
+
+	buf[0] += a;
+	buf[1] += b;
+	buf[2] += c;
+	buf[3] += d;
+	return buf[1];
+}
+
+#undef EXT3_MD4_ROUND
+#undef EXT3_MD4_H
+#undef EXT3_MD4_G
+#undef EXT3_MD4_F
 
 #define DELTA 0x9E3779B9
 
@@ -844,11 +923,12 @@ int ext3fs_dirhash(const char *name, int len, struct dx_hash_info *hinfo)
 		break;
 	case DX_HASH_HALF_MD4_UNSIGNED:
 		str2hashbuf = str2hashbuf_unsigned;
+		fallthrough;
 	case DX_HASH_HALF_MD4:
 		p = name;
 		while (len > 0) {
 			(*str2hashbuf)(p, len, in, 8);
-			half_md4_transform(buf, in);
+			ext3_half_md4_transform(buf, in);
 			len -= 32;
 			p += 32;
 		}
@@ -857,6 +937,7 @@ int ext3fs_dirhash(const char *name, int len, struct dx_hash_info *hinfo)
 		break;
 	case DX_HASH_TEA_UNSIGNED:
 		str2hashbuf = str2hashbuf_unsigned;
+		fallthrough;
 	case DX_HASH_TEA:
 		p = name;
 		while (len > 0) {
