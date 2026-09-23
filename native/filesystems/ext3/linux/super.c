@@ -1938,6 +1938,8 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	int ret = -EINVAL;
 	ifs_ext3_u32 features;
 	IfsExt3GeometryStatus geometry_status;
+	IfsExt3LayoutStatus layout_status;
+	ifs_ext3_u32 layout_group_count;
 	int err;
 
 	sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
@@ -2183,11 +2185,20 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 		goto failed_mount;
 	}
 
-	if (EXT3_BLOCKS_PER_GROUP(sb) == 0)
+	layout_status = ifs_ext3_compute_group_count(
+		le32_to_cpu(es->s_blocks_count),
+		le32_to_cpu(es->s_first_data_block),
+		EXT3_BLOCKS_PER_GROUP(sb),
+		&layout_group_count);
+	if (layout_status != IFS_EXT3_LAYOUT_OK) {
+		if (layout_status == IFS_EXT3_LAYOUT_INVALID_FIRST_DATA_BLOCK)
+			ext3_msg(sb, KERN_ERR,
+				"error: first data block %u is beyond filesystem block count %u",
+				le32_to_cpu(es->s_first_data_block),
+				le32_to_cpu(es->s_blocks_count));
 		goto cantfind_ext3;
-	sbi->s_groups_count = ((le32_to_cpu(es->s_blocks_count) -
-			       le32_to_cpu(es->s_first_data_block) - 1)
-				       / EXT3_BLOCKS_PER_GROUP(sb)) + 1;
+	}
+	sbi->s_groups_count = layout_group_count;
 	db_count = DIV_ROUND_UP(sbi->s_groups_count, EXT3_DESC_PER_BLOCK(sb));
 	sbi->s_group_desc = kmalloc_array(db_count,
 					 sizeof(struct buffer_head *), GFP_KERNEL);
