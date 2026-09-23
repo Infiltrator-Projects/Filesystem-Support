@@ -56,6 +56,7 @@
 #define CREATE_TRACE_POINTS
 
 #include "ext3.h"
+#include "../core/ext3_core.h"
 
 #ifdef CONFIG_EXT3_DEFAULTS_TO_ORDERED
   #define EXT3_MOUNT_DEFAULT_DATA_MODE EXT3_MOUNT_ORDERED_DATA
@@ -1982,7 +1983,7 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	int i;
 	int needs_recovery;
 	int ret = -EINVAL;
-	__le32 features;
+	ifs_ext3_u32 features;
 	int err;
 
 	sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
@@ -2077,18 +2078,20 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 			"running e2fsck is recommended");
 
 
-	features = EXT3_HAS_INCOMPAT_FEATURE(sb, ~EXT3_FEATURE_INCOMPAT_SUPP);
+	features = ifs_ext3_unsupported_incompat_features(
+		le32_to_cpu(es->s_feature_incompat));
 	if (features) {
 		ext3_msg(sb, KERN_ERR,
 			"error: couldn't mount because of unsupported "
-			"optional features (%x)", le32_to_cpu(features));
+			"optional features (%x)", features);
 		goto failed_mount;
 	}
-	features = EXT3_HAS_RO_COMPAT_FEATURE(sb, ~EXT3_FEATURE_RO_COMPAT_SUPP);
+	features = ifs_ext3_unsupported_ro_compat_features(
+		le32_to_cpu(es->s_feature_ro_compat));
 	if (!(sb->s_flags & MS_RDONLY) && features) {
 		ext3_msg(sb, KERN_ERR,
 			"error: couldn't mount RDWR because of unsupported "
-			"optional features (%x)", le32_to_cpu(features));
+			"optional features (%x)", features);
 		goto failed_mount;
 	}
 	blocksize = BLOCK_SIZE << le32_to_cpu(es->s_log_block_size);
@@ -3028,13 +3031,16 @@ static int ext3_remount (struct super_block * sb, int * flags, char * data)
 
 			ext3_mark_recovery_complete(sb, es);
 		} else {
-			__le32 ret;
-			if ((ret = EXT3_HAS_RO_COMPAT_FEATURE(sb,
-					~EXT3_FEATURE_RO_COMPAT_SUPP))) {
+			ifs_ext3_u32 unsupported_features;
+
+			unsupported_features =
+				ifs_ext3_unsupported_ro_compat_features(
+					le32_to_cpu(es->s_feature_ro_compat));
+			if (unsupported_features) {
 				ext3_msg(sb, KERN_WARNING,
 					"warning: couldn't remount RDWR "
 					"because of unsupported optional "
-					"features (%x)", le32_to_cpu(ret));
+					"features (%x)", unsupported_features);
 				err = -EROFS;
 				goto restore_opts;
 			}
