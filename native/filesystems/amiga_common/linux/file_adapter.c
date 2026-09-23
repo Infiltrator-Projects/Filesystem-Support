@@ -50,8 +50,17 @@ static bool ifs_amiga_extension_valid(
     if (affs_checksum_block(sb, bh) != 0U ||
         be32_to_cpu(head->ptype) != expected_type ||
         be32_to_cpu(head->key) != (u32)bh->b_blocknr ||
-        be32_to_cpu(tail->stype) != ST_FILE)
+        be32_to_cpu(tail->stype) != ST_FILE ||
+        be32_to_cpu(head->block_count) >
+            (u32)AFFS_SB(sb)->s_hashsize)
         return false;
+
+    if (be32_to_cpu(head->block_count) == 0U) {
+        if (head->first_data != 0)
+            return false;
+    } else if (head->first_data != AFFS_BLOCK(sb, bh, 0U)) {
+        return false;
+    }
 
     if (index != 0U &&
         be32_to_cpu(tail->parent) != (u32)inode->i_ino)
@@ -462,10 +471,12 @@ static int ifs_amiga_write_end(
     const int result = generic_write_end(
         file, mapping, position, length, copied, folio, fsdata);
 
-    if (result > 0 &&
-        (AFFS_I(inode)->i_protect & FIBF_ARCHIVED) != 0U) {
-        AFFS_I(inode)->i_protect &= ~FIBF_ARCHIVED;
-        mark_inode_dirty(inode);
+    if (result > 0) {
+        AFFS_I(inode)->mmu_private = inode->i_size;
+        if ((AFFS_I(inode)->i_protect & FIBF_ARCHIVED) != 0U) {
+            AFFS_I(inode)->i_protect &= ~FIBF_ARCHIVED;
+            mark_inode_dirty(inode);
+        }
     }
     return result;
 }
@@ -617,7 +628,7 @@ static int ifs_amiga_ofs_read_range(
         const size_t chunk =
             min_t(size_t, payload - within, length - copied);
         struct buffer_head *bh;
-        const u32 stored_size;
+        u32 stored_size;
         int result;
 
         result = ifs_amiga_map_to_buffer(
@@ -707,7 +718,7 @@ static int ifs_amiga_zero_extend_ofs(
             return result;
 
         stored_size = be32_to_cpu(AFFS_DATA_HEAD(bh)->size);
-        if (stored_size > payload) {
+        if (stored_size > payload || stored_size < within) {
             affs_brelse(bh);
             return -EUCLEAN;
         }
@@ -862,8 +873,7 @@ static int ifs_amiga_ofs_write_end(
 
         if (end > (u64)inode->i_size)
             inode->i_size = (loff_t)end;
-        if (end > (u64)AFFS_I(inode)->mmu_private)
-            AFFS_I(inode)->mmu_private = (loff_t)end;
+        AFFS_I(inode)->mmu_private = inode->i_size;
 
         if ((AFFS_I(inode)->i_protect & FIBF_ARCHIVED) != 0U) {
             AFFS_I(inode)->i_protect &= ~FIBF_ARCHIVED;
@@ -910,23 +920,31 @@ static int ifs_amiga_zero_last_block_tail(
     const u32 used = target % payload;
     int result;
 
-    if (target == 0U || used == 0U)
+    if (target == 0U)
         return 0;
 
     if (affs_test_opt(AFFS_SB(inode->i_sb)->s_flags, SF_OFS)) {
+        const u32 logical_size = used == 0U ? payload : used;
+
         result = ifs_amiga_ofs_prepare_block(
             inode, kept_blocks - 1U, &bh);
         if (result != 0)
             return result;
 
-        memset(AFFS_DATA(bh) + used, 0, payload - used);
-        AFFS_DATA_HEAD(bh)->size = cpu_to_be32(used);
+        if (logical_size < payload)
+            memset(
+                AFFS_DATA(bh) + logical_size, 0,
+                payload - logical_size);
+        AFFS_DATA_HEAD(bh)->size = cpu_to_be32(logical_size);
         AFFS_DATA_HEAD(bh)->next = 0;
         affs_fix_checksum(inode->i_sb, bh);
         mark_buffer_dirty_inode(bh, inode);
         affs_brelse(bh);
         return 0;
     }
+
+    if (used == 0U)
+        return 0;
 
     result = ifs_amiga_map_to_buffer(
         inode, kept_blocks - 1U, false, false,
@@ -1009,12 +1027,30 @@ static int ifs_amiga_shrink_file(
     if (kept_blocks != 0U && first_free_entry == 0U)
         first_free_entry = entries;
 
-    for (entry = first_free_entry; entry < entries; ++entry) {
-        const u32 physical = be32_to_cpu(
-            AFFS_BLOCK(sb, kept_extension, entry));
+    {
+        const u32 old_count =
+            be32_to_cpu(AFFS_HEAD(kept_extension)->block_count);
 
-        if (physical != 0U) {
-            if (!affs_validblock(sb, (int)physical)) {
+        if (old_count > entries || first_free_entry > old_count) {
+            affs_brelse(kept_extension);
+            result = -EUCLEAN;
+            goto out_unlock;
+        }
+
+        for (entry = old_count; entry < entries; ++entry) {
+            if (AFFS_BLOCK(sb, kept_extension, entry) != 0) {
+                affs_brelse(kept_extension);
+                result = -EUCLEAN;
+                goto out_unlock;
+            }
+        }
+
+        for (entry = first_free_entry; entry < old_count; ++entry) {
+            const u32 physical = be32_to_cpu(
+                AFFS_BLOCK(sb, kept_extension, entry));
+
+            if (physical == 0U ||
+                !affs_validblock(sb, (int)physical)) {
                 affs_brelse(kept_extension);
                 result = -EUCLEAN;
                 goto out_unlock;
@@ -1060,12 +1096,30 @@ static int ifs_amiga_shrink_file(
         }
 
         following = be32_to_cpu(AFFS_TAIL(sb, bh)->extension);
-        for (entry = 0U; entry < entries; ++entry) {
-            const u32 physical =
-                be32_to_cpu(AFFS_BLOCK(sb, bh, entry));
+        {
+            const u32 count =
+                be32_to_cpu(AFFS_HEAD(bh)->block_count);
 
-            if (physical != 0U) {
-                if (!affs_validblock(sb, (int)physical)) {
+            if (count > entries) {
+                affs_brelse(bh);
+                result = -EUCLEAN;
+                goto out_unlock;
+            }
+
+            for (entry = count; entry < entries; ++entry) {
+                if (AFFS_BLOCK(sb, bh, entry) != 0) {
+                    affs_brelse(bh);
+                    result = -EUCLEAN;
+                    goto out_unlock;
+                }
+            }
+
+            for (entry = 0U; entry < count; ++entry) {
+                const u32 physical =
+                    be32_to_cpu(AFFS_BLOCK(sb, bh, entry));
+
+                if (physical == 0U ||
+                    !affs_validblock(sb, (int)physical)) {
                     affs_brelse(bh);
                     result = -EUCLEAN;
                     goto out_unlock;
@@ -1124,7 +1178,13 @@ void affs_truncate(struct inode *inode)
     }
 
     if (result != 0) {
+        if (requested > previous) {
+            inode->i_size = previous;
+            (void)ifs_amiga_shrink_file(
+                inode, (u32)previous);
+        }
         inode->i_size = previous;
+        AFFS_I(inode)->mmu_private = previous;
         truncate_pagecache(inode, previous);
         affs_warning(
             inode->i_sb, "affs_truncate",
