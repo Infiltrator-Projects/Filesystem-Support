@@ -227,6 +227,58 @@ int ifs_amiga_bitmap_select_free_run(
     return 0;
 }
 
+int ifs_amiga_file_block_location(
+    const ifs_amiga_u32 logical_block,
+    const ifs_amiga_u32 entries_per_extension,
+    ifs_amiga_u32 *const extension_index,
+    ifs_amiga_u32 *const entry_index)
+{
+    if (entries_per_extension == 0U ||
+        extension_index == 0 || entry_index == 0)
+        return -1;
+
+    *extension_index = logical_block / entries_per_extension;
+    *entry_index = logical_block % entries_per_extension;
+    return 0;
+}
+
+int ifs_amiga_file_block_count(
+    const ifs_amiga_u32 file_size,
+    const ifs_amiga_u32 data_bytes_per_block,
+    ifs_amiga_u32 *const block_count)
+{
+    if (data_bytes_per_block == 0U || block_count == 0)
+        return -1;
+
+    if (file_size == 0U) {
+        *block_count = 0U;
+        return 0;
+    }
+
+    *block_count =
+        (file_size - 1U) / data_bytes_per_block + 1U;
+    return 0;
+}
+
+int ifs_amiga_file_extension_count(
+    const ifs_amiga_u32 block_count,
+    const ifs_amiga_u32 entries_per_extension,
+    ifs_amiga_u32 *const extension_count)
+{
+    if (entries_per_extension == 0U || extension_count == 0)
+        return -1;
+
+    if (block_count == 0U) {
+        *extension_count = 1U;
+        return 0;
+    }
+
+    *extension_count =
+        (block_count - 1U) / entries_per_extension + 1U;
+    return 0;
+}
+
+
 IfsAmigaSymlinkStatus ifs_amiga_translate_symlink(
     const ifs_amiga_u8 *const source,
     const ifs_amiga_u32 source_capacity,
