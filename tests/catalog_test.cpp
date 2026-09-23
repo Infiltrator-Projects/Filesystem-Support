@@ -26,11 +26,13 @@ int main(int argc, char** argv)
         return fail("catalogue validation failed");
     }
 
-    if (catalog().size() != 106U) {
-        return fail("catalogue size is not the documented 106 entries");
+    if (catalog().size() != 108U) {
+        return fail("catalogue size is not the documented 108 entries");
     }
 
     bool found_affs = false;
+    bool found_ofs = false;
+    bool found_ffs = false;
     bool found_adfs = false;
     bool found_apfs_fuse = false;
     bool found_apfs_dkms = false;
@@ -53,6 +55,10 @@ int main(int argc, char** argv)
     for (const auto& entry : catalog()) {
         if (entry.id == std::string_view("affs")) {
             found_affs = true;
+        } else if (entry.id == std::string_view("ofs")) {
+            found_ofs = true;
+        } else if (entry.id == std::string_view("ffs")) {
+            found_ffs = true;
         } else if (entry.id == std::string_view("adfs")) {
             found_adfs = true;
         } else if (entry.id == std::string_view("apfs-fuse")) {
@@ -121,8 +127,8 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!found_affs || !found_adfs) {
-        return fail("Amiga or Acorn legacy filesystem coverage is missing");
+    if (!found_affs || !found_ofs || !found_ffs || !found_adfs) {
+        return fail("native/legacy Amiga or Acorn filesystem coverage is missing");
     }
     if (!found_apfs_fuse || !found_apfs_dkms) {
         return fail("both conservative and experimental APFS paths are required");
@@ -139,7 +145,7 @@ int main(int argc, char** argv)
     if (hfs_uses_removed_package) {
         return fail("HFS still references hfsutils, which is not in Debian trixie stable");
     }
-    if (kernel_only != 17U || kernel_with_userspace != 29U ||
+    if (kernel_only != 19U || kernel_with_userspace != 29U ||
         dkms != 3U || userspace != 53U || tools_only != 4U) {
         return fail("support-provider classification counts changed unexpectedly");
     }
@@ -148,8 +154,19 @@ int main(int argc, char** argv)
         return fail("catalogue package allowlist is inconsistent");
     }
     if (!filesystem_support::module_is_catalogued("affs") ||
+        !filesystem_support::module_is_catalogued("ofs") ||
+        !filesystem_support::module_is_catalogued("ffs") ||
         filesystem_support::module_is_catalogued("definitely-not-a-module")) {
         return fail("catalogue module allowlist is inconsistent");
+    }
+
+    if (!filesystem_support::linux_native_module_is_managed("ext3", "ext3") ||
+        !filesystem_support::linux_native_module_is_managed("ofs", "ofs") ||
+        !filesystem_support::linux_native_module_is_managed("ffs", "ffs") ||
+        filesystem_support::linux_native_module_is_managed("affs", "affs") ||
+        filesystem_support::linux_native_module_is_managed(
+            "definitely-not-a-filesystem", "ext3")) {
+        return fail("project-native Linux module policy is inconsistent");
     }
 
     if (argc != 2) {
