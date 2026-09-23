@@ -37,6 +37,17 @@ int ifs_sfs_compute_bitmap_layout(
     ifs_sfs_u32 *blocks_per_bitmap, ifs_sfs_u32 *bitmap_block_count);
 const char *ifs_sfs_root_status_string(IfsSfsRootStatus status);
 
+/*
+ * SFS stores redundant root blocks. A valid copy with the numerically
+ * highest sequence number is current. Return 0 for primary, 1 for backup,
+ * and -1 when neither copy is valid.
+ */
+int ifs_sfs_select_root_copy(
+    int primary_valid,
+    ifs_sfs_u32 primary_sequence,
+    int backup_valid,
+    ifs_sfs_u32 backup_sequence);
+
 #define IFS_SFS_MAX_FILENAME 105U
 
 typedef enum IfsSfsObjectRecordStatus {

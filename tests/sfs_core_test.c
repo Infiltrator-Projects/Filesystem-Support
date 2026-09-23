@@ -214,5 +214,17 @@ int main(void)
             return fail("SFS counter overflow was accepted");
     }
 
+
+    if (ifs_sfs_select_root_copy(1, 4U, 1, 5U) != 1)
+        return fail("newer backup root was not selected");
+    if (ifs_sfs_select_root_copy(1, 5U, 1, 4U) != 0)
+        return fail("newer primary root was not selected");
+    if (ifs_sfs_select_root_copy(0, 0U, 1, 1U) != 1)
+        return fail("valid backup root was not selected");
+    if (ifs_sfs_select_root_copy(1, 1U, 0, 0U) != 0)
+        return fail("valid primary root was not selected");
+    if (ifs_sfs_select_root_copy(0, 0U, 0, 0U) != -1)
+        return fail("invalid root pair was accepted");
+
     return 0;
 }

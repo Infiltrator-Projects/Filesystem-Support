@@ -402,3 +402,18 @@ int ifs_sfs_adjust_counter(
     *result = current + (ifs_sfs_u32)amount;
     return 0;
 }
+
+int ifs_sfs_select_root_copy(
+    const int primary_valid,
+    const ifs_sfs_u32 primary_sequence,
+    const int backup_valid,
+    const ifs_sfs_u32 backup_sequence)
+{
+    if (primary_valid == 0 && backup_valid == 0)
+        return -1;
+    if (primary_valid == 0)
+        return 1;
+    if (backup_valid == 0)
+        return 0;
+    return backup_sequence > primary_sequence ? 1 : 0;
+}
