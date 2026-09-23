@@ -6,6 +6,7 @@
 #include <linux/buffer_head.h>
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
+#include <linux/errno.h>
 #include "../../amiga_common/core/amiga_dos_core.h"
 
 #define AFFS_HEAD(bh)     ((struct affs_head *)(bh)->b_data)
@@ -106,6 +107,16 @@ static inline struct affs_inode_info *AFFS_I(struct inode *inode)
 static inline struct affs_sb_info *AFFS_SB(struct super_block *sb)
 {
     return sb->s_fs_info;
+}
+
+static inline u32 ifs_amiga_chain_budget(struct super_block *sb)
+{
+    const struct affs_sb_info *sbi = AFFS_SB(sb);
+
+    if (!sbi || sbi->s_partition_size <= sbi->s_reserved)
+        return 1U;
+
+    return (u32)(sbi->s_partition_size - sbi->s_reserved);
 }
 
 void affs_mark_sb_dirty(struct super_block *sb);
