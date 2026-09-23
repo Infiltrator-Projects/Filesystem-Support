@@ -3,30 +3,32 @@
 int ifs_ofs_classify_dostype(
     const ifs_ofs_u32 dostype, ifs_ofs_u32 *const variant_flags)
 {
-    ifs_ofs_u32 flags = 0U;
-    if (variant_flags == 0) return -1;
+    if (variant_flags == 0)
+        return -1;
+
     switch (dostype) {
-    case IFS_OFS_MUFS_OFS:
-        flags |= IFS_OFS_VARIANT_MUFS;
-        break;
     case IFS_OFS_DOS_OFS:
-        break;
-    case IFS_OFS_MUFS_DC_OFS:
-        flags |= IFS_OFS_VARIANT_MUFS;
-        /* fall through */
-    case IFS_OFS_DOS_DC_OFS:
-        flags |= IFS_OFS_VARIANT_DIRCACHE;
-        /* fall through */
+        *variant_flags = 0U;
+        return 0;
     case IFS_OFS_DOS_INTL_OFS:
-        flags |= IFS_OFS_VARIANT_INTL;
-        break;
+        *variant_flags = IFS_OFS_VARIANT_INTL;
+        return 0;
+    case IFS_OFS_DOS_DC_OFS:
+        *variant_flags = IFS_OFS_VARIANT_INTL | IFS_OFS_VARIANT_DIRCACHE;
+        return 0;
+    case IFS_OFS_MUFS_OFS:
+        *variant_flags = IFS_OFS_VARIANT_MUFS;
+        return 0;
     case IFS_OFS_MUFS_INTL_OFS:
-        flags |= IFS_OFS_VARIANT_MUFS | IFS_OFS_VARIANT_INTL;
-        break;
+        *variant_flags = IFS_OFS_VARIANT_MUFS | IFS_OFS_VARIANT_INTL;
+        return 0;
+    case IFS_OFS_MUFS_DC_OFS:
+        *variant_flags = IFS_OFS_VARIANT_MUFS |
+                         IFS_OFS_VARIANT_INTL |
+                         IFS_OFS_VARIANT_DIRCACHE;
+        return 0;
     default:
         *variant_flags = 0U;
         return -1;
     }
-    *variant_flags = flags;
-    return 0;
 }
