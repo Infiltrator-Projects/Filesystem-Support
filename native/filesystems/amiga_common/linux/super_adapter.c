@@ -529,6 +529,7 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
         (time64_t)sys_tz.tz_minuteswest * 60LL + AFFS_EPOCH_DELTA;
     sb->s_time_max =
         86400LL * (time64_t)U32_MAX + 86400LL + sb->s_time_min;
+    sb->s_maxbytes = U32_MAX;
 
     sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
     if (!sbi) {
