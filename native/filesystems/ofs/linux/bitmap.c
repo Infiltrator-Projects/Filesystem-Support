@@ -1,6 +1,6 @@
 /*
  * Project-authored Linux allocation-bitmap adapter for Amiga OFS. On-disk arithmetic and bit-selection rules are owned by
- * the canonical amiga_dos_core; this file binds those rules to Linux buffers,
+ * the canonical OFS core; this file binds those rules to Linux buffers,
  * locking and dirty-state handling.
  */
 
@@ -76,7 +76,7 @@ void affs_free_block(struct super_block *sb, u32 block)
     u32 value;
     u32 checksum;
 
-    if (ifs_amiga_bitmap_location(
+    if (ifs_ofs_bitmap_location(
             block, (u32)sbi->s_reserved, (u32)sbi->s_partition_size,
             sbi->s_bmap_bits, &bitmap_index, &bit_index) != 0) {
         affs_error(sb, "affs_free_block",
@@ -108,7 +108,7 @@ void affs_free_block(struct super_block *sb, u32 block)
     }
 
     words = (__be32 *)bh->b_data;
-    mask = ifs_amiga_bitmap_bit_mask(bit_index);
+    mask = ifs_ofs_bitmap_bit_mask(bit_index);
     value = be32_to_cpu(words[word_index]);
 
     if ((value & mask) != 0U) {
@@ -176,7 +176,7 @@ static int ifs_amiga_allocate_bitmap_range(
             return -EUCLEAN;
 
         value = be32_to_cpu(words[disk_word_index]);
-        if (ifs_amiga_bitmap_select_free_run(
+        if (ifs_ofs_bitmap_select_free_run(
                 value, start, range_end,
                 &first, &run_mask, &run_length) != 0)
             continue;
@@ -188,7 +188,7 @@ static int ifs_amiga_allocate_bitmap_range(
 
         if (bm->bm_free < run_length) {
             run_length = 1U;
-            run_mask = ifs_amiga_bitmap_bit_mask(first);
+            run_mask = ifs_ofs_bitmap_bit_mask(first);
         }
 
         words[disk_word_index] = cpu_to_be32(value & ~run_mask);
@@ -236,7 +236,7 @@ u32 affs_alloc_block(struct inode *inode, u32 goal)
     if (!affs_validblock(sb, goal))
         goal = (u32)sbi->s_reserved;
 
-    if (ifs_amiga_bitmap_location(
+    if (ifs_ofs_bitmap_location(
             goal, (u32)sbi->s_reserved, (u32)sbi->s_partition_size,
             sbi->s_bmap_bits, &start_bitmap, &start_bit) != 0)
         return 0U;
@@ -314,7 +314,7 @@ static int ifs_amiga_bitmap_normalize_tail(
         if (index < full_words)
             valid_mask = 0xffffffffU;
         else if (index == full_words && partial_bits != 0U)
-            valid_mask = ifs_amiga_bitmap_valid_word_mask(partial_bits);
+            valid_mask = ifs_ofs_bitmap_valid_word_mask(partial_bits);
         else
             valid_mask = 0U;
 
@@ -363,7 +363,7 @@ int affs_init_bitmap(struct super_block *sb, int *flags)
 
     ifs_amiga_bitmap_drop_cache(sbi);
 
-    if (ifs_amiga_bitmap_geometry(
+    if (ifs_ofs_bitmap_geometry(
             (u32)sb->s_blocksize, (u32)sbi->s_reserved,
             (u32)sbi->s_partition_size,
             &sbi->s_bmap_bits, &sbi->s_bmap_count) != 0) {
