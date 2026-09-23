@@ -1540,9 +1540,9 @@ static int add_dirent_to_buf(handle_t *handle, struct dentry *dentry,
 	memcpy (de->name, name, namelen);
 
 
-	dir->i_mtime = dir->i_ctime = CURRENT_TIME_SEC;
+	inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
 	ext3_update_dx_flag(dir);
-	dir->i_version++;
+	inode_inc_iversion(dir);
 	ext3_mark_inode_dirty(handle, dir);
 	BUFFER_TRACE(bh, "call ext3_journal_dirty_metadata");
 	err = ext3_journal_dirty_metadata(handle, bh);
@@ -1890,7 +1890,7 @@ static int ext3_delete_entry (handle_t *handle,
 					ext3_rec_len_from_disk(de->rec_len));
 			else
 				de->inode = 0;
-			dir->i_version++;
+			inode_inc_iversion(dir);
 			BUFFER_TRACE(bh, "call ext3_journal_dirty_metadata");
 			err = ext3_journal_dirty_metadata(handle, bh);
 			if (err) {
@@ -1941,9 +1941,10 @@ static int ext3_add_nondir(handle_t *handle,
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_create (struct inode * dir, struct dentry * dentry, umode_t mode,
-		bool excl)
+static int ext3_create(struct mnt_idmap *idmap, struct inode *dir,
+		       struct dentry *dentry, umode_t mode, bool excl)
 {
+	(void)idmap;
 	handle_t *handle;
 	struct inode * inode;
 	int err, retries = 0;
@@ -1983,15 +1984,13 @@ retry:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_mknod (struct inode * dir, struct dentry *dentry,
-			umode_t mode, dev_t rdev)
+static int ext3_mknod(struct mnt_idmap *idmap, struct inode *dir,
+		      struct dentry *dentry, umode_t mode, dev_t rdev)
 {
+	(void)idmap;
 	handle_t *handle;
 	struct inode *inode;
 	int err, retries = 0;
-
-	if (!new_valid_dev(rdev))
-		return -EINVAL;
 
 	dquot_initialize(dir);
 
@@ -2029,8 +2028,10 @@ retry:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_tmpfile(struct inode *dir, struct dentry *dentry, umode_t mode)
+static int ext3_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
+			struct file *file, umode_t mode)
 {
+	(void)idmap;
 	handle_t *handle;
 	struct inode *inode;
 	int err, retries = 0;
@@ -2050,7 +2051,7 @@ retry:
 		inode->i_op = &ext3_file_inode_operations;
 		inode->i_fop = &ext3_file_operations;
 		ext3_set_aops(inode);
-		d_tmpfile(dentry, inode);
+		d_tmpfile(file, inode);
 		err = ext3_orphan_add(handle, inode);
 		if (err)
 			goto err_unlock_inode;
@@ -2060,7 +2061,7 @@ retry:
 	ext3_journal_stop(handle);
 	if (err == -ENOSPC && ext3_should_retry_alloc(dir->i_sb, &retries))
 		goto retry;
-	return err;
+	return finish_open_simple(file, err);
 err_unlock_inode:
 	ext3_journal_stop(handle);
 	unlock_new_inode(inode);
@@ -2076,8 +2077,10 @@ err_unlock_inode:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_mkdir(struct inode * dir, struct dentry * dentry, umode_t mode)
+static int ext3_mkdir(struct mnt_idmap *idmap, struct inode *dir,
+		      struct dentry *dentry, umode_t mode)
 {
+	(void)idmap;
 	handle_t *handle;
 	struct inode * inode;
 	struct buffer_head * dir_block = NULL;
@@ -2419,13 +2422,13 @@ static int ext3_rmdir (struct inode * dir, struct dentry *dentry)
 		ext3_warning (inode->i_sb, "ext3_rmdir",
 			      "empty directory has nlink!=2 (%d)",
 			      inode->i_nlink);
-	inode->i_version++;
+	inode_inc_iversion(inode);
 	clear_nlink(inode);
 
 
 	inode->i_size = 0;
 	ext3_orphan_add(handle, inode);
-	inode->i_ctime = dir->i_ctime = dir->i_mtime = CURRENT_TIME_SEC;
+	inode->i_ctime = inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
 	ext3_mark_inode_dirty(handle, inode);
 	drop_nlink(dir);
 	ext3_update_dx_flag(dir);
@@ -2487,13 +2490,13 @@ static int ext3_unlink(struct inode * dir, struct dentry *dentry)
 	retval = ext3_delete_entry(handle, dir, de, bh);
 	if (retval)
 		goto end_unlink;
-	dir->i_ctime = dir->i_mtime = CURRENT_TIME_SEC;
+	inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
 	ext3_update_dx_flag(dir);
 	ext3_mark_inode_dirty(handle, dir);
 	drop_nlink(inode);
 	if (!inode->i_nlink)
 		ext3_orphan_add(handle, inode);
-	inode->i_ctime = dir->i_ctime;
+	inode_set_ctime_to_ts(inode, inode_get_ctime(dir));
 	ext3_mark_inode_dirty(handle, inode);
 	retval = 0;
 
@@ -2513,9 +2516,10 @@ end_unlink:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_symlink (struct inode * dir,
-		struct dentry *dentry, const char * symname)
+static int ext3_symlink(struct mnt_idmap *idmap, struct inode *dir,
+			struct dentry *dentry, const char *symname)
 {
+	(void)idmap;
 	handle_t *handle;
 	struct inode * inode;
 	int l, err, retries = 0;
@@ -2554,6 +2558,7 @@ retry:
 
 	if (l > EXT3_N_BLOCKS * 4) {
 		inode->i_op = &ext3_symlink_inode_operations;
+		inode_nohighmem(inode);
 		ext3_set_aops(inode);
 
 
@@ -2562,7 +2567,7 @@ retry:
 		ext3_journal_stop(handle);
 		if (err)
 			goto err_drop_inode;
-		err = __page_symlink(inode, symname, l, 1);
+		err = page_symlink(inode, symname, l);
 		if (err)
 			goto err_drop_inode;
 
@@ -2630,7 +2635,7 @@ retry:
 	if (IS_DIRSYNC(dir))
 		handle->h_sync = 1;
 
-	inode->i_ctime = CURRENT_TIME_SEC;
+	inode_set_ctime_current(inode);
 	inc_nlink(inode);
 	ihold(inode);
 
@@ -2664,9 +2669,14 @@ retry:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_rename (struct inode * old_dir, struct dentry *old_dentry,
-			   struct inode * new_dir,struct dentry *new_dentry)
+static int ext3_rename(struct mnt_idmap *idmap,
+		       struct inode *old_dir, struct dentry *old_dentry,
+		       struct inode *new_dir, struct dentry *new_dentry,
+		       unsigned int flags)
 {
+	(void)idmap;
+	if (flags & ~RENAME_NOREPLACE)
+		return -EINVAL;
 	handle_t *handle;
 	struct inode * old_inode, * new_inode;
 	struct buffer_head * old_bh, * new_bh, * dir_bh;
@@ -2736,8 +2746,8 @@ static int ext3_rename (struct inode * old_dir, struct dentry *old_dentry,
 		if (EXT3_HAS_INCOMPAT_FEATURE(new_dir->i_sb,
 					      EXT3_FEATURE_INCOMPAT_FILETYPE))
 			new_de->file_type = old_de->file_type;
-		new_dir->i_version++;
-		new_dir->i_ctime = new_dir->i_mtime = CURRENT_TIME_SEC;
+		new_inode_inc_iversion(dir);
+		inode_set_mtime_to_ts(new_dir, inode_set_ctime_current(new_dir));
 		ext3_mark_inode_dirty(handle, new_dir);
 		BUFFER_TRACE(new_bh, "call ext3_journal_dirty_metadata");
 		retval = ext3_journal_dirty_metadata(handle, new_bh);
@@ -2748,7 +2758,7 @@ static int ext3_rename (struct inode * old_dir, struct dentry *old_dentry,
 	}
 
 
-	old_inode->i_ctime = CURRENT_TIME_SEC;
+	old_inode_set_ctime_current(inode);
 	ext3_mark_inode_dirty(handle, old_inode);
 
 
@@ -2778,9 +2788,9 @@ static int ext3_rename (struct inode * old_dir, struct dentry *old_dentry,
 
 	if (new_inode) {
 		drop_nlink(new_inode);
-		new_inode->i_ctime = CURRENT_TIME_SEC;
+		new_inode_set_ctime_current(inode);
 	}
-	old_dir->i_ctime = old_dir->i_mtime = CURRENT_TIME_SEC;
+	inode_set_mtime_to_ts(old_dir, inode_set_ctime_current(old_dir));
 	ext3_update_dx_flag(old_dir);
 	if (dir_bh) {
 		BUFFER_TRACE(dir_bh, "get_write_access");
@@ -2825,6 +2835,24 @@ end_rename:
 }
 
 
+#ifdef CONFIG_EXT3_FS_POSIX_ACL
+static struct posix_acl *ext3_namei_get_inode_acl(struct inode *inode,
+						 int type, bool rcu)
+{
+	if (rcu)
+		return ERR_PTR(-ECHILD);
+	return ext3_get_acl(inode, type);
+}
+
+static int ext3_namei_set_acl(struct mnt_idmap *idmap,
+			      struct dentry *dentry,
+			      struct posix_acl *acl, int type)
+{
+	(void)idmap;
+	return ext3_set_acl(d_inode(dentry), acl, type);
+}
+#endif
+
 const struct inode_operations ext3_dir_inode_operations = {
 	.create		= ext3_create,
 	.lookup		= ext3_lookup,
@@ -2838,23 +2866,21 @@ const struct inode_operations ext3_dir_inode_operations = {
 	.rename		= ext3_rename,
 	.setattr	= ext3_setattr,
 #ifdef CONFIG_EXT3_FS_XATTR
-	.setxattr	= generic_setxattr,
-	.getxattr	= generic_getxattr,
 	.listxattr	= ext3_listxattr,
-	.removexattr	= generic_removexattr,
 #endif
-	.get_acl	= ext3_get_acl,
-	.set_acl	= ext3_set_acl,
+#ifdef CONFIG_EXT3_FS_POSIX_ACL
+	.get_inode_acl	= ext3_namei_get_inode_acl,
+	.set_acl	= ext3_namei_set_acl,
+#endif
 };
 
 const struct inode_operations ext3_special_inode_operations = {
 	.setattr	= ext3_setattr,
 #ifdef CONFIG_EXT3_FS_XATTR
-	.setxattr	= generic_setxattr,
-	.getxattr	= generic_getxattr,
 	.listxattr	= ext3_listxattr,
-	.removexattr	= generic_removexattr,
 #endif
-	.get_acl	= ext3_get_acl,
-	.set_acl	= ext3_set_acl,
+#ifdef CONFIG_EXT3_FS_POSIX_ACL
+	.get_inode_acl	= ext3_namei_get_inode_acl,
+	.set_acl	= ext3_namei_set_acl,
+#endif
 };
