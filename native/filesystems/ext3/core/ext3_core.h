@@ -51,4 +51,16 @@ IfsExt3GeometryStatus ifs_ext3_validate_geometry(
     ifs_ext3_u32 fragments_per_group,
     ifs_ext3_u32 inodes_per_group);
 
+typedef enum IfsExt3LayoutStatus {
+    IFS_EXT3_LAYOUT_OK = 0,
+    IFS_EXT3_LAYOUT_INVALID_FIRST_DATA_BLOCK,
+    IFS_EXT3_LAYOUT_INVALID_BLOCKS_PER_GROUP
+} IfsExt3LayoutStatus;
+
+IfsExt3LayoutStatus ifs_ext3_compute_group_count(
+    ifs_ext3_u32 blocks_count,
+    ifs_ext3_u32 first_data_block,
+    ifs_ext3_u32 blocks_per_group,
+    ifs_ext3_u32 *group_count);
+
 #endif
