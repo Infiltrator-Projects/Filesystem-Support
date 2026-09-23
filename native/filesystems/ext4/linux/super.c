@@ -5586,16 +5586,10 @@ static int ext4_check_geometry(struct super_block *sb,
 			       struct ext4_super_block *es)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	__u64 blocks_count;
+	IfsExt4LayoutStatus layout_status;
+	ifs_ext4_u64 layout_group_count = 0;
+	__u64 device_blocks;
 	int err;
-
-	if (le16_to_cpu(sbi->s_es->s_reserved_gdt_blocks) > (sb->s_blocksize / 4)) {
-		ext4_msg(sb, KERN_ERR,
-			 "Number of reserved GDT blocks insanely large: %d",
-			 le16_to_cpu(sbi->s_es->s_reserved_gdt_blocks));
-		return -EINVAL;
-	}
-
 
 	err = generic_check_addressable(sb->s_blocksize_bits,
 					ext4_blocks_count(es));
@@ -5605,57 +5599,66 @@ static int ext4_check_geometry(struct super_block *sb,
 		return err;
 	}
 
-
-	blocks_count = sb_bdev_nr_blocks(sb);
-	if (blocks_count && ext4_blocks_count(es) > blocks_count) {
+	device_blocks = sb_bdev_nr_blocks(sb);
+	if (device_blocks && ext4_blocks_count(es) > device_blocks) {
 		ext4_msg(sb, KERN_WARNING, "bad geometry: block count %llu "
 		       "exceeds size of device (%llu blocks)",
-		       ext4_blocks_count(es), blocks_count);
+		       ext4_blocks_count(es), device_blocks);
 		return -EINVAL;
 	}
 
+	layout_status = ifs_ext4_validate_layout(
+		sb->s_blocksize,
+		le16_to_cpu(es->s_reserved_gdt_blocks),
+		ext4_blocks_count(es),
+		le32_to_cpu(es->s_first_data_block),
+		le32_to_cpu(es->s_log_block_size),
+		sbi->s_cluster_ratio,
+		EXT4_BLOCKS_PER_GROUP(sb),
+		EXT4_DESC_PER_BLOCK(sb),
+		sbi->s_inodes_per_group,
+		le32_to_cpu(es->s_inodes_count),
+		&layout_group_count);
 
-	if (le32_to_cpu(es->s_first_data_block) >= ext4_blocks_count(es)) {
+	switch (layout_status) {
+	case IFS_EXT4_LAYOUT_OK:
+		break;
+	case IFS_EXT4_LAYOUT_RESERVED_GDT_TOO_LARGE:
+		ext4_msg(sb, KERN_ERR,
+			 "Number of reserved GDT blocks insanely large: %d",
+			 le16_to_cpu(es->s_reserved_gdt_blocks));
+		return -EINVAL;
+	case IFS_EXT4_LAYOUT_INVALID_FIRST_DATA_BLOCK:
 		ext4_msg(sb, KERN_WARNING, "bad geometry: first data "
 			 "block %u is beyond end of filesystem (%llu)",
 			 le32_to_cpu(es->s_first_data_block),
 			 ext4_blocks_count(es));
 		return -EINVAL;
-	}
-	if ((es->s_first_data_block == 0) && (es->s_log_block_size == 0) &&
-	    (sbi->s_cluster_ratio == 1)) {
+	case IFS_EXT4_LAYOUT_INVALID_1K_FIRST_DATA_BLOCK:
 		ext4_msg(sb, KERN_WARNING, "bad geometry: first data "
 			 "block is 0 with a 1k block and cluster size");
 		return -EINVAL;
-	}
-
-	blocks_count = (ext4_blocks_count(es) -
-			le32_to_cpu(es->s_first_data_block) +
-			EXT4_BLOCKS_PER_GROUP(sb) - 1);
-	do_div(blocks_count, EXT4_BLOCKS_PER_GROUP(sb));
-	if (blocks_count > ((uint64_t)1<<32) - EXT4_DESC_PER_BLOCK(sb)) {
+	case IFS_EXT4_LAYOUT_GROUP_COUNT_TOO_LARGE:
 		ext4_msg(sb, KERN_WARNING, "groups count too large: %llu "
 		       "(block count %llu, first data block %u, "
-		       "blocks per group %lu)", blocks_count,
+		       "blocks per group %lu)", layout_group_count,
 		       ext4_blocks_count(es),
 		       le32_to_cpu(es->s_first_data_block),
 		       EXT4_BLOCKS_PER_GROUP(sb));
 		return -EINVAL;
-	}
-	sbi->s_groups_count = blocks_count;
-	sbi->s_blockfile_groups = min_t(ext4_group_t, sbi->s_groups_count,
-			(EXT4_MAX_BLOCK_FILE_PHYS / EXT4_BLOCKS_PER_GROUP(sb)));
-	if (((u64)sbi->s_groups_count * sbi->s_inodes_per_group) !=
-	    le32_to_cpu(es->s_inodes_count)) {
+	case IFS_EXT4_LAYOUT_INVALID_INODE_COUNT:
 		ext4_msg(sb, KERN_ERR, "inodes count not valid: %u vs %llu",
 			 le32_to_cpu(es->s_inodes_count),
-			 ((u64)sbi->s_groups_count * sbi->s_inodes_per_group));
+			 layout_group_count * sbi->s_inodes_per_group);
 		return -EINVAL;
 	}
 
+	sbi->s_groups_count = layout_group_count;
+	sbi->s_blockfile_groups = min_t(ext4_group_t, sbi->s_groups_count,
+			(EXT4_MAX_BLOCK_FILE_PHYS / EXT4_BLOCKS_PER_GROUP(sb)));
+
 	return 0;
 }
-
 
 /**
  * ext4_group_desc_init - Initialises subsystem state and establishes the resources required by later operations.
