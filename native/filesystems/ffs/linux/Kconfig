@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 config FFS_FS
 	tristate "Amiga FFS filesystem support"
 	depends on BLOCK
