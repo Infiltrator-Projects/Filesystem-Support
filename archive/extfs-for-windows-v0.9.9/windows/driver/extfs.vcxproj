@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|ARM64"><Configuration>Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{0B5EA61E-5995-47E4-969B-F23068B64E0F}</ProjectGuid>
+    <RootNamespace>ExtFS</RootNamespace>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)'=='Debug'">
+    <ConfigurationType>Driver</ConfigurationType><DriverType>WDM</DriverType>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries><TargetVersion>Windows10</TargetVersion>
+    <SignMode>Off</SignMode><EnableInf2cat>false</EnableInf2cat><Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)'=='Release'">
+    <ConfigurationType>Driver</ConfigurationType><DriverType>WDM</DriverType>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries><TargetVersion>Windows10</TargetVersion>
+    <SignMode>Off</SignMode><EnableInf2cat>false</EnableInf2cat><Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup><OutDir>$(IntDir)</OutDir><TargetName>extfs</TargetName></PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>..\..\include;..\..\third_party\infiltratr-common\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><ExceptionHandling></ExceptionHandling>
+      <PreprocessorDefinitions>DBG=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link><AdditionalDependencies>ntoskrnl.lib;hal.lib;wmilib.lib;%(AdditionalDependencies)</AdditionalDependencies><AdditionalLibraryDirectories Condition="'$(Platform)'=='ARM64'">$(ExtfsArm64RuntimeDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories></Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>..\..\include;..\..\third_party\infiltratr-common\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><ExceptionHandling></ExceptionHandling>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link><AdditionalDependencies>ntoskrnl.lib;hal.lib;wmilib.lib;%(AdditionalDependencies)</AdditionalDependencies><AdditionalLibraryDirectories Condition="'$(Platform)'=='ARM64'">$(ExtfsArm64RuntimeDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="extfs_driver.c" />
+    <ClCompile Include="..\..\core\extfs.c">
+      <PreprocessorDefinitions>extfs_resize_file_ext2_direct=extfs_resize_file_ext2_legacy_direct;extfs_resize_file_ext3_journaled_direct=extfs_resize_file_ext3_journaled_legacy_direct;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <ClCompile Include="..\..\core\extfs_classic_resize.c">
+      <PreprocessorDefinitions>extfs_resize_file_ext2_direct=extfs_resize_file_ext2_single_indirect_impl;extfs_resize_file_ext3_journaled_direct=extfs_resize_file_ext3_single_indirect_impl;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <ClCompile Include="..\..\core\extfs_resize_dispatch.c" />
+  </ItemGroup>
+  <ItemGroup><ClInclude Include="extfs_driver.h" /><ClInclude Include="..\..\include\extfs\extfs.h" /></ItemGroup>
+  <ItemGroup><Inf Include="extfs.inf" /></ItemGroup>
+  <ItemGroup><ResourceCompile Include="extfs.rc" Condition="'$(Platform)'=='x64'" /></ItemGroup>
+  <Target Name="ExtfsVerifyWdkIntegration" BeforeTargets="ClCompile">
+    <Error Condition="'$(ConfigurationType)' != 'Driver'" Text="ExtFS must be built as a kernel Driver project; ConfigurationType=$(ConfigurationType)." />
+    <Error Condition="'$(PlatformToolset)' != 'WindowsKernelModeDriver10.0'" Text="ExtFS requires the WindowsKernelModeDriver10.0 platform toolset; PlatformToolset=$(PlatformToolset)." />
+    <Error Condition="'$(Platform)' != 'x64' and '$(Platform)' != 'ARM64'" Text="ExtFS supports only x64 and ARM64; Platform=$(Platform)." />
+    <Error Condition="'$(Platform)' == 'ARM64' and !Exists('$(ExtfsArm64RuntimeDir)\\arm64rt.lib')" Text="ARM64 runtime library was not located: $(ExtfsArm64RuntimeDir)\\arm64rt.lib." />
+    <Error Condition="'$(KM_IncludePath)' == ''" Text="WDK kernel-mode properties are inactive. Restore the pinned architecture-specific Microsoft.Windows.WDK NuGet package." />
+  </Target>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>
