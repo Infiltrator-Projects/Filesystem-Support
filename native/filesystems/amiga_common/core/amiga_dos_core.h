@@ -59,4 +59,20 @@ ifs_amiga_u32 ifs_amiga_checksum_word_value(
     ifs_amiga_u32 block_size,
     ifs_amiga_u32 checksum_word_index);
 
+typedef enum IfsAmigaSymlinkStatus {
+    IFS_AMIGA_SYMLINK_OK = 0,
+    IFS_AMIGA_SYMLINK_INVALID_ARGUMENT,
+    IFS_AMIGA_SYMLINK_SOURCE_UNTERMINATED,
+    IFS_AMIGA_SYMLINK_OUTPUT_TOO_SMALL
+} IfsAmigaSymlinkStatus;
+
+IfsAmigaSymlinkStatus ifs_amiga_translate_symlink(
+    const ifs_amiga_u8 *source,
+    ifs_amiga_u32 source_capacity,
+    const ifs_amiga_u8 *volume_prefix,
+    ifs_amiga_u32 volume_prefix_length,
+    ifs_amiga_u8 *output,
+    ifs_amiga_u32 output_capacity,
+    ifs_amiga_u32 *output_length);
+
 #endif
