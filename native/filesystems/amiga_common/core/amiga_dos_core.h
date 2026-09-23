@@ -10,6 +10,21 @@ typedef u32 ifs_amiga_u32;
 #include <stdint.h>
 typedef uint8_t ifs_amiga_u8;
 typedef uint32_t ifs_amiga_u32;
+int ifs_amiga_data_block_valid(
+    ifs_amiga_u32 block,
+    ifs_amiga_u32 reserved_blocks,
+    ifs_amiga_u32 partition_blocks);
+
+int ifs_amiga_bitmap_geometry(
+    ifs_amiga_u32 block_size,
+    ifs_amiga_u32 reserved_blocks,
+    ifs_amiga_u32 partition_blocks,
+    ifs_amiga_u32 *bits_per_bitmap,
+    ifs_amiga_u32 *bitmap_count);
+
+ifs_amiga_u32 ifs_amiga_bitmap_bit_mask(ifs_amiga_u32 bit_offset);
+ifs_amiga_u32 ifs_amiga_bitmap_scan_mask(ifs_amiga_u32 bit_offset);
+
 #endif
 
 #define IFS_AMIGA_DOS_NAME_MAX 30U

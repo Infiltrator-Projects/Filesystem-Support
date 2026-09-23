@@ -112,3 +112,50 @@ ifs_amiga_u32 ifs_amiga_checksum_word_value(
 
     return 0U - sum;
 }
+
+int ifs_amiga_data_block_valid(
+    const ifs_amiga_u32 block,
+    const ifs_amiga_u32 reserved_blocks,
+    const ifs_amiga_u32 partition_blocks)
+{
+    return reserved_blocks < partition_blocks &&
+           block >= reserved_blocks &&
+           block < partition_blocks;
+}
+
+int ifs_amiga_bitmap_geometry(
+    const ifs_amiga_u32 block_size,
+    const ifs_amiga_u32 reserved_blocks,
+    const ifs_amiga_u32 partition_blocks,
+    ifs_amiga_u32 *const bits_per_bitmap,
+    ifs_amiga_u32 *const bitmap_count)
+{
+    ifs_amiga_u32 bits;
+    ifs_amiga_u32 data_blocks;
+
+    if (bits_per_bitmap == 0 || bitmap_count == 0 ||
+        block_size < 8U ||
+        block_size > 0x1fffffffU ||
+        reserved_blocks >= partition_blocks)
+        return -1;
+
+    bits = block_size * 8U - 32U;
+    if (bits == 0U)
+        return -1;
+
+    data_blocks = partition_blocks - reserved_blocks;
+    *bits_per_bitmap = bits;
+    *bitmap_count = data_blocks / bits +
+        (data_blocks % bits != 0U ? 1U : 0U);
+    return 0;
+}
+
+ifs_amiga_u32 ifs_amiga_bitmap_bit_mask(const ifs_amiga_u32 bit_offset)
+{
+    return 1U << (bit_offset & 31U);
+}
+
+ifs_amiga_u32 ifs_amiga_bitmap_scan_mask(const ifs_amiga_u32 bit_offset)
+{
+    return 0xffffffffU << (bit_offset & 31U);
+}

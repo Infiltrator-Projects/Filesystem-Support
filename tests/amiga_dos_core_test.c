@@ -44,5 +44,26 @@ int main(void)
     if (ifs_amiga_checksum_word_value(block, sizeof(block), 5U) != checksum)
         return fail("checksum word calculation is wrong");
 
+
+    {
+        ifs_amiga_u32 bits = 0U;
+        ifs_amiga_u32 count = 0U;
+
+        if (ifs_amiga_data_block_valid(1U, 2U, 100U) != 0)
+            return fail("reserved block accepted as data");
+        if (ifs_amiga_data_block_valid(2U, 2U, 100U) == 0)
+            return fail("first data block rejected");
+        if (ifs_amiga_data_block_valid(100U, 2U, 100U) != 0)
+            return fail("one-past-end block accepted");
+        if (ifs_amiga_bitmap_geometry(
+                512U, 2U, 10000U, &bits, &count) != 0 ||
+            bits != 4064U || count != 3U)
+            return fail("AmigaDOS bitmap geometry is wrong");
+        if (ifs_amiga_bitmap_bit_mask(31U) != 0x80000000U)
+            return fail("AmigaDOS bitmap bit mask is wrong");
+        if (ifs_amiga_bitmap_scan_mask(4U) != 0xfffffff0U)
+            return fail("AmigaDOS bitmap scan mask is wrong");
+    }
+
     return 0;
 }
