@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Enforce EXT rewrite boundary
+      - name: Enforce rewrite boundaries
         shell: bash
         run: |
           set -euo pipefail
@@ -27,8 +27,8 @@ jobs:
 
           refresh=.github/workflows/import-linux-filesystems.yml
           if test -f "$refresh"; then
-            ! grep -Eq 'fs/ext2([ /]|$)|fs/ext3([ /]|$)|fs/ext4([ /]|$)|linux-ext3|shape-ext[234]|harden-ext-ranges|recomment-ext-family' "$refresh"
-            ! grep -Eq 'native/filesystems/ext2|native/filesystems/ext3|native/filesystems/ext4' "$refresh"
+            ! grep -Eq 'fs/ext2([ /]|$)|fs/ext3([ /]|$)|fs/ext4([ /]|$)|fs/affs([ /]|$)|linux-ext3|shape-ext[234]|harden-ext-ranges|recomment-ext-family' "$refresh"
+            ! grep -Eq 'native/filesystems/(ext2|ext3|ext4|ofs|ffs|sfs|sfs2|pfs3)' "$refresh"
           fi
 
       - name: Verify rewritten EXT2 file layer provenance
@@ -176,6 +176,57 @@ jobs:
           test -s native/filesystems/ofs/linux/ofs.ko
 
       - name: Build independent FFS module
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C /tmp/linux-6.12.107 \
+            M="$PWD/native/filesystems/ffs/linux" \
+            KBUILD_MODPOST_WARN=1 modules
+          test -s native/filesystems/ffs/linux/ffs.ko
+
+
+  linux-ofs-module:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Linux 6.12.107 build API
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
+          git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
+          make -C /tmp/linux-6.12.107 defconfig
+          make -C /tmp/linux-6.12.107 modules_prepare
+
+      - name: Build OFS kernel module
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C /tmp/linux-6.12.107 \
+            M="$PWD/native/filesystems/ofs/linux" \
+            KBUILD_MODPOST_WARN=1 modules
+          test -s native/filesystems/ofs/linux/ofs.ko
+
+  linux-ffs-module:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Linux 6.12.107 build API
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
+          git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
+          make -C /tmp/linux-6.12.107 defconfig
+          make -C /tmp/linux-6.12.107 modules_prepare
+
+      - name: Build FFS kernel module
         shell: bash
         run: |
           set -euo pipefail
