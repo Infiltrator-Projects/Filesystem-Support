@@ -1742,7 +1742,7 @@ void journal_ack_err(journal_t *journal)
  */
 int journal_blocks_per_page(struct inode *inode)
 {
-	return 1 << (PAGE_CACHE_SHIFT - inode->i_sb->s_blocksize_bits);
+	return 1 << (PAGE_SHIFT - inode->i_sb->s_blocksize_bits);
 }
 
 
