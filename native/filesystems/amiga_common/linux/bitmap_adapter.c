@@ -174,7 +174,7 @@ static int ifs_amiga_allocate_bitmap_range(
         u32 absolute;
 
         if (disk_word_index >= sb->s_blocksize / sizeof(__be32))
-            return -EFSCORRUPTED;
+            return -EUCLEAN;
 
         value = be32_to_cpu(words[disk_word_index]);
         if (ifs_amiga_bitmap_select_free_run(
@@ -185,7 +185,7 @@ static int ifs_amiga_allocate_bitmap_range(
         absolute = (u32)sbi->s_reserved + bitmap_base +
                    word_base + first;
         if (!affs_validblock(sb, absolute))
-            return -EFSCORRUPTED;
+            return -EUCLEAN;
 
         if (bm->bm_free < run_length) {
             run_length = 1U;
@@ -379,7 +379,7 @@ int affs_init_bitmap(struct super_block *sb, int *flags)
 
     words_per_block = (u32)(sb->s_blocksize / sizeof(__be32));
     if (words_per_block < 50U) {
-        result = -EFSCORRUPTED;
+        result = -EUCLEAN;
         goto fail;
     }
 
@@ -434,7 +434,7 @@ int affs_init_bitmap(struct super_block *sb, int *flags)
         data_blocks - (sbi->s_bmap_count - 1U) * sbi->s_bmap_bits;
 
     if (last_valid_bits == 0U || last_valid_bits > sbi->s_bmap_bits) {
-        result = -EFSCORRUPTED;
+        result = -EUCLEAN;
         goto fail;
     }
 
