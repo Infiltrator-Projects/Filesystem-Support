@@ -295,7 +295,7 @@ __flush_batch(journal_t *journal, struct buffer_head **bhs, int *batch_count)
 
 	blk_start_plug(&plug);
 	for (i = 0; i < *batch_count; i++)
-		write_dirty_buffer(bhs[i], WRITE_SYNC);
+		write_dirty_buffer(bhs[i], REQ_SYNC);
 	blk_finish_plug(&plug);
 
 	for (i = 0; i < *batch_count; i++) {
@@ -507,7 +507,7 @@ int cleanup_journal_tail(journal_t *journal)
 
 
 	journal_update_sb_log_tail(journal, first_tid, blocknr,
-				   WRITE_FLUSH_FUA);
+				   (REQ_PREFLUSH | REQ_FUA));
 
 	spin_lock(&journal->j_state_lock);
 
