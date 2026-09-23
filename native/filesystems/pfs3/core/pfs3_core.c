@@ -6,6 +6,53 @@ static int ifs_pfs3_is_power_of_two(const ifs_pfs3_u32 value)
     return value != 0U && (value & (value - 1U)) == 0U;
 }
 
+static ifs_pfs3_u16 ifs_pfs3_read_be16(const unsigned char *data)
+{
+    return (ifs_pfs3_u16)(((ifs_pfs3_u16)data[0] << 8) |
+                          (ifs_pfs3_u16)data[1]);
+}
+
+static ifs_pfs3_u32 ifs_pfs3_read_be32(const unsigned char *data)
+{
+    return ((ifs_pfs3_u32)data[0] << 24) |
+           ((ifs_pfs3_u32)data[1] << 16) |
+           ((ifs_pfs3_u32)data[2] << 8) |
+           (ifs_pfs3_u32)data[3];
+}
+
+int ifs_pfs3_decode_root(
+    const unsigned char *const bytes,
+    const ifs_pfs3_u32 byte_count,
+    IfsPfs3RootRecord *const root)
+{
+    ifs_pfs3_u32 index;
+
+    if (bytes == 0 || root == 0 || byte_count < IFS_PFS3_ROOT_MIN_BYTES)
+        return -1;
+
+    root->disk_type = ifs_pfs3_read_be32(bytes + 0U);
+    root->options = ifs_pfs3_read_be32(bytes + 4U);
+    root->datestamp = ifs_pfs3_read_be32(bytes + 8U);
+    root->creation_day = ifs_pfs3_read_be16(bytes + 12U);
+    root->creation_minute = ifs_pfs3_read_be16(bytes + 14U);
+    root->creation_tick = ifs_pfs3_read_be16(bytes + 16U);
+    root->protection = ifs_pfs3_read_be16(bytes + 18U);
+    for (index = 0U; index < IFS_PFS3_DISK_NAME_BYTES; index++)
+        root->disk_name[index] = bytes[20U + index];
+    root->last_reserved = ifs_pfs3_read_be32(bytes + 52U);
+    root->first_reserved = ifs_pfs3_read_be32(bytes + 56U);
+    root->reserved_free = ifs_pfs3_read_be32(bytes + 60U);
+    root->reserved_block_size = ifs_pfs3_read_be16(bytes + 64U);
+    root->root_block_cluster = ifs_pfs3_read_be16(bytes + 66U);
+    root->blocks_free = ifs_pfs3_read_be32(bytes + 68U);
+    root->always_free = ifs_pfs3_read_be32(bytes + 72U);
+    root->roving_pointer = ifs_pfs3_read_be32(bytes + 76U);
+    root->delete_directory = ifs_pfs3_read_be32(bytes + 80U);
+    root->disk_size = ifs_pfs3_read_be32(bytes + 84U);
+    root->extension = ifs_pfs3_read_be32(bytes + 88U);
+    return 0;
+}
+
 IfsPfs3Format ifs_pfs3_classify_disk_type(const ifs_pfs3_u32 disk_type)
 {
     switch (disk_type) {

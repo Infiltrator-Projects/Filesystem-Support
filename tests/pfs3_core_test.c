@@ -74,5 +74,37 @@ int main(void)
     if (ifs_pfs3_validate_allocation_counts(50U, 51U) == 0)
         return fail("PFS allocation reserve underflow accepted");
 
+
+    {
+        unsigned char raw[IFS_PFS3_ROOT_MIN_BYTES] = {0};
+        IfsPfs3RootRecord root;
+        raw[0]=0x50; raw[1]=0x46; raw[2]=0x53; raw[3]=0x02;
+        raw[7]=IFS_PFS3_MODE_HARDDISK;
+        raw[20]=4U; raw[21]='T'; raw[22]='e'; raw[23]='s'; raw[24]='t';
+        raw[55]=65U;
+        raw[59]=2U;
+        raw[63]=20U;
+        raw[64]=0x04; raw[65]=0x00;
+        raw[67]=2U;
+        raw[71]=100U;
+        raw[75]=5U;
+        raw[91]=70U;
+        if (ifs_pfs3_decode_root(raw, sizeof(raw), &root) != 0)
+            return fail("PFS root decoder failed");
+        if (root.disk_type != IFS_PFS3_DISK_PFS2 ||
+            root.options != IFS_PFS3_MODE_HARDDISK ||
+            root.last_reserved != 65U ||
+            root.first_reserved != 2U ||
+            root.reserved_free != 20U ||
+            root.reserved_block_size != 1024U ||
+            root.root_block_cluster != 2U ||
+            root.blocks_free != 100U ||
+            root.always_free != 5U ||
+            root.extension != 70U)
+            return fail("PFS root decoder returned wrong fields");
+        if (ifs_pfs3_validate_disk_name(root.disk_name) != 0)
+            return fail("decoded PFS disk name rejected");
+    }
+
     return 0;
 }
