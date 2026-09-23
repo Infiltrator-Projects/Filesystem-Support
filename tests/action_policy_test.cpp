@@ -66,6 +66,20 @@ int main()
         return fail("invalid module action was not denied synchronously");
     }
 
+    bool native_callback = false;
+    bool native_success = true;
+    install_native_module_async(
+        "affs",
+        "affs",
+        [&native_callback, &native_success](
+            const bool success, const std::string&) {
+            native_callback = true;
+            native_success = success;
+        });
+    if (!native_callback || native_success) {
+        return fail("unmanaged native module action was not denied synchronously");
+    }
+
     const auto hfs_users = catalogue_entries_using_package("hfsprogs");
     if (hfs_users.size() != 2U) {
         return fail("shared package impact mapping is incorrect");
