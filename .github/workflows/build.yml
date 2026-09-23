@@ -110,6 +110,12 @@ jobs:
           sudo apt-get install -y bc bison flex libelf-dev libssl-dev
           git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
           make -C /tmp/linux-6.12.107 defconfig
+          /tmp/linux-6.12.107/scripts/config --file /tmp/linux-6.12.107/.config \
+            --enable EXT2_FS_XATTR \
+            --enable EXT2_FS_POSIX_ACL \
+            --enable EXT2_FS_SECURITY \
+            --enable FS_DAX
+          make -C /tmp/linux-6.12.107 olddefconfig
           make -C /tmp/linux-6.12.107 modules_prepare
 
       - name: Build EXT2 kernel module
@@ -122,8 +128,10 @@ jobs:
           # installed target kernel that supplies its real Module.symvers.
           make -C /tmp/linux-6.12.107 \
             M="$PWD/native/filesystems/ext2/linux" \
-            KBUILD_MODPOST_WARN=1 modules
+            KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/ext2-build.log
           test -s native/filesystems/ext2/linux/ext2.ko
+          ! grep -Fq 'section mismatch' /tmp/ext2-build.log
+          grep -Fq 'xattr.o' /tmp/ext2-build.log
 
   linux-ext3-module:
     runs-on: ubuntu-24.04
@@ -147,8 +155,9 @@ jobs:
           set -euo pipefail
           make -C /tmp/linux-6.12.107 \
             M="$PWD/native/filesystems/ext3/linux" \
-            KBUILD_MODPOST_WARN=1 modules
+            KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/ext3-build.log
           test -s native/filesystems/ext3/linux/ext3.ko
+          ! grep -Fq 'section mismatch' /tmp/ext3-build.log
 
   linux-ext4-module:
     runs-on: ubuntu-24.04
@@ -164,6 +173,14 @@ jobs:
           sudo apt-get install -y bc bison flex libelf-dev libssl-dev
           git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
           make -C /tmp/linux-6.12.107 defconfig
+          /tmp/linux-6.12.107/scripts/config --file /tmp/linux-6.12.107/.config \
+            --enable EXT4_FS \
+            --enable EXT4_FS_POSIX_ACL \
+            --enable EXT4_FS_SECURITY \
+            --enable FS_ENCRYPTION \
+            --enable FS_VERITY \
+            --enable QUOTA
+          make -C /tmp/linux-6.12.107 olddefconfig
           make -C /tmp/linux-6.12.107 modules_prepare
 
       - name: Build EXT4 kernel module
@@ -172,8 +189,11 @@ jobs:
           set -euo pipefail
           make -C /tmp/linux-6.12.107 \
             M="$PWD/native/filesystems/ext4/linux" \
-            KBUILD_MODPOST_WARN=1 modules
+            KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/ext4-build.log
           test -s native/filesystems/ext4/linux/ext4.ko
+          ! grep -Fq 'section mismatch' /tmp/ext4-build.log
+          grep -Fq 'crypto.o' /tmp/ext4-build.log
+          grep -Fq 'verity.o' /tmp/ext4-build.log
 
   linux-amiga-ofs-ffs-modules:
     runs-on: ubuntu-24.04

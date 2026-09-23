@@ -4681,7 +4681,7 @@ int __init infiltratr_mbcache_init(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-void __exit infiltratr_mbcache_exit(void)
+void infiltratr_mbcache_exit(void)
 {
 	kmem_cache_destroy(mb_entry_cache);
 }

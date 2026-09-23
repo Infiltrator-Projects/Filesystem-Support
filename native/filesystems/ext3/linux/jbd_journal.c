@@ -1989,7 +1989,7 @@ static void __init jbd_create_debugfs_entry(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __exit jbd_remove_debugfs_entry(void)
+static void jbd_remove_debugfs_entry(void)
 {
 	debugfs_remove(jbd_debug);
 	debugfs_remove(jbd_debugfs_dir);
@@ -2133,7 +2133,7 @@ int __init infiltratr_ext3_jbd_init(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-void __exit infiltratr_ext3_jbd_exit(void)
+void infiltratr_ext3_jbd_exit(void)
 {
 #ifdef CONFIG_JBD_DEBUG
 	int n = atomic_read(&nr_journal_heads);

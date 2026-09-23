@@ -2813,7 +2813,7 @@ int __init infiltratr_ext3_mbcache_init(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-void __exit infiltratr_ext3_mbcache_exit(void)
+void infiltratr_ext3_mbcache_exit(void)
 {
 	shrinker_free(mb_cache_shrinker);
 	mb_cache_shrinker = NULL;

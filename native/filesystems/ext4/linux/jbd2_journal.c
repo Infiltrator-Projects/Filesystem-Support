@@ -3216,7 +3216,7 @@ static void __init jbd2_create_jbd_stats_proc_entry(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __exit jbd2_remove_jbd_stats_proc_entry(void)
+static void jbd2_remove_jbd_stats_proc_entry(void)
 {
 	if (proc_jbd2_stats)
 		remove_proc_entry(JBD2_STATS_PROC_NAME, NULL);
@@ -3382,7 +3382,7 @@ int __init infiltratr_jbd2_init(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-void __exit infiltratr_jbd2_exit(void)
+void infiltratr_jbd2_exit(void)
 {
 #ifdef CONFIG_JBD2_DEBUG
 	int n = atomic_read(&nr_journal_heads);

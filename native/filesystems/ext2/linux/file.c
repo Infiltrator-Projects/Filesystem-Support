@@ -371,17 +371,19 @@ static long ext2_set_reservation_size(struct file *file, unsigned long arg)
 	struct inode *inode = file_inode(file);
 	struct ext2_inode_info *ei = EXT2_I(inode);
 	unsigned short size;
+	int user_size;
 	int err;
 
 	if (!test_opt(inode->i_sb, RESERVATION) || !S_ISREG(inode->i_mode))
 		return -ENOTTY;
 	if (!inode_owner_or_capable(&nop_mnt_idmap, inode))
 		return -EACCES;
-	if (get_user(size, (unsigned short __user *)arg))
+	if (get_user(user_size, (int __user *)arg))
 		return -EFAULT;
 
-	if (size > EXT2_MAX_RESERVE_BLOCKS)
-		size = EXT2_MAX_RESERVE_BLOCKS;
+	if (user_size < 0)
+		return -EINVAL;
+	size = min_t(unsigned int, user_size, EXT2_MAX_RESERVE_BLOCKS);
 
 	err = mnt_want_write_file(file);
 	if (err)
