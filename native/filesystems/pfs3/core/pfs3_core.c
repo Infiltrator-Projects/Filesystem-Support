@@ -20,6 +20,84 @@ static ifs_pfs3_u32 ifs_pfs3_read_be32(const unsigned char *data)
            (ifs_pfs3_u32)data[3];
 }
 
+static ifs_pfs3_u16 ifs_pfs3_popcount16(ifs_pfs3_u16 value)
+{
+    ifs_pfs3_u16 count = 0U;
+
+    while (value != 0U) {
+        count = (ifs_pfs3_u16)(count + (value & 1U));
+        value = (ifs_pfs3_u16)(value >> 1);
+    }
+    return count;
+}
+
+IfsPfs3DirEntryStatus ifs_pfs3_decode_directory_entry(
+    const unsigned char *const bytes,
+    const ifs_pfs3_u32 available_bytes,
+    const int directory_extensions,
+    IfsPfs3DirEntryView *const entry)
+{
+    ifs_pfs3_u32 record_bytes;
+    ifs_pfs3_u32 comment_offset;
+    ifs_pfs3_u32 payload_end;
+    ifs_pfs3_u16 flags = 0U;
+    ifs_pfs3_u16 extra_words = 0U;
+
+    if (bytes == 0 || entry == 0 || available_bytes == 0U)
+        return IFS_PFS3_DIRENTRY_TRUNCATED;
+
+    record_bytes = bytes[0];
+    if (record_bytes == 0U)
+        return IFS_PFS3_DIRENTRY_END;
+    if (record_bytes < IFS_PFS3_DIRENTRY_BYTES ||
+        record_bytes > available_bytes)
+        return IFS_PFS3_DIRENTRY_TRUNCATED;
+    if ((record_bytes & 1U) != 0U)
+        return IFS_PFS3_DIRENTRY_ODD_SIZE;
+
+    entry->name_length = bytes[17U];
+    if (entry->name_length > IFS_PFS3_MAX_FILENAME_SIZE)
+        return IFS_PFS3_DIRENTRY_NAME_TOO_LONG;
+
+    comment_offset =
+        IFS_PFS3_DIRENTRY_NAME_OFFSET + entry->name_length;
+    if (comment_offset >= record_bytes)
+        return IFS_PFS3_DIRENTRY_COMMENT_OVERRUN;
+
+    entry->comment_length = bytes[comment_offset];
+
+    payload_end = record_bytes;
+    if (directory_extensions != 0) {
+        if (record_bytes < 2U)
+            return IFS_PFS3_DIRENTRY_EXTRA_FIELDS_OVERRUN;
+        flags = ifs_pfs3_read_be16(bytes + record_bytes - 2U);
+        if ((flags & (ifs_pfs3_u16)~((1U << IFS_PFS3_EXTRA_FIELD_WORDS) - 1U)) != 0U)
+            return IFS_PFS3_DIRENTRY_UNKNOWN_EXTRA_FIELDS;
+        extra_words = ifs_pfs3_popcount16(flags);
+        if ((ifs_pfs3_u32)2U + (ifs_pfs3_u32)extra_words * 2U >
+            record_bytes)
+            return IFS_PFS3_DIRENTRY_EXTRA_FIELDS_OVERRUN;
+        payload_end =
+            record_bytes - 2U - (ifs_pfs3_u32)extra_words * 2U;
+    }
+
+    if ((ifs_pfs3_u32)entry->comment_length + 1U >
+        payload_end - comment_offset)
+        return IFS_PFS3_DIRENTRY_COMMENT_OVERRUN;
+
+    entry->record_bytes = (ifs_pfs3_u16)record_bytes;
+    entry->type = (signed char)bytes[1U];
+    entry->anode = ifs_pfs3_read_be32(bytes + 2U);
+    entry->file_size_low = ifs_pfs3_read_be32(bytes + 6U);
+    entry->creation_day = ifs_pfs3_read_be16(bytes + 10U);
+    entry->creation_minute = ifs_pfs3_read_be16(bytes + 12U);
+    entry->creation_tick = ifs_pfs3_read_be16(bytes + 14U);
+    entry->protection = bytes[16U];
+    entry->extra_flags = flags;
+    entry->extra_word_count = extra_words;
+    return IFS_PFS3_DIRENTRY_OK;
+}
+
 int ifs_pfs3_decode_extension(
     const unsigned char *const bytes,
     const ifs_pfs3_u32 byte_count,

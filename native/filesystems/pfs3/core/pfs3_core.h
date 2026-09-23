@@ -26,6 +26,9 @@ typedef uint32_t ifs_pfs3_u32;
 #define IFS_PFS3_EXTENSION_MIN_BYTES 58U
 #define IFS_PFS3_MAX_DELDIR_BLOCKS 32U
 #define IFS_PFS3_DELDIR_ENTRIES_PER_BLOCK 31U
+#define IFS_PFS3_DIRENTRY_BYTES 20U
+#define IFS_PFS3_DIRENTRY_NAME_OFFSET 18U
+#define IFS_PFS3_EXTRA_FIELD_WORDS 11U
 
 #define IFS_PFS3_MODE_HARDDISK        0x0001U
 #define IFS_PFS3_MODE_SPLITTED_ANODES 0x0002U
@@ -76,6 +79,32 @@ typedef struct IfsPfs3ExtensionRecord {
     ifs_pfs3_u16 filename_size;
 } IfsPfs3ExtensionRecord;
 
+typedef enum IfsPfs3DirEntryStatus {
+    IFS_PFS3_DIRENTRY_OK = 0,
+    IFS_PFS3_DIRENTRY_END,
+    IFS_PFS3_DIRENTRY_TRUNCATED,
+    IFS_PFS3_DIRENTRY_ODD_SIZE,
+    IFS_PFS3_DIRENTRY_NAME_TOO_LONG,
+    IFS_PFS3_DIRENTRY_COMMENT_OVERRUN,
+    IFS_PFS3_DIRENTRY_EXTRA_FIELDS_OVERRUN,
+    IFS_PFS3_DIRENTRY_UNKNOWN_EXTRA_FIELDS
+} IfsPfs3DirEntryStatus;
+
+typedef struct IfsPfs3DirEntryView {
+    ifs_pfs3_u16 record_bytes;
+    signed char type;
+    ifs_pfs3_u32 anode;
+    ifs_pfs3_u32 file_size_low;
+    ifs_pfs3_u16 creation_day;
+    ifs_pfs3_u16 creation_minute;
+    ifs_pfs3_u16 creation_tick;
+    unsigned char protection;
+    unsigned char name_length;
+    unsigned char comment_length;
+    ifs_pfs3_u16 extra_flags;
+    ifs_pfs3_u16 extra_word_count;
+} IfsPfs3DirEntryView;
+
 typedef enum IfsPfs3Format {
     IFS_PFS3_FORMAT_INVALID = 0,
     IFS_PFS3_FORMAT_PFS1,
@@ -105,6 +134,12 @@ typedef enum IfsPfs3RootStatus {
     IFS_PFS3_ROOT_INVALID_ROOT_CLUSTER_ALIGNMENT,
     IFS_PFS3_ROOT_RESERVED_FREE_OUT_OF_RANGE
 } IfsPfs3RootStatus;
+
+IfsPfs3DirEntryStatus ifs_pfs3_decode_directory_entry(
+    const unsigned char *bytes,
+    ifs_pfs3_u32 available_bytes,
+    int directory_extensions,
+    IfsPfs3DirEntryView *entry);
 
 int ifs_pfs3_decode_extension(
     const unsigned char *bytes,

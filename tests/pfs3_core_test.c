@@ -192,5 +192,55 @@ int main(void)
             return fail("misaligned PFS extension accepted");
     }
 
+
+    {
+        unsigned char raw[32] = {0};
+        IfsPfs3DirEntryView entry;
+
+        raw[0] = 26U;
+        raw[1] = 2U;
+        raw[5] = 7U;
+        raw[9] = 9U;
+        raw[11] = 1U;
+        raw[13] = 2U;
+        raw[15] = 3U;
+        raw[16] = 0x10U;
+        raw[17] = 4U;
+        raw[18] = 'T'; raw[19] = 'e';
+        raw[20] = 's'; raw[21] = 't';
+        raw[22] = 1U; raw[23] = 'x';
+        raw[24] = 0U; raw[25] = 0U;
+
+        if (ifs_pfs3_decode_directory_entry(
+                raw, sizeof(raw), 1, &entry) != IFS_PFS3_DIRENTRY_OK)
+            return fail("valid PFS directory entry rejected");
+        if (entry.record_bytes != 26U ||
+            entry.anode != 7U ||
+            entry.file_size_low != 9U ||
+            entry.name_length != 4U ||
+            entry.comment_length != 1U ||
+            entry.extra_flags != 0U)
+            return fail("PFS directory entry decoded incorrectly");
+
+        raw[0] = 25U;
+        if (ifs_pfs3_decode_directory_entry(
+                raw, sizeof(raw), 1, &entry) != IFS_PFS3_DIRENTRY_ODD_SIZE)
+            return fail("odd PFS directory entry accepted");
+
+        raw[0] = 26U;
+        raw[22] = 10U;
+        if (ifs_pfs3_decode_directory_entry(
+                raw, sizeof(raw), 1, &entry) !=
+            IFS_PFS3_DIRENTRY_COMMENT_OVERRUN)
+            return fail("overrunning PFS filenote accepted");
+
+        raw[22] = 1U;
+        raw[24] = 0x80U; raw[25] = 0U;
+        if (ifs_pfs3_decode_directory_entry(
+                raw, sizeof(raw), 1, &entry) !=
+            IFS_PFS3_DIRENTRY_UNKNOWN_EXTRA_FIELDS)
+            return fail("unknown PFS extra fields accepted");
+    }
+
     return 0;
 }
