@@ -1,6 +1,6 @@
 /*
  * Project-authored Linux object-metadata adapter for Amiga OFS. Format-level checksum and name rules are delegated to the
- * canonical amiga_dos_core.
+ * canonical OFS core.
  */
 
 #include <linux/math64.h>
@@ -377,8 +377,8 @@ out_locked:
 
 u32 affs_checksum_block(struct super_block *sb, struct buffer_head *bh)
 {
-    return ifs_amiga_block_checksum(
-        (const ifs_amiga_u8 *)bh->b_data, (ifs_amiga_u32)sb->s_blocksize);
+    return ifs_ofs_block_checksum(
+        (const ifs_ofs_u8 *)bh->b_data, (ifs_ofs_u32)sb->s_blocksize);
 }
 
 void affs_fix_checksum(struct super_block *sb, struct buffer_head *bh)
@@ -386,9 +386,9 @@ void affs_fix_checksum(struct super_block *sb, struct buffer_head *bh)
     __be32 *words = (__be32 *)bh->b_data;
 
     words[5] = cpu_to_be32(
-        ifs_amiga_checksum_word_value(
-            (const ifs_amiga_u8 *)bh->b_data,
-            (ifs_amiga_u32)sb->s_blocksize, 5U));
+        ifs_ofs_checksum_word_value(
+            (const ifs_ofs_u8 *)bh->b_data,
+            (ifs_ofs_u32)sb->s_blocksize, 5U));
 }
 
 void affs_secs_to_datestamp(time64_t seconds, struct affs_date *stamp)
@@ -516,19 +516,19 @@ bool affs_nofilenametruncate(const struct dentry *dentry)
 
 int affs_check_name(const unsigned char *name, int length, bool no_truncate)
 {
-    const IfsAmigaNameStatus status = ifs_amiga_validate_name(
-        name, length < 0 ? 0U : (ifs_amiga_u32)length,
+    const IfsOfsNameStatus status = ifs_ofs_validate_name(
+        name, length < 0 ? 0U : (ifs_ofs_u32)length,
         no_truncate ? 1 : 0);
 
     if (length < 0)
         return -EINVAL;
 
     switch (status) {
-    case IFS_AMIGA_NAME_OK:
+    case IFS_OFS_NAME_OK:
         return 0;
-    case IFS_AMIGA_NAME_TOO_LONG:
+    case IFS_OFS_NAME_TOO_LONG:
         return -ENAMETOOLONG;
-    case IFS_AMIGA_NAME_INVALID_CHARACTER:
+    case IFS_OFS_NAME_INVALID_CHARACTER:
     default:
         return -EINVAL;
     }
