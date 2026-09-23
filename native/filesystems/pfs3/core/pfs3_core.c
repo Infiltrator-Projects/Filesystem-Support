@@ -44,7 +44,7 @@ IfsPfs3RootStatus ifs_pfs3_validate_root_geometry(
         !ifs_pfs3_is_power_of_two(reserved_block_size) ||
         reserved_block_size % logical_block_size != 0U)
         return IFS_PFS3_ROOT_INVALID_RESERVED_BLOCK_SIZE;
-    if (root_block_cluster < 1U || root_block_cluster > 521U)
+    if (root_block_cluster < 1U || root_block_cluster > IFS_PFS3_MAX_ROOT_CLUSTER)
         return IFS_PFS3_ROOT_INVALID_ROOT_CLUSTER;
 
     if (disk_type == IFS_PFS3_DISK_PFS1 &&
@@ -63,10 +63,32 @@ IfsPfs3RootStatus ifs_pfs3_validate_root_geometry(
 
     reserved_block_count =
         reserved_sector_count / sectors_per_reserved_block;
+    if (reserved_block_count == 0U ||
+        reserved_block_count > IFS_PFS3_MAX_RESERVED_BLOCKS)
+        return IFS_PFS3_ROOT_RESERVED_COUNT_OUT_OF_RANGE;
+    if (root_block_cluster % sectors_per_reserved_block != 0U ||
+        root_block_cluster > reserved_sector_count)
+        return IFS_PFS3_ROOT_INVALID_ROOT_CLUSTER_ALIGNMENT;
     if (reserved_free > reserved_block_count)
         return IFS_PFS3_ROOT_RESERVED_FREE_OUT_OF_RANGE;
 
     return IFS_PFS3_ROOT_OK;
+}
+
+int ifs_pfs3_validate_disk_name(
+    const unsigned char disk_name[IFS_PFS3_DISK_NAME_BYTES])
+{
+    ifs_pfs3_u32 length, index;
+    if (disk_name == 0)
+        return -1;
+    length = disk_name[0];
+    if (length == 0U || length > IFS_PFS3_MAX_DISK_NAME)
+        return -1;
+    for (index = 0U; index < length; index++) {
+        if (disk_name[index + 1U] == ':' || disk_name[index + 1U] == '/')
+            return -1;
+    }
+    return 0;
 }
 
 const char *ifs_pfs3_root_status_string(const IfsPfs3RootStatus status)
@@ -88,6 +110,10 @@ const char *ifs_pfs3_root_status_string(const IfsPfs3RootStatus status)
         return "PFS1 media uses PFS2-only format features";
     case IFS_PFS3_ROOT_INVALID_RESERVED_RANGE:
         return "invalid PFS reserved-block range";
+    case IFS_PFS3_ROOT_RESERVED_COUNT_OUT_OF_RANGE:
+        return "PFS reserved-block count exceeds implementation limit";
+    case IFS_PFS3_ROOT_INVALID_ROOT_CLUSTER_ALIGNMENT:
+        return "PFS root-block cluster is not aligned to the reserved area";
     case IFS_PFS3_ROOT_RESERVED_FREE_OUT_OF_RANGE:
         return "PFS reserved-free count exceeds reserved area";
     }

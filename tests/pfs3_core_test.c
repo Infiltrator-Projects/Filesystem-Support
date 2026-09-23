@@ -47,5 +47,26 @@ int main(void)
         IFS_PFS3_ROOT_INVALID_RESERVED_BLOCK_SIZE)
         return fail("non-power-of-two reserved block size accepted");
 
+    if (ifs_pfs3_validate_root_geometry(
+            IFS_PFS3_DISK_PFS2, IFS_PFS3_MODE_HARDDISK,
+            512U, 1024U, 2U, 2U,
+            2U + 2U * IFS_PFS3_MAX_RESERVED_BLOCKS + 1U,
+            20U) != IFS_PFS3_ROOT_RESERVED_COUNT_OUT_OF_RANGE)
+        return fail("oversized reserved area accepted");
+    if (ifs_pfs3_validate_root_geometry(
+            IFS_PFS3_DISK_PFS2, IFS_PFS3_MODE_HARDDISK,
+            512U, 2048U, 2U, 2U, 129U, 20U) !=
+        IFS_PFS3_ROOT_INVALID_ROOT_CLUSTER_ALIGNMENT)
+        return fail("misaligned PFS root cluster accepted");
+    {
+        unsigned char name[IFS_PFS3_DISK_NAME_BYTES] = {0};
+        name[0]=4U; name[1]='T'; name[2]='e'; name[3]='s'; name[4]='t';
+        if (ifs_pfs3_validate_disk_name(name) != 0)
+            return fail("valid PFS disk name rejected");
+        name[2]=':';
+        if (ifs_pfs3_validate_disk_name(name) == 0)
+            return fail("invalid PFS disk name accepted");
+    }
+
     return 0;
 }

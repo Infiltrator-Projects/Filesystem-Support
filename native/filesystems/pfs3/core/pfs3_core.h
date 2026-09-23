@@ -14,6 +14,10 @@ typedef uint32_t ifs_pfs3_u32;
 
 #define IFS_PFS3_DISK_PFS1 0x50465301U
 #define IFS_PFS3_DISK_PFS2 0x50465302U
+#define IFS_PFS3_MAX_RESERVED_BLOCKS (4096U + 255U * 1024U * 8U)
+#define IFS_PFS3_MAX_ROOT_CLUSTER 521U
+#define IFS_PFS3_DISK_NAME_BYTES 32U
+#define IFS_PFS3_MAX_DISK_NAME 31U
 
 #define IFS_PFS3_MODE_HARDDISK        0x0001U
 #define IFS_PFS3_MODE_SPLITTED_ANODES 0x0002U
@@ -44,6 +48,8 @@ typedef enum IfsPfs3RootStatus {
     IFS_PFS3_ROOT_INVALID_ROOT_CLUSTER,
     IFS_PFS3_ROOT_CLASSIC_FEATURE_CONFLICT,
     IFS_PFS3_ROOT_INVALID_RESERVED_RANGE,
+    IFS_PFS3_ROOT_RESERVED_COUNT_OUT_OF_RANGE,
+    IFS_PFS3_ROOT_INVALID_ROOT_CLUSTER_ALIGNMENT,
     IFS_PFS3_ROOT_RESERVED_FREE_OUT_OF_RANGE
 } IfsPfs3RootStatus;
 
@@ -58,6 +64,9 @@ IfsPfs3RootStatus ifs_pfs3_validate_root_geometry(
     ifs_pfs3_u32 first_reserved,
     ifs_pfs3_u32 last_reserved,
     ifs_pfs3_u32 reserved_free);
+
+int ifs_pfs3_validate_disk_name(
+    const unsigned char disk_name[IFS_PFS3_DISK_NAME_BYTES]);
 
 const char *ifs_pfs3_root_status_string(IfsPfs3RootStatus status);
 
