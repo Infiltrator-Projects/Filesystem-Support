@@ -1,7 +1,11 @@
 # Canonical SFS core
 
-This directory is the host-neutral destination for **SFS (SFS\\0, structure
-version 3)** semantics extracted from the real ASFS implementation.
+This directory owns host-neutral **SFS (SFS\\0, structure version 3)**
+semantics.
 
-It is not a speculative rewrite. Subsystems move here only as the upstream
-behaviour is preserved and qualified. SFS2 is maintained separately.
+The canonical core now owns root-block identity, structure-version policy,
+layout range validation and bitmap geometry arithmetic. Linux and Windows
+adapters consume these same rules rather than maintaining independent copies.
+
+Further allocation, object, extent and directory semantics move here as they
+are separated from host APIs. SFS2 remains a distinct filesystem.

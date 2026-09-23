@@ -111,6 +111,13 @@ target_include_directories(infiltratr-fs-ext4-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext4/core")
 filesystem_support_configure(infiltratr-fs-ext4-core)
 
+# Canonical Amiga SFS format/layout policy shared by host adapters.
+add_library(infiltratr-fs-sfs-core STATIC
+    native/filesystems/sfs/core/sfs_core.c)
+target_include_directories(infiltratr-fs-sfs-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/sfs/core")
+filesystem_support_configure(infiltratr-fs-sfs-core)
+
 # The catalogue is intentionally platform-neutral. Linux package/probe policy
 # is layered on top of it; the Windows manager consumes the same identities.
 add_library(filesystem-support-catalog STATIC
@@ -264,6 +271,15 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-ext4-core
         COMMAND filesystem-support-ext4-core-test)
+
+    add_executable(filesystem-support-sfs-core-test
+        tests/sfs_core_test.c)
+    target_link_libraries(filesystem-support-sfs-core-test
+        PRIVATE infiltratr-fs-sfs-core)
+    filesystem_support_configure(filesystem-support-sfs-core-test)
+    add_test(
+        NAME filesystem-support-sfs-core
+        COMMAND filesystem-support-sfs-core-test)
 
     add_executable(filesystem-support-windows-catalog-test
         tests/windows_catalog_test.cpp)
