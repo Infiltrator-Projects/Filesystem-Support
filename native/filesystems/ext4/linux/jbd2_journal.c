@@ -3363,9 +3363,13 @@ int __init infiltratr_jbd2_init(void)
 	BUILD_BUG_ON(sizeof(struct journal_superblock_s) != 1024);
 
 	ret = journal_init_caches();
-	if (ret != 0)
+	if (ret != 0) {
 		jbd2_journal_destroy_caches();
-	return ret;
+		return ret;
+	}
+
+	jbd2_create_jbd_stats_proc_entry();
+	return 0;
 }
 
 
@@ -3384,5 +3388,6 @@ void __exit infiltratr_jbd2_exit(void)
 	if (n)
 		printk(KERN_ERR "JBD2: leaked %d journal_heads!\n", n);
 #endif
+	jbd2_remove_jbd_stats_proc_entry();
 	jbd2_journal_destroy_caches();
 }
