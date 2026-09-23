@@ -1,1332 +1,873 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
- *  linux/fs/ext2/balloc.c
+ * Infiltrator Filesystem Support — EXT2 block allocation.
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  Enhanced block allocation by Stephen Tweedie (sct@redhat.com), 1993
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
- */
-
-/*
- * EXT2 — Block allocation
- *
- * Purpose:
- *   Implements free-block accounting, block-group bitmap handling and block allocation/release policy.
- *
- * Filesystem model:
- *   This file belongs to a deliberately strict, non-journalled EXT2 VFS implementation.
- *
- * Correctness focus:
- *   Allocation code must keep bitmap state, group descriptors, global counters and journal state mutually consistent across success and rollback paths.
- *
- * Project rules:
- *   - Do not accept a journalled EXT3 volume as EXT2.
- *   - Keep on-disk compatibility fields when they are required to parse or reject media correctly.
- *   - Keep xattr/ACL/cache code inside ext2.ko rather than creating helper modules.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
+ * The canonical EXT2 core owns filesystem geometry and sparse-super policy.
+ * This Linux adapter owns buffer-cache access, reservation windows, quota
+ * integration and atomic publication of allocation bitmap/accounting state.
  */
 
 #include "ext2.h"
+
+#include <linux/buffer_head.h>
+#include <linux/capability.h>
+#include <linux/cred.h>
 #include <linux/overflow.h>
 #include <linux/quotaops.h>
 #include <linux/slab.h>
-#include <linux/sched.h>
-#include <linux/cred.h>
-#include <linux/buffer_head.h>
-#include <linux/capability.h>
 
-
-/**
- * ext2_get_group_desc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-struct ext2_group_desc * ext2_get_group_desc(struct super_block * sb,
-					     unsigned int block_group,
-					     struct buffer_head ** bh)
+struct ext2_group_desc *ext2_get_group_desc(
+	struct super_block *sb, unsigned int group,
+	struct buffer_head **bh_out)
 {
-	unsigned long group_desc;
-	unsigned long offset;
-	struct ext2_group_desc * desc;
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	unsigned long descriptor_block;
+	unsigned long descriptor_index;
+	struct ext2_group_desc *base;
 
-	if (block_group >= sbi->s_groups_count) {
-		WARN(1, "block_group >= groups_count - "
-		     "block_group = %d, groups_count = %lu",
-		     block_group, sbi->s_groups_count);
-
+	if (group >= sbi->s_groups_count)
 		return NULL;
-	}
 
-	group_desc = block_group >> EXT2_DESC_PER_BLOCK_BITS(sb);
-	offset = block_group & (EXT2_DESC_PER_BLOCK(sb) - 1);
-	if (!sbi->s_group_desc[group_desc]) {
-		WARN(1, "Group descriptor not loaded - "
-		     "block_group = %d, group_desc = %lu, desc = %lu",
-		      block_group, group_desc, offset);
+	descriptor_block = group >> EXT2_DESC_PER_BLOCK_BITS(sb);
+	descriptor_index = group & (EXT2_DESC_PER_BLOCK(sb) - 1U);
+	if (!sbi->s_group_desc ||
+	    !sbi->s_group_desc[descriptor_block])
 		return NULL;
-	}
 
-	desc = (struct ext2_group_desc *) sbi->s_group_desc[group_desc]->b_data;
-	if (bh)
-		*bh = sbi->s_group_desc[group_desc];
-	return desc + offset;
+	if (bh_out)
+		*bh_out = sbi->s_group_desc[descriptor_block];
+
+	base = (struct ext2_group_desc *)
+		sbi->s_group_desc[descriptor_block]->b_data;
+	return base + descriptor_index;
 }
 
-
-/**
- * ext2_valid_block_bitmap - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_valid_block_bitmap(struct super_block *sb,
-					struct ext2_group_desc *desc,
-					unsigned int block_group,
-					struct buffer_head *bh)
+static bool ext2_group_metadata_reserved(
+	struct super_block *sb, unsigned int group,
+	struct ext2_group_desc *desc, struct buffer_head *bitmap)
 {
-	ext2_grpblk_t offset;
-	ext2_grpblk_t next_zero_bit;
-	ext2_fsblk_t bitmap_blk;
-	ext2_fsblk_t group_first_block;
-	ext2_grpblk_t max_bit;
+	const ext2_fsblk_t first = ext2_group_first_block_no(sb, group);
+	const ext2_fsblk_t last = ext2_group_last_block_no(sb, group);
+	const u32 table_blocks = EXT2_SB(sb)->s_itb_per_group;
+	ext2_fsblk_t block;
+	unsigned long bit;
+	unsigned long end_bit;
 
-	group_first_block = ext2_group_first_block_no(sb, block_group);
-	max_bit = ext2_group_last_block_no(sb, block_group) - group_first_block;
+	block = le32_to_cpu(desc->bg_block_bitmap);
+	if (block < first || block > last)
+		goto corrupt;
+	bit = block - first;
+	if (!ext2_test_bit(bit, bitmap->b_data))
+		goto corrupt;
 
+	block = le32_to_cpu(desc->bg_inode_bitmap);
+	if (block < first || block > last)
+		goto corrupt;
+	bit = block - first;
+	if (!ext2_test_bit(bit, bitmap->b_data))
+		goto corrupt;
 
-	bitmap_blk = le32_to_cpu(desc->bg_block_bitmap);
-	offset = bitmap_blk - group_first_block;
-	if (offset < 0 || offset > max_bit ||
-	    !ext2_test_bit(offset, bh->b_data))
+	block = le32_to_cpu(desc->bg_inode_table);
+	if (block < first || block > last || table_blocks == 0U)
+		goto corrupt;
+	bit = block - first;
+	if (check_add_overflow(bit, (unsigned long)table_blocks, &end_bit) ||
+	    end_bit > (last - first + 1U))
+		goto corrupt;
 
-		goto err_out;
+	if (ext2_find_next_zero_bit(
+		    bitmap->b_data, end_bit, bit) < end_bit)
+		goto corrupt;
 
+	return true;
 
-	bitmap_blk = le32_to_cpu(desc->bg_inode_bitmap);
-	offset = bitmap_blk - group_first_block;
-	if (offset < 0 || offset > max_bit ||
-	    !ext2_test_bit(offset, bh->b_data))
-
-		goto err_out;
-
-
-	bitmap_blk = le32_to_cpu(desc->bg_inode_table);
-	offset = bitmap_blk - group_first_block;
-	if (offset < 0 || offset > max_bit ||
-	    offset + EXT2_SB(sb)->s_itb_per_group - 1 > max_bit)
-		goto err_out;
-	next_zero_bit = ext2_find_next_zero_bit(bh->b_data,
-				offset + EXT2_SB(sb)->s_itb_per_group,
-				offset);
-	if (next_zero_bit >= offset + EXT2_SB(sb)->s_itb_per_group)
-
-		return 1;
-
-err_out:
+corrupt:
 	ext2_error(sb, __func__,
-			"Invalid block bitmap - "
-			"block_group = %d, block = %lu",
-			block_group, bitmap_blk);
-	return 0;
+		   "group %u has corrupt metadata allocation map", group);
+	return false;
 }
 
-
-/**
- * read_block_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static struct buffer_head *
-read_block_bitmap(struct super_block *sb, unsigned int block_group)
+static struct buffer_head *ext2_read_block_bitmap(
+	struct super_block *sb, unsigned int group)
 {
-	struct ext2_group_desc * desc;
-	struct buffer_head * bh = NULL;
-	ext2_fsblk_t bitmap_blk;
-	int ret;
+	struct ext2_group_desc *desc;
+	struct buffer_head *bh;
+	u32 block;
+	int status;
 
-	desc = ext2_get_group_desc(sb, block_group, NULL);
+	desc = ext2_get_group_desc(sb, group, NULL);
 	if (!desc)
 		return NULL;
-	bitmap_blk = le32_to_cpu(desc->bg_block_bitmap);
-	bh = sb_getblk(sb, bitmap_blk);
-	if (unlikely(!bh)) {
-		ext2_error(sb, __func__,
-			    "Cannot read block bitmap - "
-			    "block_group = %d, block_bitmap = %u",
-			    block_group, le32_to_cpu(desc->bg_block_bitmap));
+
+	block = le32_to_cpu(desc->bg_block_bitmap);
+	bh = sb_getblk(sb, block);
+	if (!bh)
 		return NULL;
-	}
-	ret = bh_read(bh, 0);
-	if (ret > 0)
-		return bh;
-	if (ret < 0) {
+
+	status = bh_read(bh, 0);
+	if (status < 0) {
 		brelse(bh);
 		ext2_error(sb, __func__,
-			    "Cannot read block bitmap - "
-			    "block_group = %d, block_bitmap = %u",
-			    block_group, le32_to_cpu(desc->bg_block_bitmap));
+			   "cannot read block bitmap %u for group %u",
+			   block, group);
 		return NULL;
 	}
 
-	ext2_valid_block_bitmap(sb, desc, block_group, bh);
-
+	if (status == 0 &&
+	    !ext2_group_metadata_reserved(sb, group, desc, bh)) {
+		brelse(bh);
+		return NULL;
+	}
 
 	return bh;
 }
 
-
-/**
- * group_adjust_blocks - Implements the group adjust blocks operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void group_adjust_blocks(struct super_block *sb, int group_no,
-	struct ext2_group_desc *desc, struct buffer_head *bh, int count)
+static void ext2_adjust_group_free_blocks(
+	struct super_block *sb, unsigned int group,
+	struct ext2_group_desc *desc, struct buffer_head *desc_bh,
+	int delta)
 {
-	if (count) {
-		struct ext2_sb_info *sbi = EXT2_SB(sb);
-		unsigned free_blocks;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	unsigned int current;
 
-		spin_lock(sb_bgl_lock(sbi, group_no));
-		free_blocks = le16_to_cpu(desc->bg_free_blocks_count);
-		desc->bg_free_blocks_count = cpu_to_le16(free_blocks + count);
-		spin_unlock(sb_bgl_lock(sbi, group_no));
-		mark_buffer_dirty(bh);
-	}
-}
-
-
-#if 1
-
-
-/**
- * __rsv_window_dump - Implements the rsv window dump operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void __rsv_window_dump(struct rb_root *root, int verbose,
-			      const char *fn)
-{
-	struct rb_node *n;
-	struct ext2_reserve_window_node *rsv, *prev;
-	int bad;
-
-restart:
-	n = rb_first(root);
-	bad = 0;
-	prev = NULL;
-
-	printk("Block Allocation Reservation Windows Map (%s):\n", fn);
-	while (n) {
-		rsv = rb_entry(n, struct ext2_reserve_window_node, rsv_node);
-		if (verbose)
-			printk("reservation window 0x%p "
-				"start: %lu, end: %lu\n",
-				rsv, rsv->rsv_start, rsv->rsv_end);
-		if (rsv->rsv_start && rsv->rsv_start >= rsv->rsv_end) {
-			printk("Bad reservation %p (start >= end)\n",
-			       rsv);
-			bad = 1;
-		}
-		if (prev && prev->rsv_end >= rsv->rsv_start) {
-			printk("Bad reservation %p (prev->end >= start)\n",
-			       rsv);
-			bad = 1;
-		}
-		if (bad) {
-			if (!verbose) {
-				printk("Restarting reservation walk in verbose mode\n");
-				verbose = 1;
-				goto restart;
-			}
-		}
-		n = rb_next(n);
-		prev = rsv;
-	}
-	printk("Window map complete.\n");
-	BUG_ON(bad);
-}
-#define rsv_window_dump(root, verbose) \
-	__rsv_window_dump((root), (verbose), __func__)
-#else
-#define rsv_window_dump(root, verbose) do {} while (0)
-#endif
-
-
-/**
- * goal_in_my_reservation - Implements the goal in my reservation operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int
-goal_in_my_reservation(struct ext2_reserve_window *rsv, ext2_grpblk_t grp_goal,
-			unsigned int group, struct super_block * sb)
-{
-	ext2_fsblk_t group_first_block, group_last_block;
-
-	group_first_block = ext2_group_first_block_no(sb, group);
-	group_last_block = ext2_group_last_block_no(sb, group);
-
-	if ((rsv->_rsv_start > group_last_block) ||
-	    (rsv->_rsv_end < group_first_block))
-		return 0;
-	if ((grp_goal >= 0) && ((grp_goal + group_first_block < rsv->_rsv_start)
-		|| (grp_goal + group_first_block > rsv->_rsv_end)))
-		return 0;
-	return 1;
-}
-
-
-/**
- * search_reserve_window - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static struct ext2_reserve_window_node *
-search_reserve_window(struct rb_root *root, ext2_fsblk_t goal)
-{
-	struct rb_node *n = root->rb_node;
-	struct ext2_reserve_window_node *rsv;
-
-	if (!n)
-		return NULL;
-
-	do {
-		rsv = rb_entry(n, struct ext2_reserve_window_node, rsv_node);
-
-		if (goal < rsv->rsv_start)
-			n = n->rb_left;
-		else if (goal > rsv->rsv_end)
-			n = n->rb_right;
-		else
-			return rsv;
-	} while (n);
-
-
-	if (rsv->rsv_start > goal) {
-		n = rb_prev(&rsv->rsv_node);
-		rsv = rb_entry(n, struct ext2_reserve_window_node, rsv_node);
-	}
-	return rsv;
-}
-
-
-/**
- * ext2_rsv_window_add - Implements the rsv window add operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext2_rsv_window_add(struct super_block *sb,
-		    struct ext2_reserve_window_node *rsv)
-{
-	struct rb_root *root = &EXT2_SB(sb)->s_rsv_window_root;
-	struct rb_node *node = &rsv->rsv_node;
-	ext2_fsblk_t start = rsv->rsv_start;
-
-	struct rb_node ** p = &root->rb_node;
-	struct rb_node * parent = NULL;
-	struct ext2_reserve_window_node *this;
-
-	while (*p)
-	{
-		parent = *p;
-		this = rb_entry(parent, struct ext2_reserve_window_node, rsv_node);
-
-		if (start < this->rsv_start)
-			p = &(*p)->rb_left;
-		else if (start > this->rsv_end)
-			p = &(*p)->rb_right;
-		else {
-			rsv_window_dump(root, 1);
-			BUG();
-		}
-	}
-
-	rb_link_node(node, parent, p);
-	rb_insert_color(node, root);
-}
-
-
-/**
- * rsv_window_remove - Implements the rsv window remove operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void rsv_window_remove(struct super_block *sb,
-			      struct ext2_reserve_window_node *rsv)
-{
-	rsv->rsv_start = EXT2_RESERVE_WINDOW_NOT_ALLOCATED;
-	rsv->rsv_end = EXT2_RESERVE_WINDOW_NOT_ALLOCATED;
-	rsv->rsv_alloc_hit = 0;
-	rb_erase(&rsv->rsv_node, &EXT2_SB(sb)->s_rsv_window_root);
-}
-
-
-/**
- * rsv_is_empty - Implements the rsv is empty operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int rsv_is_empty(struct ext2_reserve_window *rsv)
-{
-
-	return (rsv->_rsv_end == EXT2_RESERVE_WINDOW_NOT_ALLOCATED);
-}
-
-
-/**
- * ext2_init_block_alloc_info - Initialises subsystem state and establishes the resources required by later operations.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext2_init_block_alloc_info(struct inode *inode)
-{
-	struct ext2_inode_info *ei = EXT2_I(inode);
-	struct ext2_block_alloc_info *block_i;
-	struct super_block *sb = inode->i_sb;
-
-	block_i = kmalloc(sizeof(*block_i), GFP_KERNEL);
-	if (block_i) {
-		struct ext2_reserve_window_node *rsv = &block_i->rsv_window_node;
-
-		rsv->rsv_start = EXT2_RESERVE_WINDOW_NOT_ALLOCATED;
-		rsv->rsv_end = EXT2_RESERVE_WINDOW_NOT_ALLOCATED;
-
-
-		if (!test_opt(sb, RESERVATION))
-			rsv->rsv_goal_size = 0;
-		else
-			rsv->rsv_goal_size = EXT2_DEFAULT_RESERVE_BLOCKS;
-		rsv->rsv_alloc_hit = 0;
-		block_i->last_alloc_logical_block = 0;
-		block_i->last_alloc_physical_block = 0;
-	}
-	ei->i_block_alloc_info = block_i;
-}
-
-
-/**
- * ext2_discard_reservation - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext2_discard_reservation(struct inode *inode)
-{
-	struct ext2_inode_info *ei = EXT2_I(inode);
-	struct ext2_block_alloc_info *block_i = ei->i_block_alloc_info;
-	struct ext2_reserve_window_node *rsv;
-	spinlock_t *rsv_lock = &EXT2_SB(inode->i_sb)->s_rsv_window_lock;
-
-	if (!block_i)
+	if (delta == 0)
 		return;
 
-	rsv = &block_i->rsv_window_node;
-	if (!rsv_is_empty(&rsv->rsv_window)) {
-		spin_lock(rsv_lock);
-		if (!rsv_is_empty(&rsv->rsv_window))
-			rsv_window_remove(inode->i_sb, rsv);
-		spin_unlock(rsv_lock);
+	spin_lock(sb_bgl_lock(sbi, group));
+	current = le16_to_cpu(desc->bg_free_blocks_count);
+	if (delta < 0 && current < (unsigned int)(-delta)) {
+		spin_unlock(sb_bgl_lock(sbi, group));
+		ext2_error(sb, __func__,
+			   "free-block count underflow in group %u", group);
+		return;
+	}
+	desc->bg_free_blocks_count =
+		cpu_to_le16((unsigned int)((int)current + delta));
+	spin_unlock(sb_bgl_lock(sbi, group));
+	mark_buffer_dirty(desc_bh);
+}
+
+static bool ext2_reservation_empty(const struct ext2_reserve_window *window)
+{
+	return window->_rsv_end == EXT2_RESERVE_WINDOW_NOT_ALLOCATED;
+}
+
+static bool ext2_reservation_intersects_group(
+	const struct ext2_reserve_window *window,
+	struct super_block *sb, unsigned int group)
+{
+	const ext2_fsblk_t first = ext2_group_first_block_no(sb, group);
+	const ext2_fsblk_t last = ext2_group_last_block_no(sb, group);
+
+	return window->_rsv_start <= last && window->_rsv_end >= first;
+}
+
+static bool ext2_goal_inside_reservation(
+	const struct ext2_reserve_window *window,
+	struct super_block *sb, unsigned int group,
+	ext2_grpblk_t group_goal)
+{
+	ext2_fsblk_t absolute;
+
+	if (!ext2_reservation_intersects_group(window, sb, group))
+		return false;
+	if (group_goal < 0)
+		return true;
+
+	absolute = ext2_group_first_block_no(sb, group) + group_goal;
+	return absolute >= window->_rsv_start &&
+	       absolute <= window->_rsv_end;
+}
+
+static struct ext2_reserve_window_node *ext2_reservation_at_or_before(
+	struct rb_root *root, ext2_fsblk_t block)
+{
+	struct rb_node *node = root->rb_node;
+	struct ext2_reserve_window_node *candidate = NULL;
+
+	while (node) {
+		struct ext2_reserve_window_node *current =
+			rb_entry(node, struct ext2_reserve_window_node, rsv_node);
+
+		if (block < current->rsv_start) {
+			node = node->rb_left;
+		} else {
+			candidate = current;
+			if (block <= current->rsv_end)
+				break;
+			node = node->rb_right;
+		}
+	}
+
+	return candidate;
+}
+
+void ext2_rsv_window_add(
+	struct super_block *sb, struct ext2_reserve_window_node *window)
+{
+	struct rb_root *root = &EXT2_SB(sb)->s_rsv_window_root;
+	struct rb_node **link = &root->rb_node;
+	struct rb_node *parent = NULL;
+
+	while (*link) {
+		struct ext2_reserve_window_node *current =
+			rb_entry(*link, struct ext2_reserve_window_node, rsv_node);
+
+		parent = *link;
+		if (window->rsv_end < current->rsv_start)
+			link = &(*link)->rb_left;
+		else if (window->rsv_start > current->rsv_end)
+			link = &(*link)->rb_right;
+		else
+			BUG();
+	}
+
+	rb_link_node(&window->rsv_node, parent, link);
+	rb_insert_color(&window->rsv_node, root);
+}
+
+static void ext2_reservation_remove(
+	struct super_block *sb, struct ext2_reserve_window_node *window)
+{
+	if (ext2_reservation_empty(&window->rsv_window))
+		return;
+
+	rb_erase(&window->rsv_node, &EXT2_SB(sb)->s_rsv_window_root);
+	window->rsv_start = EXT2_RESERVE_WINDOW_NOT_ALLOCATED;
+	window->rsv_end = EXT2_RESERVE_WINDOW_NOT_ALLOCATED;
+	window->rsv_alloc_hit = 0U;
+}
+
+void ext2_init_block_alloc_info(struct inode *inode)
+{
+	struct ext2_block_alloc_info *info;
+
+	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	if (!info) {
+		EXT2_I(inode)->i_block_alloc_info = NULL;
+		return;
+	}
+
+	info->rsv_window_node.rsv_start =
+		EXT2_RESERVE_WINDOW_NOT_ALLOCATED;
+	info->rsv_window_node.rsv_end =
+		EXT2_RESERVE_WINDOW_NOT_ALLOCATED;
+	info->rsv_window_node.rsv_goal_size =
+		test_opt(inode->i_sb, RESERVATION)
+		? EXT2_DEFAULT_RESERVE_BLOCKS : 0U;
+	info->rsv_window_node.rsv_alloc_hit = 0U;
+	EXT2_I(inode)->i_block_alloc_info = info;
+}
+
+void ext2_discard_reservation(struct inode *inode)
+{
+	struct ext2_block_alloc_info *info =
+		EXT2_I(inode)->i_block_alloc_info;
+	struct ext2_sb_info *sbi = EXT2_SB(inode->i_sb);
+
+	if (!info)
+		return;
+
+	spin_lock(&sbi->s_rsv_window_lock);
+	ext2_reservation_remove(
+		inode->i_sb, &info->rsv_window_node);
+	spin_unlock(&sbi->s_rsv_window_lock);
+}
+
+static int ext2_find_reservation_gap(
+	struct super_block *sb,
+	struct ext2_reserve_window_node *window,
+	ext2_fsblk_t start, ext2_fsblk_t last)
+{
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	struct ext2_reserve_window_node *cursor;
+	ext2_fsblk_t candidate = start;
+	ext2_fsblk_t end;
+	unsigned int size = window->rsv_goal_size;
+
+	if (size == 0U)
+		return -ENOSPC;
+
+	cursor = ext2_reservation_at_or_before(
+		&sbi->s_rsv_window_root, candidate);
+	if (cursor && candidate <= cursor->rsv_end) {
+		if (check_add_overflow(
+			    cursor->rsv_end, (ext2_fsblk_t)1, &candidate))
+			return -ENOSPC;
+	}
+
+	while (candidate <= last) {
+		struct rb_node *next_node;
+		struct ext2_reserve_window_node *next = NULL;
+
+		if (check_add_overflow(
+			    candidate, (ext2_fsblk_t)(size - 1U), &end) ||
+		    end > last)
+			return -ENOSPC;
+
+		cursor = ext2_reservation_at_or_before(
+			&sbi->s_rsv_window_root, candidate);
+		if (cursor) {
+			next_node = rb_next(&cursor->rsv_node);
+			if (next_node)
+				next = rb_entry(
+					next_node,
+					struct ext2_reserve_window_node,
+					rsv_node);
+		} else {
+			next_node = rb_first(&sbi->s_rsv_window_root);
+			if (next_node)
+				next = rb_entry(
+					next_node,
+					struct ext2_reserve_window_node,
+					rsv_node);
+		}
+
+		if (!next || end < next->rsv_start)
+			break;
+
+		if (check_add_overflow(
+			    next->rsv_end, (ext2_fsblk_t)1, &candidate))
+			return -ENOSPC;
+	}
+
+	ext2_reservation_remove(sb, window);
+	window->rsv_start = candidate;
+	window->rsv_end = end;
+	window->rsv_alloc_hit = 0U;
+	ext2_rsv_window_add(sb, window);
+	return 0;
+}
+
+static int ext2_refresh_reservation(
+	struct super_block *sb, unsigned int group,
+	struct buffer_head *bitmap,
+	ext2_grpblk_t group_goal,
+	struct ext2_reserve_window_node *window)
+{
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	const ext2_fsblk_t group_first =
+		ext2_group_first_block_no(sb, group);
+	const ext2_fsblk_t group_last =
+		ext2_group_last_block_no(sb, group);
+	ext2_fsblk_t start = group_first;
+	ext2_grpblk_t free_bit;
+	int result;
+
+	if (group_goal >= 0)
+		start += group_goal;
+
+	if (!ext2_reservation_empty(&window->rsv_window) &&
+	    window->rsv_alloc_hit >
+	    (window->rsv_end - window->rsv_start + 1U) / 2U) {
+		window->rsv_goal_size =
+			min_t(unsigned int,
+			      window->rsv_goal_size * 2U,
+			      EXT2_MAX_RESERVE_BLOCKS);
+	}
+
+	spin_lock(&sbi->s_rsv_window_lock);
+	result = ext2_find_reservation_gap(
+		sb, window, start, group_last);
+	spin_unlock(&sbi->s_rsv_window_lock);
+	if (result != 0)
+		return result;
+
+	free_bit = ext2_find_next_zero_bit(
+		bitmap->b_data,
+		group_last - group_first + 1U,
+		window->rsv_start - group_first);
+	if (free_bit > group_last - group_first ||
+	    group_first + free_bit > window->rsv_end) {
+		spin_lock(&sbi->s_rsv_window_lock);
+		ext2_reservation_remove(sb, window);
+		spin_unlock(&sbi->s_rsv_window_lock);
+		return -ENOSPC;
+	}
+
+	return 0;
+}
+
+static ext2_grpblk_t ext2_find_candidate_bit(
+	struct buffer_head *bitmap, ext2_grpblk_t start,
+	ext2_grpblk_t end)
+{
+	ext2_grpblk_t bit;
+
+	if (start < 0)
+		start = 0;
+	if (start >= end)
+		return -1;
+
+	bit = ext2_find_next_zero_bit(bitmap->b_data, end, start);
+	return bit < end ? bit : -1;
+}
+
+static ext2_grpblk_t ext2_claim_run(
+	struct super_block *sb, unsigned int group,
+	struct buffer_head *bitmap,
+	ext2_grpblk_t goal, unsigned long *count,
+	const struct ext2_reserve_window *reservation)
+{
+	const ext2_fsblk_t group_first =
+		ext2_group_first_block_no(sb, group);
+	const ext2_fsblk_t group_last =
+		ext2_group_last_block_no(sb, group);
+	ext2_grpblk_t start = 0;
+	ext2_grpblk_t end =
+		(ext2_grpblk_t)(group_last - group_first + 1U);
+	ext2_grpblk_t bit;
+	unsigned long claimed = 0U;
+
+	if (reservation) {
+		if (reservation->_rsv_start > group_first)
+			start = reservation->_rsv_start - group_first;
+		if (reservation->_rsv_end < group_last)
+			end = reservation->_rsv_end - group_first + 1U;
+		if (goal < start || goal >= end)
+			goal = -1;
+	}
+
+	bit = goal >= 0
+		? ext2_find_candidate_bit(bitmap, goal, end)
+		: ext2_find_candidate_bit(bitmap, start, end);
+	if (bit < 0)
+		return -1;
+
+	if (!reservation && goal < 0) {
+		unsigned int rewind = 0U;
+
+		while (bit > start && rewind < 7U &&
+		       !ext2_test_bit(bit - 1, bitmap->b_data)) {
+			--bit;
+			++rewind;
+		}
+	}
+
+	goal = bit;
+	while (claimed < *count && bit < end) {
+		if (ext2_set_bit_atomic(
+			    sb_bgl_lock(EXT2_SB(sb), group),
+			    bit, bitmap->b_data)) {
+			if (claimed != 0U)
+				break;
+			++bit;
+			goal = bit;
+			continue;
+		}
+		++claimed;
+		++bit;
+	}
+
+	if (claimed == 0U)
+		return -1;
+
+	*count = claimed;
+	return goal;
+}
+
+static ext2_grpblk_t ext2_claim_with_reservation(
+	struct super_block *sb, unsigned int group,
+	struct buffer_head *bitmap,
+	ext2_grpblk_t goal,
+	struct ext2_reserve_window_node *window,
+	unsigned long *count)
+{
+	unsigned long wanted = *count;
+	ext2_grpblk_t result;
+
+	if (!window)
+		return ext2_claim_run(
+			sb, group, bitmap, goal, count, NULL);
+
+	for (;;) {
+		if (ext2_reservation_empty(&window->rsv_window) ||
+		    !ext2_goal_inside_reservation(
+			    &window->rsv_window, sb, group, goal)) {
+			if (window->rsv_goal_size < wanted)
+				window->rsv_goal_size = wanted;
+			if (ext2_refresh_reservation(
+				    sb, group, bitmap, goal, window) != 0)
+				return -1;
+			if (!ext2_goal_inside_reservation(
+				    &window->rsv_window, sb, group, goal))
+				goal = -1;
+		}
+
+		*count = wanted;
+		result = ext2_claim_run(
+			sb, group, bitmap, goal, count,
+			&window->rsv_window);
+		if (result >= 0) {
+			window->rsv_alloc_hit += *count;
+			return result;
+		}
+
+		spin_lock(&EXT2_SB(sb)->s_rsv_window_lock);
+		ext2_reservation_remove(sb, window);
+		spin_unlock(&EXT2_SB(sb)->s_rsv_window_lock);
 	}
 }
 
-
-/**
- * ext2_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext2_free_blocks(struct inode * inode, ext2_fsblk_t block,
-		      unsigned long count)
+static bool ext2_range_hits_system_zone(
+	struct super_block *sb, struct ext2_group_desc *desc,
+	ext2_fsblk_t start, unsigned long count)
 {
-	struct buffer_head *bitmap_bh = NULL;
-	struct buffer_head * bh2;
-	unsigned long block_group;
-	unsigned long bit;
-	unsigned long i;
-	unsigned long overflow;
-	struct super_block * sb = inode->i_sb;
-	struct ext2_sb_info * sbi = EXT2_SB(sb);
-	struct ext2_group_desc * desc;
-	struct ext2_super_block * es = sbi->s_es;
-	unsigned freed = 0, group_freed;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	ext2_fsblk_t last;
+
+	if (count == 0U ||
+	    check_add_overflow(
+		    start, (ext2_fsblk_t)(count - 1U), &last))
+		return true;
+
+	if (in_range(
+		    le32_to_cpu(desc->bg_block_bitmap), start, count) ||
+	    in_range(
+		    le32_to_cpu(desc->bg_inode_bitmap), start, count) ||
+	    in_range(start, le32_to_cpu(desc->bg_inode_table),
+		     sbi->s_itb_per_group) ||
+	    in_range(last, le32_to_cpu(desc->bg_inode_table),
+		     sbi->s_itb_per_group))
+		return true;
+
+	return false;
+}
+
+void ext2_free_blocks(
+	struct inode *inode, ext2_fsblk_t block, unsigned long count)
+{
+	struct super_block *sb = inode->i_sb;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	struct ext2_super_block *es = sbi->s_es;
+	unsigned long total_freed = 0U;
 
 	if (!ext2_data_block_valid(sbi, block, count)) {
-		ext2_error (sb, "ext2_free_blocks",
-			    "Freeing blocks not in datazone - "
-			    "block = %lu, count = %lu", block, count);
-		goto error_return;
+		ext2_error(sb, __func__,
+			   "invalid free range " E2FSBLK "+%lu",
+			   block, count);
+		return;
 	}
 
-	ext2_debug ("freeing block(s) %lu-%lu\n", block, block + count - 1);
-
-do_more:
-	overflow = 0;
-	{
-		ifs_ext2_u32 mapped_group = 0U;
-		ifs_ext2_u32 mapped_offset = 0U;
+	while (count != 0U) {
+		ifs_ext2_u32 group;
+		ifs_ext2_u32 bit;
+		struct ext2_group_desc *desc;
+		struct buffer_head *desc_bh;
+		struct buffer_head *bitmap;
+		unsigned long this_count;
+		unsigned long freed = 0U;
+		unsigned long i;
 
 		if (ifs_ext2_block_group_position(
 			    le32_to_cpu(es->s_first_data_block),
 			    EXT2_BLOCKS_PER_GROUP(sb),
 			    le32_to_cpu(es->s_blocks_count),
 			    (ifs_ext2_u32)block,
-			    &mapped_group, &mapped_offset) != IFS_EXT2_OK) {
+			    &group, &bit) != IFS_EXT2_OK) {
 			ext2_error(sb, __func__,
-				"block %lu outside filesystem geometry", block);
-			goto error_return;
+				   "free range escapes filesystem geometry");
+			break;
 		}
-		block_group = mapped_group;
-		bit = mapped_offset;
-	}
 
+		this_count = min_t(
+			unsigned long, count,
+			EXT2_BLOCKS_PER_GROUP(sb) - bit);
 
-	if (bit + count > EXT2_BLOCKS_PER_GROUP(sb)) {
-		overflow = bit + count - EXT2_BLOCKS_PER_GROUP(sb);
-		count -= overflow;
-	}
-	brelse(bitmap_bh);
-	bitmap_bh = read_block_bitmap(sb, block_group);
-	if (!bitmap_bh)
-		goto error_return;
-
-	desc = ext2_get_group_desc (sb, block_group, &bh2);
-	if (!desc)
-		goto error_return;
-
-	if (in_range (le32_to_cpu(desc->bg_block_bitmap), block, count) ||
-	    in_range (le32_to_cpu(desc->bg_inode_bitmap), block, count) ||
-	    in_range (block, le32_to_cpu(desc->bg_inode_table),
-		      sbi->s_itb_per_group) ||
-	    in_range (block + count - 1, le32_to_cpu(desc->bg_inode_table),
-		      sbi->s_itb_per_group)) {
-		ext2_error (sb, "ext2_free_blocks",
-			    "Freeing blocks in system zones - "
-			    "Block = %lu, count = %lu",
-			    block, count);
-		goto error_return;
-	}
-
-	for (i = 0, group_freed = 0; i < count; i++) {
-		if (!ext2_clear_bit_atomic(sb_bgl_lock(sbi, block_group),
-						bit + i, bitmap_bh->b_data)) {
+		desc = ext2_get_group_desc(sb, group, &desc_bh);
+		if (!desc)
+			break;
+		if (ext2_range_hits_system_zone(
+			    sb, desc, block, this_count)) {
 			ext2_error(sb, __func__,
-				"bit already cleared for block %lu", block + i);
-		} else {
-			group_freed++;
+				   "attempt to free EXT2 metadata blocks");
+			break;
 		}
+
+		bitmap = ext2_read_block_bitmap(sb, group);
+		if (!bitmap)
+			break;
+
+		for (i = 0; i < this_count; ++i) {
+			if (ext2_clear_bit_atomic(
+				    sb_bgl_lock(sbi, group),
+				    bit + i, bitmap->b_data))
+				++freed;
+			else
+				ext2_error(sb, __func__,
+					   "block " E2FSBLK " was already free",
+					   block + i);
+		}
+
+		if (freed != 0U) {
+			mark_buffer_dirty(bitmap);
+			if (sb->s_flags & SB_SYNCHRONOUS)
+				sync_dirty_buffer(bitmap);
+			ext2_adjust_group_free_blocks(
+				sb, group, desc, desc_bh, freed);
+			total_freed += freed;
+		}
+		brelse(bitmap);
+
+		block += this_count;
+		count -= this_count;
 	}
 
-	mark_buffer_dirty(bitmap_bh);
-	if (sb->s_flags & SB_SYNCHRONOUS)
-		sync_dirty_buffer(bitmap_bh);
-
-	group_adjust_blocks(sb, block_group, desc, bh2, group_freed);
-	freed += group_freed;
-
-	if (overflow) {
-		block += count;
-		count = overflow;
-		goto do_more;
-	}
-error_return:
-	brelse(bitmap_bh);
-	if (freed) {
-		percpu_counter_add(&sbi->s_freeblocks_counter, freed);
-		dquot_free_block_nodirty(inode, freed);
+	if (total_freed != 0U) {
+		percpu_counter_add(
+			&sbi->s_freeblocks_counter, total_freed);
+		dquot_free_block_nodirty(inode, total_freed);
 		mark_inode_dirty(inode);
 	}
 }
 
-
-/**
- * bitmap_search_next_usable_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext2_grpblk_t
-bitmap_search_next_usable_block(ext2_grpblk_t start, struct buffer_head *bh,
-					ext2_grpblk_t maxblocks)
+static bool ext2_caller_may_use_reserved_blocks(
+	struct ext2_sb_info *sbi)
 {
-	ext2_grpblk_t next;
-
-	next = ext2_find_next_zero_bit(bh->b_data, maxblocks, start);
-	if (next >= maxblocks)
-		return -1;
-	return next;
+	if (capable(CAP_SYS_RESOURCE))
+		return true;
+	if (uid_eq(sbi->s_resuid, current_fsuid()))
+		return true;
+	if (!gid_eq(sbi->s_resgid, GLOBAL_ROOT_GID) &&
+	    in_group_p(sbi->s_resgid))
+		return true;
+	return false;
 }
 
-
-/**
- * find_next_usable_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext2_grpblk_t
-find_next_usable_block(int start, struct buffer_head *bh, int maxblocks)
+static bool ext2_has_allocatable_blocks(struct ext2_sb_info *sbi)
 {
-	ext2_grpblk_t here, next;
-	char *p, *r;
+	const ext2_fsblk_t free_blocks =
+		percpu_counter_read_positive(&sbi->s_freeblocks_counter);
+	const ext2_fsblk_t reserved =
+		le32_to_cpu(sbi->s_es->s_r_blocks_count);
 
-	if (start > 0) {
-
-
-		ext2_grpblk_t end_goal = (start + 63) & ~63;
-		if (end_goal > maxblocks)
-			end_goal = maxblocks;
-		here = ext2_find_next_zero_bit(bh->b_data, end_goal, start);
-		if (here < end_goal)
-			return here;
-		ext2_debug("Bit not found near goal\n");
-	}
-
-	here = start;
-	if (here < 0)
-		here = 0;
-
-	p = ((char *)bh->b_data) + (here >> 3);
-	r = memscan(p, 0, ((maxblocks + 7) >> 3) - (here >> 3));
-	next = (r - ((char *)bh->b_data)) << 3;
-
-	if (next < maxblocks && next >= here)
-		return next;
-
-	here = bitmap_search_next_usable_block(here, bh, maxblocks);
-	return here;
+	if (free_blocks > reserved)
+		return true;
+	return ext2_caller_may_use_reserved_blocks(sbi) &&
+	       free_blocks != 0U;
 }
 
-
-/**
- * ext2_try_to_allocate - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int
-ext2_try_to_allocate(struct super_block *sb, int group,
-			struct buffer_head *bitmap_bh, ext2_grpblk_t grp_goal,
-			unsigned long *count,
-			struct ext2_reserve_window *my_rsv)
+int ext2_data_block_valid(
+	struct ext2_sb_info *sbi, ext2_fsblk_t start,
+	unsigned int count)
 {
-	ext2_fsblk_t group_first_block = ext2_group_first_block_no(sb, group);
-	ext2_fsblk_t group_last_block = ext2_group_last_block_no(sb, group);
-	ext2_grpblk_t start, end;
-	unsigned long num = 0;
+	const ext2_fsblk_t first =
+		le32_to_cpu(sbi->s_es->s_first_data_block);
+	const ext2_fsblk_t blocks =
+		le32_to_cpu(sbi->s_es->s_blocks_count);
+	ext2_fsblk_t last;
 
-	start = 0;
-	end = group_last_block - group_first_block + 1;
+	if (count == 0U || start < first || start >= blocks)
+		return 0;
+	if (count > blocks - start)
+		return 0;
 
-	if (my_rsv) {
-		if (my_rsv->_rsv_start >= group_first_block)
-			start = my_rsv->_rsv_start - group_first_block;
-		if (my_rsv->_rsv_end < group_last_block)
-			end = my_rsv->_rsv_end - group_first_block + 1;
-		if (grp_goal < start || grp_goal >= end)
-			grp_goal = -1;
-	}
-	BUG_ON(start > EXT2_BLOCKS_PER_GROUP(sb));
+	last = start + count - 1U;
+	if (start <= sbi->s_sb_block && last >= sbi->s_sb_block)
+		return 0;
 
-	if (grp_goal < 0) {
-		grp_goal = find_next_usable_block(start, bitmap_bh, end);
-		if (grp_goal < 0)
-			goto fail_access;
-		if (!my_rsv) {
-			int i;
-
-			for (i = 0; i < 7 && grp_goal > start &&
-					!ext2_test_bit(grp_goal - 1,
-					     		bitmap_bh->b_data);
-			     		i++, grp_goal--)
-				;
-		}
-	}
-
-	for (; num < *count && grp_goal < end; grp_goal++) {
-		if (ext2_set_bit_atomic(sb_bgl_lock(EXT2_SB(sb), group),
-					grp_goal, bitmap_bh->b_data)) {
-			if (num == 0)
-				continue;
-			break;
-		}
-		num++;
-	}
-
-	if (num == 0)
-		goto fail_access;
-
-	*count = num;
-	return grp_goal - num;
-fail_access:
-	return -1;
+	return 1;
 }
 
-
-/**
- * find_next_reservable_window - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int find_next_reservable_window(
-				struct ext2_reserve_window_node *search_head,
-				struct ext2_reserve_window_node *my_rsv,
-				struct super_block * sb,
-				ext2_fsblk_t start_block,
-				ext2_fsblk_t last_block)
+static int ext2_try_group(
+	struct inode *inode, unsigned int group,
+	ext2_grpblk_t goal,
+	struct ext2_reserve_window_node *reservation,
+	unsigned long *count,
+	ext2_fsblk_t *block_out,
+	struct ext2_group_desc **desc_out,
+	struct buffer_head **desc_bh_out,
+	struct buffer_head **bitmap_out)
 {
-	struct rb_node *next;
-	struct ext2_reserve_window_node *rsv, *prev;
-	ext2_fsblk_t cur, end;
-	unsigned int size = my_rsv->rsv_goal_size;
+	struct super_block *sb = inode->i_sb;
+	struct ext2_group_desc *desc;
+	struct buffer_head *desc_bh;
+	struct buffer_head *bitmap;
+	ext2_grpblk_t group_block;
+	ext2_fsblk_t absolute;
+	unsigned long wanted = *count;
 
+	desc = ext2_get_group_desc(sb, group, &desc_bh);
+	if (!desc)
+		return -EIO;
+	if (le16_to_cpu(desc->bg_free_blocks_count) == 0U)
+		return -ENOSPC;
 
-	cur = start_block;
-	rsv = search_head;
-	if (!rsv)
-		return -1;
+	bitmap = ext2_read_block_bitmap(sb, group);
+	if (!bitmap)
+		return -EIO;
 
-	while (1) {
-		if (cur <= rsv->rsv_end) {
-			if (check_add_overflow(rsv->rsv_end, (ext2_fsblk_t)1,
-				       &cur))
-				return -1;
-		}
-
-
-		if (cur > last_block || size == 0 ||
-		    check_add_overflow(cur, (ext2_fsblk_t)(size - 1), &end))
-			return -1;
-
-		prev = rsv;
-		next = rb_next(&rsv->rsv_node);
-		rsv = rb_entry(next,struct ext2_reserve_window_node,rsv_node);
-
-
-		if (!next)
-			break;
-
-		if (end < rsv->rsv_start) {
-
-
-			break;
-		}
+	group_block = ext2_claim_with_reservation(
+		sb, group, bitmap, goal, reservation, count);
+	if (group_block < 0) {
+		brelse(bitmap);
+		*count = wanted;
+		return -ENOSPC;
 	}
 
+	absolute =
+		ext2_group_first_block_no(sb, group) + group_block;
+	if (ext2_range_hits_system_zone(sb, desc, absolute, *count) ||
+	    !ext2_data_block_valid(EXT2_SB(sb), absolute, *count)) {
+		unsigned long i;
 
-	if ((prev != my_rsv) && (!rsv_is_empty(&my_rsv->rsv_window)))
-		rsv_window_remove(sb, my_rsv);
+		for (i = 0; i < *count; ++i)
+			ext2_clear_bit_atomic(
+				sb_bgl_lock(EXT2_SB(sb), group),
+				group_block + i, bitmap->b_data);
+		mark_buffer_dirty(bitmap);
+		brelse(bitmap);
+		*count = wanted;
+		return -EUCLEAN;
+	}
 
-
-	my_rsv->rsv_start = cur;
-	my_rsv->rsv_end = end;
-	my_rsv->rsv_alloc_hit = 0;
-
-	if (prev != my_rsv)
-		ext2_rsv_window_add(sb, my_rsv);
-
+	*block_out = absolute;
+	*desc_out = desc;
+	*desc_bh_out = desc_bh;
+	*bitmap_out = bitmap;
 	return 0;
 }
 
-
-/**
- * alloc_new_reservation - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int alloc_new_reservation(struct ext2_reserve_window_node *my_rsv,
-		ext2_grpblk_t grp_goal, struct super_block *sb,
-		unsigned int group, struct buffer_head *bitmap_bh)
+ext2_fsblk_t ext2_new_blocks(
+	struct inode *inode, ext2_fsblk_t goal,
+	unsigned long *count, int *errp, unsigned int flags)
 {
-	struct ext2_reserve_window_node *search_head;
-	ext2_fsblk_t group_first_block, group_end_block, start_block;
-	ext2_grpblk_t first_free_block;
-	struct rb_root *fs_rsv_root = &EXT2_SB(sb)->s_rsv_window_root;
-	unsigned long size;
-	int ret;
-	spinlock_t *rsv_lock = &EXT2_SB(sb)->s_rsv_window_lock;
+	struct super_block *sb = inode->i_sb;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	struct ext2_super_block *es = sbi->s_es;
+	struct ext2_block_alloc_info *allocation =
+		EXT2_I(inode)->i_block_alloc_info;
+	struct ext2_reserve_window_node *reservation = NULL;
+	struct ext2_group_desc *desc = NULL;
+	struct buffer_head *desc_bh = NULL;
+	struct buffer_head *bitmap = NULL;
+	unsigned long requested;
+	unsigned long attempt_count;
+	unsigned int start_group;
+	unsigned int group;
+	unsigned int i;
+	ifs_ext2_u32 mapped_group;
+	ifs_ext2_u32 mapped_offset;
+	ext2_fsblk_t block = 0U;
+	int result;
 
-	group_first_block = ext2_group_first_block_no(sb, group);
-	group_end_block = ext2_group_last_block_no(sb, group);
+	if (!count || !errp || *count == 0U)
+		return 0U;
 
-	if (grp_goal < 0)
-		start_block = group_first_block;
-	else
-		start_block = grp_goal + group_first_block;
-
-	size = my_rsv->rsv_goal_size;
-
-	if (!rsv_is_empty(&my_rsv->rsv_window)) {
-
-
-		if ((my_rsv->rsv_start <= group_end_block) &&
-				(my_rsv->rsv_end > group_end_block) &&
-				(start_block >= my_rsv->rsv_start))
-			return -1;
-
-		if ((my_rsv->rsv_alloc_hit >
-		     (my_rsv->rsv_end - my_rsv->rsv_start + 1) / 2)) {
-
-
-			size = size * 2;
-			if (size > EXT2_MAX_RESERVE_BLOCKS)
-				size = EXT2_MAX_RESERVE_BLOCKS;
-			my_rsv->rsv_goal_size= size;
-		}
-	}
-
-	spin_lock(rsv_lock);
-
-
-	search_head = search_reserve_window(fs_rsv_root, start_block);
-
-
-retry:
-	ret = find_next_reservable_window(search_head, my_rsv, sb,
-						start_block, group_end_block);
-
-	if (ret == -1) {
-		if (!rsv_is_empty(&my_rsv->rsv_window))
-			rsv_window_remove(sb, my_rsv);
-		spin_unlock(rsv_lock);
-		return -1;
-	}
-
-
-	spin_unlock(rsv_lock);
-	first_free_block = bitmap_search_next_usable_block(
-			my_rsv->rsv_start - group_first_block,
-			bitmap_bh, group_end_block - group_first_block + 1);
-
-	if (first_free_block < 0) {
-
-
-		spin_lock(rsv_lock);
-		if (!rsv_is_empty(&my_rsv->rsv_window))
-			rsv_window_remove(sb, my_rsv);
-		spin_unlock(rsv_lock);
-		return -1;
-	}
-
-	start_block = first_free_block + group_first_block;
-
-
-	if (start_block >= my_rsv->rsv_start && start_block <= my_rsv->rsv_end)
-		return 0;
-
-
-	search_head = my_rsv;
-	spin_lock(rsv_lock);
-	goto retry;
-}
-
-
-/**
- * try_to_extend_reservation - Implements the try to extend reservation operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void try_to_extend_reservation(struct ext2_reserve_window_node *my_rsv,
-			struct super_block *sb, int size)
-{
-	struct ext2_reserve_window_node *next_rsv;
-	struct rb_node *next;
-	spinlock_t *rsv_lock = &EXT2_SB(sb)->s_rsv_window_lock;
-
-	if (!spin_trylock(rsv_lock))
-		return;
-
-	next = rb_next(&my_rsv->rsv_node);
-
-	if (!next)
-		my_rsv->rsv_end += size;
-	else {
-		next_rsv = rb_entry(next, struct ext2_reserve_window_node, rsv_node);
-
-		if ((next_rsv->rsv_start - my_rsv->rsv_end - 1) >= size)
-			my_rsv->rsv_end += size;
-		else
-			my_rsv->rsv_end = next_rsv->rsv_start - 1;
-	}
-	spin_unlock(rsv_lock);
-}
-
-
-/**
- * ext2_try_to_allocate_with_rsv - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext2_grpblk_t
-ext2_try_to_allocate_with_rsv(struct super_block *sb, unsigned int group,
-			struct buffer_head *bitmap_bh, ext2_grpblk_t grp_goal,
-			struct ext2_reserve_window_node * my_rsv,
-			unsigned long *count)
-{
-	ext2_fsblk_t group_first_block, group_last_block;
-	ext2_grpblk_t ret = 0;
-	unsigned long num = *count;
-
-
-	if (my_rsv == NULL) {
-		return ext2_try_to_allocate(sb, group, bitmap_bh,
-						grp_goal, count, NULL);
-	}
-
-
-	group_first_block = ext2_group_first_block_no(sb, group);
-	group_last_block = ext2_group_last_block_no(sb, group);
-
-
-	while (1) {
-		if (rsv_is_empty(&my_rsv->rsv_window) || (ret < 0) ||
-			!goal_in_my_reservation(&my_rsv->rsv_window,
-						grp_goal, group, sb)) {
-			if (my_rsv->rsv_goal_size < *count)
-				my_rsv->rsv_goal_size = *count;
-			ret = alloc_new_reservation(my_rsv, grp_goal, sb,
-							group, bitmap_bh);
-			if (ret < 0)
-				break;
-
-			if (!goal_in_my_reservation(&my_rsv->rsv_window,
-							grp_goal, group, sb))
-				grp_goal = -1;
-		} else if (grp_goal >= 0) {
-			int curr = my_rsv->rsv_end -
-					(grp_goal + group_first_block) + 1;
-
-			if (curr < *count)
-				try_to_extend_reservation(my_rsv, sb,
-							*count - curr);
-		}
-
-		if ((my_rsv->rsv_start > group_last_block) ||
-				(my_rsv->rsv_end < group_first_block)) {
-			ext2_error(sb, __func__,
-				   "Reservation out of group %u range goal %d fsb[%lu,%lu] rsv[%lu, %lu]",
-				   group, grp_goal, group_first_block,
-				   group_last_block, my_rsv->rsv_start,
-				   my_rsv->rsv_end);
-			rsv_window_dump(&EXT2_SB(sb)->s_rsv_window_root, 1);
-			return -1;
-		}
-		ret = ext2_try_to_allocate(sb, group, bitmap_bh, grp_goal,
-					   &num, &my_rsv->rsv_window);
-		if (ret >= 0) {
-			my_rsv->rsv_alloc_hit += num;
-			*count = num;
-			break;
-		}
-		num = *count;
-	}
-	return ret;
-}
-
-
-/**
- * ext2_has_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext2_has_free_blocks(struct ext2_sb_info *sbi)
-{
-	ext2_fsblk_t free_blocks, root_blocks;
-
-	free_blocks = percpu_counter_read_positive(&sbi->s_freeblocks_counter);
-	root_blocks = le32_to_cpu(sbi->s_es->s_r_blocks_count);
-	if (free_blocks < root_blocks + 1 && !capable(CAP_SYS_RESOURCE) &&
-		!uid_eq(sbi->s_resuid, current_fsuid()) &&
-		(gid_eq(sbi->s_resgid, GLOBAL_ROOT_GID) ||
-		 !in_group_p (sbi->s_resgid))) {
-		return 0;
-	}
-	return 1;
-}
-
-
-/**
- * ext2_data_block_valid - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext2_data_block_valid(struct ext2_sb_info *sbi, ext2_fsblk_t start_blk,
-			  unsigned int count)
-{
-	ext2_fsblk_t blocks_count = le32_to_cpu(sbi->s_es->s_blocks_count);
-	ext2_fsblk_t last_blk;
-
-	if (count == 0 ||
-	    start_blk <= le32_to_cpu(sbi->s_es->s_first_data_block) ||
-	    start_blk >= blocks_count ||
-	    count > blocks_count - start_blk)
-		return 0;
-
-	last_blk = start_blk + count - 1;
-	if (start_blk <= sbi->s_sb_block && last_blk >= sbi->s_sb_block)
-		return 0;
-
-	return 1;
-}
-
-
-/**
- * ext2_new_blocks - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-ext2_fsblk_t ext2_new_blocks(struct inode *inode, ext2_fsblk_t goal,
-		    unsigned long *count, int *errp, unsigned int flags)
-{
-	struct buffer_head *bitmap_bh = NULL;
-	struct buffer_head *gdp_bh;
-	int group_no;
-	int goal_group;
-	ext2_grpblk_t grp_target_blk;
-	ext2_grpblk_t grp_alloc_blk;
-	ext2_fsblk_t ret_block;
-	int bgi;
-	int performed_allocation = 0;
-	ext2_grpblk_t free_blocks;
-	struct super_block *sb;
-	struct ext2_group_desc *gdp;
-	struct ext2_super_block *es;
-	struct ext2_sb_info *sbi;
-	struct ext2_reserve_window_node *my_rsv = NULL;
-	struct ext2_block_alloc_info *block_i;
-	unsigned short windowsz = 0;
-	unsigned long ngroups;
-	unsigned long num = *count;
-	int ret;
-
+	requested = *count;
 	*errp = -ENOSPC;
-	sb = inode->i_sb;
 
-
-	ret = dquot_alloc_block(inode, num);
-	if (ret) {
-		*errp = ret;
-		return 0;
+	result = dquot_alloc_block(inode, requested);
+	if (result != 0) {
+		*errp = result;
+		return 0U;
 	}
 
-	sbi = EXT2_SB(sb);
-	es = EXT2_SB(sb)->s_es;
-	ext2_debug("goal=%lu.\n", goal);
-
-
-	block_i = EXT2_I(inode)->i_block_alloc_info;
-	if (!(flags & EXT2_ALLOC_NORESERVE) && block_i) {
-		windowsz = block_i->rsv_window_node.rsv_goal_size;
-		if (windowsz > 0)
-			my_rsv = &block_i->rsv_window_node;
-	}
-
-	if (!ext2_has_free_blocks(sbi)) {
-		*errp = -ENOSPC;
-		goto out;
-	}
-
+	if (!ext2_has_allocatable_blocks(sbi))
+		goto fail_quota;
 
 	if (goal < le32_to_cpu(es->s_first_data_block) ||
 	    goal >= le32_to_cpu(es->s_blocks_count))
 		goal = le32_to_cpu(es->s_first_data_block);
-	{
-		ifs_ext2_u32 mapped_group = 0U;
-		ifs_ext2_u32 mapped_offset = 0U;
 
-		if (ifs_ext2_block_group_position(
-			    le32_to_cpu(es->s_first_data_block),
-			    EXT2_BLOCKS_PER_GROUP(sb),
-			    le32_to_cpu(es->s_blocks_count),
-			    (ifs_ext2_u32)goal,
-			    &mapped_group, &mapped_offset) != IFS_EXT2_OK) {
-			*errp = -EIO;
-			goto out;
+	if (ifs_ext2_block_group_position(
+		    le32_to_cpu(es->s_first_data_block),
+		    EXT2_BLOCKS_PER_GROUP(sb),
+		    le32_to_cpu(es->s_blocks_count),
+		    (ifs_ext2_u32)goal,
+		    &mapped_group, &mapped_offset) != IFS_EXT2_OK) {
+		*errp = -EIO;
+		goto fail_quota;
+	}
+
+	start_group = mapped_group;
+	if (!(flags & EXT2_ALLOC_NORESERVE) &&
+	    allocation &&
+	    allocation->rsv_window_node.rsv_goal_size != 0U)
+		reservation = &allocation->rsv_window_node;
+
+	for (attempt_count = 0U;
+	     attempt_count < (reservation ? 2U : 1U);
+	     ++attempt_count) {
+		for (i = 0U; i < sbi->s_groups_count; ++i) {
+			ext2_grpblk_t group_goal;
+			unsigned long wanted = requested;
+
+			group = (start_group + i) % sbi->s_groups_count;
+			group_goal = group == start_group
+				? (ext2_grpblk_t)mapped_offset : -1;
+
+			result = ext2_try_group(
+				inode, group, group_goal,
+				reservation, &wanted,
+				&block, &desc, &desc_bh, &bitmap);
+			if (result == -EIO) {
+				*errp = -EIO;
+				goto fail_quota;
+			}
+			if (result != 0)
+				continue;
+
+			*count = wanted;
+			ext2_adjust_group_free_blocks(
+				sb, group, desc, desc_bh,
+				-(int)wanted);
+			percpu_counter_sub(
+				&sbi->s_freeblocks_counter, wanted);
+
+			mark_buffer_dirty(bitmap);
+			if (sb->s_flags & SB_SYNCHRONOUS)
+				sync_dirty_buffer(bitmap);
+			brelse(bitmap);
+
+			if (wanted < requested) {
+				dquot_free_block_nodirty(
+					inode, requested - wanted);
+				mark_inode_dirty(inode);
+			}
+
+			*errp = 0;
+			return block;
 		}
-		group_no = (int)mapped_group;
-		grp_target_blk = (ext2_grpblk_t)mapped_offset;
-	}
-	goal_group = group_no;
-retry_alloc:
-	gdp = ext2_get_group_desc(sb, group_no, &gdp_bh);
-	if (!gdp)
-		goto io_error;
 
-	free_blocks = le16_to_cpu(gdp->bg_free_blocks_count);
-
-
-	if (my_rsv && (free_blocks < windowsz)
-		&& (free_blocks > 0)
-		&& (rsv_is_empty(&my_rsv->rsv_window)))
-		my_rsv = NULL;
-
-	if (free_blocks > 0) {
-		brelse(bitmap_bh);
-		bitmap_bh = read_block_bitmap(sb, group_no);
-		if (!bitmap_bh)
-			goto io_error;
-		grp_alloc_blk = ext2_try_to_allocate_with_rsv(sb, group_no,
-					bitmap_bh, grp_target_blk,
-					my_rsv, &num);
-		if (grp_alloc_blk >= 0)
-			goto allocated;
+		reservation = NULL;
 	}
 
-	ngroups = EXT2_SB(sb)->s_groups_count;
-	smp_rmb();
-
-
-	for (bgi = 0; bgi < ngroups; bgi++) {
-		group_no++;
-		if (group_no >= ngroups)
-			group_no = 0;
-		gdp = ext2_get_group_desc(sb, group_no, &gdp_bh);
-		if (!gdp)
-			goto io_error;
-
-		free_blocks = le16_to_cpu(gdp->bg_free_blocks_count);
-
-
-		if (!free_blocks)
-			continue;
-
-
-		if (my_rsv && (free_blocks <= (windowsz/2)))
-			continue;
-
-		brelse(bitmap_bh);
-		bitmap_bh = read_block_bitmap(sb, group_no);
-		if (!bitmap_bh)
-			goto io_error;
-
-
-		grp_alloc_blk = ext2_try_to_allocate_with_rsv(sb, group_no,
-					bitmap_bh, -1, my_rsv, &num);
-		if (grp_alloc_blk >= 0)
-			goto allocated;
-	}
-
-
-	if (my_rsv) {
-		my_rsv = NULL;
-		windowsz = 0;
-		group_no = goal_group;
-		goto retry_alloc;
-	}
-
-	*errp = -ENOSPC;
-	goto out;
-
-allocated:
-
-	ext2_debug("using block group %d(%d)\n",
-			group_no, gdp->bg_free_blocks_count);
-
-	ret_block = grp_alloc_blk + ext2_group_first_block_no(sb, group_no);
-
-	if (in_range(le32_to_cpu(gdp->bg_block_bitmap), ret_block, num) ||
-	    in_range(le32_to_cpu(gdp->bg_inode_bitmap), ret_block, num) ||
-	    in_range(ret_block, le32_to_cpu(gdp->bg_inode_table),
-		      EXT2_SB(sb)->s_itb_per_group) ||
-	    in_range(ret_block + num - 1, le32_to_cpu(gdp->bg_inode_table),
-		      EXT2_SB(sb)->s_itb_per_group)) {
-		ext2_error(sb, "ext2_new_blocks",
-			    "Allocating block in system zone - "
-			    "blocks from "E2FSBLK", length %lu",
-			    ret_block, num);
-
-
-		num = *count;
-		goto retry_alloc;
-	}
-
-	performed_allocation = 1;
-
-	if (ret_block + num - 1 >= le32_to_cpu(es->s_blocks_count)) {
-		ext2_error(sb, "ext2_new_blocks",
-			    "block("E2FSBLK") >= blocks count(%d) - "
-			    "block_group = %d, es == %p ", ret_block,
-			le32_to_cpu(es->s_blocks_count), group_no, es);
-		goto out;
-	}
-
-	group_adjust_blocks(sb, group_no, gdp, gdp_bh, -num);
-	percpu_counter_sub(&sbi->s_freeblocks_counter, num);
-
-	mark_buffer_dirty(bitmap_bh);
-	if (sb->s_flags & SB_SYNCHRONOUS)
-		sync_dirty_buffer(bitmap_bh);
-
-	*errp = 0;
-	brelse(bitmap_bh);
-	if (num < *count) {
-		dquot_free_block_nodirty(inode, *count-num);
-		mark_inode_dirty(inode);
-		*count = num;
-	}
-	return ret_block;
-
-io_error:
-	*errp = -EIO;
-out:
-
-
-	if (!performed_allocation) {
-		dquot_free_block_nodirty(inode, *count);
-		mark_inode_dirty(inode);
-	}
-	brelse(bitmap_bh);
-	return 0;
+fail_quota:
+	dquot_free_block_nodirty(inode, requested);
+	mark_inode_dirty(inode);
+	return 0U;
 }
 
 #ifdef EXT2FS_DEBUG
-
-
-/**
- * ext2_count_free - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long ext2_count_free(struct buffer_head *map, unsigned int numchars)
+unsigned long ext2_count_free(
+	struct buffer_head *map, unsigned int bytes)
 {
-	return numchars * BITS_PER_BYTE - memweight(map->b_data, numchars);
+	return bytes * BITS_PER_BYTE -
+	       memweight(map->b_data, bytes);
 }
-
 #endif
 
-
-/**
- * ext2_count_free_blocks - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long ext2_count_free_blocks (struct super_block * sb)
+unsigned long ext2_count_free_blocks(struct super_block *sb)
 {
-	struct ext2_group_desc * desc;
-	unsigned long desc_count = 0;
-	int i;
-#ifdef EXT2FS_DEBUG
-	unsigned long bitmap_count, x;
-	struct ext2_super_block *es;
+	unsigned long total = 0U;
+	unsigned int group;
 
-	es = EXT2_SB(sb)->s_es;
-	desc_count = 0;
-	bitmap_count = 0;
-	desc = NULL;
-	for (i = 0; i < EXT2_SB(sb)->s_groups_count; i++) {
-		struct buffer_head *bitmap_bh;
-		desc = ext2_get_group_desc (sb, i, NULL);
-		if (!desc)
-			continue;
-		desc_count += le16_to_cpu(desc->bg_free_blocks_count);
-		bitmap_bh = read_block_bitmap(sb, i);
-		if (!bitmap_bh)
-			continue;
+	for (group = 0U;
+	     group < EXT2_SB(sb)->s_groups_count;
+	     ++group) {
+		struct ext2_group_desc *desc =
+			ext2_get_group_desc(sb, group, NULL);
 
-		x = ext2_count_free(bitmap_bh, sb->s_blocksize);
-		printk ("group %d: stored = %d, counted = %lu\n",
-			i, le16_to_cpu(desc->bg_free_blocks_count), x);
-		bitmap_count += x;
-		brelse(bitmap_bh);
+		if (desc)
+			total +=
+				le16_to_cpu(desc->bg_free_blocks_count);
 	}
-	printk("ext2_count_free_blocks: stored = %lu, computed = %lu, %lu\n",
-		(long)le32_to_cpu(es->s_free_blocks_count),
-		desc_count, bitmap_count);
-	return bitmap_count;
-#else
-	for (i = 0; i < EXT2_SB(sb)->s_groups_count; i++) {
-		desc = ext2_get_group_desc(sb, i, NULL);
-		if (!desc)
-			continue;
-		desc_count += le16_to_cpu(desc->bg_free_blocks_count);
-	}
-	return desc_count;
-#endif
+	return total;
 }
-
 
 int ext2_bg_has_super(struct super_block *sb, int group)
 {
-	const int sparse_super_enabled =
+	const int sparse =
 		EXT2_HAS_RO_COMPAT_FEATURE(
 			sb, EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER) != 0;
 
@@ -1334,19 +875,12 @@ int ext2_bg_has_super(struct super_block *sb, int group)
 		return 0;
 
 	return ifs_ext2_group_has_super(
-		sparse_super_enabled, (ifs_ext2_u32)group);
+		sparse, (ifs_ext2_u32)group);
 }
 
-
-/**
- * ext2_bg_num_gdb - Implements the bg num gdb operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT2
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long ext2_bg_num_gdb(struct super_block *sb, int group)
+unsigned long ext2_bg_num_gdb(
+	struct super_block *sb, int group)
 {
-	return ext2_bg_has_super(sb, group) ? EXT2_SB(sb)->s_gdb_count : 0;
+	return ext2_bg_has_super(sb, group)
+		? EXT2_SB(sb)->s_gdb_count : 0U;
 }
