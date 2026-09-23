@@ -72,7 +72,7 @@ const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
 	if (sb->s_blocksize <= sizeof(*slinkcont)) {
 		asfs_brelse(bh);
 		kfree(link);
-		return ERR_PTR(-EFSCORRUPTED);
+		return ERR_PTR(-EUCLEAN);
 	}
 
 	lf = (char *)slinkcont->string;
@@ -81,7 +81,7 @@ const char *asfs_get_link(struct dentry *dentry, struct inode *inode,
 	if (lf_len == link_bytes) {
 		asfs_brelse(bh);
 		kfree(link);
-		return ERR_PTR(-EFSCORRUPTED);
+		return ERR_PTR(-EUCLEAN);
 	}
 
 	prefix = ASFS_SB(sb)->prefix ? ASFS_SB(sb)->prefix : "/";
