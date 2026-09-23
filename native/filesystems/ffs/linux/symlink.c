@@ -5,7 +5,7 @@
 
 #include "affs.h"
 
-#define IFS_AMIGA_SYMLINK_MAX 1024U
+#define IFS_FFS_SYMLINK_MAX 1024U
 
 static int affs_symlink_read_folio(struct file *file, struct folio *folio)
 {
@@ -33,11 +33,11 @@ static int affs_symlink_read_folio(struct file *file, struct folio *folio)
     front = (struct slink_front *)bh->b_data;
     source_capacity = bh->b_size - sizeof(*front);
     output_capacity = min_t(size_t, folio_size(folio),
-                            (size_t)IFS_AMIGA_SYMLINK_MAX);
+                            (size_t)IFS_FFS_SYMLINK_MAX);
 
     spin_lock(&sbi->symlink_lock);
     prefix = sbi->s_prefix ? sbi->s_prefix : "/";
-    prefix_length = strnlen(prefix, IFS_AMIGA_SYMLINK_MAX);
+    prefix_length = strnlen(prefix, IFS_FFS_SYMLINK_MAX);
 
     status = ifs_ffs_translate_symlink(
         front->symname,
