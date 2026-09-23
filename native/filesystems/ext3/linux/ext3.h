@@ -895,7 +895,7 @@ static inline unsigned ext3_rec_len_from_disk(__le16 dlen)
 {
 	unsigned len = le16_to_cpu(dlen);
 
-#if (PAGE_CACHE_SIZE >= 65536)
+#if (PAGE_SIZE >= 65536)
 	if (len == EXT3_MAX_REC_LEN)
 		return 1 << 16;
 #endif
@@ -913,7 +913,7 @@ static inline unsigned ext3_rec_len_from_disk(__le16 dlen)
  */
 static inline __le16 ext3_rec_len_to_disk(unsigned len)
 {
-#if (PAGE_CACHE_SIZE >= 65536)
+#if (PAGE_SIZE >= 65536)
 	if (len == (1 << 16))
 		return cpu_to_le16(EXT3_MAX_REC_LEN);
 	else if (len > (1 << 16))
@@ -1397,10 +1397,6 @@ static inline int ext3_should_writeback_data(struct inode *inode)
 		return 1;
 	return 0;
 }
-
-#include <trace/events/ext3.h>
-
-
 #include <linux/posix_acl_xattr.h>
 
 #define EXT3_ACL_VERSION	0x0001
