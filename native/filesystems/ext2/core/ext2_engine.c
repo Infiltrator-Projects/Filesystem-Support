@@ -64,7 +64,7 @@ static IfsExt2Status read_exact(
     void *destination,
     ifs_ext2_u32 count)
 {
-    if (volume == NULL || destination == NULL || volume->io.read_at == NULL)
+    if (volume == IFS_EXT2_NULL || destination == IFS_EXT2_NULL || volume->io.read_at == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (offset > volume->byte_size ||
         (ifs_ext2_u64)count > volume->byte_size - offset)
@@ -81,7 +81,7 @@ static IfsExt2Status write_exact(
     const void *source,
     ifs_ext2_u32 count)
 {
-    if (volume == NULL || source == NULL || volume->io.write_at == NULL)
+    if (volume == IFS_EXT2_NULL || source == IFS_EXT2_NULL || volume->io.write_at == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_UNSUPPORTED;
     if (offset > volume->byte_size ||
         (ifs_ext2_u64)count > volume->byte_size - offset)
@@ -97,7 +97,7 @@ static IfsExt2Status block_offset(
     ifs_ext2_u64 block,
     ifs_ext2_u64 *offset)
 {
-    if (volume == NULL || offset == NULL)
+    if (volume == IFS_EXT2_NULL || offset == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (block >= volume->total_blocks ||
         block > (~(ifs_ext2_u64)0) / volume->block_size)
@@ -144,7 +144,7 @@ static IfsExt2Status read_group_descriptor(
     ifs_ext2_u64 group_first;
     IfsExt2Status status;
 
-    if (volume == NULL || descriptor == NULL || scratch == NULL)
+    if (volume == IFS_EXT2_NULL || descriptor == IFS_EXT2_NULL || scratch == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (group >= volume->group_count || scratch_size < volume->block_size)
         return IFS_EXT2_ERROR_RANGE;
@@ -200,7 +200,7 @@ IfsExt2Status ifs_ext2_open(IfsExt2Volume *volume, const IfsExt2Io *io)
     ifs_ext2_u64 byte_size;
     unsigned int i;
 
-    if (volume == NULL || io == NULL || io->read_at == NULL)
+    if (volume == IFS_EXT2_NULL || io == IFS_EXT2_NULL || io->read_at == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
 
     zero_bytes(volume, sizeof(*volume));
@@ -213,7 +213,7 @@ IfsExt2Status ifs_ext2_open(IfsExt2Volume *volume, const IfsExt2Io *io)
     if (status != IFS_EXT2_OK)
         return status;
     status = ifs_ext2_validate_superblock(
-        &volume->super, 0U, io->write_at != NULL);
+        &volume->super, 0U, io->write_at != IFS_EXT2_NULL);
     if (status != IFS_EXT2_OK)
         return status;
 
@@ -254,7 +254,7 @@ IfsExt2Status ifs_ext2_readonly_assess(
 {
     ifs_ext2_u32 risks = 0U;
 
-    if (volume == NULL || risk_flags == NULL)
+    if (volume == IFS_EXT2_NULL || risk_flags == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if ((volume->state & EXT2_VALID_FS) == 0U)
         risks |= IFS_EXT2_READONLY_RISK_DIRTY;
@@ -271,9 +271,9 @@ IfsExt2Status ifs_ext2_write_assess(
     ifs_ext2_u32 risks = 0U;
     ifs_ext2_u32 readonly_risks = 0U;
 
-    if (volume == NULL || risk_flags == NULL)
+    if (volume == IFS_EXT2_NULL || risk_flags == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
-    if (volume->io.write_at == NULL)
+    if (volume->io.write_at == IFS_EXT2_NULL)
         risks |= IFS_EXT2_WRITE_RISK_NO_WRITER;
     if (ifs_ext2_readonly_assess(volume, &readonly_risks) != IFS_EXT2_OK)
         risks |= IFS_EXT2_WRITE_RISK_READONLY_POLICY;
@@ -289,7 +289,7 @@ IfsExt2NodeType ifs_ext2_inode_type(const IfsExt2Inode *inode)
 {
     ifs_ext2_u16 type;
 
-    if (inode == NULL)
+    if (inode == IFS_EXT2_NULL)
         return IFS_EXT2_NODE_UNKNOWN;
     type = inode->mode & EXT2_S_IFMT;
     switch (type) {
@@ -309,7 +309,7 @@ IfsExt2Status ifs_ext2_inode_write_assess(
 {
     ifs_ext2_u32 risks = 0U;
 
-    if (volume == NULL || inode == NULL)
+    if (volume == IFS_EXT2_NULL || inode == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (ifs_ext2_write_assess(volume, &risks) != IFS_EXT2_OK)
         return IFS_EXT2_ERROR_UNSUPPORTED;
@@ -335,7 +335,7 @@ IfsExt2Status ifs_ext2_read_inode(
     const ifs_ext2_u8 *raw;
     ifs_ext2_u32 size_high = 0U;
 
-    if (volume == NULL || inode == NULL || scratch == NULL)
+    if (volume == IFS_EXT2_NULL || inode == IFS_EXT2_NULL || scratch == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (inode_number == 0U || inode_number > volume->total_inodes)
         return IFS_EXT2_ERROR_RANGE;
@@ -409,8 +409,8 @@ IfsExt2Status ifs_ext2_map_file_block(
     ifs_ext2_u32 level;
     ifs_ext2_u64 offset;
 
-    if (volume == NULL || inode == NULL || physical_block == NULL ||
-        is_hole == NULL || scratch == NULL)
+    if (volume == IFS_EXT2_NULL || inode == IFS_EXT2_NULL || physical_block == IFS_EXT2_NULL ||
+        is_hole == IFS_EXT2_NULL || scratch == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (scratch_size < volume->block_size)
         return IFS_EXT2_ERROR_BUFFER_TOO_SMALL;
@@ -469,8 +469,8 @@ IfsExt2Status ifs_ext2_read_file(
     ifs_ext2_u8 *out = (ifs_ext2_u8 *)destination;
     ifs_ext2_u32 total = 0U;
 
-    if (volume == NULL || inode == NULL || destination == NULL ||
-        scratch == NULL || bytes_read == NULL)
+    if (volume == IFS_EXT2_NULL || inode == IFS_EXT2_NULL || destination == IFS_EXT2_NULL ||
+        scratch == IFS_EXT2_NULL || bytes_read == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (scratch_size < volume->block_size)
         return IFS_EXT2_ERROR_BUFFER_TOO_SMALL;
@@ -531,8 +531,8 @@ IfsExt2Status ifs_ext2_write_file_existing(
     ifs_ext2_u32 total = 0U;
     IfsExt2Status status;
 
-    if (volume == NULL || inode == NULL || source == NULL ||
-        scratch == NULL || bytes_written == NULL)
+    if (volume == IFS_EXT2_NULL || inode == IFS_EXT2_NULL || source == IFS_EXT2_NULL ||
+        scratch == IFS_EXT2_NULL || bytes_written == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     *bytes_written = 0U;
     status = ifs_ext2_inode_write_assess(volume, inode);
@@ -616,8 +616,8 @@ IfsExt2Status ifs_ext2_iterate_directory(
 {
     ifs_ext2_u64 position = 0U;
 
-    if (volume == NULL || directory == NULL || callback == NULL ||
-        scratch == NULL)
+    if (volume == IFS_EXT2_NULL || directory == IFS_EXT2_NULL || callback == IFS_EXT2_NULL ||
+        scratch == IFS_EXT2_NULL)
         return IFS_EXT2_ERROR_ARGUMENT;
     if (ifs_ext2_inode_type(directory) != IFS_EXT2_NODE_DIRECTORY)
         return IFS_EXT2_ERROR_NOT_DIRECTORY;
@@ -734,8 +734,8 @@ IfsExt2Status ifs_ext2_lookup(
     LookupState state;
     IfsExt2Status status;
 
-    if (volume == NULL || directory == NULL || name == NULL ||
-        inode_number == NULL || name_length == 0U)
+    if (volume == IFS_EXT2_NULL || directory == IFS_EXT2_NULL || name == IFS_EXT2_NULL ||
+        inode_number == IFS_EXT2_NULL || name_length == 0U)
         return IFS_EXT2_ERROR_ARGUMENT;
 
     state.name = name;
