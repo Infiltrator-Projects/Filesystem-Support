@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "../native/filesystems/ext2/core/ext2_core.h"
 
 #include <stdio.h>
