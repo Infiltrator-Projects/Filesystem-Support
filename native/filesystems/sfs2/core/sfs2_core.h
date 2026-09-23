@@ -19,6 +19,8 @@ typedef uint64_t ifs_sfs2_u64;
 #define IFS_SFS2_OBJECT_FIXED_SIZE 27U
 #define IFS_SFS2_EXTENT_NODE_SIZE 16U
 #define IFS_SFS2_MAX_FILE_SIZE 0x0000FFFFFFFFFFFFULL
+#define IFS_SFS2_MAX_FILENAME 107U
+#define IFS_SFS2_BLOCK_HEADER_SIZE 12U
 
 typedef enum IfsSfs2RootStatus {
     IFS_SFS2_ROOT_OK = 0,
@@ -50,5 +52,42 @@ int ifs_sfs2_encode_file_size(
     ifs_sfs2_u16 *low_16);
 
 const char *ifs_sfs2_root_status_string(IfsSfs2RootStatus status);
+
+int ifs_sfs2_select_root_copy(
+    int primary_valid,
+    ifs_sfs2_u32 primary_sequence,
+    int backup_valid,
+    ifs_sfs2_u32 backup_sequence);
+
+ifs_sfs2_u32 ifs_sfs2_calculate_block_checksum(
+    const unsigned char *block,
+    ifs_sfs2_u32 block_size);
+
+int ifs_sfs2_validate_block_header(
+    const unsigned char *block,
+    ifs_sfs2_u32 block_size,
+    ifs_sfs2_u32 expected_block_number,
+    ifs_sfs2_u32 expected_block_id);
+
+typedef enum IfsSfs2ObjectRecordStatus {
+    IFS_SFS2_OBJECT_RECORD_OK = 0,
+    IFS_SFS2_OBJECT_RECORD_INVALID_ARGUMENT,
+    IFS_SFS2_OBJECT_RECORD_NAME_UNTERMINATED,
+    IFS_SFS2_OBJECT_RECORD_NAME_TOO_LONG,
+    IFS_SFS2_OBJECT_RECORD_COMMENT_UNTERMINATED,
+    IFS_SFS2_OBJECT_RECORD_SIZE_OVERFLOW
+} IfsSfs2ObjectRecordStatus;
+
+IfsSfs2ObjectRecordStatus ifs_sfs2_object_record_layout(
+    const unsigned char *name_and_comment,
+    ifs_sfs2_u32 available_tail_bytes,
+    ifs_sfs2_u32 *record_bytes,
+    ifs_sfs2_u32 *name_bytes);
+
+int ifs_sfs2_validate_extent(
+    ifs_sfs2_u32 key,
+    ifs_sfs2_u32 next,
+    ifs_sfs2_u32 block_count,
+    ifs_sfs2_u32 total_blocks);
 
 #endif
