@@ -186,6 +186,27 @@ if(UNIX)
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
     install(FILES data/org.infiltrator.FilesystemSupport.desktop
         DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+
+    # Project-owned native Linux filesystem modules are built against the
+    # running kernel at install time. Ship the exact source needed by the
+    # privileged helper rather than pretending a generic prebuilt .ko is
+    # portable across kernel ABIs.
+    install(PROGRAMS packaging/linux/native-module-helper.sh
+        DESTINATION "lib/infiltrator-filesystem-support"
+        RENAME native-module-helper)
+
+    foreach(native_fs IN ITEMS ext2 ext3 ext4 ofs ffs)
+        install(DIRECTORY
+            "native/filesystems/${native_fs}/core"
+            "native/filesystems/${native_fs}/linux"
+            DESTINATION "lib/infiltrator-filesystem-support/native/filesystems/${native_fs}"
+            PATTERN "*.o" EXCLUDE
+            PATTERN "*.ko" EXCLUDE
+            PATTERN "*.mod" EXCLUDE
+            PATTERN "*.mod.c" EXCLUDE
+            PATTERN "Module.symvers" EXCLUDE
+            PATTERN "modules.order" EXCLUDE)
+    endforeach()
 endif()
 
 if(BUILD_TESTING)
@@ -278,6 +299,6 @@ if(UNIX)
     set(CPACK_DEBIAN_PACKAGE_SECTION "admin")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "policykit-1, apt, dpkg")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "policykit-1, apt, dpkg, kmod")
     include(CPack)
 endif()
