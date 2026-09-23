@@ -20,6 +20,61 @@ static ifs_pfs3_u32 ifs_pfs3_read_be32(const unsigned char *data)
            (ifs_pfs3_u32)data[3];
 }
 
+int ifs_pfs3_decode_extension(
+    const unsigned char *const bytes,
+    const ifs_pfs3_u32 byte_count,
+    IfsPfs3ExtensionRecord *const extension)
+{
+    if (bytes == 0 || extension == 0 ||
+        byte_count < IFS_PFS3_EXTENSION_MIN_BYTES)
+        return -1;
+
+    extension->id = ifs_pfs3_read_be16(bytes + 0U);
+    extension->extension_options = ifs_pfs3_read_be32(bytes + 4U);
+    extension->datestamp = ifs_pfs3_read_be32(bytes + 8U);
+    extension->format_version = ifs_pfs3_read_be32(bytes + 12U);
+    extension->reserved_roving = ifs_pfs3_read_be32(bytes + 44U);
+    extension->roving_bit = ifs_pfs3_read_be16(bytes + 48U);
+    extension->current_anode_sequence = ifs_pfs3_read_be16(bytes + 50U);
+    extension->delete_directory_roving = ifs_pfs3_read_be16(bytes + 52U);
+    extension->delete_directory_size = ifs_pfs3_read_be16(bytes + 54U);
+    extension->filename_size = ifs_pfs3_read_be16(bytes + 56U);
+    return 0;
+}
+
+int ifs_pfs3_validate_extension(
+    const IfsPfs3ExtensionRecord *const extension,
+    const ifs_pfs3_u32 reserved_block_count,
+    ifs_pfs3_u16 *const effective_filename_size)
+{
+    ifs_pfs3_u32 deldir_entries;
+
+    if (extension == 0 || effective_filename_size == 0)
+        return -1;
+    if (extension->id != IFS_PFS3_EXTENSION_ID)
+        return -1;
+    if (extension->roving_bit > 31U)
+        return -1;
+    if (reserved_block_count != 0U &&
+        extension->reserved_roving >= reserved_block_count)
+        return -1;
+    if (extension->delete_directory_size > IFS_PFS3_MAX_DELDIR_BLOCKS)
+        return -1;
+
+    deldir_entries =
+        (ifs_pfs3_u32)extension->delete_directory_size *
+        IFS_PFS3_DELDIR_ENTRIES_PER_BLOCK;
+    if (deldir_entries == 0U) {
+        if (extension->delete_directory_roving != 0U)
+            return -1;
+    } else if (extension->delete_directory_roving >= deldir_entries) {
+        return -1;
+    }
+
+    return ifs_pfs3_effective_filename_size(
+        extension->filename_size, effective_filename_size);
+}
+
 int ifs_pfs3_decode_root(
     const unsigned char *const bytes,
     const ifs_pfs3_u32 byte_count,

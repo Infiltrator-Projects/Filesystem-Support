@@ -22,6 +22,10 @@ typedef uint32_t ifs_pfs3_u32;
 #define IFS_PFS3_MIN_FILENAME_SIZE 30U
 #define IFS_PFS3_MAX_FILENAME_SIZE 107U
 #define IFS_PFS3_ROOT_MIN_BYTES 96U
+#define IFS_PFS3_EXTENSION_ID 0x4558U
+#define IFS_PFS3_EXTENSION_MIN_BYTES 58U
+#define IFS_PFS3_MAX_DELDIR_BLOCKS 32U
+#define IFS_PFS3_DELDIR_ENTRIES_PER_BLOCK 31U
 
 #define IFS_PFS3_MODE_HARDDISK        0x0001U
 #define IFS_PFS3_MODE_SPLITTED_ANODES 0x0002U
@@ -59,6 +63,19 @@ typedef struct IfsPfs3RootRecord {
     ifs_pfs3_u32 extension;
 } IfsPfs3RootRecord;
 
+typedef struct IfsPfs3ExtensionRecord {
+    ifs_pfs3_u16 id;
+    ifs_pfs3_u32 extension_options;
+    ifs_pfs3_u32 datestamp;
+    ifs_pfs3_u32 format_version;
+    ifs_pfs3_u32 reserved_roving;
+    ifs_pfs3_u16 roving_bit;
+    ifs_pfs3_u16 current_anode_sequence;
+    ifs_pfs3_u16 delete_directory_roving;
+    ifs_pfs3_u16 delete_directory_size;
+    ifs_pfs3_u16 filename_size;
+} IfsPfs3ExtensionRecord;
+
 typedef enum IfsPfs3Format {
     IFS_PFS3_FORMAT_INVALID = 0,
     IFS_PFS3_FORMAT_PFS1,
@@ -78,6 +95,16 @@ typedef enum IfsPfs3RootStatus {
     IFS_PFS3_ROOT_INVALID_ROOT_CLUSTER_ALIGNMENT,
     IFS_PFS3_ROOT_RESERVED_FREE_OUT_OF_RANGE
 } IfsPfs3RootStatus;
+
+int ifs_pfs3_decode_extension(
+    const unsigned char *bytes,
+    ifs_pfs3_u32 byte_count,
+    IfsPfs3ExtensionRecord *extension);
+
+int ifs_pfs3_validate_extension(
+    const IfsPfs3ExtensionRecord *extension,
+    ifs_pfs3_u32 reserved_block_count,
+    ifs_pfs3_u16 *effective_filename_size);
 
 int ifs_pfs3_decode_root(
     const unsigned char *bytes,

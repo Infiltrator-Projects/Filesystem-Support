@@ -121,5 +121,34 @@ int main(void)
             return fail("PFS undersized fnsize accepted");
     }
 
+
+    {
+        unsigned char raw[IFS_PFS3_EXTENSION_MIN_BYTES] = {0};
+        IfsPfs3ExtensionRecord extension;
+        ifs_pfs3_u16 effective = 0U;
+
+        raw[0] = 0x45; raw[1] = 0x58;
+        raw[47] = 5U;
+        raw[49] = 3U;
+        raw[53] = 30U;
+        raw[55] = 2U;
+        raw[57] = 107U;
+
+        if (ifs_pfs3_decode_extension(raw, sizeof(raw), &extension) != 0)
+            return fail("PFS extension decoder failed");
+        if (ifs_pfs3_validate_extension(&extension, 100U, &effective) != 0 ||
+            effective != 107U)
+            return fail("valid PFS extension rejected");
+
+        extension.delete_directory_roving = 62U;
+        if (ifs_pfs3_validate_extension(&extension, 100U, &effective) == 0)
+            return fail("out-of-range PFS deldir roving accepted");
+
+        extension.delete_directory_roving = 0U;
+        extension.roving_bit = 32U;
+        if (ifs_pfs3_validate_extension(&extension, 100U, &effective) == 0)
+            return fail("out-of-range PFS bitmap roving bit accepted");
+    }
+
     return 0;
 }
