@@ -65,7 +65,10 @@ jobs:
           ! grep -Eiq 'linux/fs/ext2|Remy Card|Linus Torvalds|Stephen Tweedie|Red Hat' "$file"
           for file in \
             native/filesystems/ext2/linux/namei.c \
-            native/filesystems/ext2/linux/ialloc.c; do
+            native/filesystems/ext2/linux/ialloc.c \
+            native/filesystems/ext2/linux/balloc.c \
+            native/filesystems/ext2/linux/dir.c \
+            native/filesystems/ext2/linux/ext2.h; do
             test -s "$file"
             ! grep -Eiq 'linux/fs/(ext2|minix)|Remy Card|Linus Torvalds|Stephen Tweedie|David S\. Miller|Al Viro' "$file"
           done
