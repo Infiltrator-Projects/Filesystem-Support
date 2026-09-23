@@ -2,497 +2,372 @@
 
 ## Purpose
 
-Filesystem Support is not intended to remain a graphical front end for a large collection of unrelated Debian packages.
+Filesystem Support is one cross-platform product for discovering, installing
+and ultimately providing a coherent catalogue of filesystem and storage
+support.
 
-The long-term goal is to implement the filesystem support ourselves and make it feel like a coherent part of the operating system.
+The long-term goal is not to maintain a Linux implementation and a Windows
+implementation of each disk format. For every real filesystem, Filesystem
+Support owns **one canonical filesystem implementation** and exposes it through
+operating-system adapters.
 
-For real on-disk filesystems, the preferred final form is a **native Linux VFS filesystem driver built as an out-of-tree loadable kernel module**, installed and managed by Filesystem Support. The user should not need a custom kernel, should not need to patch Debian's kernel source, and should not need a separate application for every filesystem.
+For conventional local filesystems:
 
-The model is the same architectural idea already used by InfiltratorFS: install the driver suite, let Linux load the required filesystem module when needed, and expose the filesystem through the normal Linux mount/VFS path.
+```text
+                      canonical filesystem engine
+                         /                 \
+                        /                   \
+               Linux adapter            Windows adapter
+                    |                         |
+                 Linux VFS                Windows IFS
+```
 
-External Debian packages, existing kernel drivers and FUSE implementations are therefore primarily **compatibility and transition providers** while our native implementations are incomplete.
+Linux should receive normal native VFS integration without requiring a custom
+kernel. Windows should receive normal native filesystem-driver integration
+through the WDK/IFS stack.
+
+External kernel drivers, Debian packages, FUSE implementations and the former
+standalone ExtFS-for-Windows implementation are transition/reference providers
+while the canonical engines are incomplete.
 
 ## Why this project exists
 
-The project is driven by three related problems.
+The project addresses four related problems.
 
-1. **FUSE is not the desired final architecture for ordinary disk filesystems.** It is useful as an interoperability mechanism and can remain a temporary fallback, but the end goal for conventional local filesystems is normal kernel/VFS integration.
-2. **A multitude of unrelated utilities and implementations is not a coherent subsystem.** Users should not need to know which package, daemon, FUSE executable or helper belongs to which disk format.
-3. **Kernel patching or maintaining a custom kernel is not acceptable as the normal installation model.** Our filesystem support must be installable against the running distribution kernel as external modules wherever technically possible.
-
-The desired user experience is therefore:
-
-```text
-Install Filesystem Support once
-        |
-        +-- install native filesystem module suite
-        +-- rebuild/sign modules for installed kernels when required
-        +-- register module aliases and dependencies
-        |
-Insert / attach / mount storage
-        |
-Linux requests the filesystem type
-        |
-the relevant Infiltrator filesystem module loads
-        |
-normal Linux VFS mount
-```
-
-The filesystem should then behave as part of the system rather than as a separate application.
+1. FUSE is useful interoperability infrastructure but is not the desired final
+   architecture for ordinary local disk filesystems.
+2. A collection of unrelated packages and utilities is not a coherent storage
+   subsystem.
+3. Maintaining separate filesystem algorithms per operating system creates
+   duplicated correctness work and semantic drift.
+4. Gaining filesystem support should not require replacing the stock Linux
+   kernel or weakening the normal Windows driver trust model.
 
 ## Non-negotiable architectural principles
 
-### 1. No custom kernel requirement
+### 1. One filesystem implementation
 
-Filesystem Support must not require users to patch, rebuild or replace the Debian kernel merely to gain one of our filesystem drivers.
+Filesystem semantics are written once.
 
-If a filesystem can be implemented as an out-of-tree module, that is the required deployment model.
+On-disk structures, mapping rules, allocation, extent handling, journaling,
+checksums, directory rules, validation and recovery belong to the canonical
+filesystem engine.
 
-A target that truly cannot be implemented without kernel changes must be identified explicitly rather than quietly turning Filesystem Support into a custom-kernel project.
+Linux VFS code and Windows IFS code adapt their operating systems to that
+engine. They do not fork those semantics.
 
-### 2. Native VFS modules for real local filesystems
+### 2. Native integration on each operating system
 
-Conventional block-device and image filesystems should ultimately be implemented as native Linux filesystem modules.
+For conventional block-device and image filesystems, the intended endpoints
+are:
 
-Examples include:
+- a normal out-of-tree Linux VFS module where the format is appropriate for
+  kernel integration; and
+- a normal native Windows filesystem driver built and qualified with the WDK.
 
-- AFFS
-- ADFS
-- SGI EFS
-- HFS and HFS+
-- FAT and exFAT
-- NTFS
-- UFS
-- Minix
-- JFS
-- XFS
-- ext2/ext3/ext4
-- F2FS
-- ISO 9660
-- UDF
-- and the other genuine on-disk filesystem formats in the support matrix.
+The platform adapters may be completely different because Linux and Windows
+have different kernel contracts. The filesystem implementation beneath them
+must remain shared.
 
-The final provider for these should not be a FUSE process merely because FUSE was easier during early development.
+### 3. No custom Linux kernel requirement
 
-### 3. FUSE is transitional, not the destination
+Filesystem Support must not require users to patch, rebuild or replace their
+distribution kernel merely to gain one of our filesystem drivers.
 
-Existing FUSE implementations remain useful today because they give users working access before our implementations exist.
+A target that can be delivered as an out-of-tree module should be delivered
+that way.
 
-They may also be useful as reference interoperability targets and test oracles.
+### 4. Do not weaken Windows security to make deployment convenient
 
-For ordinary local disk filesystems, however, the roadmap is:
+Production Windows filesystem drivers must follow the supported Microsoft
+driver signing and Secure Boot path.
 
-```text
-External/FUSE fallback
-        ->
-Native parser and validation
-        ->
-Native read-only VFS module
-        ->
-Native safe read/write VFS module
-        ->
-Feature-complete native provider
-        ->
-External fallback no longer required
-```
+Test-signing remains useful for disposable development machines, but disabling
+Secure Boot or enabling TESTSIGNING is not the intended production experience.
 
-Removing FUSE from a target is a milestone, not merely a packaging change.
+### 5. One product, not a separate application per filesystem
 
-### 4. One product, not 104 applications
-
-There must not be an AFFS application, an EFS application, an HFS application, an NTFS application, and so on.
+There must not be independent AFFS, EFS, EXT, HFS, NTFS and XFS applications.
 
 The product remains **Filesystem Support**.
 
-The implementation may contain many independently loadable modules, but installation, updating, diagnostics, documentation and status belong to one coherent subsystem and one management application.
+The implementation may contain many independently deployable modules, but
+installation, updating, diagnostics, capability state and documentation belong
+to the same subsystem and management experience.
 
-### 5. Separate modules, shared infrastructure
+### 6. Separate modules, shared infrastructure
 
-The final implementation should **not** be one enormous kernel module containing every filesystem.
+Do not turn the catalogue into one giant kernel binary.
 
-A likely shape is:
+Where practical, each conventional filesystem remains independently loadable.
+Shared platform infrastructure is promoted only when genuinely common and
+stable.
 
-```text
-Filesystem Support
-|
-+-- userspace manager / installer / updater
-|
-+-- native filesystem module suite
-    |
-    +-- infiltratr-fs-core.ko
-    +-- infiltratr-affs.ko
-    +-- infiltratr-adfs.ko
-    +-- infiltratr-efs.ko
-    +-- infiltratr-hfs.ko
-    +-- infiltratr-hfsplus.ko
-    +-- infiltratr-fat.ko
-    +-- infiltratr-exfat.ko
-    +-- infiltratr-ntfs.ko
-    +-- infiltratr-ufs.ko
-    +-- infiltratr-minix.ko
-    +-- ...
-```
+Candidate shared facilities include bounded I/O, checked arithmetic, checksum
+primitives, Unicode/name conversion, corruption diagnostics, mount-option
+parsing, test-vector interfaces and common platform lifecycle helpers.
 
-Each filesystem remains independently loadable so using one filesystem does not drag all other implementations into kernel memory.
+Filesystem-specific semantics remain with their filesystem.
 
-Shared code belongs in a deliberately small kernel-side support layer only when it is genuinely common and safe to share.
+### 7. FUSE and external providers are transitional for ordinary disk formats
 
-Candidate shared facilities include:
+Existing FUSE/kernel/package providers remain useful while our implementation
+is incomplete and as interoperability/test oracles.
 
-- endian-safe decoding and encoding
-- checked integer arithmetic
-- bounded block and byte-range access
-- block-cache helpers
-- common checksum primitives
-- Unicode and filename conversion helpers
-- mount-option parsing
-- common diagnostic and trace facilities
-- corruption/structure validation helpers
-- common read-only image/block-device abstraction where useful
-- shared test-vector and fuzzing interfaces.
-
-Filesystem-specific on-disk semantics must remain in the filesystem-specific driver.
-
-### 6. Userspace Common is not automatically kernel Common
-
-The existing Infiltratr Common library is a userspace/shared-project library.
-
-Kernel code has different constraints and must not casually link or copy userspace abstractions into kernel space.
-
-If multiple native filesystem modules need shared kernel code, that code should live in a specifically designed **kernel-safe filesystem core** with kernel-appropriate allocation, locking, error handling, APIs and testing.
-
-Promotion into that core follows the same project rule used elsewhere: only promote behaviour that is genuinely common and at least as correct as the best individual implementation.
-
-### 7. Clean implementation, not blind source copying
-
-The purpose of owning these implementations is defeated if they become an unreviewed copy of dozens of third-party filesystem projects.
-
-Development may use:
-
-- published filesystem specifications
-- standards
-- format documentation
-- independently created test images
-- interoperability testing
-- documented behaviour of other implementations
-- source study where licensing permits and the licensing consequences are understood.
-
-Code copied from another implementation must never be treated as consequence-free. Licensing must be intentional.
-
-Where the project wants an independently owned implementation, the code should be implemented from the format/behaviour specification and validated against real media and independent implementations.
-
-## Native module lifecycle
-
-### Installation
-
-Filesystem Support should own the lifecycle of its native modules.
-
-The intended flow is:
+For a conventional local disk filesystem, the lifecycle is:
 
 ```text
-detect installed/running kernels
-        |
-verify matching kernel build headers
-        |
-build required module suite against each supported kernel
-        |
-run module tests/validation
-        |
-sign modules where signature enforcement requires it
-        |
-install under /lib/modules/<kernel>/...
-        |
-run depmod
-        |
-make modules available to normal Linux module loading
+external/reference provider
+        ->
+canonical parser and validation
+        ->
+native read-only adapters
+        ->
+safe native write support
+        ->
+feature-complete canonical engine
+        ->
+qualified Linux and Windows providers
+        ->
+external provider becomes optional
 ```
 
-The user should not need to invoke the compiler or manually copy `.ko` files.
+### 8. Not every catalogue entry is a disk filesystem
 
-### Kernel updates
+The management catalogue also contains network/distributed filesystems,
+encrypted containers, overlays, archive/image access, cloud mounts, device
+namespaces and tools-only entries.
 
-Linux internal kernel interfaces change over time, so out-of-tree drivers cannot be treated as a single binary that will work against every future kernel.
+“Own the whole catalogue” does not mean forcing OAuth, web APIs, MTP or archive
+engines into kernel filesystem modules.
 
-Filesystem Support must therefore treat kernel updates as a normal lifecycle event.
+High-level remote/device protocols should use a coherent Filesystem Support
+userspace service where that is the technically correct boundary.
 
-For each newly installed kernel:
+## Product experience
 
-1. detect that the new kernel exists;
-2. determine whether the filesystem module suite already has a compatible build;
-3. build the suite against that kernel's build interface;
-4. run compile-time and automated driver tests;
-5. sign the modules if required;
-6. install the modules for that kernel;
-7. run `depmod`;
-8. report success or a clearly actionable failure.
-
-A kernel API change is therefore an adaptation problem for our driver suite, not a reason to patch the distribution kernel.
-
-### Secure Boot and module signing
-
-Secure Boot must be treated as a first-class deployment case.
-
-Filesystem Support should:
-
-- detect whether module signature enforcement matters on the machine;
-- maintain or use an appropriate signing identity;
-- sign every built native filesystem module consistently;
-- guide the user through trust/enrolment only when the platform requires it;
-- verify the installed module signature before declaring deployment successful.
-
-The user should not have to repeat an enrolment process for every filesystem module.
-
-### Autoloading
-
-Where normal Linux module aliasing can represent the filesystem cleanly, modules should be installed so that the system can request them automatically when the filesystem type is needed.
-
-Manual **Load module** and **Unload module** controls remain valuable for diagnostics and administration, but they are not the desired everyday workflow.
-
-The desired everyday workflow is simply:
+On Linux, the eventual ordinary local-filesystem experience is:
 
 ```text
-filesystem needed -> module requested -> module loaded -> VFS mount
+install Filesystem Support
+        ->
+install/build/sign qualified native modules
+        ->
+attach media
+        ->
+Linux requests filesystem
+        ->
+matching adapter/module loads
+        ->
+normal VFS mount
 ```
 
-## Safety model for native filesystem development
+On Windows:
 
-Filesystem readers and writers have very different risk profiles.
+```text
+install Filesystem Support
+        ->
+manager shows the common filesystem catalogue
+        ->
+select a qualified Windows filesystem module
+        ->
+signed driver package installs
+        ->
+attach media
+        ->
+Windows mounts through the normal filesystem stack
+```
 
-A buggy reader may crash, reject valid media or expose corrupt data.
+A filesystem that is not yet qualified for Windows can still appear in the
+catalogue, but its installation action remains disabled. The interface must
+never imply that unfinished support exists.
 
-A buggy writer may destroy irreplaceable media.
+## Canonical engine and adapters
 
-Native support must therefore advance through explicit maturity stages rather than jumping directly to read/write.
+The concrete source/dependency rules are defined in
+[`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md).
 
-### Native implementation maturity states
+The Windows-specific destination and migration gates are defined in
+[`WINDOWS_FILESYSTEM_ARCHITECTURE.md`](WINDOWS_FILESYSTEM_ARCHITECTURE.md).
 
-Every real filesystem target should eventually carry a native-development state such as:
+The rule is simple:
 
-1. **External only** — current Debian/kernel/FUSE implementation is the only provider.
-2. **Native planned** — format ownership and implementation plan are documented.
-3. **Parser under development** — on-disk structures can be decoded in test code but are not a supported driver.
-4. **Native read-only experimental** — loadable VFS module mounts controlled test images read-only.
-5. **Native read-only validated** — broad corpus, corruption, fuzz and interoperability testing has passed.
-6. **Native write experimental** — tightly controlled write support exists but is not the default.
-7. **Native read/write validated** — write operations have durability, corruption and interoperability coverage.
-8. **Native feature-complete** — supported format variants and intended tooling are complete.
-9. **Native preferred** — Filesystem Support chooses our implementation ahead of external providers.
+> Filesystem Support owns what a filesystem means. The platform adapter owns
+> how that filesystem participates in a particular operating system.
 
-The application should eventually expose this state directly in the 104-target matrix and GUI.
+## Linux module lifecycle
+
+Linux internal kernel interfaces change over time, so out-of-tree adapters must
+be rebuilt and qualified for supported kernel versions.
+
+Filesystem Support should detect installed/running kernels, validate matching
+build headers, build the required modules, run qualification, sign modules when
+required, install them under the correct kernel module tree and run `depmod`.
+
+Secure Boot/module signature enforcement must be handled as a normal deployment
+case rather than an exceptional manual procedure.
+
+## Windows driver lifecycle
+
+Windows filesystem support must have an equivalent first-class lifecycle:
+
+1. build the platform adapter and selected canonical filesystem module for the
+   supported architecture;
+2. run compiler warnings-as-errors, static analysis and filesystem contract
+   tests;
+3. validate INF/package structure and PE architecture;
+4. produce the driver catalogue from the exact staged binaries;
+5. sign through the appropriate development or production trust path;
+6. install through the Filesystem Support manager/installer;
+7. verify service/driver registration and load state;
+8. collect useful diagnostics on failure;
+9. support clean removal/update semantics.
+
+The mature ExtFS-for-Windows WDK, installer, signing and diagnostic work is
+being migrated and generalized for this purpose rather than discarded.
+
+## Native implementation maturity
+
+Every target should expose an implementation state per platform. A practical
+model is:
+
+1. **Not implemented** — no canonical provider yet.
+2. **Engine under development** — canonical parser/semantics are being built.
+3. **Read-only experimental** — controlled native mounts work.
+4. **Read-only validated** — broad corpus/corruption/interoperability testing
+   has passed.
+5. **Write experimental** — tightly controlled mutation exists.
+6. **Read/write validated** — durability, recovery and destructive testing
+   have passed.
+7. **Feature-complete** — intended variants/features are implemented.
+8. **Preferred** — Filesystem Support chooses the canonical provider by
+   default.
+
+Linux and Windows may be at different qualification states while still using
+the same canonical filesystem semantics.
 
 ## Testing requirements
 
-A native filesystem module should not graduate merely because a sample disk mounts.
+A native filesystem does not graduate merely because a sample volume mounts.
 
-Each implementation should accumulate a corpus covering:
+The corpus should cover, where meaningful:
 
-- empty filesystems
-- smallest and largest valid structures
-- nested directories
-- long and unusual filenames
-- boundary-size files
-- sparse/extents where the format supports them
-- timestamps and metadata variants
-- allocation fragmentation
-- alternate block/sector sizes
-- endian variants where applicable
-- dirty/unclean shutdown states
-- intentionally malformed metadata
-- truncated images
-- checksum failures
-- circular or invalid metadata references
-- full filesystem conditions
-- out-of-space writes
-- interrupted writes
-- mount/unmount repetition
-- concurrent access where the filesystem permits it
-- interoperability with original/native operating systems where practical.
+- empty/minimal/maximal valid structures;
+- nested directories and difficult names;
+- boundary-size, sparse and fragmented files;
+- alternate block/sector sizes;
+- metadata/checksum variants;
+- dirty/unclean states and recovery;
+- intentionally malformed and truncated images;
+- invalid/circular metadata references;
+- full/out-of-space conditions;
+- interrupted writes and crash boundaries;
+- repeated mount/unmount;
+- concurrency where permitted;
+- interoperability with independent/native implementations.
 
-Read-only implementations require fuzzing and corruption testing before being considered validated.
+Read paths require fuzz/corruption testing.
 
-Write support additionally requires crash-consistency and destructive-test coverage using disposable images/devices.
+Write support additionally requires disposable destructive testing,
+crash-consistency testing and an independent post-write verifier.
 
-No development filesystem driver should be tested first against valuable original media.
+Platform qualification is separate from filesystem-semantic qualification:
+Linux VFS correctness does not prove Windows IRP/FCB/cache correctness, and the
+reverse is also true.
 
 ## Development order
 
-The 104 entries are not equal in size or difficulty.
+**EXT2 is first.**
 
-The project should deliberately harvest reusable infrastructure from simpler formats before tackling the largest filesystems.
+It is the proving filesystem for the canonical-engine plus dual-adapter model.
+The existing Linux EXT2 source contains substantially more complete filesystem
+semantics, while the former ExtFS portable core contributes host-neutral
+validation, defensive checked geometry, tests and Windows integration
+experience. Those inputs are to be reconciled into one implementation rather
+than retained as competitors.
 
-A sensible early sequence is:
-
-```text
-ROMFS
--> ISO 9660
--> FAT12/16/32
--> Minix
--> CP/M tooling/native access model
--> AFFS
--> SGI EFS
--> ext2
--> HFS
--> UDF
--> exFAT
-```
-
-After the framework is proven, progress into more complex local filesystems such as:
+The immediate sequence is:
 
 ```text
-ext3/ext4
-HFS+
-UFS
-JFS
-NTFS
-XFS
-F2FS
+EXT2 canonical engine
+        ->
+Linux adapter consumes it
+        ->
+Windows adapter consumes it
+        ->
+cross-platform qualification
+        ->
+EXT3
+        ->
+EXT4
 ```
 
-The largest and most structurally complex systems should come later, after the shared block, validation, testing and recovery infrastructure is mature:
-
-```text
-Btrfs
-APFS
-ZFS
-GFS2 / OCFS2
-CephFS and other distributed systems
-```
-
-This order is a roadmap, not a permanent ranking. A filesystem may move earlier when a dependency, test corpus, specification or practical need makes it advantageous.
-
-## The 104-entry catalogue is broader than 104 disk filesystems
-
-The existing support matrix intentionally includes more than conventional on-disk filesystem formats.
-
-It also contains:
-
-- network filesystems
-- distributed filesystems
-- encrypted containers
-- archive/image access layers
-- overlays
-- cloud storage mounts
-- device namespaces such as MTP/PTP/AFC
-- diagnostic virtual filesystems
-- tools-only support.
-
-The phrase **implement all 104 ourselves** therefore means:
-
-> replace each external support path with an Infiltrator-owned implementation or subsystem wherever doing so is technically meaningful.
-
-It does **not** mean forcing inappropriate functionality into a kernel filesystem module.
-
-## What should remain userspace
-
-High-level remote and device protocols often require facilities that should not be pulled into kernel space merely to avoid FUSE.
-
-Examples include:
-
-- cloud OAuth and rapidly changing web APIs;
-- S3-style object-store APIs;
-- WebDAV/HTTP application-layer behaviour;
-- some MTP/PTP/AFC device stacks;
-- archive/container manipulation;
-- other protocols requiring large authentication, TLS or application-protocol stacks.
-
-For these targets, the long-term replacement should be a **single coherent Infiltrator userspace storage service**, not dozens of unrelated FUSE applications.
-
-That service can own:
-
-- authentication
-- TLS
-- network retry/reconnect behaviour
-- caching
-- cloud/device protocol adapters
-- credential integration
-- updateable high-level protocol logic.
-
-The key architectural rule remains the same: one coherent subsystem managed through Filesystem Support.
-
-Do not move complex web/application protocol stacks into kernel space merely to satisfy an ideological "no userspace" target.
+After EXT2 proves the boundary, the rest of the catalogue can be scheduled by
+complexity, practical need and available specifications/test corpora. The old
+ROMFS-first roadmap is superseded.
 
 ## Relationship to InfiltratorFS
 
-InfiltratorFS remains its own filesystem with its own on-disk design and engineering priorities.
+InfiltratorFS remains its own filesystem with its own on-disk design.
 
-Filesystem Support may reuse proven generic engineering ideas from InfiltratorFS, and both projects may contribute genuinely generic improvements to shared infrastructure, but foreign-filesystem compatibility must not distort the InfiltratorFS on-disk design.
+Filesystem Support can reuse proven generic engineering mechanisms and both
+projects can improve genuinely common infrastructure, but compatibility
+filesystem requirements must not distort the InfiltratorFS format, and
+InfiltratorFS-specific assumptions must not leak into foreign-filesystem
+engines.
 
-Likewise, InfiltratorFS-specific assumptions must not leak into compatibility drivers for FAT, AFFS, UFS, NTFS, XFS or other formats.
+Commonality is earned by identical requirements.
 
-The architectural relationship is:
+## Relationship to the current Linux package manager
 
-```text
-                 shared engineering principles
-                         /        \
-                        /          \
-             InfiltratorFS     Filesystem Support
-                                  |
-                           native compatibility
-                           filesystem modules
-```
+The current Debian/FUSE/DKMS manager remains a transition layer and useful
+fallback provider.
 
-Commonality is earned by identical requirements, not by proximity of repositories.
-
-## Relationship to the current Debian provider manager
-
-Version 0.3.0 represents the transition layer.
-
-Today, Filesystem Support can:
-
-- detect current kernel support;
-- distinguish built-in drivers from loadable modules and missing drivers;
-- install and safely remove Debian/FUSE/DKMS support packages;
-- load and unload loadable modules;
-- document all 104 support targets.
-
-Those external providers remain useful until the corresponding native implementation reaches sufficient maturity.
-
-As native implementations appear, the catalogue should grow an explicit native-provider field rather than deleting the external provider immediately.
-
-During migration a target may therefore have both:
+As canonical engines mature, catalogue state should distinguish:
 
 ```text
-Native provider: experimental read-only
-External provider: available and currently preferred
+Canonical engine: validated
+Linux native adapter: validated
+Windows native adapter: in progress
+External Linux provider: available fallback
 ```
 
-Later:
+This is more accurate than deleting an external provider as soon as development
+starts.
 
-```text
-Native provider: validated read/write
-External provider: optional fallback
-Preferred provider: Infiltrator native
-```
+## Relationship to the former ExtFS-for-Windows repository
 
-Finally, for a mature native implementation, the external package becomes unnecessary for ordinary operation.
+ExtFS-for-Windows is being retired as a standalone implementation because
+maintaining a second EXT2/3/4 engine conflicts with the one-engine rule.
+
+Its final v0.9.9 source is preserved byte-for-byte under
+`archive/extfs-for-windows-v0.9.9/`, and its architecture, tests, Windows
+driver lifecycle, WDK packaging/signing knowledge and repository history are
+being migrated into Filesystem Support.
+
+The archived code is evidence/reference only and is excluded from production
+builds.
+
+The standalone repository must not be deleted until the explicit deletion
+gates in
+[`EXTFS_FOR_WINDOWS_MIGRATION.md`](EXTFS_FOR_WINDOWS_MIGRATION.md) have been
+verified against the final repository state.
 
 ## Definition of success
 
-The long-term project succeeds when a Debian user can install Filesystem Support once and gain a coherent suite of filesystem capabilities without understanding the implementation history behind each format.
-
-For a conventional local filesystem, success looks like this:
+For a conventional local filesystem, success means:
 
 ```text
-attach media
--> Linux recognises/request filesystem type
--> our native module loads normally
--> filesystem mounts through Linux VFS
--> no FUSE process
--> no custom kernel
--> no separate filesystem application
--> no third-party filesystem package required
+                 one canonical filesystem engine
+                      /               \
+                     /                 \
+            qualified Linux          qualified Windows
+               adapter                  adapter
+                 |                         |
+          normal Linux VFS          normal Windows IFS
 ```
 
-For high-level remote/device targets, success means the same coherent user experience through the shared Infiltrator storage service rather than a collection of unrelated tools.
+A filesystem bug is fixed once in the canonical engine and both operating
+systems receive that semantic fix.
 
-That is the architectural destination for the entire 104-target programme.
-
-
-## Source architecture
-
-The concrete greenfield source layout and dependency boundaries are defined in
-[`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md).
-
-That document is authoritative for how Common, the platform-neutral native
-engine, Linux VFS adapters, Defragmenter-derived engineering lessons and
-per-filesystem implementations are separated in code.
+That is the architectural destination for the filesystem catalogue.
