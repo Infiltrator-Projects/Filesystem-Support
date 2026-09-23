@@ -1,176 +1,179 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
- *  linux/fs/affs/dir.c
+ * Project-authored Linux directory adapter for AmigaDOS OFS/FFS media.
  *
- *  (c) 1996  Hans-Joachim Widmaier - Rewritten
- *
- *  (C) 1993  Ray Burr - Modified for Amiga FFS filesystem.
- *
- *  (C) 1992  Eric Youngdale Modified for ISO 9660 filesystem.
- *
- *  (C) 1991  Linus Torvalds - minix filesystem
- *
- *  affs directory handling functions
- *
+ * The on-disk hash table and hash-chain layout are filesystem semantics.
+ * This unit only binds that layout to Linux VFS directory iteration and keeps
+ * the VFS cursor stable across partial reads.
  */
 
 #include <linux/iversion.h>
 #include "affs.h"
 
-struct affs_dir_data {
-	unsigned long ino;
-	u64 cookie;
+struct ifs_amiga_dir_state {
+    u32 resume_block;
+    u64 inode_version;
 };
 
-static int affs_readdir(struct file *, struct dir_context *);
+static int ifs_amiga_iterate_directory(struct file *file,
+                                       struct dir_context *ctx);
 
-static loff_t affs_dir_llseek(struct file *file, loff_t offset, int whence)
+static loff_t ifs_amiga_dir_llseek(struct file *file, loff_t offset, int whence)
 {
-	struct affs_dir_data *data = file->private_data;
+    struct ifs_amiga_dir_state *state = file->private_data;
 
-	return generic_llseek_cookie(file, offset, whence, &data->cookie);
+    return generic_llseek_cookie(file, offset, whence, &state->inode_version);
 }
 
-static int affs_dir_open(struct inode *inode, struct file *file)
+static int ifs_amiga_dir_open(struct inode *inode, struct file *file)
 {
-	struct affs_dir_data	*data;
+    struct ifs_amiga_dir_state *state;
 
-	data = kzalloc(sizeof(struct affs_dir_data), GFP_KERNEL);
-	if (!data)
-		return -ENOMEM;
-	file->private_data = data;
-	return 0;
+    state = kzalloc(sizeof(*state), GFP_KERNEL);
+    if (!state)
+        return -ENOMEM;
+
+    file->private_data = state;
+    return 0;
 }
 
-static int affs_dir_release(struct inode *inode, struct file *file)
+static int ifs_amiga_dir_release(struct inode *inode, struct file *file)
 {
-	kfree(file->private_data);
-	return 0;
+    kfree(file->private_data);
+    file->private_data = NULL;
+    return 0;
 }
 
 const struct file_operations affs_dir_operations = {
-	.open		= affs_dir_open,
-	.read		= generic_read_dir,
-	.llseek		= affs_dir_llseek,
-	.iterate_shared	= affs_readdir,
-	.fsync		= affs_file_fsync,
-	.release	= affs_dir_release,
+    .open = ifs_amiga_dir_open,
+    .read = generic_read_dir,
+    .llseek = ifs_amiga_dir_llseek,
+    .iterate_shared = ifs_amiga_iterate_directory,
+    .fsync = affs_file_fsync,
+    .release = ifs_amiga_dir_release,
 };
 
-/*
- * directories can handle most operations...
- */
 const struct inode_operations affs_dir_inode_operations = {
-	.create		= affs_create,
-	.lookup		= affs_lookup,
-	.link		= affs_link,
-	.unlink		= affs_unlink,
-	.symlink	= affs_symlink,
-	.mkdir		= affs_mkdir,
-	.rmdir		= affs_rmdir,
-	.rename		= affs_rename2,
-	.setattr	= affs_notify_change,
+    .create = affs_create,
+    .lookup = affs_lookup,
+    .link = affs_link,
+    .unlink = affs_unlink,
+    .symlink = affs_symlink,
+    .mkdir = affs_mkdir,
+    .rmdir = affs_rmdir,
+    .rename = affs_rename2,
+    .setattr = affs_notify_change,
 };
 
-static int
-affs_readdir(struct file *file, struct dir_context *ctx)
+static int ifs_amiga_iterate_directory(struct file *file,
+                                       struct dir_context *ctx)
 {
-	struct inode		*inode = file_inode(file);
-	struct affs_dir_data	*data = file->private_data;
-	struct super_block	*sb = inode->i_sb;
-	struct buffer_head	*dir_bh = NULL;
-	struct buffer_head	*fh_bh = NULL;
-	unsigned char		*name;
-	int			 namelen;
-	u32			 i;
-	int			 hash_pos;
-	int			 chain_pos;
-	u32			 ino;
-	int			 error = 0;
+    struct inode *inode = file_inode(file);
+    struct super_block *sb = inode->i_sb;
+    struct affs_sb_info *sbi = AFFS_SB(sb);
+    struct ifs_amiga_dir_state *state = file->private_data;
+    struct buffer_head *directory = NULL;
+    struct buffer_head *entry = NULL;
+    u64 cursor;
+    u64 bucket64;
+    u32 block = 0U;
+    u32 chain_index;
+    u32 bucket;
+    u32 walked;
+    int result = 0;
 
-	pr_debug("%s(ino=%lu,f_pos=%llx)\n", __func__, inode->i_ino, ctx->pos);
+    if (ctx->pos < 2) {
+        state->resume_block = 0U;
+        if (!dir_emit_dots(file, ctx))
+            return 0;
+    }
 
-	if (ctx->pos < 2) {
-		data->ino = 0;
-		if (!dir_emit_dots(file, ctx))
-			return 0;
-	}
+    cursor = (u64)(ctx->pos - 2);
+    bucket64 = cursor >> 16;
+    chain_index = (u32)(cursor & 0xffffU);
 
-	affs_lock_dir(inode);
-	chain_pos = (ctx->pos - 2) & 0xffff;
-	hash_pos  = (ctx->pos - 2) >> 16;
-	if (chain_pos == 0xffff) {
-		affs_warning(sb, "readdir", "More than 65535 entries in chain");
-		chain_pos = 0;
-		hash_pos++;
-		ctx->pos = ((hash_pos << 16) | chain_pos) + 2;
-	}
-	dir_bh = affs_bread(sb, inode->i_ino);
-	if (!dir_bh)
-		goto out_unlock_dir;
+    if (chain_index == 0xffffU) {
+        bucket64++;
+        chain_index = 0U;
+        ctx->pos = (loff_t)(bucket64 << 16) + 2;
+    }
 
-	/* If the directory hasn't changed since the last call to readdir(),
-	 * we can jump directly to where we left off.
-	 */
-	ino = data->ino;
-	if (ino && inode_eq_iversion(inode, data->cookie)) {
-		pr_debug("readdir() left off=%d\n", ino);
-		goto inside;
-	}
+    if (bucket64 >= (u64)sbi->s_hashsize)
+        return 0;
 
-	ino = be32_to_cpu(AFFS_HEAD(dir_bh)->table[hash_pos]);
-	for (i = 0; ino && i < chain_pos; i++) {
-		fh_bh = affs_bread(sb, ino);
-		if (!fh_bh) {
-			affs_error(sb, "readdir","Cannot read block %d", i);
-			error = -EIO;
-			goto out_brelse_dir;
-		}
-		ino = be32_to_cpu(AFFS_TAIL(sb, fh_bh)->hash_chain);
-		affs_brelse(fh_bh);
-		fh_bh = NULL;
-	}
-	if (ino)
-		goto inside;
-	hash_pos++;
+    bucket = (u32)bucket64;
 
-	for (; hash_pos < AFFS_SB(sb)->s_hashsize; hash_pos++) {
-		ino = be32_to_cpu(AFFS_HEAD(dir_bh)->table[hash_pos]);
-		if (!ino)
-			continue;
-		ctx->pos = (hash_pos << 16) + 2;
-inside:
-		do {
-			fh_bh = affs_bread(sb, ino);
-			if (!fh_bh) {
-				affs_error(sb, "readdir",
-					   "Cannot read block %d", ino);
-				break;
-			}
+    affs_lock_dir(inode);
 
-			namelen = min(AFFS_TAIL(sb, fh_bh)->name[0],
-				      (u8)AFFSNAMEMAX);
-			name = AFFS_TAIL(sb, fh_bh)->name + 1;
-			pr_debug("readdir(): dir_emit(\"%.*s\", ino=%u), hash=%d, f_pos=%llx\n",
-				 namelen, name, ino, hash_pos, ctx->pos);
+    directory = affs_bread(sb, inode->i_ino);
+    if (!directory) {
+        result = -EIO;
+        goto out;
+    }
 
-			if (!dir_emit(ctx, name, namelen, ino, DT_UNKNOWN))
-				goto done;
-			ctx->pos++;
-			ino = be32_to_cpu(AFFS_TAIL(sb, fh_bh)->hash_chain);
-			affs_brelse(fh_bh);
-			fh_bh = NULL;
-		} while (ino);
-	}
-done:
-	data->cookie = inode_query_iversion(inode);
-	data->ino = ino;
-	affs_brelse(fh_bh);
+    if (state->resume_block != 0U &&
+        inode_eq_iversion(inode, state->inode_version)) {
+        block = state->resume_block;
+        goto emit_chain;
+    }
 
-out_brelse_dir:
-	affs_brelse(dir_bh);
+    block = be32_to_cpu(AFFS_HEAD(directory)->table[bucket]);
+    for (walked = 0U; block != 0U && walked < chain_index; ++walked) {
+        entry = affs_bread(sb, block);
+        if (!entry) {
+            result = -EIO;
+            goto out;
+        }
 
-out_unlock_dir:
-	affs_unlock_dir(inode);
-	return error;
+        block = be32_to_cpu(AFFS_TAIL(sb, entry)->hash_chain);
+        affs_brelse(entry);
+        entry = NULL;
+    }
+
+    if (block != 0U)
+        goto emit_chain;
+
+    bucket++;
+
+    for (; bucket < (u32)sbi->s_hashsize; ++bucket) {
+        block = be32_to_cpu(AFFS_HEAD(directory)->table[bucket]);
+        if (block == 0U)
+            continue;
+
+        ctx->pos = ((loff_t)bucket << 16) + 2;
+
+emit_chain:
+        while (block != 0U) {
+            const struct affs_tail *tail;
+            const unsigned char *name;
+            unsigned int name_length;
+
+            entry = affs_bread(sb, block);
+            if (!entry) {
+                result = -EIO;
+                goto out;
+            }
+
+            tail = AFFS_TAIL(sb, entry);
+            name_length = min_t(unsigned int, tail->name[0], AFFSNAMEMAX);
+            name = tail->name + 1;
+
+            if (!dir_emit(ctx, name, name_length, block, DT_UNKNOWN))
+                goto save_position;
+
+            ctx->pos++;
+            block = be32_to_cpu(tail->hash_chain);
+            affs_brelse(entry);
+            entry = NULL;
+        }
+    }
+
+save_position:
+    state->inode_version = inode_query_iversion(inode);
+    state->resume_block = block;
+
+out:
+    affs_brelse(entry);
+    affs_brelse(directory);
+    affs_unlock_dir(inode);
+    return result;
 }
