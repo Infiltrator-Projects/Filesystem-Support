@@ -197,8 +197,8 @@ int asfs_getnode(
     while (block != 0U) {
         struct buffer_head *bh;
         struct fsNodeContainer *container;
-        const u32 nodes;
-        const u32 base;
+        u32 nodes;
+        u32 base;
 
         if (budget-- == 0U)
             return -EUCLEAN;
