@@ -52,3 +52,23 @@ IfsExt3GeometryStatus ifs_ext3_validate_geometry(
     return IFS_EXT3_GEOMETRY_OK;
 }
 
+IfsExt3LayoutStatus ifs_ext3_compute_group_count(
+    const ifs_ext3_u32 blocks_count,
+    const ifs_ext3_u32 first_data_block,
+    const ifs_ext3_u32 blocks_per_group,
+    ifs_ext3_u32 *const group_count)
+{
+    if (group_count == 0)
+        return IFS_EXT3_LAYOUT_INVALID_BLOCKS_PER_GROUP;
+
+    if (blocks_per_group == 0U)
+        return IFS_EXT3_LAYOUT_INVALID_BLOCKS_PER_GROUP;
+
+    if (first_data_block >= blocks_count)
+        return IFS_EXT3_LAYOUT_INVALID_FIRST_DATA_BLOCK;
+
+    *group_count =
+        ((blocks_count - first_data_block - 1U) / blocks_per_group) + 1U;
+    return IFS_EXT3_LAYOUT_OK;
+}
+
