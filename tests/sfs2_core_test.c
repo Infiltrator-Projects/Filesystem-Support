@@ -75,5 +75,42 @@ int main(void)
             return fail("valid SFS2 block header rejected");
     }
 
+
+    {
+        unsigned char raw[IFS_SFS2_ROOT_BYTES] = {0};
+        IfsSfs2RootRecord root;
+
+        raw[0]=0x53; raw[1]=0x46; raw[2]=0x53; raw[3]=0x02;
+        raw[13]=4U;
+        raw[15]=9U;
+        raw[39]=0x10U;
+        raw[47]=0x20U;
+        raw[50]=0x10U;
+        raw[52]=0x00; raw[53]=0x00; raw[54]=0x02; raw[55]=0x00;
+        raw[99]=3U;
+        raw[103]=4U;
+        raw[107]=10U;
+        raw[111]=5U;
+        raw[115]=6U;
+
+        if (ifs_sfs2_decode_root(raw, sizeof(raw), &root) != 0)
+            return fail("SFS2 root decoder failed");
+        if (root.block_id != IFS_SFS2_ROOT_ID ||
+            root.version != IFS_SFS2_STRUCTURE_VERSION ||
+            root.sequence != 9U ||
+            root.first_byte != 0x10U ||
+            root.last_byte != 0x20U ||
+            root.total_blocks != 4096U ||
+            root.block_size != 512U ||
+            root.bitmap_base != 3U ||
+            root.adminspace_container != 4U ||
+            root.root_object_container != 10U ||
+            root.extent_bnode_root != 5U ||
+            root.object_node_root != 6U)
+            return fail("SFS2 root decoder returned wrong fields");
+        if (ifs_sfs2_validate_root_record(&root) != 0)
+            return fail("decoded SFS2 root rejected");
+    }
+
     return 0;
 }

@@ -6,6 +6,66 @@ static int ifs_sfs2_is_power_of_two(const ifs_sfs2_u32 value)
     return value != 0U && (value & (value - 1U)) == 0U;
 }
 
+static ifs_sfs2_u32 ifs_sfs2_read_be32(const unsigned char *const data)
+{
+    return ((ifs_sfs2_u32)data[0] << 24) |
+           ((ifs_sfs2_u32)data[1] << 16) |
+           ((ifs_sfs2_u32)data[2] << 8) |
+           (ifs_sfs2_u32)data[3];
+}
+
+static ifs_sfs2_u16 ifs_sfs2_read_be16(const unsigned char *data)
+{
+    return (ifs_sfs2_u16)(((ifs_sfs2_u16)data[0] << 8) |
+                          (ifs_sfs2_u16)data[1]);
+}
+
+static ifs_sfs2_u64 ifs_sfs2_read_be64(const unsigned char *data)
+{
+    return ((ifs_sfs2_u64)ifs_sfs2_read_be32(data) << 32) |
+           ifs_sfs2_read_be32(data + 4U);
+}
+
+int ifs_sfs2_decode_root(
+    const unsigned char *const bytes,
+    const ifs_sfs2_u32 byte_count,
+    IfsSfs2RootRecord *const root)
+{
+    if (bytes == 0 || root == 0 || byte_count < IFS_SFS2_ROOT_BYTES)
+        return -1;
+
+    root->block_id = ifs_sfs2_read_be32(bytes + 0U);
+    root->block_checksum = ifs_sfs2_read_be32(bytes + 4U);
+    root->block_self_pointer = ifs_sfs2_read_be32(bytes + 8U);
+    root->version = ifs_sfs2_read_be16(bytes + 12U);
+    root->sequence = ifs_sfs2_read_be16(bytes + 14U);
+    root->date_created = ifs_sfs2_read_be32(bytes + 16U);
+    root->bits = bytes[20U];
+    root->first_byte = ifs_sfs2_read_be64(bytes + 32U);
+    root->last_byte = ifs_sfs2_read_be64(bytes + 40U);
+    root->total_blocks = ifs_sfs2_read_be32(bytes + 48U);
+    root->block_size = ifs_sfs2_read_be32(bytes + 52U);
+    root->bitmap_base = ifs_sfs2_read_be32(bytes + 96U);
+    root->adminspace_container = ifs_sfs2_read_be32(bytes + 100U);
+    root->root_object_container = ifs_sfs2_read_be32(bytes + 104U);
+    root->extent_bnode_root = ifs_sfs2_read_be32(bytes + 108U);
+    root->object_node_root = ifs_sfs2_read_be32(bytes + 112U);
+    return 0;
+}
+
+int ifs_sfs2_validate_root_record(const IfsSfs2RootRecord *const root)
+{
+    if (root == 0 || root->first_byte >= root->last_byte)
+        return -1;
+
+    return ifs_sfs2_validate_root_layout(
+        root->block_id, root->version, root->block_size,
+        root->total_blocks, root->bitmap_base,
+        root->adminspace_container, root->root_object_container,
+        root->extent_bnode_root, root->object_node_root) ==
+        IFS_SFS2_ROOT_OK ? 0 : -1;
+}
+
 IfsSfs2RootStatus ifs_sfs2_validate_root_layout(
     const ifs_sfs2_u32 id,
     const ifs_sfs2_u32 version,
@@ -88,13 +148,6 @@ int ifs_sfs2_select_root_copy(
     return backup_sequence > primary_sequence ? 1 : 0;
 }
 
-static ifs_sfs2_u32 ifs_sfs2_read_be32(const unsigned char *const data)
-{
-    return ((ifs_sfs2_u32)data[0] << 24) |
-           ((ifs_sfs2_u32)data[1] << 16) |
-           ((ifs_sfs2_u32)data[2] << 8) |
-           (ifs_sfs2_u32)data[3];
-}
 
 ifs_sfs2_u32 ifs_sfs2_calculate_block_checksum(
     const unsigned char *const block,
