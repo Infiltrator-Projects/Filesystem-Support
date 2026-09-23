@@ -1,8 +1,15 @@
 # Canonical PFS3 core
 
-This directory is the destination for host-neutral PFS3 semantics migrated from
-the real PFS3 implementation retained under `../reference/`.
+This directory owns host-neutral PFS semantics for the PFS3 implementation.
 
-The source/licence boundary is explicit. Nothing here should be represented as
-a Linux kernel implementation until semantic qualification and the production
-licence path are both resolved.
+The real PFS3 All-In-One implementation mounts the established `PFS\\1`
+and `PFS\\2` disk formats; there is no invented `PFS\\3` on-disk magic.
+The canonical core therefore starts with the real disk-type distinction and
+the root-geometry checks required by the implementation: logical/reserved
+block sizing, root-block cluster limits, reserved-area accounting, and the
+rule that PFS1 media cannot advertise PFS2-only large-file or >1024-byte
+reserved-block features.
+
+The reference PFS3AIO source remains implementation evidence. Production host
+adapters will consume this independently maintained canonical core rather than
+linking the reference tree directly.

@@ -139,6 +139,13 @@ target_include_directories(infiltratr-fs-sfs2-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/sfs2/core")
 filesystem_support_configure(infiltratr-fs-sfs2-core)
 
+# Canonical PFS format/geometry policy used by the PFS3 implementation.
+add_library(infiltratr-fs-pfs3-core STATIC
+    native/filesystems/pfs3/core/pfs3_core.c)
+target_include_directories(infiltratr-fs-pfs3-core
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/pfs3/core")
+filesystem_support_configure(infiltratr-fs-pfs3-core)
+
 # The catalogue is intentionally platform-neutral. Linux package/probe policy
 # is layered on top of it; the Windows manager consumes the same identities.
 add_library(filesystem-support-catalog STATIC
@@ -324,6 +331,15 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-sfs2-core
         COMMAND filesystem-support-sfs2-core-test)
+
+    add_executable(filesystem-support-pfs3-core-test
+        tests/pfs3_core_test.c)
+    target_link_libraries(filesystem-support-pfs3-core-test
+        PRIVATE infiltratr-fs-pfs3-core)
+    filesystem_support_configure(filesystem-support-pfs3-core-test)
+    add_test(
+        NAME filesystem-support-pfs3-core
+        COMMAND filesystem-support-pfs3-core-test)
 
     add_executable(filesystem-support-windows-catalog-test
         tests/windows_catalog_test.cpp)
