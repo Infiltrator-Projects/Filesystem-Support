@@ -45,6 +45,7 @@ typedef size_t ifs_ext2_size_t;
 #define IFS_EXT2_GOOD_OLD_INODE_SIZE 128U
 #define IFS_EXT2_GOOD_OLD_FIRST_INO 11U
 #define IFS_EXT2_MAX_REVISION 1U
+#define IFS_EXT2_NULL ((void *)0)
 
 #define IFS_EXT2_NDIR_BLOCKS 12U
 #define IFS_EXT2_IND_BLOCK 12U
