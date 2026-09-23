@@ -51,13 +51,13 @@ const std::vector<FilesystemDescriptor>& catalog()
         // Native and mainstream Linux filesystems.
         {"ext2", "EXT2", "Linux",
          "Second Extended Filesystem.",
-         {"ext2"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"Independent EXT2 source tree and module target."},
+         {"ext2"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"Independent EXT2 source tree and project-native Linux module target.", true},
         {"ext3", "EXT3", "Linux",
          "Third Extended Filesystem.",
-         {"ext3"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"Independent EXT3 source tree derived from the modern Linux EXT implementation and kept separate from EXT4."},
+         {"ext3"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"Independent EXT3 source tree and project-native Linux module, kept separate from EXT4.", true},
         {"ext4", "EXT4", "Linux",
          "Fourth Extended Filesystem.",
-         {"ext4"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"Independent EXT4 source tree and module target."},
+         {"ext4"}, {"e2fsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,"Independent EXT4 source tree and project-native Linux module target.", true},
         {"xfs", "SGI XFS", "Unix / Linux",
          "High-performance journaling filesystem originally developed by Silicon Graphics.",
          {"xfs"}, {"xfsprogs"}, AccessMode::ReadWrite, SupportProvider::KernelWithUserspace,""},
@@ -128,6 +128,12 @@ const std::vector<FilesystemDescriptor>& catalog()
         {"adfs", "Acorn ADFS", "Acorn / RISC OS",
          "Acorn Disc Filing System used by RISC OS and earlier Acorn systems.",
          {"adfs"}, {}, AccessMode::Mixed, SupportProvider::Kernel,"Support depends on whether the running Debian kernel was built with the ADFS driver."},
+        {"ofs", "Amiga OFS", "Amiga",
+         "Classic Commodore Amiga Original File System as an independent native module.",
+         {"ofs"}, {}, AccessMode::Mixed, SupportProvider::Kernel,"Project-native Linux OFS module; directory-cache variants remain conservative/read-only where required.", true},
+        {"ffs", "Amiga FFS", "Amiga",
+         "Classic Commodore Amiga Fast File System as an independent native module.",
+         {"ffs"}, {}, AccessMode::Mixed, SupportProvider::Kernel,"Project-native Linux FFS module; directory-cache variants remain conservative/read-only where required.", true},
         {"affs", "Amiga OFS / FFS (AFFS)", "Amiga",
          "Classic Commodore Amiga OFS/FFS family handled by the Linux AFFS driver.",
          {"affs"}, {}, AccessMode::Mixed, SupportProvider::Kernel,"DOS0-DOS3 are read/write; DOS4-DOS5 directory-cache variants are read-only."},
@@ -462,6 +468,25 @@ bool module_is_catalogued(const std::string_view module)
     return false;
 }
 
+bool linux_native_module_is_managed(const std::string_view filesystem_id,
+                                    const std::string_view module)
+{
+    if (filesystem_id.empty() || module.empty()) {
+        return false;
+    }
+
+    for (const auto& entry : catalog()) {
+        if (entry.id == filesystem_id &&
+            entry.project_native_linux &&
+            entry.modules.size() == 1U &&
+            entry.modules.front() == module) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 std::vector<std::string_view> catalogue_entries_using_package(
     const std::string_view package)
 {
@@ -495,6 +520,13 @@ bool catalog_is_valid()
 
         if (!safe_catalog_token(entry.id) ||
             !provider_shape_is_valid(entry)) {
+            return false;
+        }
+
+        if (entry.project_native_linux &&
+            (entry.modules.size() != 1U ||
+             (entry.provider != SupportProvider::Kernel &&
+              entry.provider != SupportProvider::KernelWithUserspace))) {
             return false;
         }
 
