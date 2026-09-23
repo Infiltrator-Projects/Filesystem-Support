@@ -40,6 +40,10 @@
 
 #define EXT4_JOURNAL(inode)	(EXT4_SB((inode)->i_sb)->s_journal)
 
+int infiltratr_jbd2_init(void);
+void infiltratr_jbd2_exit(void);
+
+
 
 #define EXT4_SINGLEDATA_TRANS_BLOCKS(sb)				\
 	(ext4_has_feature_extents(sb) ? 20U : 8U)
