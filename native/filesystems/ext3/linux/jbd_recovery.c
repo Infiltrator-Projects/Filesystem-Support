@@ -86,11 +86,6 @@ static int scan_revoke_records(journal_t *, struct buffer_head *,
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_brelse_array(struct buffer_head *b[], int n)
-{
-	while (--n >= 0)
-		brelse (b[n]);
-}
 
 
 #define MAXBUF 8
