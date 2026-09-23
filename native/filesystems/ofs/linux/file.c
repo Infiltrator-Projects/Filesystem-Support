@@ -245,7 +245,7 @@ static int ifs_amiga_map_existing_block(
     u32 physical;
     int status;
 
-    status = ifs_amiga_file_block_location(
+    status = ifs_ofs_file_block_location(
         logical, (u32)AFFS_SB(sb)->s_hashsize,
         &extension_index, &entry_index);
     if (status != 0)
@@ -279,7 +279,7 @@ static int ifs_amiga_append_block(
     u32 physical;
     int status;
 
-    status = ifs_amiga_file_block_location(
+    status = ifs_ofs_file_block_location(
         logical, (u32)AFFS_SB(sb)->s_hashsize,
         &extension_index, &entry_index);
     if (status != 0)
@@ -974,9 +974,9 @@ static int ifs_amiga_shrink_file(
     u32 entry;
     int result;
 
-    if (ifs_amiga_file_block_count(
+    if (ifs_ofs_file_block_count(
             target, payload, &kept_blocks) != 0 ||
-        ifs_amiga_file_extension_count(
+        ifs_ofs_file_extension_count(
             kept_blocks, entries, &kept_extensions) != 0)
         return -EUCLEAN;
 
@@ -1135,7 +1135,7 @@ static int ifs_amiga_shrink_file(
     }
 
     info->i_blkcnt = kept_blocks;
-    if (ifs_amiga_file_extension_count(
+    if (ifs_ofs_file_extension_count(
             kept_blocks, entries, &info->i_extcnt) != 0) {
         result = -EUCLEAN;
         goto out_unlock;
