@@ -425,11 +425,6 @@ static int sfs_add_node_level(struct super_block *sb)
         return -EOVERFLOW;
     }
 
-    memset(root->node, 0,
-           sb->s_blocksize -
-               sizeof(struct fsNodeContainer));
-    root->nodes = cpu_to_be32(new_nodes);
-
     result = sfs_encode_child_pointer(
         sb, copy_block, true, &encoded);
     if (result != 0) {
@@ -438,6 +433,10 @@ static int sfs_add_node_level(struct super_block *sb)
         return result;
     }
 
+    memset(root->node, 0,
+           sb->s_blocksize -
+               sizeof(struct fsNodeContainer));
+    root->nodes = cpu_to_be32(new_nodes);
     root->node[0] = cpu_to_be32(encoded);
     asfs_bstore(sb, root_bh);
     asfs_brelse(root_bh);
@@ -544,24 +543,29 @@ restart:
                 }
             }
 
-            asfs_brelse(bh);
-            if (block != root_block) {
-                int result =
-                    sfs_propagate_full_state(
-                        sb, block,
-                        be32_to_cpu(
-                            container->nodenumber),
-                        true);
-                if (result != 0)
-                    return result;
-                goto restart;
-            }
-
             {
-                int result = sfs_add_node_level(sb);
-                if (result != 0)
-                    return result;
-                goto restart;
+                const u32 node_number =
+                    be32_to_cpu(container->nodenumber);
+
+                asfs_brelse(bh);
+                if (block != root_block) {
+                    int result =
+                        sfs_propagate_full_state(
+                            sb, block,
+                            node_number,
+                            true);
+                    if (result != 0)
+                        return result;
+                    goto restart;
+                }
+
+                {
+                    int result =
+                        sfs_add_node_level(sb);
+                    if (result != 0)
+                        return result;
+                    goto restart;
+                }
             }
         }
 
