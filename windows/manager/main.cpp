@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <commctrl.h>
 
@@ -165,7 +164,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         g_list = CreateWindowExW(
             WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
             WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
-            0, 0, 0, 0, window, reinterpret_cast<HMENU>(kListId),
+            0, 0, 0, 0, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListId)),
             GetModuleHandleW(nullptr), nullptr);
         ListView_SetExtendedListViewStyle(
             g_list, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
@@ -176,17 +175,17 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
 
         g_install = CreateWindowExW(
             0, L"BUTTON", L"Install", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            0, 0, 0, 0, window, reinterpret_cast<HMENU>(kInstallId),
+            0, 0, 0, 0, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kInstallId)),
             GetModuleHandleW(nullptr), nullptr);
         g_remove = CreateWindowExW(
             0, L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            0, 0, 0, 0, window, reinterpret_cast<HMENU>(kRemoveId),
+            0, 0, 0, 0, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRemoveId)),
             GetModuleHandleW(nullptr), nullptr);
         g_status = CreateWindowExW(
             0, L"STATIC",
             L"Windows filesystem modules are being migrated. No module is installable yet.",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            0, 0, 0, 0, window, reinterpret_cast<HMENU>(kStatusId),
+            0, 0, 0, 0, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStatusId)),
             GetModuleHandleW(nullptr), nullptr);
 
         EnableWindow(g_install, FALSE);
