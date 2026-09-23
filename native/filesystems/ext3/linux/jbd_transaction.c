@@ -1583,7 +1583,7 @@ void journal_invalidatepage(journal_t *journal,
 	struct buffer_head *head, *bh, *next;
 	unsigned int stop = offset + length;
 	unsigned int curr_off = 0;
-	int partial_page = (offset || length < PAGE_CACHE_SIZE);
+	int partial_page = (offset || length < PAGE_SIZE);
 	int may_free = 1;
 
 	if (!PageLocked(page))
@@ -1591,7 +1591,7 @@ void journal_invalidatepage(journal_t *journal,
 	if (!page_has_buffers(page))
 		return;
 
-	BUG_ON(stop > PAGE_CACHE_SIZE || stop < length);
+	BUG_ON(stop > PAGE_SIZE || stop < length);
 
 
 	head = bh = page_buffers(page);
