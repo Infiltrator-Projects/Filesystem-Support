@@ -1,16 +1,16 @@
 #include "affs.h"
 #include "../core/ffs_core.h"
 
-#define IFS_AMIGA_FS_NAME "ffs"
-#define IFS_AMIGA_FORMAT_LABEL "FFS"
-#define IFS_AMIGA_INODE_CACHE_NAME "ffs_inode_cache"
-#define IFS_AMIGA_MODULE_DESCRIPTION "Amiga FFS filesystem support for Linux"
-#define IFS_AMIGA_IS_OFS 0
-#define IFS_AMIGA_VARIANT_DIRCACHE IFS_FFS_VARIANT_DIRCACHE
-#define IFS_AMIGA_VARIANT_MUFS IFS_FFS_VARIANT_MUFS
-#define IFS_AMIGA_VARIANT_INTL IFS_FFS_VARIANT_INTL
+#define IFS_FFS_FS_NAME "ffs"
+#define IFS_FFS_FORMAT_LABEL "FFS"
+#define IFS_FFS_INODE_CACHE_NAME "ffs_inode_cache"
+#define IFS_FFS_MODULE_DESCRIPTION "Amiga FFS filesystem support for Linux"
+#define IFS_FFS_IS_OFS 0
+#define IFS_FFS_VARIANT_DIRCACHE IFS_FFS_VARIANT_DIRCACHE
+#define IFS_FFS_VARIANT_MUFS IFS_FFS_VARIANT_MUFS
+#define IFS_FFS_VARIANT_INTL IFS_FFS_VARIANT_INTL
 
-static int ifs_amiga_variant_classify(u32 dostype, u32 *flags)
+static int ifs_ffs_variant_classify(u32 dostype, u32 *flags)
 {
     ifs_ffs_u32 value = 0U;
     const int result = ifs_ffs_classify_dostype(dostype, &value);
@@ -40,7 +40,7 @@ static int ifs_amiga_variant_classify(u32 dostype, u32 *flags)
 #include <linux/math64.h>
 #include <linux/limits.h>
 
-struct ifs_amiga_mount_config {
+struct ifs_ffs_mount_config {
     kuid_t uid;
     kgid_t gid;
     umode_t mode;
@@ -92,7 +92,7 @@ static int affs_sync_fs(struct super_block *sb, int wait)
     return 0;
 }
 
-static void ifs_amiga_flush_super_work(struct work_struct *work)
+static void ifs_ffs_flush_super_work(struct work_struct *work)
 {
     struct affs_sb_info *sbi =
         container_of(work, struct affs_sb_info, sb_work.work);
@@ -123,7 +123,7 @@ void affs_mark_sb_dirty(struct super_block *sb)
 
 static struct kmem_cache *affs_inode_cache;
 
-static struct inode *ifs_amiga_alloc_inode(struct super_block *sb)
+static struct inode *ifs_ffs_alloc_inode(struct super_block *sb)
 {
     struct affs_inode_info *info;
 
@@ -138,12 +138,12 @@ static struct inode *ifs_amiga_alloc_inode(struct super_block *sb)
     return &info->vfs_inode;
 }
 
-static void ifs_amiga_free_inode(struct inode *inode)
+static void ifs_ffs_free_inode(struct inode *inode)
 {
     kmem_cache_free(affs_inode_cache, AFFS_I(inode));
 }
 
-static void ifs_amiga_inode_init_once(void *object)
+static void ifs_ffs_inode_init_once(void *object)
 {
     struct affs_inode_info *info = object;
 
@@ -152,18 +152,18 @@ static void ifs_amiga_inode_init_once(void *object)
     inode_init_once(&info->vfs_inode);
 }
 
-static int __init ifs_amiga_init_inode_cache(void)
+static int __init ifs_ffs_init_inode_cache(void)
 {
     affs_inode_cache = kmem_cache_create(
-        IFS_AMIGA_INODE_CACHE_NAME,
+        IFS_FFS_INODE_CACHE_NAME,
         sizeof(struct affs_inode_info), 0,
         SLAB_RECLAIM_ACCOUNT | SLAB_ACCOUNT,
-        ifs_amiga_inode_init_once);
+        ifs_ffs_inode_init_once);
 
     return affs_inode_cache ? 0 : -ENOMEM;
 }
 
-static void ifs_amiga_destroy_inode_cache(void)
+static void ifs_ffs_destroy_inode_cache(void)
 {
     rcu_barrier();
     kmem_cache_destroy(affs_inode_cache);
@@ -171,8 +171,8 @@ static void ifs_amiga_destroy_inode_cache(void)
 }
 
 static const struct super_operations affs_sops = {
-    .alloc_inode = ifs_amiga_alloc_inode,
-    .free_inode = ifs_amiga_free_inode,
+    .alloc_inode = ifs_ffs_alloc_inode,
+    .free_inode = ifs_ffs_free_inode,
     .write_inode = affs_write_inode,
     .evict_inode = affs_evict_inode,
     .put_super = affs_put_super,
@@ -182,7 +182,7 @@ static const struct super_operations affs_sops = {
     .show_options = affs_show_options,
 };
 
-enum ifs_amiga_option {
+enum ifs_ffs_option {
     IFS_OPT_BLOCKSIZE,
     IFS_OPT_MODE,
     IFS_OPT_MUFS,
@@ -199,7 +199,7 @@ enum ifs_amiga_option {
     IFS_OPT_ERROR,
 };
 
-static const match_table_t ifs_amiga_tokens = {
+static const match_table_t ifs_ffs_tokens = {
     { IFS_OPT_BLOCKSIZE, "bs=%u" },
     { IFS_OPT_MODE, "mode=%o" },
     { IFS_OPT_MUFS, "mufs" },
@@ -219,8 +219,8 @@ static const match_table_t ifs_amiga_tokens = {
     { IFS_OPT_ERROR, NULL },
 };
 
-static void ifs_amiga_mount_config_defaults(
-    struct ifs_amiga_mount_config *config)
+static void ifs_ffs_mount_config_defaults(
+    struct ifs_ffs_mount_config *config)
 {
     memset(config, 0, sizeof(*config));
     config->uid = current_uid();
@@ -232,8 +232,8 @@ static void ifs_amiga_mount_config_defaults(
     config->volume[1] = '\0';
 }
 
-static int ifs_amiga_mount_config_from_super(
-    struct super_block *sb, struct ifs_amiga_mount_config *config)
+static int ifs_ffs_mount_config_from_super(
+    struct super_block *sb, struct ifs_ffs_mount_config *config)
 {
     struct affs_sb_info *sbi = AFFS_SB(sb);
 
@@ -255,8 +255,8 @@ static int ifs_amiga_mount_config_from_super(
     return 0;
 }
 
-static int ifs_amiga_parse_options(
-    char *options, struct ifs_amiga_mount_config *config)
+static int ifs_ffs_parse_options(
+    char *options, struct ifs_ffs_mount_config *config)
 {
     char *item;
 
@@ -271,7 +271,7 @@ static int ifs_amiga_parse_options(
         if (*item == '\0')
             continue;
 
-        token = match_token(item, ifs_amiga_tokens, arguments);
+        token = match_token(item, ifs_ffs_tokens, arguments);
         switch (token) {
         case IFS_OPT_BLOCKSIZE:
             if (match_int(&arguments[0], &value) != 0 ||
@@ -402,9 +402,9 @@ static int affs_show_options(struct seq_file *output, struct dentry *root)
     return 0;
 }
 
-static int ifs_amiga_find_root(
+static int ifs_ffs_find_root(
     struct super_block *sb,
-    const struct ifs_amiga_mount_config *config,
+    const struct ifs_ffs_mount_config *config,
     struct buffer_head **root_out)
 {
     struct affs_sb_info *sbi = AFFS_SB(sb);
@@ -474,32 +474,32 @@ static int ifs_amiga_find_root(
     return -EINVAL;
 }
 
-static int ifs_amiga_apply_format_identity(
+static int ifs_ffs_apply_format_identity(
     struct super_block *sb, const u32 dostype)
 {
     struct affs_sb_info *sbi = AFFS_SB(sb);
     u32 variant_flags = 0U;
     int result;
 
-    result = ifs_amiga_variant_classify(dostype, &variant_flags);
+    result = ifs_ffs_variant_classify(dostype, &variant_flags);
     if (result != 0) {
         pr_err("Not an %s filesystem on device %s: %08X\n",
-               IFS_AMIGA_FORMAT_LABEL, sb->s_id, dostype);
+               IFS_FFS_FORMAT_LABEL, sb->s_id, dostype);
         return -EINVAL;
     }
 
-    if ((variant_flags & IFS_AMIGA_VARIANT_DIRCACHE) != 0U &&
+    if ((variant_flags & IFS_FFS_VARIANT_DIRCACHE) != 0U &&
         !sb_rdonly(sb)) {
         pr_notice("Dircache media - mounting %s read only\n", sb->s_id);
         sb->s_flags |= SB_RDONLY;
     }
 
-    if ((variant_flags & IFS_AMIGA_VARIANT_MUFS) != 0U)
+    if ((variant_flags & IFS_FFS_VARIANT_MUFS) != 0U)
         affs_set_opt(sbi->s_flags, SF_MUFS);
-    if ((variant_flags & IFS_AMIGA_VARIANT_INTL) != 0U)
+    if ((variant_flags & IFS_FFS_VARIANT_INTL) != 0U)
         affs_set_opt(sbi->s_flags, SF_INTL);
 
-#if IFS_AMIGA_IS_OFS
+#if IFS_FFS_IS_OFS
     affs_set_opt(sbi->s_flags, SF_OFS);
     sb->s_flags |= SB_NOEXEC;
 #endif
@@ -507,7 +507,7 @@ static int ifs_amiga_apply_format_identity(
     return 0;
 }
 
-static void ifs_amiga_free_super_info(struct super_block *sb)
+static void ifs_ffs_free_super_info(struct super_block *sb)
 {
     struct affs_sb_info *sbi = AFFS_SB(sb);
 
@@ -527,7 +527,7 @@ static void ifs_amiga_free_super_info(struct super_block *sb)
 
 static int affs_fill_super(struct super_block *sb, void *data, int silent)
 {
-    struct ifs_amiga_mount_config config;
+    struct ifs_ffs_mount_config config;
     struct affs_sb_info *sbi;
     struct buffer_head *root_bh = NULL;
     struct buffer_head *boot_bh = NULL;
@@ -537,8 +537,8 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
     int bitmap_flags;
     int result;
 
-    ifs_amiga_mount_config_defaults(&config);
-    result = ifs_amiga_parse_options(data, &config);
+    ifs_ffs_mount_config_defaults(&config);
+    result = ifs_ffs_parse_options(data, &config);
     if (result != 0)
         goto out_config;
 
@@ -572,9 +572,9 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
     mutex_init(&sbi->s_bmlock);
     spin_lock_init(&sbi->symlink_lock);
     spin_lock_init(&sbi->work_lock);
-    INIT_DELAYED_WORK(&sbi->sb_work, ifs_amiga_flush_super_work);
+    INIT_DELAYED_WORK(&sbi->sb_work, ifs_ffs_flush_super_work);
 
-    result = ifs_amiga_find_root(sb, &config, &root_bh);
+    result = ifs_ffs_find_root(sb, &config, &root_bh);
     if (result != 0) {
         if (!silent)
             pr_err("No valid root block on device %s\n", sb->s_id);
@@ -595,7 +595,7 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
     boot_bh = NULL;
     dostype = be32_to_cpu(*(__be32 *)signature);
 
-    result = ifs_amiga_apply_format_identity(sb, dostype);
+    result = ifs_ffs_apply_format_identity(sb, dostype);
     if (result != 0)
         goto fail;
 
@@ -614,7 +614,7 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 
     sb->s_flags |= SB_NODEV | SB_NOSUID;
     sbi->s_data_blksize = (u32)sb->s_blocksize;
-#if IFS_AMIGA_IS_OFS
+#if IFS_FFS_IS_OFS
     if (sbi->s_data_blksize <= sizeof(struct affs_data_head)) {
         result = -EUCLEAN;
         goto fail;
@@ -651,7 +651,7 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 fail:
     brelse(boot_bh);
     affs_brelse(root_bh);
-    ifs_amiga_free_super_info(sb);
+    ifs_ffs_free_super_info(sb);
 
 out_config:
     kfree(config.prefix);
@@ -661,15 +661,15 @@ out_config:
 static int affs_remount(struct super_block *sb, int *flags, char *data)
 {
     struct affs_sb_info *sbi = AFFS_SB(sb);
-    struct ifs_amiga_mount_config config;
+    struct ifs_ffs_mount_config config;
     char *old_prefix;
     int result;
 
-    result = ifs_amiga_mount_config_from_super(sb, &config);
+    result = ifs_ffs_mount_config_from_super(sb, &config);
     if (result != 0)
         return result;
 
-    result = ifs_amiga_parse_options(data, &config);
+    result = ifs_ffs_parse_options(data, &config);
     if (result != 0)
         goto out;
 
@@ -763,36 +763,36 @@ static void affs_kill_sb(struct super_block *sb)
 
 static struct file_system_type affs_fs_type = {
     .owner = THIS_MODULE,
-    .name = IFS_AMIGA_FS_NAME,
+    .name = IFS_FFS_FS_NAME,
     .mount = affs_mount,
     .kill_sb = affs_kill_sb,
     .fs_flags = FS_REQUIRES_DEV,
 };
 
-MODULE_ALIAS_FS(IFS_AMIGA_FS_NAME);
+MODULE_ALIAS_FS(IFS_FFS_FS_NAME);
 
-static int __init ifs_amiga_init_fs(void)
+static int __init ifs_ffs_init_fs(void)
 {
-    int result = ifs_amiga_init_inode_cache();
+    int result = ifs_ffs_init_inode_cache();
 
     if (result != 0)
         return result;
 
     result = register_filesystem(&affs_fs_type);
     if (result != 0)
-        ifs_amiga_destroy_inode_cache();
+        ifs_ffs_destroy_inode_cache();
     return result;
 }
 
-static void __exit ifs_amiga_exit_fs(void)
+static void __exit ifs_ffs_exit_fs(void)
 {
     unregister_filesystem(&affs_fs_type);
-    ifs_amiga_destroy_inode_cache();
+    ifs_ffs_destroy_inode_cache();
 }
 
-MODULE_DESCRIPTION(IFS_AMIGA_MODULE_DESCRIPTION);
+MODULE_DESCRIPTION(IFS_FFS_MODULE_DESCRIPTION);
 MODULE_LICENSE("GPL");
 
-module_init(ifs_amiga_init_fs)
-module_exit(ifs_amiga_exit_fs)
+module_init(ifs_ffs_init_fs)
+module_exit(ifs_ffs_exit_fs)
 
