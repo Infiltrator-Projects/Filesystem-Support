@@ -18,36 +18,7 @@ typedef unsigned int ifs_ext3_u32;
 #include <stdint.h>
 typedef uint16_t ifs_ext3_u16;
 typedef uint32_t ifs_ext3_u32;
-#define IFS_EXT3_MAX_DIRECTORY_RECORD_LENGTH 65536U
 
-typedef enum IfsExt3DirectoryRecordStatus {
-    IFS_EXT3_DIRECTORY_RECORD_OK = 0,
-    IFS_EXT3_DIRECTORY_RECORD_TOO_SHORT,
-    IFS_EXT3_DIRECTORY_RECORD_UNALIGNED,
-    IFS_EXT3_DIRECTORY_RECORD_NAME_TOO_LONG,
-    IFS_EXT3_DIRECTORY_RECORD_CROSSES_BLOCK,
-    IFS_EXT3_DIRECTORY_RECORD_INODE_RANGE
-} IfsExt3DirectoryRecordStatus;
-
-ifs_ext3_u32 ifs_ext3_directory_record_length_from_disk(
-    ifs_ext3_u16 encoded_length,
-    ifs_ext3_u32 maximum_record_length);
-
-int ifs_ext3_directory_record_length_to_disk(
-    ifs_ext3_u32 record_length,
-    ifs_ext3_u32 maximum_record_length,
-    ifs_ext3_u16 *encoded_length);
-
-IfsExt3DirectoryRecordStatus ifs_ext3_validate_directory_record(
-    ifs_ext3_u32 record_offset,
-    ifs_ext3_u32 record_length,
-    ifs_ext3_u32 name_length,
-    ifs_ext3_u32 inode_number,
-    ifs_ext3_u32 block_size,
-    ifs_ext3_u32 maximum_inode);
-
-const char *ifs_ext3_directory_record_status_string(
-    IfsExt3DirectoryRecordStatus status);
 
 #endif
 
@@ -96,5 +67,36 @@ IfsExt3LayoutStatus ifs_ext3_compute_group_count(
     ifs_ext3_u32 first_data_block,
     ifs_ext3_u32 blocks_per_group,
     ifs_ext3_u32 *group_count);
+
+#define IFS_EXT3_MAX_DIRECTORY_RECORD_LENGTH 65536U
+
+typedef enum IfsExt3DirectoryRecordStatus {
+    IFS_EXT3_DIRECTORY_RECORD_OK = 0,
+    IFS_EXT3_DIRECTORY_RECORD_TOO_SHORT,
+    IFS_EXT3_DIRECTORY_RECORD_UNALIGNED,
+    IFS_EXT3_DIRECTORY_RECORD_NAME_TOO_LONG,
+    IFS_EXT3_DIRECTORY_RECORD_CROSSES_BLOCK,
+    IFS_EXT3_DIRECTORY_RECORD_INODE_RANGE
+} IfsExt3DirectoryRecordStatus;
+
+ifs_ext3_u32 ifs_ext3_directory_record_length_from_disk(
+    ifs_ext3_u16 encoded_length,
+    ifs_ext3_u32 maximum_record_length);
+
+int ifs_ext3_directory_record_length_to_disk(
+    ifs_ext3_u32 record_length,
+    ifs_ext3_u32 maximum_record_length,
+    ifs_ext3_u16 *encoded_length);
+
+IfsExt3DirectoryRecordStatus ifs_ext3_validate_directory_record(
+    ifs_ext3_u32 record_offset,
+    ifs_ext3_u32 record_length,
+    ifs_ext3_u32 name_length,
+    ifs_ext3_u32 inode_number,
+    ifs_ext3_u32 block_size,
+    ifs_ext3_u32 maximum_inode);
+
+const char *ifs_ext3_directory_record_status_string(
+    IfsExt3DirectoryRecordStatus status);
 
 #endif
