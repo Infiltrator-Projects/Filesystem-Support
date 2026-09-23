@@ -41,6 +41,7 @@
 #include <linux/slab.h>
 #include <linux/quotaops.h>
 #include <linux/iversion.h>
+#include <linux/security.h>
 #include "ext4_jbd2.h"
 #include "ext4.h"
 #include "xattr.h"
