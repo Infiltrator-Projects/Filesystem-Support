@@ -1,19 +1,13 @@
-# SFS source base
+# SFS implementation ownership
 
-SFS is a distinct filesystem from SFS2.
+SFS is an independent Filesystem Support implementation.
 
-The Linux migration baseline is Marek Szyprowski's real ASFS Linux driver:
+Its canonical filesystem semantics live in `core/`. Linux and Windows are
+host adapters around that SFS-owned core and do not provide alternate
+filesystem implementations.
 
-- upstream repository: `twojstaryzdomu/asfs`
-- pinned commit: `4c6fd13a7cc77fb515c7fac1397ea593be7a6fd1`
-- imported upstream path: `src/`
-- source licence: GPL-2.0-or-later, retained in the imported source
+The active SFS implementation is project-authored. No imported or reference
+implementation is part of the production tree.
 
-The pinned source has been promoted into the active `linux/` module tree and
-is ported there. A second live reference copy is deliberately not retained:
-source headers, this provenance record and Git history preserve the imported
-baseline without maintaining duplicate implementation trees.
-
-Filesystem semantics move into `core/` as the rewrite proceeds while Linux
-VFS and kernel lifecycle code remains in the Linux adapter. SFS2 structures or
-rules must not be folded into this filesystem.
+SFS and SFS2 remain separate filesystems and must not share filesystem-specific
+parsing, allocation, mapping, namespace, metadata, recovery or mutation code.
