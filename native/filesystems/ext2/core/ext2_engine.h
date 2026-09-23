@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef INFILTRATR_EXT2_ENGINE_H
 #define INFILTRATR_EXT2_ENGINE_H
 
