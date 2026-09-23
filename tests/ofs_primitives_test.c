@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "../native/filesystems/ofs/core/ofs_primitives.h"
 #include <stdio.h>
 #include <string.h>
