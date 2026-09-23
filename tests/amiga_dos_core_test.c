@@ -148,6 +148,42 @@ int main(void)
                 ifs_amiga_bitmap_valid_word_mask(32U) != 0xffffffffU)
                 return fail("bitmap valid-word mask is wrong");
 
+        {
+            ifs_amiga_u32 extension = 0U;
+            ifs_amiga_u32 entry = 0U;
+            ifs_amiga_u32 blocks = 0U;
+            ifs_amiga_u32 extensions = 0U;
+
+            if (ifs_amiga_file_block_location(
+                    145U, 72U, &extension, &entry) != 0 ||
+                extension != 2U || entry != 1U)
+                return fail("file block location is wrong");
+
+            if (ifs_amiga_file_block_count(
+                    1025U, 512U, &blocks) != 0 || blocks != 3U)
+                return fail("file block count is wrong");
+
+            if (ifs_amiga_file_block_count(
+                    0U, 512U, &blocks) != 0 || blocks != 0U)
+                return fail("empty file block count is wrong");
+
+            if (ifs_amiga_file_extension_count(
+                    145U, 72U, &extensions) != 0 ||
+                extensions != 3U)
+                return fail("file extension count is wrong");
+
+            if (ifs_amiga_file_extension_count(
+                    0U, 72U, &extensions) != 0 ||
+                extensions != 1U)
+                return fail("empty file extension count is wrong");
+
+            if (ifs_amiga_file_block_location(
+                    0U, 0U, &extension, &entry) == 0 ||
+                ifs_amiga_file_block_count(
+                    1U, 0U, &blocks) == 0)
+                return fail("invalid file geometry accepted");
+        }
+
             if (ifs_amiga_bitmap_select_free_run(
                     0x000000f4U, 1U, 8U,
                     &first, &run_mask, &run_length) != 0 ||
