@@ -327,6 +327,14 @@ const char *ifs_ext2_status_string(const IfsExt2Status status)
     case IFS_EXT2_ERROR_GEOMETRY: return "invalid EXT2 geometry";
     case IFS_EXT2_ERROR_RANGE: return "EXT2 value is out of range";
     case IFS_EXT2_ERROR_CORRUPT: return "corrupt EXT2 metadata";
+    case IFS_EXT2_ERROR_IO: return "EXT2 I/O error";
+    case IFS_EXT2_ERROR_UNSUPPORTED: return "unsupported EXT2 operation";
+    case IFS_EXT2_ERROR_BUFFER_TOO_SMALL: return "EXT2 buffer too small";
+    case IFS_EXT2_ERROR_NOT_FOUND: return "EXT2 object not found";
+    case IFS_EXT2_ERROR_NOT_DIRECTORY: return "EXT2 object is not a directory";
+    case IFS_EXT2_ERROR_IS_DIRECTORY: return "EXT2 object is a directory";
+    case IFS_EXT2_ERROR_NO_SPACE: return "EXT2 has no free space";
+    case IFS_EXT2_STOP: return "EXT2 enumeration stopped";
     }
     return "unknown EXT2 error";
 }
