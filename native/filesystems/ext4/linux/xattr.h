@@ -176,6 +176,9 @@ struct ext4_xattr_inode_array {
 	struct inode *inodes[] __counted_by(count);
 };
 
+int infiltratr_mbcache_init(void);
+void infiltratr_mbcache_exit(void);
+
 extern const struct xattr_handler ext4_xattr_user_handler;
 extern const struct xattr_handler ext4_xattr_trusted_handler;
 extern const struct xattr_handler ext4_xattr_security_handler;
