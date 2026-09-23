@@ -11,6 +11,8 @@ static int fail(const char *message)
 
 int main(void)
 {
+    ifs_ext3_u32 group_count = 0U;
+
     if (ifs_ext3_unsupported_incompat_features(
             IFS_EXT3_FEATURE_INCOMPAT_SUPPORTED) != 0U)
         return fail("supported incompat features were rejected");
@@ -68,6 +70,21 @@ int main(void)
                                    32768U, 32768U, 32769U) !=
         IFS_EXT3_GEOMETRY_INODES_PER_GROUP_TOO_LARGE)
         return fail("oversized inode bitmap geometry was accepted");
+
+    if (ifs_ext3_compute_group_count(100000U, 1U, 32768U,
+                                     &group_count) != IFS_EXT3_LAYOUT_OK ||
+        group_count != 4U)
+        return fail("valid group count was not computed correctly");
+
+    if (ifs_ext3_compute_group_count(100U, 100U, 32768U,
+                                     &group_count) !=
+        IFS_EXT3_LAYOUT_INVALID_FIRST_DATA_BLOCK)
+        return fail("first data block beyond filesystem was accepted");
+
+    if (ifs_ext3_compute_group_count(100U, 1U, 0U,
+                                     &group_count) !=
+        IFS_EXT3_LAYOUT_INVALID_BLOCKS_PER_GROUP)
+        return fail("zero blocks per group was accepted by layout arithmetic");
 
     return 0;
 }
