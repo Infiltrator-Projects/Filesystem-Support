@@ -170,13 +170,13 @@ static int ext3_readdir(struct file *file, struct dir_context *ctx)
 		err = ext3_get_blocks_handle(NULL, inode, blk, 1, &map_bh, 0);
 		if (err > 0) {
 			pgoff_t index = map_bh.b_blocknr >>
-					(PAGE_CACHE_SHIFT - inode->i_blkbits);
+					(PAGE_SHIFT - inode->i_blkbits);
 			if (!ra_has_index(&file->f_ra, index))
 				page_cache_sync_readahead(
 					sb->s_bdev->bd_inode->i_mapping,
 					&file->f_ra, file,
 					index, 1);
-			file->f_ra.prev_pos = (loff_t)index << PAGE_CACHE_SHIFT;
+			file->f_ra.prev_pos = (loff_t)index << PAGE_SHIFT;
 			bh = ext3_bread(NULL, inode, blk, 0, &err);
 		}
 
