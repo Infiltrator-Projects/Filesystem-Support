@@ -27,6 +27,24 @@ int ifs_amiga_bitmap_geometry(
 ifs_amiga_u32 ifs_amiga_bitmap_bit_mask(ifs_amiga_u32 bit_offset);
 ifs_amiga_u32 ifs_amiga_bitmap_scan_mask(ifs_amiga_u32 bit_offset);
 
+int ifs_amiga_bitmap_location(
+    ifs_amiga_u32 block,
+    ifs_amiga_u32 reserved_blocks,
+    ifs_amiga_u32 partition_blocks,
+    ifs_amiga_u32 bits_per_bitmap,
+    ifs_amiga_u32 *bitmap_index,
+    ifs_amiga_u32 *bit_index);
+
+ifs_amiga_u32 ifs_amiga_bitmap_valid_word_mask(ifs_amiga_u32 valid_bits);
+
+int ifs_amiga_bitmap_select_free_run(
+    ifs_amiga_u32 word,
+    ifs_amiga_u32 start_bit,
+    ifs_amiga_u32 valid_bits,
+    ifs_amiga_u32 *first_bit,
+    ifs_amiga_u32 *run_mask,
+    ifs_amiga_u32 *run_length);
+
 #define IFS_AMIGA_DOS_NAME_MAX 30U
 
 typedef enum IfsAmigaNameStatus {
