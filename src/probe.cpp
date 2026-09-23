@@ -106,6 +106,58 @@ std::string join_names(const std::vector<std::string>& names)
     return joined;
 }
 
+std::string trim_ascii_whitespace(std::string value)
+{
+    while (!value.empty() &&
+           (value.back() == '\n' || value.back() == '\r' ||
+            value.back() == ' ' || value.back() == '\t')) {
+        value.pop_back();
+    }
+
+    std::size_t first = 0U;
+    while (first < value.size() &&
+           (value[first] == '\n' || value[first] == '\r' ||
+            value[first] == ' ' || value[first] == '\t')) {
+        ++first;
+    }
+
+    return value.substr(first);
+}
+
+std::string running_kernel_release()
+{
+    const auto result = run_command({"uname", "-r"});
+    if (result.exit_status != 0) {
+        return {};
+    }
+    return trim_ascii_whitespace(result.output);
+}
+
+std::string project_native_module_path(const std::string_view module)
+{
+    const std::string release = running_kernel_release();
+    if (release.empty() || module.empty()) {
+        return {};
+    }
+
+    return "/lib/modules/" + release +
+           "/updates/infiltrator/" + std::string(module) + ".ko";
+}
+
+std::string preferred_module_filename(const std::string_view module)
+{
+    const auto result = run_command({
+        "modinfo",
+        "-F",
+        "filename",
+        std::string(module)
+    });
+    if (result.exit_status != 0) {
+        return {};
+    }
+    return trim_ascii_whitespace(result.output);
+}
+
 } // namespace
 
 bool package_installed(const std::string_view package)
@@ -183,10 +235,28 @@ bool module_available(const std::string_view module)
     return module_state(module) != KernelState::Missing;
 }
 
+bool project_native_module_installed(const std::string_view module)
+{
+    const std::string path = project_native_module_path(module);
+    return !path.empty() &&
+           g_file_test(path.c_str(), G_FILE_TEST_IS_REGULAR);
+}
+
+bool project_native_module_selected(const std::string_view module)
+{
+    const std::string path = project_native_module_path(module);
+    if (path.empty()) {
+        return false;
+    }
+
+    return preferred_module_filename(module) == path;
+}
+
 ProbeResult probe(const FilesystemDescriptor& descriptor)
 {
     ProbeResult result;
 
+    result.project_native_module = descriptor.project_native_linux;
     result.module_requirement_met = descriptor.modules.empty();
     result.kernel_state = descriptor.modules.empty()
         ? KernelState::NotApplicable
@@ -208,11 +278,28 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
         }
     }
 
-    result.module_requirement_met =
-        result.kernel_state == KernelState::NotApplicable ||
-        result.kernel_state == KernelState::BuiltIn ||
-        result.kernel_state == KernelState::LoadableLoaded ||
-        result.kernel_state == KernelState::LoadableUnloaded;
+    if (descriptor.project_native_linux) {
+        if (descriptor.modules.size() == 1U) {
+            result.module_name = std::string(descriptor.modules.front());
+            result.project_native_installed =
+                project_native_module_installed(descriptor.modules.front());
+            result.project_native_selected =
+                result.project_native_installed &&
+                project_native_module_selected(descriptor.modules.front());
+        }
+
+        result.module_requirement_met =
+            result.project_native_installed &&
+            result.project_native_selected &&
+            (result.kernel_state == KernelState::LoadableLoaded ||
+             result.kernel_state == KernelState::LoadableUnloaded);
+    } else {
+        result.module_requirement_met =
+            result.kernel_state == KernelState::NotApplicable ||
+            result.kernel_state == KernelState::BuiltIn ||
+            result.kernel_state == KernelState::LoadableLoaded ||
+            result.kernel_state == KernelState::LoadableUnloaded;
+    }
 
     result.package_requirement_met = true;
     for (const auto package : descriptor.packages) {
@@ -230,9 +317,29 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
         }
     }
 
-    if (result.module_requirement_met && result.package_requirement_met) {
+    if (descriptor.project_native_linux &&
+        !result.project_native_installed) {
+        result.state = SupportState::Installable;
+        result.detail =
+            "The Infiltrator native kernel module is available to install "
+            "for the running kernel.";
+        if (!result.missing_packages.empty()) {
+            result.detail += " Optional/administration packages are also available: " +
+                             join_names(result.missing_packages) + ".";
+        }
+    } else if (descriptor.project_native_linux &&
+               result.project_native_installed &&
+               !result.project_native_selected) {
+        result.state = SupportState::Incomplete;
+        result.detail =
+            "The Infiltrator native module is installed, but the kernel is "
+            "selecting another implementation. Remove the conflict before "
+            "claiming native support.";
+    } else if (result.module_requirement_met && result.package_requirement_met) {
         result.state = SupportState::Ready;
-        result.detail = "Support is installed on this Debian system.";
+        result.detail = descriptor.project_native_linux
+            ? "The Infiltrator native kernel module is installed for this kernel."
+            : "Support is installed on this Debian system.";
     } else if (!result.unavailable_packages.empty()) {
         result.state = SupportState::Unavailable;
         result.detail =
