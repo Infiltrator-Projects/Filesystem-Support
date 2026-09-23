@@ -403,6 +403,32 @@ static int ext2_claim_inode_bit(
 	return -ENOSPC;
 }
 
+static void ext2_unclaim_inode_bit(
+	struct super_block *sb, unsigned int group, unsigned int bit)
+{
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	struct buffer_head *bitmap_bh =
+		ext2_read_inode_bitmap(sb, group);
+
+	if (!bitmap_bh) {
+		ext2_error(sb, __func__,
+			   "cannot roll back inode bit %u in group %u",
+			   bit, group);
+		return;
+	}
+
+	if (!ext2_clear_bit_atomic(
+		    sb_bgl_lock(sbi, group), bit, bitmap_bh->b_data))
+		ext2_error(sb, __func__,
+			   "inode bit %u in group %u was already clear",
+			   bit, group);
+
+	mark_buffer_dirty(bitmap_bh);
+	if (sb->s_flags & SB_SYNCHRONOUS)
+		sync_dirty_buffer(bitmap_bh);
+	brelse(bitmap_bh);
+}
+
 static void ext2_account_inode_allocation(
 	struct super_block *sb, unsigned int group,
 	struct ext2_group_desc *desc,
@@ -562,23 +588,14 @@ fail_drop:
 	return ERR_PTR(result);
 
 fail_after_accounting:
+	ext2_unclaim_inode_bit(sb, group, bit);
 	ext2_account_inode_release(sb, group, S_ISDIR(mode));
 	goto fail_bad_inode;
 
 fail_release_claim:
 	if (bitmap_bh)
 		brelse(bitmap_bh);
-	{
-		struct buffer_head *rollback_bh =
-			ext2_read_inode_bitmap(sb, group);
-		if (rollback_bh) {
-			ext2_clear_bit_atomic(
-				sb_bgl_lock(sbi, group), bit,
-				rollback_bh->b_data);
-			mark_buffer_dirty(rollback_bh);
-			brelse(rollback_bh);
-		}
-	}
+	ext2_unclaim_inode_bit(sb, group, bit);
 fail_bad_inode:
 	make_bad_inode(inode);
 	iput(inode);
