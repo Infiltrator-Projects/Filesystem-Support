@@ -220,63 +220,6 @@ fail:
 
 #ifdef CONFIG_ASFS_RW
 
-static int sfs_encode_path_bytes(
-    struct sfs_link_writer *writer,
-    const char *source,
-    size_t source_length)
-{
-    size_t index = 0U;
-    char previous = '/';
-
-    while (index < source_length) {
-        const char character = source[index];
-
-        if (character == '.' && previous == '/' &&
-            index + 2U < source_length &&
-            source[index + 1U] == '.' &&
-            source[index + 2U] == '/') {
-            int result = sfs_link_append_byte(writer, '/');
-            if (result != 0)
-                return result;
-            index += 3U;
-            previous = '/';
-            continue;
-        }
-
-        if (character == '.' && previous == '/' &&
-            index + 1U < source_length &&
-            source[index + 1U] == '/') {
-            index += 2U;
-            previous = '/';
-            continue;
-        }
-
-        if (character == '/') {
-            int result = sfs_link_append_byte(writer, '/');
-            if (result != 0)
-                return result;
-            index++;
-            while (index < source_length && source[index] == '/')
-                index++;
-            previous = '/';
-            continue;
-        }
-
-        {
-            size_t consumed = 0U;
-            int result = sfs_link_convert_one(
-                writer, source + index, source_length - index,
-                ASFS_SB(NULL)->nls_io, ASFS_SB(NULL)->nls_disk,
-                false, &consumed);
-            (void)result;
-        }
-
-        return -EINVAL;
-    }
-
-    return 0;
-}
-
 int asfs_write_symlink(struct inode *inode, const char *target)
 {
     struct super_block *sb = inode->i_sb;
