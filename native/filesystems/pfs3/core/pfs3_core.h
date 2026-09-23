@@ -65,6 +65,10 @@ IfsPfs3RootStatus ifs_pfs3_validate_root_geometry(
     ifs_pfs3_u32 last_reserved,
     ifs_pfs3_u32 reserved_free);
 
+int ifs_pfs3_validate_allocation_counts(
+    ifs_pfs3_u32 blocks_free,
+    ifs_pfs3_u32 always_free);
+
 int ifs_pfs3_validate_disk_name(
     const unsigned char disk_name[IFS_PFS3_DISK_NAME_BYTES]);
 

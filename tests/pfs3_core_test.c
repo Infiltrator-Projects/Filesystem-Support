@@ -68,5 +68,11 @@ int main(void)
             return fail("invalid PFS disk name accepted");
     }
 
+
+    if (ifs_pfs3_validate_allocation_counts(1000U, 50U) != 0)
+        return fail("valid PFS allocation counters rejected");
+    if (ifs_pfs3_validate_allocation_counts(50U, 51U) == 0)
+        return fail("PFS allocation reserve underflow accepted");
+
     return 0;
 }
