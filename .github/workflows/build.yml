@@ -12,15 +12,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Enforce retired upstream import path
+      - name: Enforce EXT rewrite boundary
         shell: bash
         run: |
           set -euo pipefail
-          test ! -e .github/workflows/import-linux-filesystems.yml
           test ! -e tools/shape-ext2.sh
           test ! -e tools/shape-ext3.sh
           test ! -e tools/shape-ext4.sh
           test ! -e tools/harden-ext-ranges.py
+
+          refresh=.github/workflows/import-linux-filesystems.yml
+          if test -f "$refresh"; then
+            ! grep -Eq 'fs/ext2([ /]|$)|fs/ext3([ /]|$)|fs/ext4([ /]|$)|linux-ext3|shape-ext[234]|harden-ext-ranges|recomment-ext-family' "$refresh"
+            ! grep -Eq 'native/filesystems/ext2|native/filesystems/ext3|native/filesystems/ext4' "$refresh"
+          fi
 
       - name: Verify rewritten EXT2 file layer provenance
         shell: bash
