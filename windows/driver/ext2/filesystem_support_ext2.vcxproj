@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|ARM64"><Configuration>Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{6A4A620A-8DF4-4FC5-82D1-D3F50BCE70E7}</ProjectGuid>
+    <RootNamespace>FilesystemSupportExt2</RootNamespace>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)'=='Debug'">
+    <ConfigurationType>Driver</ConfigurationType><DriverType>WDM</DriverType>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries><TargetVersion>Windows10</TargetVersion>
+    <SignMode>Off</SignMode><EnableInf2cat>false</EnableInf2cat><Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)'=='Release'">
+    <ConfigurationType>Driver</ConfigurationType><DriverType>WDM</DriverType>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries><TargetVersion>Windows10</TargetVersion>
+    <SignMode>Off</SignMode><EnableInf2cat>false</EnableInf2cat><Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup><OutDir>$(IntDir)</OutDir><TargetName>filesystem_support_ext2</TargetName></PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>.;..\..\..\native\filesystems\ext2\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><ExceptionHandling></ExceptionHandling>
+      <PreprocessorDefinitions>DBG=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link><AdditionalDependencies>ntoskrnl.lib;hal.lib;wmilib.lib;%(AdditionalDependencies)</AdditionalDependencies><AdditionalLibraryDirectories Condition="'$(Platform)'=='ARM64'">$(FsExt2Arm64RuntimeDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories></Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>.;..\..\..\native\filesystems\ext2\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><ExceptionHandling></ExceptionHandling>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link><AdditionalDependencies>ntoskrnl.lib;hal.lib;wmilib.lib;%(AdditionalDependencies)</AdditionalDependencies><AdditionalLibraryDirectories Condition="'$(Platform)'=='ARM64'">$(FsExt2Arm64RuntimeDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="ext2_driver.c" />
+    <ClCompile Include="..\..\..\native\filesystems\ext2\core\ext2_core.c" />
+    <ClCompile Include="..\..\..\native\filesystems\ext2\core\ext2_engine.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ext2_driver.h" />
+    <ClInclude Include="ext2_compat.h" />
+    <ClInclude Include="..\..\..\native\filesystems\ext2\core\ext2_core.h" />
+    <ClInclude Include="..\..\..\native\filesystems\ext2\core\ext2_engine.h" />
+  </ItemGroup>
+  <ItemGroup><Inf Include="filesystem_support_ext2.inf" /></ItemGroup>
+  <ItemGroup><ResourceCompile Include="filesystem_support_ext2.rc" Condition="'$(Platform)'=='x64'" /></ItemGroup>
+  <Target Name="VerifyFilesystemSupportExt2Wdk" BeforeTargets="ClCompile">
+    <Error Condition="'$(ConfigurationType)' != 'Driver'" Text="Filesystem Support EXT2 must build as a kernel Driver project." />
+    <Error Condition="'$(PlatformToolset)' != 'WindowsKernelModeDriver10.0'" Text="Filesystem Support EXT2 requires WindowsKernelModeDriver10.0." />
+    <Error Condition="'$(Platform)' != 'x64' and '$(Platform)' != 'ARM64'" Text="Filesystem Support EXT2 supports only x64 and ARM64." />
+    <Error Condition="'$(Platform)' == 'ARM64' and !Exists('$(FsExt2Arm64RuntimeDir)\arm64rt.lib')" Text="ARM64 runtime library was not located." />
+    <Error Condition="'$(KM_IncludePath)' == ''" Text="WDK kernel-mode properties are inactive. Restore the pinned architecture-specific WDK package." />
+  </Target>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>
