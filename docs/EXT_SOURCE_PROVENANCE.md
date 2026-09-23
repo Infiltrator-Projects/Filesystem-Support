@@ -38,9 +38,10 @@ The following active EXT2 units are maintained as project-authored source:
 - `native/filesystems/ext2/linux/canonical.c`
 - `native/filesystems/ext2/linux/file.c`
 - `native/filesystems/ext2/linux/namei.c`
+- `native/filesystems/ext2/linux/ialloc.c`
 - `native/filesystems/ext2/linux/Makefile`
 
-The regular-file and namespace units were replaced on 23 September 2026. Their
+The regular-file, namespace and inode-allocation units were replaced on 23 September 2026. Their
 implementations use Linux VFS interfaces as platform APIs but do not retain the
 previous implementation bodies or third-party author blocks.
 
@@ -52,7 +53,6 @@ legal provenance until their implementation is genuinely replaced:
 - `balloc.c`
 - `dir.c`
 - `ext2.h`
-- `ialloc.c`
 - `inode.c`
 - `super.c`
 - `xattr.c`
