@@ -12,17 +12,17 @@
 #include <linux/mpage.h>
 #include <linux/pagemap.h>
 
-static int ifs_amiga_map_block(
+static int ifs_ofs_map_block(
     struct inode *inode, sector_t logical,
     struct buffer_head *result, int create);
 
-static int ifs_amiga_file_open(struct inode *inode, struct file *file)
+static int ifs_ofs_file_open(struct inode *inode, struct file *file)
 {
     atomic_inc(&AFFS_I(inode)->i_opencnt);
     return 0;
 }
 
-static int ifs_amiga_file_release(struct inode *inode, struct file *file)
+static int ifs_ofs_file_release(struct inode *inode, struct file *file)
 {
     if (atomic_dec_and_test(&AFFS_I(inode)->i_opencnt)) {
         inode_lock(inode);
@@ -34,7 +34,7 @@ static int ifs_amiga_file_release(struct inode *inode, struct file *file)
     return 0;
 }
 
-static bool ifs_amiga_extension_valid(
+static bool ifs_ofs_extension_valid(
     struct inode *inode, struct buffer_head *bh, u32 index)
 {
     struct super_block *sb = inode->i_sb;
@@ -71,7 +71,7 @@ static bool ifs_amiga_extension_valid(
     return true;
 }
 
-static void ifs_amiga_cache_extension(
+static void ifs_ofs_cache_extension(
     struct inode *inode, struct buffer_head *bh, u32 index)
 {
     struct affs_inode_info *info = AFFS_I(inode);
@@ -85,7 +85,7 @@ static void ifs_amiga_cache_extension(
     get_bh(bh);
 }
 
-static void ifs_amiga_clear_extension_cache(struct inode *inode)
+static void ifs_ofs_clear_extension_cache(struct inode *inode)
 {
     struct affs_inode_info *info = AFFS_I(inode);
 
@@ -100,7 +100,7 @@ static void ifs_amiga_clear_extension_cache(struct inode *inode)
         memset(info->i_ac, 0, AFFS_AC_SIZE * sizeof(*info->i_ac));
 }
 
-static struct buffer_head *ifs_amiga_read_extension(
+static struct buffer_head *ifs_ofs_read_extension(
     struct inode *inode, u32 wanted)
 {
     struct affs_inode_info *info = AFFS_I(inode);
@@ -128,7 +128,7 @@ static struct buffer_head *ifs_amiga_read_extension(
     if (!bh)
         return ERR_PTR(-EIO);
 
-    if (!ifs_amiga_extension_valid(inode, bh, index)) {
+    if (!ifs_ofs_extension_valid(inode, bh, index)) {
         affs_brelse(bh);
         return ERR_PTR(-EUCLEAN);
     }
@@ -153,17 +153,17 @@ static struct buffer_head *ifs_amiga_read_extension(
         bh = next_bh;
         index++;
 
-        if (!ifs_amiga_extension_valid(inode, bh, index)) {
+        if (!ifs_ofs_extension_valid(inode, bh, index)) {
             affs_brelse(bh);
             return ERR_PTR(-EUCLEAN);
         }
     }
 
-    ifs_amiga_cache_extension(inode, bh, wanted);
+    ifs_ofs_cache_extension(inode, bh, wanted);
     return bh;
 }
 
-static int ifs_amiga_zero_new_physical_block(
+static int ifs_ofs_zero_new_physical_block(
     struct super_block *sb, u32 block)
 {
     struct buffer_head *bh = affs_getzeroblk(sb, block);
@@ -176,7 +176,7 @@ static int ifs_amiga_zero_new_physical_block(
     return 0;
 }
 
-static int ifs_amiga_append_extension_and_data(
+static int ifs_ofs_append_extension_and_data(
     struct inode *inode,
     u32 extension_index,
     u32 data_block,
@@ -192,7 +192,7 @@ static int ifs_amiga_append_extension_and_data(
         extension_index != info->i_extcnt)
         return -EUCLEAN;
 
-    previous = ifs_amiga_read_extension(inode, extension_index - 1U);
+    previous = ifs_ofs_read_extension(inode, extension_index - 1U);
     if (IS_ERR(previous))
         return PTR_ERR(previous);
 
@@ -231,12 +231,12 @@ static int ifs_amiga_append_extension_and_data(
     affs_brelse(previous);
 
     info->i_extcnt++;
-    ifs_amiga_cache_extension(inode, new_extension, extension_index);
+    ifs_ofs_cache_extension(inode, new_extension, extension_index);
     *extension_out = new_extension;
     return 0;
 }
 
-static int ifs_amiga_map_existing_block(
+static int ifs_ofs_map_existing_block(
     struct inode *inode, u32 logical,
     struct buffer_head *result)
 {
@@ -253,7 +253,7 @@ static int ifs_amiga_map_existing_block(
     if (status != 0)
         return -EUCLEAN;
 
-    extension = ifs_amiga_read_extension(inode, extension_index);
+    extension = ifs_ofs_read_extension(inode, extension_index);
     if (IS_ERR(extension))
         return PTR_ERR(extension);
 
@@ -269,7 +269,7 @@ static int ifs_amiga_map_existing_block(
     return 0;
 }
 
-static int ifs_amiga_append_block(
+static int ifs_ofs_append_block(
     struct inode *inode, u32 logical,
     struct buffer_head *result)
 {
@@ -292,7 +292,7 @@ static int ifs_amiga_append_block(
         return -EUCLEAN;
 
     if (extension_index < info->i_extcnt) {
-        extension = ifs_amiga_read_extension(inode, extension_index);
+        extension = ifs_ofs_read_extension(inode, extension_index);
         if (IS_ERR(extension))
             return PTR_ERR(extension);
 
@@ -307,7 +307,7 @@ static int ifs_amiga_append_block(
             return -ENOSPC;
         }
 
-        status = ifs_amiga_zero_new_physical_block(sb, physical);
+        status = ifs_ofs_zero_new_physical_block(sb, physical);
         if (status != 0) {
             affs_free_block(sb, physical);
             affs_brelse(extension);
@@ -328,7 +328,7 @@ static int ifs_amiga_append_block(
         if (entry_index != 0U || extension_index == 0U)
             return -EUCLEAN;
 
-        previous = ifs_amiga_read_extension(
+        previous = ifs_ofs_read_extension(
             inode, extension_index - 1U);
         if (IS_ERR(previous))
             return PTR_ERR(previous);
@@ -339,13 +339,13 @@ static int ifs_amiga_append_block(
         if (physical == 0U)
             return -ENOSPC;
 
-        status = ifs_amiga_zero_new_physical_block(sb, physical);
+        status = ifs_ofs_zero_new_physical_block(sb, physical);
         if (status != 0) {
             affs_free_block(sb, physical);
             return status;
         }
 
-        status = ifs_amiga_append_extension_and_data(
+        status = ifs_ofs_append_extension_and_data(
             inode, extension_index, physical, &extension);
         if (status != 0) {
             affs_free_block(sb, physical);
@@ -364,7 +364,7 @@ static int ifs_amiga_append_block(
     return 0;
 }
 
-static int ifs_amiga_map_block(
+static int ifs_ofs_map_block(
     struct inode *inode, sector_t logical,
     struct buffer_head *result, int create)
 {
@@ -380,10 +380,10 @@ static int ifs_amiga_map_block(
     affs_lock_ext(inode);
 
     if ((u32)logical < info->i_blkcnt) {
-        status = ifs_amiga_map_existing_block(
+        status = ifs_ofs_map_existing_block(
             inode, (u32)logical, result);
     } else if ((u32)logical == info->i_blkcnt && create) {
-        status = ifs_amiga_append_block(
+        status = ifs_ofs_append_block(
             inode, (u32)logical, result);
     } else if ((u32)logical == info->i_blkcnt && !create) {
         status = 0;
@@ -395,19 +395,19 @@ static int ifs_amiga_map_block(
     return status;
 }
 
-static int ifs_amiga_writepages(
+static int ifs_ofs_writepages(
     struct address_space *mapping, struct writeback_control *control)
 {
-    return mpage_writepages(mapping, control, ifs_amiga_map_block);
+    return mpage_writepages(mapping, control, ifs_ofs_map_block);
 }
 
-static int ifs_amiga_read_folio(
+static int ifs_ofs_read_folio(
     struct file *file, struct folio *folio)
 {
-    return block_read_full_folio(folio, ifs_amiga_map_block);
+    return block_read_full_folio(folio, ifs_ofs_map_block);
 }
 
-static void ifs_amiga_write_failed(
+static void ifs_ofs_write_failed(
     struct address_space *mapping, loff_t attempted_end)
 {
     struct inode *inode = mapping->host;
@@ -418,7 +418,7 @@ static void ifs_amiga_write_failed(
     }
 }
 
-static ssize_t ifs_amiga_direct_io(
+static ssize_t ifs_ofs_direct_io(
     struct kiocb *iocb, struct iov_iter *iter)
 {
     struct file *file = iocb->ki_filp;
@@ -438,13 +438,13 @@ static ssize_t ifs_amiga_direct_io(
     }
 
     result = blockdev_direct_IO(
-        iocb, inode, iter, ifs_amiga_map_block);
+        iocb, inode, iter, ifs_ofs_map_block);
     if (result < 0 && iov_iter_rw(iter) == WRITE)
-        ifs_amiga_write_failed(mapping, offset + count);
+        ifs_ofs_write_failed(mapping, offset + count);
     return result;
 }
 
-static int ifs_amiga_write_begin(
+static int ifs_ofs_write_begin(
     struct file *file, struct address_space *mapping,
     loff_t position, unsigned int length,
     struct folio **folio, void **fsdata)
@@ -457,14 +457,14 @@ static int ifs_amiga_write_begin(
 
     result = cont_write_begin(
         file, mapping, position, length, folio, fsdata,
-        ifs_amiga_map_block,
+        ifs_ofs_map_block,
         &AFFS_I(mapping->host)->mmu_private);
     if (result != 0)
-        ifs_amiga_write_failed(mapping, position + length);
+        ifs_ofs_write_failed(mapping, position + length);
     return result;
 }
 
-static int ifs_amiga_write_end(
+static int ifs_ofs_write_end(
     struct file *file, struct address_space *mapping,
     loff_t position, unsigned int length, unsigned int copied,
     struct folio *folio, void *fsdata)
@@ -483,26 +483,26 @@ static int ifs_amiga_write_end(
     return result;
 }
 
-static sector_t ifs_amiga_bmap(
+static sector_t ifs_ofs_bmap(
     struct address_space *mapping, sector_t block)
 {
     return generic_block_bmap(
-        mapping, block, ifs_amiga_map_block);
+        mapping, block, ifs_ofs_map_block);
 }
 
 const struct address_space_operations affs_aops = {
     .dirty_folio = block_dirty_folio,
     .invalidate_folio = block_invalidate_folio,
-    .read_folio = ifs_amiga_read_folio,
-    .writepages = ifs_amiga_writepages,
-    .write_begin = ifs_amiga_write_begin,
-    .write_end = ifs_amiga_write_end,
-    .direct_IO = ifs_amiga_direct_io,
+    .read_folio = ifs_ofs_read_folio,
+    .writepages = ifs_ofs_writepages,
+    .write_begin = ifs_ofs_write_begin,
+    .write_end = ifs_ofs_write_end,
+    .direct_IO = ifs_ofs_direct_io,
     .migrate_folio = buffer_migrate_folio,
-    .bmap = ifs_amiga_bmap,
+    .bmap = ifs_ofs_bmap,
 };
 
-static int ifs_amiga_map_to_buffer(
+static int ifs_ofs_map_to_buffer(
     struct inode *inode, u32 logical, bool create,
     bool zero, struct buffer_head **buffer, bool *new_block)
 {
@@ -510,7 +510,7 @@ static int ifs_amiga_map_to_buffer(
     struct buffer_head *bh;
     int result;
 
-    result = ifs_amiga_map_block(
+    result = ifs_ofs_map_block(
         inode, logical, &mapping, create ? 1 : 0);
     if (result != 0)
         return result;
@@ -530,7 +530,7 @@ static int ifs_amiga_map_to_buffer(
     return 0;
 }
 
-static int ifs_amiga_ofs_link_data_block(
+static int ifs_ofs_ofs_link_data_block(
     struct inode *inode, u32 logical, u32 physical)
 {
     struct buffer_head *previous;
@@ -540,7 +540,7 @@ static int ifs_amiga_ofs_link_data_block(
     if (logical == 0U)
         return 0;
 
-    result = ifs_amiga_map_to_buffer(
+    result = ifs_ofs_map_to_buffer(
         inode, logical - 1U, false, false,
         &previous, NULL);
     if (result != 0)
@@ -571,7 +571,7 @@ static int ifs_amiga_ofs_link_data_block(
     return 0;
 }
 
-static int ifs_amiga_ofs_prepare_block(
+static int ifs_ofs_ofs_prepare_block(
     struct inode *inode, u32 logical,
     struct buffer_head **buffer)
 {
@@ -579,7 +579,7 @@ static int ifs_amiga_ofs_prepare_block(
     bool new_block = false;
     int result;
 
-    result = ifs_amiga_map_to_buffer(
+    result = ifs_ofs_map_to_buffer(
         inode, logical, true, true, &bh, &new_block);
     if (result != 0)
         return result;
@@ -593,7 +593,7 @@ static int ifs_amiga_ofs_prepare_block(
         affs_fix_checksum(inode->i_sb, bh);
         mark_buffer_dirty_inode(bh, inode);
 
-        result = ifs_amiga_ofs_link_data_block(
+        result = ifs_ofs_ofs_link_data_block(
             inode, logical, (u32)bh->b_blocknr);
         if (result != 0) {
             affs_brelse(bh);
@@ -613,7 +613,7 @@ static int ifs_amiga_ofs_prepare_block(
     return 0;
 }
 
-static int ifs_amiga_ofs_read_range(
+static int ifs_ofs_ofs_read_range(
     struct inode *inode, struct folio *folio,
     size_t destination_offset, u64 file_offset, size_t length)
 {
@@ -633,7 +633,7 @@ static int ifs_amiga_ofs_read_range(
         u32 stored_size;
         int result;
 
-        result = ifs_amiga_map_to_buffer(
+        result = ifs_ofs_map_to_buffer(
             inode, logical, false, false, &bh, NULL);
         if (result != 0)
             return result;
@@ -665,7 +665,7 @@ static int ifs_amiga_ofs_read_range(
     return 0;
 }
 
-static int ifs_amiga_zero_extend_ffs(
+static int ifs_ofs_zero_extend_ffs(
     struct inode *inode, u32 target)
 {
     const u32 block_size = AFFS_SB(inode->i_sb)->s_data_blksize;
@@ -682,7 +682,7 @@ static int ifs_amiga_zero_extend_ffs(
         struct buffer_head *bh;
         int result;
 
-        result = ifs_amiga_map_to_buffer(
+        result = ifs_ofs_map_to_buffer(
             inode, logical, true, false, &bh, NULL);
         if (result != 0)
             return result;
@@ -697,7 +697,7 @@ static int ifs_amiga_zero_extend_ffs(
     return 0;
 }
 
-static int ifs_amiga_zero_extend_ofs(
+static int ifs_ofs_zero_extend_ofs(
     struct inode *inode, u32 target)
 {
     const u32 payload = AFFS_SB(inode->i_sb)->s_data_blksize;
@@ -715,7 +715,7 @@ static int ifs_amiga_zero_extend_ofs(
         u32 stored_size;
         int result;
 
-        result = ifs_amiga_ofs_prepare_block(inode, logical, &bh);
+        result = ifs_ofs_ofs_prepare_block(inode, logical, &bh);
         if (result != 0)
             return result;
 
@@ -739,7 +739,7 @@ static int ifs_amiga_zero_extend_ofs(
     return 0;
 }
 
-static int ifs_amiga_ofs_read_folio(
+static int ifs_ofs_ofs_read_folio(
     struct file *file, struct folio *folio)
 {
     struct inode *inode = folio->mapping->host;
@@ -752,7 +752,7 @@ static int ifs_amiga_ofs_read_folio(
             u64, folio_size(folio), (u64)inode->i_size - start);
 
     if (length != 0U)
-        result = ifs_amiga_ofs_read_range(
+        result = ifs_ofs_ofs_read_range(
             inode, folio, 0U, start, length);
 
     if (result == 0) {
@@ -765,7 +765,7 @@ static int ifs_amiga_ofs_read_folio(
     return result;
 }
 
-static int ifs_amiga_ofs_write_begin(
+static int ifs_ofs_ofs_write_begin(
     struct file *file, struct address_space *mapping,
     loff_t position, unsigned int length,
     struct folio **folio_out, void **fsdata)
@@ -782,7 +782,7 @@ static int ifs_amiga_ofs_write_begin(
         return -EFBIG;
 
     if ((u64)position > (u64)AFFS_I(inode)->mmu_private) {
-        result = ifs_amiga_zero_extend_ofs(
+        result = ifs_ofs_zero_extend_ofs(
             inode, (u32)position);
         if (result != 0)
             return result;
@@ -805,7 +805,7 @@ static int ifs_amiga_ofs_write_begin(
             (u64)inode->i_size - folio_start);
 
     if (readable != 0U) {
-        result = ifs_amiga_ofs_read_range(
+        result = ifs_ofs_ofs_read_range(
             inode, folio, 0U, folio_start, readable);
         if (result != 0) {
             folio_unlock(folio);
@@ -820,7 +820,7 @@ static int ifs_amiga_ofs_write_begin(
     return 0;
 }
 
-static int ifs_amiga_ofs_write_end(
+static int ifs_ofs_ofs_write_end(
     struct file *file, struct address_space *mapping,
     loff_t position, unsigned int length, unsigned int copied,
     struct folio *folio, void *fsdata)
@@ -846,7 +846,7 @@ static int ifs_amiga_ofs_write_end(
         struct buffer_head *bh;
         u32 stored_size;
 
-        error = ifs_amiga_ofs_prepare_block(
+        error = ifs_ofs_ofs_prepare_block(
             inode, logical, &bh);
         if (error != 0)
             break;
@@ -895,9 +895,9 @@ static int ifs_amiga_ofs_write_end(
 const struct address_space_operations affs_aops_ofs = {
     .dirty_folio = block_dirty_folio,
     .invalidate_folio = block_invalidate_folio,
-    .read_folio = ifs_amiga_ofs_read_folio,
-    .write_begin = ifs_amiga_ofs_write_begin,
-    .write_end = ifs_amiga_ofs_write_end,
+    .read_folio = ifs_ofs_ofs_read_folio,
+    .write_begin = ifs_ofs_ofs_write_begin,
+    .write_end = ifs_ofs_ofs_write_end,
     .migrate_folio = filemap_migrate_folio,
 };
 
@@ -914,7 +914,7 @@ void affs_free_prealloc(struct inode *inode)
     }
 }
 
-static int ifs_amiga_zero_last_block_tail(
+static int ifs_ofs_zero_last_block_tail(
     struct inode *inode, u32 target, u32 kept_blocks)
 {
     struct buffer_head *bh;
@@ -928,7 +928,7 @@ static int ifs_amiga_zero_last_block_tail(
     if (affs_test_opt(AFFS_SB(inode->i_sb)->s_flags, SF_OFS)) {
         const u32 logical_size = used == 0U ? payload : used;
 
-        result = ifs_amiga_ofs_prepare_block(
+        result = ifs_ofs_ofs_prepare_block(
             inode, kept_blocks - 1U, &bh);
         if (result != 0)
             return result;
@@ -948,7 +948,7 @@ static int ifs_amiga_zero_last_block_tail(
     if (used == 0U)
         return 0;
 
-    result = ifs_amiga_map_to_buffer(
+    result = ifs_ofs_map_to_buffer(
         inode, kept_blocks - 1U, false, false,
         &bh, NULL);
     if (result != 0)
@@ -960,7 +960,7 @@ static int ifs_amiga_zero_last_block_tail(
     return 0;
 }
 
-static int ifs_amiga_shrink_file(
+static int ifs_ofs_shrink_file(
     struct inode *inode, u32 target)
 {
     struct super_block *sb = inode->i_sb;
@@ -988,7 +988,7 @@ static int ifs_amiga_shrink_file(
 
     affs_free_prealloc(inode);
     affs_lock_ext(inode);
-    ifs_amiga_clear_extension_cache(inode);
+    ifs_ofs_clear_extension_cache(inode);
 
     last_extension_index = kept_extensions - 1U;
     kept_extension = affs_bread(sb, (u32)inode->i_ino);
@@ -1017,7 +1017,7 @@ static int ifs_amiga_shrink_file(
         kept_extension = next_bh;
     }
 
-    if (!ifs_amiga_extension_valid(
+    if (!ifs_ofs_extension_valid(
             inode, kept_extension, last_extension_index)) {
         affs_brelse(kept_extension);
         result = -EUCLEAN;
@@ -1090,7 +1090,7 @@ static int ifs_amiga_shrink_file(
             goto out_unlock;
         }
 
-        if (!ifs_amiga_extension_valid(
+        if (!ifs_ofs_extension_valid(
                 inode, bh, kept_extensions)) {
             affs_brelse(bh);
             result = -EUCLEAN;
@@ -1148,7 +1148,7 @@ static int ifs_amiga_shrink_file(
 out_unlock:
     affs_unlock_ext(inode);
     if (result == 0)
-        result = ifs_amiga_zero_last_block_tail(
+        result = ifs_ofs_zero_last_block_tail(
             inode, target, kept_blocks);
     return result;
 }
@@ -1169,20 +1169,20 @@ void affs_truncate(struct inode *inode)
 
     if (requested > previous) {
         if (affs_test_opt(AFFS_SB(inode->i_sb)->s_flags, SF_OFS))
-            result = ifs_amiga_zero_extend_ofs(
+            result = ifs_ofs_zero_extend_ofs(
                 inode, (u32)requested);
         else
-            result = ifs_amiga_zero_extend_ffs(
+            result = ifs_ofs_zero_extend_ffs(
                 inode, (u32)requested);
     } else {
-        result = ifs_amiga_shrink_file(
+        result = ifs_ofs_shrink_file(
             inode, (u32)requested);
     }
 
     if (result != 0) {
         if (requested > previous) {
             inode->i_size = previous;
-            (void)ifs_amiga_shrink_file(
+            (void)ifs_ofs_shrink_file(
                 inode, (u32)previous);
         }
         inode->i_size = previous;
@@ -1222,8 +1222,8 @@ const struct file_operations affs_file_operations = {
     .read_iter = generic_file_read_iter,
     .write_iter = generic_file_write_iter,
     .mmap = generic_file_mmap,
-    .open = ifs_amiga_file_open,
-    .release = ifs_amiga_file_release,
+    .open = ifs_ofs_file_open,
+    .release = ifs_ofs_file_release,
     .fsync = affs_file_fsync,
     .splice_read = filemap_splice_read,
 };
