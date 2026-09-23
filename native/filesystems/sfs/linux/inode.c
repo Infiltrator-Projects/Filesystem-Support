@@ -17,7 +17,6 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/fs.h>
-#include <linux/smp_lock.h>
 #include <linux/time.h>
 #include <linux/buffer_head.h>
 #include <linux/vfs.h>
@@ -27,78 +26,79 @@
 #include <asm/byteorder.h>
 
 #ifdef CONFIG_ASFS_RW
-static int asfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidata *nd);
-static int asfs_mkdir(struct inode *dir, struct dentry *dentry, int mode);
-static int asfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname);
+static int asfs_create(struct mnt_idmap *idmap, struct inode *dir,
+		       struct dentry *dentry, umode_t mode, bool excl);
+static int asfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
+		      struct dentry *dentry, umode_t mode);
+static int asfs_symlink(struct mnt_idmap *idmap, struct inode *dir,
+			struct dentry *dentry, const char *symname);
 static int asfs_rmdir(struct inode *dir, struct dentry *dentry);
 static int asfs_unlink(struct inode *dir, struct dentry *dentry);
-static int asfs_rename(struct inode *old_dir, struct dentry *old_dentry,
-		struct inode *new_dir, struct dentry *new_dentry);
-/*static int asfs_notify_change(struct dentry *dentry, struct iattr *attr);*/
+static int asfs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
+		       struct dentry *old_dentry, struct inode *new_dir,
+		       struct dentry *new_dentry, unsigned int flags);
+static int asfs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+			struct iattr *attr);
 #endif
 
 /* Mapping from our types to the kernel */
 
-static struct address_space_operations asfs_aops = {
-	.readpage	= asfs_readpage,
-	.sync_page	= block_sync_page,
-	.bmap		= asfs_bmap,
+static const struct address_space_operations asfs_aops = {
+	.dirty_folio = block_dirty_folio,
+	.invalidate_folio = block_invalidate_folio,
+	.read_folio = asfs_read_folio,
+	.readahead = asfs_readahead,
+	.bmap = asfs_bmap,
 #ifdef CONFIG_ASFS_RW
-	.writepage	= asfs_writepage,
 	.write_begin = asfs_write_begin,
 	.write_end = generic_write_end,
+	.writepages = asfs_writepages,
 #endif
 };
 
-static struct file_operations asfs_file_operations = {
-	.llseek		= generic_file_llseek,
-	.aio_read	= generic_file_aio_read,
-	.mmap		= generic_file_mmap,
-	.splice_read = generic_file_splice_read,
+static const struct file_operations asfs_file_operations = {
+	.llseek = generic_file_llseek,
+	.read_iter = generic_file_read_iter,
+	.mmap = generic_file_mmap,
+	.splice_read = filemap_splice_read,
 #ifdef CONFIG_ASFS_RW
-	.aio_write	= generic_file_aio_write,
-	.open		= asfs_file_open,
-	.release	= asfs_file_release,
-	.fsync		= generic_file_fsync,
+	.write_iter = generic_file_write_iter,
+	.open = asfs_file_open,
+	.release = asfs_file_release,
+	.fsync = generic_file_fsync,
+	.splice_write = iter_file_splice_write,
 #endif
 };
 
-static struct file_operations asfs_dir_operations = {
-	.read		= generic_read_dir,
-	.readdir	= asfs_readdir,
-	.llseek		= generic_file_llseek,
+static const struct file_operations asfs_dir_operations = {
+	.read = generic_read_dir,
+	.iterate_shared = asfs_readdir,
+	.llseek = generic_file_llseek,
 };
 
-static struct inode_operations asfs_dir_inode_operations = {
-	.lookup		= asfs_lookup,
+static const struct inode_operations asfs_dir_inode_operations = {
+	.lookup = asfs_lookup,
 #ifdef CONFIG_ASFS_RW
-	.create		= asfs_create,
-	.unlink		= asfs_unlink,
-	.symlink	= asfs_symlink,
-	.mkdir		= asfs_mkdir,
-	.rmdir		= asfs_rmdir,
-	.rename		= asfs_rename,
-/*	.setattr	= asfs_notify_change,*/
+	.create = asfs_create,
+	.unlink = asfs_unlink,
+	.symlink = asfs_symlink,
+	.mkdir = asfs_mkdir,
+	.rmdir = asfs_rmdir,
+	.rename = asfs_rename,
+	.setattr = asfs_setattr,
 #endif
 };
 
-static struct inode_operations asfs_file_inode_operations = {
+static const struct inode_operations asfs_file_inode_operations = {
 #ifdef CONFIG_ASFS_RW
-	.truncate	= asfs_truncate,
-/*	.setattr		= asfs_notify_change,*/
+	.setattr = asfs_setattr,
 #endif
 };
 
-static struct address_space_operations asfs_symlink_aops = {
-	.readpage	= asfs_symlink_readpage,
-};
-
-static struct inode_operations asfs_symlink_inode_operations = {
-	.readlink	= generic_readlink,
-	.follow_link	= page_follow_link_light,
-	.put_link	= page_put_link,
+static const struct inode_operations asfs_symlink_inode_operations = {
+	.get_link = asfs_get_link,
 #ifdef CONFIG_ASFS_RW
-/*	.setattr	= asfs_notify_change,*/
+	.setattr = asfs_setattr,
 #endif
 };
 
@@ -107,12 +107,17 @@ void asfs_read_locked_inode(struct inode *inode, void *arg)
 	struct super_block *sb = inode->i_sb;
 	struct fsObject *obj = arg;
 
+	time64_t timestamp =
+		(time64_t)be32_to_cpu(obj->datemodified) +
+		(365 * 8 + 2) * 24 * 60 * 60;
+
 	inode->i_mode = ASFS_SB(sb)->mode;
-	inode->i_mtime.tv_sec = inode->i_atime.tv_sec = inode->i_ctime.tv_sec = be32_to_cpu(obj->datemodified) + (365*8+2)*24*60*60;  
-	/* Linux: seconds since 01-01-1970, AmigaSFS: seconds since 01-01-1978 */
-	inode->i_mtime.tv_nsec = inode->i_ctime.tv_nsec = inode->i_atime.tv_nsec = 0;
-	inode->i_uid = ASFS_SB(sb)->uid;
-	inode->i_gid = ASFS_SB(sb)->gid;
+	/* Linux timestamps start in 1970; SFS timestamps start in 1978. */
+	inode_set_atime(inode, timestamp, 0);
+	inode_set_mtime(inode, timestamp, 0);
+	inode_set_ctime(inode, timestamp, 0);
+	i_uid_write(inode, ASFS_SB(sb)->uid);
+	i_gid_write(inode, ASFS_SB(sb)->gid);
 	atomic_set(&ASFS_I(inode)->i_opencnt, 0);
 
 	asfs_debug("asfs_read_inode2: Setting-up node %lu... ", inode->i_ino);
@@ -133,7 +138,6 @@ void asfs_read_locked_inode(struct inode *inode, void *arg)
 		asfs_debug("symlink\n");
 		inode->i_size = 0;
 		inode->i_op = &asfs_symlink_inode_operations;
-		inode->i_data.a_ops = &asfs_symlink_aops;
 		inode->i_mode |= S_IFLNK | S_IRWXUGO;
 		ASFS_I(inode)->firstblock = be32_to_cpu(obj->object.file.data);
 	} else {
@@ -222,11 +226,11 @@ static int asfs_create_object(struct inode *dir, struct dentry *dentry, int mode
 		break;
 	}
 
-	lock_super(sb);
+	mutex_lock(&ASFS_SB(sb)->lock);
 
 	if ((error = asfs_readobject(sb, dir->i_ino, &dir_bh, &dir_obj)) != 0) {
 		dec_count(inode);
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 
@@ -236,7 +240,7 @@ static int asfs_create_object(struct inode *dir, struct dentry *dentry, int mode
 	if ((error = asfs_createobject(sb, &bh, &obj, &obj_data, bufname, FALSE)) != 0) {
 		asfs_brelse(dir_bh);
 		dec_count(inode);
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 
@@ -284,7 +288,7 @@ static int asfs_create_object(struct inode *dir, struct dentry *dentry, int mode
 	asfs_sync_dir_inode(dir, dir_obj);
 	asfs_bstore(sb, dir_bh); 
 
-	unlock_super(sb);
+	unmutex_lock(&ASFS_SB(sb)->lock);
 	asfs_brelse(bh);
 	asfs_brelse(dir_bh);
 	
@@ -310,7 +314,7 @@ static int asfs_rmdir(struct inode *dir, struct dentry *dentry)
 {
 	asfs_debug("ASFS: %s\n", __FUNCTION__);
 
-	if (ASFS_I(dentry->d_inode)->firstblock != 0)
+	if (ASFS_I(d_inode(dentry))->firstblock != 0)
 		return -ENOTEMPTY;
 	
 	return asfs_unlink(dir, dentry);
@@ -318,7 +322,7 @@ static int asfs_rmdir(struct inode *dir, struct dentry *dentry)
 
 static int asfs_unlink(struct inode *dir, struct dentry *dentry)
 {
-	struct inode *inode = dentry->d_inode;
+	struct inode *inode = d_inode(dentry);
 	int error;
 	struct super_block *sb = dir->i_sb;
 	struct buffer_head *bh, *dir_bh;
@@ -326,22 +330,22 @@ static int asfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	asfs_debug("ASFS: %s\n", __FUNCTION__);
 
-	lock_super(sb);
+	mutex_lock(&ASFS_SB(sb)->lock);
 
 	if ((error = asfs_readobject(sb, inode->i_ino, &bh, &obj)) != 0) {
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 	if ((error = asfs_deleteobject(sb, bh, obj)) != 0) {
 		asfs_brelse(bh);
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 	asfs_brelse(bh);
 
 	/* directory data could change after removing the object */
 	if ((error = asfs_readobject(sb, dir->i_ino, &dir_bh, &dir_obj)) != 0) {
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 
@@ -349,7 +353,7 @@ static int asfs_unlink(struct inode *dir, struct dentry *dentry)
 	asfs_bstore(sb, dir_bh); 
 
 	dec_count(inode);
-	unlock_super(sb);
+	unmutex_lock(&ASFS_SB(sb)->lock);
 	asfs_brelse(dir_bh);
 
 	return 0;
@@ -373,38 +377,38 @@ static int asfs_rename(struct inode *old_dir, struct dentry *old_dentry, struct 
 
 
 	/* Unlink destination if it already exists */
-	if (new_dentry->d_inode) 
+	if (new_d_inode(dentry)) 
 		if ((error = asfs_unlink(new_dir, new_dentry)) != 0)
 			return error;
 
-	lock_super(sb);
+	mutex_lock(&ASFS_SB(sb)->lock);
 
-	if ((error = asfs_readobject(sb, old_dentry->d_inode->i_ino, &src_bh, &src_obj)) != 0) {
-		unlock_super(sb);
+	if ((error = asfs_readobject(sb, old_d_inode(dentry)->i_ino, &src_bh, &src_obj)) != 0) {
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 	if ((error = asfs_readobject(sb, new_dir->i_ino, &new_bh, &new_obj)) != 0) {
 		asfs_brelse(src_bh);
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 
 	if ((error = asfs_renameobject(sb, src_bh, src_obj, new_bh, new_obj, bufname)) != 0) {
 		asfs_brelse(src_bh);
 		asfs_brelse(new_bh);
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 	asfs_brelse(src_bh);
 	asfs_brelse(new_bh);
 
 	if ((error = asfs_readobject(sb, old_dir->i_ino, &old_bh, &old_obj)) != 0) {
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 	if ((error = asfs_readobject(sb, new_dir->i_ino, &new_bh, &new_obj)) != 0) {
 		asfs_brelse(old_bh);
-		unlock_super(sb);
+		unmutex_lock(&ASFS_SB(sb)->lock);
 		return error;
 	}
 
@@ -414,7 +418,7 @@ static int asfs_rename(struct inode *old_dir, struct dentry *old_dentry, struct 
 	asfs_bstore(sb, new_bh);	
 	asfs_bstore(sb, old_bh);
 
-	unlock_super(sb);
+	unmutex_lock(&ASFS_SB(sb)->lock);
 	asfs_brelse(old_bh);
 	asfs_brelse(new_bh);
 
@@ -427,7 +431,7 @@ static int asfs_rename(struct inode *old_dir, struct dentry *old_dentry, struct 
 /*
 int asfs_notify_change(struct dentry *dentry, struct iattr *attr)
 {
-	struct inode *inode = dentry->d_inode;
+	struct inode *inode = d_inode(dentry);
 	int error = 0;
 
 	asfs_debug("ASFS: notify_change(%lu,0x%x)\n",inode->i_ino,attr->ia_valid);
