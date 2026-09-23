@@ -63,13 +63,8 @@ typedef struct ext2_dir_entry_2 ext2_dirent;
  */
 static inline unsigned ext2_rec_len_from_disk(__le16 dlen)
 {
-	unsigned len = le16_to_cpu(dlen);
-
-#if (PAGE_SIZE >= 65536)
-	if (len == EXT2_MAX_REC_LEN)
-		return 1 << 16;
-#endif
-	return len;
+	return ifs_ext2_directory_record_length_from_disk(
+		le16_to_cpu(dlen), PAGE_SIZE);
 }
 
 
@@ -83,13 +78,13 @@ static inline unsigned ext2_rec_len_from_disk(__le16 dlen)
  */
 static inline __le16 ext2_rec_len_to_disk(unsigned len)
 {
-#if (PAGE_SIZE >= 65536)
-	if (len == (1 << 16))
-		return cpu_to_le16(EXT2_MAX_REC_LEN);
-	else
-		BUG_ON(len > (1 << 16));
-#endif
-	return cpu_to_le16(len);
+	ifs_ext2_u16 encoded = 0U;
+	IfsExt2Status status;
+
+	status = ifs_ext2_directory_record_length_to_disk(
+		len, PAGE_SIZE, &encoded);
+	BUG_ON(status != IFS_EXT2_OK);
+	return cpu_to_le16(encoded);
 }
 
 
@@ -169,6 +164,7 @@ static bool ext2_check_folio(struct folio *folio, int quiet, char *kaddr)
 	unsigned limit = folio_size(folio);
 	ext2_dirent *p;
 	char *error;
+	IfsExt2DirectoryRecordStatus record_status;
 
 	if (dir->i_size < folio_pos(folio) + limit) {
 		limit = offset_in_folio(folio, dir->i_size);
@@ -181,16 +177,13 @@ static bool ext2_check_folio(struct folio *folio, int quiet, char *kaddr)
 		p = (ext2_dirent *)(kaddr + offs);
 		rec_len = ext2_rec_len_from_disk(p->rec_len);
 
-		if (unlikely(rec_len < EXT2_DIR_REC_LEN(1)))
-			goto Eshort;
-		if (unlikely(rec_len & 3))
-			goto Ealign;
-		if (unlikely(rec_len < EXT2_DIR_REC_LEN(p->name_len)))
-			goto Enamelen;
-		if (unlikely(((offs + rec_len - 1) ^ offs) & ~(chunk_size-1)))
-			goto Espan;
-		if (unlikely(le32_to_cpu(p->inode) > max_inumber))
-			goto Einumber;
+		record_status = ifs_ext2_validate_directory_record(
+			offs, rec_len, p->name_len, le32_to_cpu(p->inode),
+			chunk_size, max_inumber);
+		if (unlikely(record_status != IFS_EXT2_DIRECTORY_RECORD_OK)) {
+			error = ifs_ext2_directory_record_status_string(record_status);
+			goto bad_entry;
+		}
 	}
 	if (offs != limit)
 		goto Eend;
@@ -205,20 +198,6 @@ Ebadsize:
 			"size of directory #%lu is not a multiple "
 			"of chunk size", dir->i_ino);
 	goto fail;
-Eshort:
-	error = "rec_len is smaller than minimal";
-	goto bad_entry;
-Ealign:
-	error = "unaligned directory entry";
-	goto bad_entry;
-Enamelen:
-	error = "rec_len is too small for name_len";
-	goto bad_entry;
-Espan:
-	error = "directory entry across blocks";
-	goto bad_entry;
-Einumber:
-	error = "inode out of bounds";
 bad_entry:
 	if (!quiet)
 		ext2_error(sb, __func__, "bad entry in directory #%lu: : %s - "
