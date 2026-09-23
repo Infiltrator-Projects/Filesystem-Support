@@ -8,14 +8,14 @@
 
 #include <linux/slab.h>
 
-static void ifs_amiga_bitmap_drop_cache(struct affs_sb_info *sbi)
+static void ifs_ffs_bitmap_drop_cache(struct affs_sb_info *sbi)
 {
     affs_brelse(sbi->s_bmap_bh);
     sbi->s_bmap_bh = NULL;
     sbi->s_last_bmap = ~0U;
 }
 
-static struct buffer_head *ifs_amiga_bitmap_get(
+static struct buffer_head *ifs_ffs_bitmap_get(
     struct super_block *sb, const u32 bitmap_index)
 {
     struct affs_sb_info *sbi = AFFS_SB(sb);
@@ -27,7 +27,7 @@ static struct buffer_head *ifs_amiga_bitmap_get(
     if (sbi->s_last_bmap == bitmap_index && sbi->s_bmap_bh)
         return sbi->s_bmap_bh;
 
-    ifs_amiga_bitmap_drop_cache(sbi);
+    ifs_ffs_bitmap_drop_cache(sbi);
     bh = affs_bread(sb, sbi->s_bitmap[bitmap_index].bm_key);
     if (!bh)
         return NULL;
@@ -37,7 +37,7 @@ static struct buffer_head *ifs_amiga_bitmap_get(
     return bh;
 }
 
-static u32 ifs_amiga_bitmap_valid_bits(
+static u32 ifs_ffs_bitmap_valid_bits(
     const struct affs_sb_info *sbi, const u32 bitmap_index)
 {
     const u32 data_blocks =
@@ -95,7 +95,7 @@ void affs_free_block(struct super_block *sb, u32 block)
     }
 
     bm = &sbi->s_bitmap[bitmap_index];
-    bh = ifs_amiga_bitmap_get(sb, bitmap_index);
+    bh = ifs_ffs_bitmap_get(sb, bitmap_index);
     if (!bh) {
         affs_error(sb, "affs_free_block",
                    "Cannot read bitmap block %u", bm->bm_key);
@@ -131,7 +131,7 @@ out_unlock:
     mutex_unlock(&sbi->s_bmlock);
 }
 
-static int ifs_amiga_allocate_bitmap_range(
+static int ifs_ffs_allocate_bitmap_range(
     struct inode *inode,
     const u32 bitmap_index,
     const u32 first_bit,
@@ -151,7 +151,7 @@ static int ifs_amiga_allocate_bitmap_range(
     if (allocated_block == NULL || first_bit >= end_bit)
         return 0;
 
-    bh = ifs_amiga_bitmap_get(sb, bitmap_index);
+    bh = ifs_ffs_bitmap_get(sb, bitmap_index);
     if (!bh)
         return -EIO;
 
@@ -249,7 +249,7 @@ u32 affs_alloc_block(struct inode *inode, u32 goal)
         const u32 bitmap_index =
             (start_bitmap + step) % sbi->s_bmap_count;
         const u32 valid_bits =
-            ifs_amiga_bitmap_valid_bits(sbi, bitmap_index);
+            ifs_ffs_bitmap_valid_bits(sbi, bitmap_index);
         const u32 begin =
             step == 0U ? start_bit : 0U;
 
@@ -257,7 +257,7 @@ u32 affs_alloc_block(struct inode *inode, u32 goal)
             begin >= valid_bits)
             continue;
 
-        result = ifs_amiga_allocate_bitmap_range(
+        result = ifs_ffs_allocate_bitmap_range(
             inode, bitmap_index, begin, valid_bits, &allocated);
         if (result < 0) {
             affs_error(sb, "affs_alloc_block",
@@ -270,7 +270,7 @@ u32 affs_alloc_block(struct inode *inode, u32 goal)
     }
 
     if (start_bit > 0U && sbi->s_bitmap[start_bitmap].bm_free != 0U) {
-        result = ifs_amiga_allocate_bitmap_range(
+        result = ifs_ffs_allocate_bitmap_range(
             inode, start_bitmap, 0U, start_bit, &allocated);
         if (result < 0) {
             affs_error(sb, "affs_alloc_block",
@@ -285,16 +285,16 @@ out:
     return allocated;
 }
 
-static void ifs_amiga_bitmap_discard(struct affs_sb_info *sbi)
+static void ifs_ffs_bitmap_discard(struct affs_sb_info *sbi)
 {
-    ifs_amiga_bitmap_drop_cache(sbi);
+    ifs_ffs_bitmap_drop_cache(sbi);
     kfree(sbi->s_bitmap);
     sbi->s_bitmap = NULL;
     sbi->s_bmap_count = 0U;
     sbi->s_bmap_bits = 0U;
 }
 
-static int ifs_amiga_bitmap_normalize_tail(
+static int ifs_ffs_bitmap_normalize_tail(
     struct super_block *sb,
     struct buffer_head *bh,
     struct affs_bm_info *last_bitmap,
@@ -363,7 +363,7 @@ int affs_init_bitmap(struct super_block *sb, int *flags)
         return 0;
     }
 
-    ifs_amiga_bitmap_drop_cache(sbi);
+    ifs_ffs_bitmap_drop_cache(sbi);
 
     if (ifs_ffs_bitmap_geometry(
             (u32)sb->s_blocksize, (u32)sbi->s_reserved,
@@ -439,17 +439,17 @@ int affs_init_bitmap(struct super_block *sb, int *flags)
         goto fail;
     }
 
-    result = ifs_amiga_bitmap_normalize_tail(
+    result = ifs_ffs_bitmap_normalize_tail(
         sb, bitmap_bh, &bitmap[sbi->s_bmap_count - 1U],
         last_valid_bits);
     goto out;
 
 readonly:
-    ifs_amiga_bitmap_discard(sbi);
+    ifs_ffs_bitmap_discard(sbi);
     goto out;
 
 fail:
-    ifs_amiga_bitmap_discard(sbi);
+    ifs_ffs_bitmap_discard(sbi);
 
 out:
     affs_brelse(bitmap_bh);
@@ -461,5 +461,5 @@ void affs_free_bitmap(struct super_block *sb)
 {
     struct affs_sb_info *sbi = AFFS_SB(sb);
 
-    ifs_amiga_bitmap_discard(sbi);
+    ifs_ffs_bitmap_discard(sbi);
 }
