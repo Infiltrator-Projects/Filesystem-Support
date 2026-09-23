@@ -64,6 +64,17 @@ This is deliberately larger than EXT2 because journaling is a real EXT3 subsyste
 
 `linux/` is the active adapter/migration location, not the eventual home of portable EXT3 semantics. As subsystems are independently rewritten, format logic moves into `core/`; a future Windows adapter belongs under `windows/`.
 
+### Shared core progress
+
+The first extracted canonical subsystem is feature-compatibility policy.
+`core/ext3_core.c` owns the supported incompatible and read-only-compatible
+feature masks. The Linux mount/remount paths call that shared core; they no
+longer maintain an independent copy of those format rules.
+
+This is intentionally a small first slice. Journal, inode, allocation,
+directory and mutation semantics remain migration work until they can be moved
+without weakening the working driver.
+
 ## Filesystem identity
 
 EXT3 registers only:
