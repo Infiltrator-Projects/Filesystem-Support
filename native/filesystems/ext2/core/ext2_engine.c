@@ -277,6 +277,9 @@ IfsExt2Status ifs_ext2_write_assess(
         risks |= IFS_EXT2_WRITE_RISK_NO_WRITER;
     if (ifs_ext2_readonly_assess(volume, &readonly_risks) != IFS_EXT2_OK)
         risks |= IFS_EXT2_WRITE_RISK_READONLY_POLICY;
+    if ((volume->feature_ro_compat &
+         ~IFS_EXT2_FEATURE_RO_COMPAT_SUPPORTED) != 0U)
+        risks |= IFS_EXT2_WRITE_RISK_UNSUPPORTED_LAYOUT;
 
     *risk_flags = risks;
     return risks == 0U ? IFS_EXT2_OK : IFS_EXT2_ERROR_UNSUPPORTED;
@@ -656,7 +659,8 @@ IfsExt2Status ifs_ext2_iterate_directory(
             IfsExt2NodeType type = IFS_EXT2_NODE_UNKNOWN;
 
             if (rec_len < 8U || (rec_len & 3U) != 0U ||
-                rec_len > volume->block_size - within)
+                rec_len > volume->block_size - within ||
+                (ifs_ext2_u64)rec_len > directory->size - position)
                 return IFS_EXT2_ERROR_CORRUPT;
 
             if ((volume->feature_incompat &
