@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
 #ifndef INFILTRATOR_PFS3_CORE_H
 #define INFILTRATOR_PFS3_CORE_H
 
