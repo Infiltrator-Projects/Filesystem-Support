@@ -407,16 +407,16 @@ int ifs_sfs_adjust_counter(
 
     if (delta < 0) {
         amount = (ifs_sfs_u64)(-(ifs_sfs_i64)delta);
-        if (amount > current)
+        if (amount > current_value)
             return -1;
-        *result = current - (ifs_sfs_u32)amount;
+        *result = current_value - (ifs_sfs_u32)amount;
         return 0;
     }
 
     amount = (ifs_sfs_u64)delta;
-    if (amount > 0xffffffffULL - current)
+    if (amount > 0xffffffffULL - current_value)
         return -1;
-    *result = current + (ifs_sfs_u32)amount;
+    *result = current_value + (ifs_sfs_u32)amount;
     return 0;
 }
 

@@ -338,7 +338,7 @@ static int ifs_amiga_parse_options(
             break;
 
         default:
-            pr_warn("Unrecognized mount option "%s"\n", item);
+            pr_warn("Unrecognized mount option \"%s\"\n", item);
             return -EINVAL;
         }
     }
@@ -585,7 +585,7 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
             stored_length > 31U ? 31 : (int)stored_length;
 
         pr_notice(
-            "Mounting volume "%.*s": Type=%.3s\\%c, Blocksize=%lu\n",
+            "Mounting volume \"%.*s\": Type=%.3s\\%c, Blocksize=%lu\n",
             display_length,
             AFFS_ROOT_TAIL(sb, sbi->s_root_bh)->disk_name + 1,
             signature, signature[3] + '0', sb->s_blocksize);
