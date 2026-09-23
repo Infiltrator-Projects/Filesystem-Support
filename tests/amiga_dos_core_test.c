@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "amiga_dos_core.h"
 #include <stdio.h>
+#include <string.h>
 
 static int fail(const char *message)
 {
@@ -44,6 +45,42 @@ int main(void)
     if (ifs_amiga_checksum_word_value(block, sizeof(block), 5U) != checksum)
         return fail("checksum word calculation is wrong");
 
+
+    {
+        static const ifs_amiga_u8 volume_link[] = "Work:Tools//C";
+        static const ifs_amiga_u8 relative_link[] = "dir//file";
+        static const ifs_amiga_u8 prefix[] = "/";
+        static const ifs_amiga_u8 unterminated[] = { 'a', 'b' };
+        ifs_amiga_u8 translated[64] = { 0 };
+        ifs_amiga_u32 translated_length = 0U;
+
+        if (ifs_amiga_translate_symlink(
+                volume_link, sizeof(volume_link), prefix, 1U,
+                translated, sizeof(translated), &translated_length) !=
+                IFS_AMIGA_SYMLINK_OK ||
+            translated_length != 16U ||
+            strcmp((const char *)translated, "/Work/Tools/../C") != 0)
+            return fail("volume symlink translation is wrong");
+
+        if (ifs_amiga_translate_symlink(
+                relative_link, sizeof(relative_link), prefix, 1U,
+                translated, sizeof(translated), &translated_length) !=
+                IFS_AMIGA_SYMLINK_OK ||
+            strcmp((const char *)translated, "dir/../file") != 0)
+            return fail("relative parent symlink translation is wrong");
+
+        if (ifs_amiga_translate_symlink(
+                unterminated, sizeof(unterminated), prefix, 1U,
+                translated, sizeof(translated), &translated_length) !=
+                IFS_AMIGA_SYMLINK_SOURCE_UNTERMINATED)
+            return fail("unterminated symlink source accepted");
+
+        if (ifs_amiga_translate_symlink(
+                volume_link, sizeof(volume_link), prefix, 1U,
+                translated, 8U, &translated_length) !=
+                IFS_AMIGA_SYMLINK_OUTPUT_TOO_SMALL)
+            return fail("undersized symlink output accepted");
+    }
 
     {
         ifs_amiga_u32 bits = 0U;
