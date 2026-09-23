@@ -71,13 +71,13 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 		asfs_debug("ASFS get_block: Trying to add %d blocks to file\n", blockstoadd);
 		
 		if ((error = asfs_readobject(sb, inode->i_ino, &bh, &obj)) != 0) {
-			unmutex_lock(&ASFS_SB(sb)->lock);
+			mutex_unlock(&ASFS_SB(sb)->lock);
 			return error;
 		}
 
 		if ((error = asfs_addblockstofile(sb, bh, obj, blockstoadd, &newspace, &addedblocks)) != 0) {
 			asfs_brelse(bh);
-			unmutex_lock(&ASFS_SB(sb)->lock);
+			mutex_unlock(&ASFS_SB(sb)->lock);
 			return error;
 		}
 		ASFS_I(inode)->mmu_private += addedblocks * sb->s_blocksize;
@@ -95,7 +95,7 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 		pos = ASFS_I(inode)->ext_cache.startblock;
 	} else {
 		if (asfs_getextent(inode->i_sb, ASFS_I(inode)->firstblock, &ebn_bh, &ebn_p) != 0) {
-			unmutex_lock(&ASFS_SB(sb)->lock);
+			mutex_unlock(&ASFS_SB(sb)->lock);
 			return -EIO;
 		}
 		extent.key = be32_to_cpu(ebn_p->key);
@@ -110,7 +110,7 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 	while (pos + ebn_p->blocks <= block && ebn_p->next != 0 && pos < inode->i_blocks) {
 		pos += ebn_p->blocks;
 		if (asfs_getextent(inode->i_sb, filedata, &ebn_bh, &ebn_p) != 0) {
-			unmutex_lock(&ASFS_SB(sb)->lock);
+			mutex_unlock(&ASFS_SB(sb)->lock);
 			return -EIO;
 		}
 		extent.key = be32_to_cpu(ebn_p->key);
@@ -121,7 +121,7 @@ asfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh_resul
 		asfs_brelse(ebn_bh);
 	}
 
-	unmutex_lock(&ASFS_SB(sb)->lock);
+	mutex_unlock(&ASFS_SB(sb)->lock);
 
 	map_bh(bh_result, inode->i_sb, (sector_t) (ebn_p->key + block - pos));
 
@@ -192,13 +192,13 @@ int asfs_truncate(struct inode *inode)
 	mutex_lock(&ASFS_SB(sb)->lock);
 
 	if ((asfs_readobject(sb, inode->i_ino, &bh, &obj)) != 0) {
-		unmutex_lock(&ASFS_SB(sb)->lock);
+		mutex_unlock(&ASFS_SB(sb)->lock);
 		return;
 	}
 
 	if (asfs_truncateblocksinfile(sb, bh, obj, inode->i_size) != 0) {
 		asfs_brelse(bh);
-		unmutex_lock(&ASFS_SB(sb)->lock);
+		mutex_unlock(&ASFS_SB(sb)->lock);
 		return;
 	}
 		
@@ -209,7 +209,7 @@ int asfs_truncate(struct inode *inode)
 	asfs_bstore(sb, bh);
 	asfs_brelse(bh);
 
-	unmutex_lock(&ASFS_SB(sb)->lock);
+	mutex_unlock(&ASFS_SB(sb)->lock);
 }
 
 int asfs_file_open(struct inode *inode, struct file *filp)
@@ -233,7 +233,7 @@ int asfs_file_release(struct inode *inode, struct file *filp)
 			mutex_lock(&ASFS_SB(inode->i_sb)->lock);
 
 			if ((error = asfs_readobject(inode->i_sb, inode->i_ino, &bh, &obj)) != 0) {
-				unmutex_lock(&ASFS_SB(inode->i_sb)->lock);
+				mutex_unlock(&ASFS_SB(inode->i_sb)->lock);
 				return error;
 			}
 
@@ -246,7 +246,7 @@ int asfs_file_release(struct inode *inode, struct file *filp)
 			}
 			asfs_bstore(inode->i_sb, bh);
 
-			unmutex_lock(&ASFS_SB(inode->i_sb)->lock);
+			mutex_unlock(&ASFS_SB(inode->i_sb)->lock);
 
 			asfs_brelse(bh);
 		}
