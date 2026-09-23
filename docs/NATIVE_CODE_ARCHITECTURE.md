@@ -111,6 +111,14 @@ The Windows adapter owns Windows-specific concerns such as:
 - NTSTATUS translation;
 - WDK packaging, INF/catalogue production and signing.
 
+The Windows adapter follows the native IFS model preserved from
+ExtFS-for-Windows. It is not a loopback SMB/WebDAV/network-share abstraction.
+The target is one reusable Windows IFS framework plus thin independently
+deployable per-filesystem `.sys` modules that compile the corresponding
+canonical filesystem core. See
+[`WINDOWS_FILESYSTEM_ARCHITECTURE.md`](WINDOWS_FILESYSTEM_ARCHITECTURE.md)
+for the installation, mounting and module-lifecycle contract.
+
 Format knowledge must not be hidden inside either adapter merely because the
 first implementation happened to be written there.
 

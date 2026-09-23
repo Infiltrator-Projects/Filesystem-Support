@@ -161,3 +161,121 @@ The preservation baseline for this architectural migration is:
 - ExtFS-for-Windows release baseline: `v0.9.9`
 
 Any later change to ExtFS-for-Windows before migration closure must be re-audited and incorporated before deletion is considered safe.
+
+
+## Windows mounting decision: native IFS, not a loopback network share
+
+The preserved ExtFS-for-Windows v0.9.9 implementation establishes the Windows
+bootstrap mechanism for Filesystem Support. ExtFS was a native Windows
+installable filesystem (IFS) driver. It registered with the Windows filesystem
+stack, handled mount-volume and filesystem IRPs, owned VCB/FCB/CCB state, and
+presented mounted volumes through the normal Windows storage/filesystem path.
+
+This distinction is deliberate. Filesystem Support must not introduce an SMB,
+WebDAV, localhost network share or other redirector merely to make a filesystem
+visible in Explorer when the native IFS mechanism already provides the correct
+host contract.
+
+The reusable Windows path is therefore:
+
+```text
+physical disk / partition / virtual block device
+                  |
+                  v
+       Windows storage / volume stack
+                  |
+                  v
+      reusable Filesystem Support IFS framework
+      - DriverEntry / filesystem registration
+      - mount and dismount lifecycle
+      - IRP translation
+      - VCB / FCB / CCB ownership
+      - Cache Manager / Memory Manager integration
+      - locking and share-access rules
+      - volume verification and removable-media handling
+      - NTSTATUS translation
+                  |
+                  v
+       thin filesystem-specific Windows bridge
+                  |
+                  v
+       canonical filesystem core
+```
+
+For ordinary partitions, drive-letter assignment and Explorer visibility should
+flow through Windows' normal volume/mount infrastructure. Image-file mounting,
+if supported, requires a block-device/image provider beneath the filesystem
+driver; it must not cause the filesystem itself to become a network protocol.
+
+## Per-filesystem SYS module model
+
+For the actively rewritten filesystems, the intended Windows deliverables are
+independently installable filesystem-driver packages:
+
+- `ext2.sys`
+- `ext3.sys`
+- `ext4.sys`
+- `ofs.sys`
+- `ffs.sys`
+- `sfs.sys`
+- `sfs2.sys`
+- `pfs3.sys`
+
+The filenames above describe the product/module identity; the final staged
+binary names may carry the `filesystem_support_` prefix where required by the
+build/package system.
+
+Each driver is thin with respect to filesystem semantics. It links the
+filesystem's canonical `core/` and the reusable Windows IFS framework. It
+must not contain a separately maintained parser, allocator, directory engine,
+journal implementation, checksum implementation or format-specific mutation
+engine.
+
+The ExtFS Windows driver is the engineering bootstrap for this framework. Its
+valuable Windows-specific mechanisms should be extracted/generalised into
+`native/platform/windows/` and shared by later filesystem drivers. Copying the
+entire historical ExtFS driver into eight separate trees and then maintaining
+eight divergent Windows implementations is explicitly prohibited.
+
+## Installation and removal contract
+
+The Windows Filesystem Support application is responsible for lifecycle
+management of qualified filesystem modules.
+
+For each qualified filesystem, **Install** means at minimum:
+
+1. validate the staged `.sys`, `.inf` and `.cat` package;
+2. verify architecture and production-signing requirements;
+3. install the driver package through the supported Windows SetupAPI/primitive
+   filesystem-driver path;
+4. register/start the filesystem service when Windows permits immediate start;
+5. report a required reboot rather than pretending installation is complete;
+6. re-probe the driver and expose the resulting state in the manager.
+
+**Remove** means at minimum:
+
+1. refuse destructive removal while the filesystem driver still owns mounted
+   volumes or cannot be stopped safely;
+2. dismount/unload through supported Windows lifecycle rules;
+3. remove the driver/service/package cleanly;
+4. report any reboot requirement explicitly;
+5. re-probe the system and update the manager state.
+
+A filesystem is not "done on Windows" merely because its `.sys` compiles. It
+is complete for the product only when the Windows manager can install, remove,
+probe and diagnose the qualified driver and the driver can mount supported
+media through the normal Windows filesystem stack.
+
+## Reuse boundary from ExtFS
+
+The preserved ExtFS implementation is authoritative historical evidence for
+Windows IFS mechanics, including driver registration, mount-volume handling,
+VCB/FCB/CCB lifetime, share-access enforcement, locking, volume I/O bridging,
+WDK build/package validation, INF/catalogue generation, production signing and
+installer safety.
+
+Those Windows mechanisms may be reused and generalised aggressively.
+
+Ext-specific format semantics from the archived ExtFS core remain migration
+evidence only. They must not be resurrected as a second EXT implementation
+beside the canonical EXT2/EXT3/EXT4 cores.
