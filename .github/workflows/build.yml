@@ -99,6 +99,16 @@ jobs:
             ! grep -Eiq 'linux/fs/affs|Hans-Joachim Widmaier|Ray Burr|Eric Youngdale|Linus Torvalds' "$file"
           done
 
+      - name: Reject external Amiga provenance in active sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          active=(native/filesystems/ofs native/filesystems/ffs native/filesystems/sfs)
+          ! grep -R -Eiq             'Copyright \(C\).*(Marek|John Hendrikx|Ray Burr|Hans-Joachim|Linus|Janos|Volker|Paal|Gertjan)|linux/fs/affs|twojstaryzdomu/asfs|pfs3aio|Aaru.Filesystems|AmiPart'             "${active[@]}"
+          test ! -e native/filesystems/sfs/reference
+          test ! -e native/filesystems/sfs2/reference
+          test ! -e native/filesystems/pfs3/reference
+
       - name: Enforce single EXT2 engine on Windows
         shell: bash
         run: |
