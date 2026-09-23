@@ -14,18 +14,21 @@ int ifs_ofs_classify_dostype(
         *variant_flags = IFS_OFS_VARIANT_INTL;
         return 0;
     case IFS_OFS_DOS_DC_OFS:
-        *variant_flags = IFS_OFS_VARIANT_INTL | IFS_OFS_VARIANT_DIRCACHE;
+        *variant_flags =
+            IFS_OFS_VARIANT_INTL | IFS_OFS_VARIANT_DIRCACHE;
         return 0;
     case IFS_OFS_MUFS_OFS:
         *variant_flags = IFS_OFS_VARIANT_MUFS;
         return 0;
     case IFS_OFS_MUFS_INTL_OFS:
-        *variant_flags = IFS_OFS_VARIANT_MUFS | IFS_OFS_VARIANT_INTL;
+        *variant_flags =
+            IFS_OFS_VARIANT_MUFS | IFS_OFS_VARIANT_INTL;
         return 0;
     case IFS_OFS_MUFS_DC_OFS:
-        *variant_flags = IFS_OFS_VARIANT_MUFS |
-                         IFS_OFS_VARIANT_INTL |
-                         IFS_OFS_VARIANT_DIRCACHE;
+        *variant_flags =
+            IFS_OFS_VARIANT_MUFS |
+            IFS_OFS_VARIANT_INTL |
+            IFS_OFS_VARIANT_DIRCACHE;
         return 0;
     default:
         *variant_flags = 0U;
