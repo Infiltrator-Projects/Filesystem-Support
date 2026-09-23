@@ -58,18 +58,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install kernel headers
+      - name: Prepare Linux 6.12.107 build API
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y linux-headers-generic
+          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
+          git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
+          make -C /tmp/linux-6.12.107 defconfig
+          make -C /tmp/linux-6.12.107 modules_prepare
 
       - name: Build EXT2 kernel module
         shell: bash
         run: |
           set -euo pipefail
-          KDIR="$(find /usr/src -maxdepth 1 -type d -name 'linux-headers-*-generic' | sort -V | tail -n 1)"
-          test -n "$KDIR"
-          make -C "$KDIR" M="$PWD/native/filesystems/ext2/kernel" modules
+          make -C /tmp/linux-6.12.107 M="$PWD/native/filesystems/ext2/kernel" modules
 
   windows-manager:
     runs-on: windows-latest
