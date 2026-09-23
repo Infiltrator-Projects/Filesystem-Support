@@ -19,7 +19,7 @@ typedef int (*toupper_t)(int);
 static int
 affs_toupper(int ch)
 {
-	return ch >= 'a' && ch <= 'z' ? ch -= ('a' - 'A') : ch;
+	return ifs_amiga_fold_character((ifs_amiga_u8)ch, 0);
 }
 
 /* International toupper() for DOS\3 ("international") */
@@ -27,9 +27,7 @@ affs_toupper(int ch)
 static int
 affs_intl_toupper(int ch)
 {
-	return (ch >= 'a' && ch <= 'z') || (ch >= 0xE0
-		&& ch <= 0xFE && ch != 0xF7) ?
-		ch - ('a' - 'A') : ch;
+	return ifs_amiga_fold_character((ifs_amiga_u8)ch, 1);
 }
 
 static inline toupper_t
@@ -156,14 +154,9 @@ affs_match(struct dentry *dentry, const u8 *name2, toupper_t fn)
 int
 affs_hash_name(struct super_block *sb, const u8 *name, unsigned int len)
 {
-	toupper_t fn = affs_get_toupper(sb);
-	u32 hash;
-
-	hash = len = min(len, AFFSNAMEMAX);
-	for (; len > 0; len--)
-		hash = (hash * 13 + fn(*name++)) & 0x7ff;
-
-	return hash % AFFS_SB(sb)->s_hashsize;
+	return ifs_amiga_directory_hash(
+		name, len, AFFS_SB(sb)->s_hashsize,
+		affs_test_opt(AFFS_SB(sb)->s_flags, SF_INTL));
 }
 
 static struct buffer_head *

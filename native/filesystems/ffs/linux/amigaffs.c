@@ -338,14 +338,8 @@ done_unlock:
 u32
 affs_checksum_block(struct super_block *sb, struct buffer_head *bh)
 {
-	__be32 *ptr = (__be32 *)bh->b_data;
-	u32 sum;
-	int bsize;
-
-	sum = 0;
-	for (bsize = sb->s_blocksize / sizeof(__be32); bsize > 0; bsize--)
-		sum += be32_to_cpu(*ptr++);
-	return sum;
+	return ifs_amiga_block_checksum(
+		(const ifs_amiga_u8 *)bh->b_data, sb->s_blocksize);
 }
 
 /*
@@ -356,16 +350,11 @@ affs_checksum_block(struct super_block *sb, struct buffer_head *bh)
 void
 affs_fix_checksum(struct super_block *sb, struct buffer_head *bh)
 {
-	int cnt = sb->s_blocksize / sizeof(__be32);
-	__be32 *ptr = (__be32 *)bh->b_data;
-	u32 checksum;
-	__be32 *checksumptr;
+	__be32 *const checksumptr = (__be32 *)bh->b_data + 5;
+	const u32 checksum = ifs_amiga_checksum_word_value(
+		(const ifs_amiga_u8 *)bh->b_data, sb->s_blocksize, 5U);
 
-	checksumptr = ptr + 5;
-	*checksumptr = 0;
-	for (checksum = 0; cnt > 0; ptr++, cnt--)
-		checksum += be32_to_cpu(*ptr);
-	*checksumptr = cpu_to_be32(-checksum);
+	*checksumptr = cpu_to_be32(checksum);
 }
 
 void
@@ -509,20 +498,18 @@ affs_nofilenametruncate(const struct dentry *dentry)
 int
 affs_check_name(const unsigned char *name, int len, bool notruncate)
 {
-	int	 i;
+	const IfsAmigaNameStatus status = ifs_amiga_validate_name(
+		name, len < 0 ? 0U : (ifs_amiga_u32)len, notruncate);
 
-	if (len > AFFSNAMEMAX) {
-		if (notruncate)
-			return -ENAMETOOLONG;
-		len = AFFSNAMEMAX;
+	switch (status) {
+	case IFS_AMIGA_NAME_OK:
+		return 0;
+	case IFS_AMIGA_NAME_TOO_LONG:
+		return -ENAMETOOLONG;
+	case IFS_AMIGA_NAME_INVALID_CHARACTER:
+	default:
+		return -EINVAL;
 	}
-	for (i = 0; i < len; i++) {
-		if (name[i] < ' ' || name[i] == ':'
-		    || (name[i] > 0x7e && name[i] < 0xa0))
-			return -EINVAL;
-	}
-
-	return 0;
 }
 
 /* This function copies name to bstr, with at most 30

@@ -7,6 +7,7 @@
 
 #include <linux/types.h>
 #include <linux/fs.h>
+#include "../../amiga_common/core/amiga_dos_core.h"
 #include <linux/buffer_head.h>
 #include "amigaffs.h"
 #include <linux/mutex.h>
