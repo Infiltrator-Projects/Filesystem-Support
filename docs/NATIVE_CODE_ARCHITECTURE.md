@@ -128,6 +128,44 @@ Not every filesystem needs format-specific files under both adapter
 directories. Prefer reusable platform infrastructure; create filesystem-specific
 adapter glue only where the OS contract genuinely needs it.
 
+## Migration layout is not the target layout
+
+The current rewrite may temporarily retain Linux-derived file names and
+directories such as `kernel/file.c`, `kernel/inode.c`, `kernel/super.c`
+and `kernel/dir.c`.  Those paths are migration scaffolding, not architectural
+requirements.
+
+Keeping an inherited translation-unit boundary can be useful while replacing a
+subsystem because it limits the amount of behaviour changed at one time and
+makes qualification easier.  Once a subsystem has been independently rewritten,
+its permanent location and file boundary must be chosen according to the
+Filesystem Support architecture rather than according to the source layout that
+was used as the reference implementation.
+
+The target distinction is responsibility-based:
+
+- filesystem-format semantics belong in the per-filesystem `core/`;
+- Linux VFS, block-device, page-cache, module and kernel-lifetime glue belongs
+  in the per-filesystem `linux/` adapter or reusable Linux platform layer;
+- Windows IFS/WDK, IRP, cache-manager and driver-lifetime glue belongs in the
+  per-filesystem `windows/` adapter or reusable Windows platform layer.
+
+A source file may be split during migration when it mixes these responsibilities.
+For example, an inherited `file.c` may contain both filesystem I/O semantics
+and Linux VFS dispatch.  The final implementation should place shared
+filesystem behaviour in `core/` and retain only Linux-specific dispatch in
+`linux/`.
+
+Conversely, do not split code merely to imitate this example tree.  A rewritten
+subsystem may remain one cohesive source file when that produces the clearest
+ownership and invariants.
+
+The name, number and boundaries of source files are implementation decisions.
+The stable architectural contracts are the canonical filesystem engine, the
+OS-adapter boundary, and the independently deployable filesystem module.  For
+Linux, a filesystem may still build exactly one `.ko` regardless of how many
+source files implement its core and adapter.
+
 ## Common policy
 
 Infiltratr Common remains authoritative for genuinely generic mechanisms that
