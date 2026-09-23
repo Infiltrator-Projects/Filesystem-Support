@@ -45,5 +45,52 @@ int main(void)
         IFS_EXT4_BIGALLOC_OK)
         return fail("valid bigalloc feature combination was rejected");
 
+    if (ifs_ext4_validate_inode_geometry(4096U, 256U, 11U) !=
+        IFS_EXT4_INODE_GEOMETRY_OK)
+        return fail("valid inode geometry was rejected");
+
+    if (ifs_ext4_validate_inode_geometry(4096U, 256U, 10U) !=
+        IFS_EXT4_INODE_GEOMETRY_INVALID_FIRST_INODE)
+        return fail("invalid first inode was accepted");
+
+    if (ifs_ext4_validate_inode_geometry(4096U, 192U, 11U) !=
+        IFS_EXT4_INODE_GEOMETRY_INVALID_INODE_SIZE)
+        return fail("invalid inode size was accepted");
+
+    if (ifs_ext4_validate_group_geometry(
+            4096U, 256U, 64U, 1, 32768U, 8192U) !=
+        IFS_EXT4_GROUP_GEOMETRY_OK)
+        return fail("valid block-group geometry was rejected");
+
+    if (ifs_ext4_validate_group_geometry(
+            4096U, 256U, 48U, 1, 32768U, 8192U) !=
+        IFS_EXT4_GROUP_GEOMETRY_INVALID_DESCRIPTOR_SIZE)
+        return fail("invalid 64-bit descriptor size was accepted");
+
+    if (ifs_ext4_validate_group_geometry(
+            4096U, 256U, 64U, 1, 0U, 8192U) !=
+        IFS_EXT4_GROUP_GEOMETRY_ZERO_VALUE)
+        return fail("zero blocks per group was accepted");
+
+    if (ifs_ext4_validate_group_geometry(
+            4096U, 256U, 64U, 1, 32768U, 8U) !=
+        IFS_EXT4_GROUP_GEOMETRY_INVALID_INODES_PER_GROUP)
+        return fail("too few inodes per group was accepted");
+
+    if (ifs_ext4_validate_cluster_geometry(
+            4096U, 4096U, 0, 32768U, 32768U) !=
+        IFS_EXT4_CLUSTER_GEOMETRY_OK)
+        return fail("valid non-bigalloc cluster geometry was rejected");
+
+    if (ifs_ext4_validate_cluster_geometry(
+            4096U, 2048U, 1, 32768U, 65536U) !=
+        IFS_EXT4_CLUSTER_GEOMETRY_CLUSTER_SMALLER_THAN_BLOCK)
+        return fail("bigalloc cluster smaller than block was accepted");
+
+    if (ifs_ext4_validate_cluster_geometry(
+            4096U, 8192U, 1, 32768U, 8192U) !=
+        IFS_EXT4_CLUSTER_GEOMETRY_GROUP_RATIO_MISMATCH)
+        return fail("inconsistent cluster/group ratio was accepted");
+
     return 0;
 }
