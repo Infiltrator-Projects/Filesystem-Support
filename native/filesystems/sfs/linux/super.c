@@ -54,6 +54,7 @@
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/init.h>
+#include <linux/iversion.h>
 #include <linux/buffer_head.h>
 #include <linux/vfs.h>
 #include <linux/parser.h>
