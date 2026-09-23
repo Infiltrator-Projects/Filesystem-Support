@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0
 # EXT2 — Kernel build contract
 #
 # Defines the single composite filesystem module and the object-level feature composition used by Kbuild.
