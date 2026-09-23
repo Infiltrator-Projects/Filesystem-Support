@@ -30,7 +30,7 @@ static ifs_ext2_u32 load_le32(const ifs_ext2_u8 *p)
            ((ifs_ext2_u32)p[3] << 24);
 }
 
-static void copy_bytes(void *destination, const void *source, size_t count)
+static void copy_bytes(void *destination, const void *source, ifs_ext2_size_t count)
 {
     ifs_ext2_u8 *dst = (ifs_ext2_u8 *)destination;
     const ifs_ext2_u8 *src = (const ifs_ext2_u8 *)source;
@@ -39,14 +39,14 @@ static void copy_bytes(void *destination, const void *source, size_t count)
         *dst++ = *src++;
 }
 
-static void zero_bytes(void *destination, size_t count)
+static void zero_bytes(void *destination, ifs_ext2_size_t count)
 {
     ifs_ext2_u8 *dst = (ifs_ext2_u8 *)destination;
     while (count-- != 0U)
         *dst++ = 0U;
 }
 
-static int bytes_equal(const void *left, const void *right, size_t count)
+static int bytes_equal(const void *left, const void *right, ifs_ext2_size_t count)
 {
     const ifs_ext2_u8 *a = (const ifs_ext2_u8 *)left;
     const ifs_ext2_u8 *b = (const ifs_ext2_u8 *)right;
