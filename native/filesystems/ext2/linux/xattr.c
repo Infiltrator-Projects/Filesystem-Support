@@ -24,11 +24,11 @@
 
 #include <linux/capability.h>
 #include <linux/list.h>
+#include <linux/spinlock.h>
 #include <linux/list_bl.h>
 #include <linux/module.h>
 #include <linux/posix_acl_xattr.h>
 #include <linux/sched.h>
-#include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/workqueue.h>
 
@@ -2084,7 +2084,7 @@ int __init infiltratr_mbcache_init(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-void __exit infiltratr_mbcache_exit(void)
+void infiltratr_mbcache_exit(void)
 {
 	kmem_cache_destroy(mb_entry_cache);
 }

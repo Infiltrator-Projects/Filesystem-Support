@@ -991,6 +991,9 @@ extern void ext2_xattr_destroy_cache(struct mb_cache *cache);
 
 extern const struct xattr_handler * const ext2_xattr_handlers[];
 
+int infiltratr_mbcache_init(void);
+void infiltratr_mbcache_exit(void);
+
 # else
 
 
