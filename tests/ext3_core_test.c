@@ -105,5 +105,34 @@ int main(void)
             return fail("out-of-range directory inode was accepted");
     }
 
+
+    {
+        ifs_ext3_u32 offsets[4] = { 0U, 0U, 0U, 0U };
+        ifs_ext3_u32 boundary = 0U;
+        const ifs_ext3_u32 ptrs = 1024U;
+        const ifs_ext3_u32 bits = 10U;
+
+        if (ifs_ext3_indirect_block_path(0U, ptrs, bits, offsets, &boundary) != 1 ||
+            offsets[0] != 0U || boundary != 11U)
+            return fail("direct block path is wrong");
+        if (ifs_ext3_indirect_block_path(12U, ptrs, bits, offsets, &boundary) != 2 ||
+            offsets[0] != IFS_EXT3_IND_BLOCK || offsets[1] != 0U)
+            return fail("single-indirect block path is wrong");
+        if (ifs_ext3_indirect_block_path(12U + ptrs, ptrs, bits, offsets, &boundary) != 3 ||
+            offsets[0] != IFS_EXT3_DIND_BLOCK || offsets[1] != 0U || offsets[2] != 0U)
+            return fail("double-indirect block path is wrong");
+        if (ifs_ext3_indirect_block_path(
+                12ULL + ptrs + (ifs_ext3_u64)ptrs * ptrs,
+                ptrs, bits, offsets, &boundary) != 4 ||
+            offsets[0] != IFS_EXT3_TIND_BLOCK ||
+            offsets[1] != 0U || offsets[2] != 0U || offsets[3] != 0U)
+            return fail("triple-indirect block path is wrong");
+        if (ifs_ext3_indirect_block_path(
+                12ULL + ptrs + (ifs_ext3_u64)ptrs * ptrs +
+                    (ifs_ext3_u64)ptrs * ptrs * ptrs,
+                ptrs, bits, offsets, &boundary) != 0)
+            return fail("out-of-range indirect block was accepted");
+    }
+
     return 0;
 }

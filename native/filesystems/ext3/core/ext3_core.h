@@ -11,13 +11,16 @@
 #include <linux/types.h>
 typedef u16 ifs_ext3_u16;
 typedef u32 ifs_ext3_u32;
+typedef u64 ifs_ext3_u64;
 #elif defined(IFS_EXT3_WINDOWS_KERNEL)
 typedef unsigned short ifs_ext3_u16;
 typedef unsigned int ifs_ext3_u32;
+typedef unsigned long long ifs_ext3_u64;
 #else
 #include <stdint.h>
 typedef uint16_t ifs_ext3_u16;
 typedef uint32_t ifs_ext3_u32;
+typedef uint64_t ifs_ext3_u64;
 
 
 #endif
@@ -98,5 +101,17 @@ IfsExt3DirectoryRecordStatus ifs_ext3_validate_directory_record(
 
 const char *ifs_ext3_directory_record_status_string(
     IfsExt3DirectoryRecordStatus status);
+
+#define IFS_EXT3_NDIR_BLOCKS 12U
+#define IFS_EXT3_IND_BLOCK   12U
+#define IFS_EXT3_DIND_BLOCK  13U
+#define IFS_EXT3_TIND_BLOCK  14U
+
+int ifs_ext3_indirect_block_path(
+    ifs_ext3_u64 logical_block,
+    ifs_ext3_u32 pointers_per_block,
+    ifs_ext3_u32 pointer_bits,
+    ifs_ext3_u32 offsets[4],
+    ifs_ext3_u32 *boundary);
 
 #endif

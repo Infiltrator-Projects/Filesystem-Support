@@ -335,40 +335,31 @@ static int verify_chain(Indirect *from, Indirect *to)
 static int ext3_block_to_path(struct inode *inode,
 			long i_block, int offsets[4], int *boundary)
 {
-	int ptrs = EXT3_ADDR_PER_BLOCK(inode->i_sb);
-	int ptrs_bits = EXT3_ADDR_PER_BLOCK_BITS(inode->i_sb);
-	const long direct_blocks = EXT3_NDIR_BLOCKS,
-		indirect_blocks = ptrs,
-		double_blocks = (1 << (ptrs_bits * 2));
-	int n = 0;
-	int final = 0;
+	ifs_ext3_u32 core_offsets[4] = { 0U, 0U, 0U, 0U };
+	ifs_ext3_u32 core_boundary = 0U;
+	const ifs_ext3_u32 ptrs = EXT3_ADDR_PER_BLOCK(inode->i_sb);
+	const ifs_ext3_u32 ptrs_bits = EXT3_ADDR_PER_BLOCK_BITS(inode->i_sb);
+	int depth;
+	int index;
 
 	if (i_block < 0) {
-		ext3_warning (inode->i_sb, "ext3_block_to_path", "block < 0");
-	} else if (i_block < direct_blocks) {
-		offsets[n++] = i_block;
-		final = direct_blocks;
-	} else if ( (i_block -= direct_blocks) < indirect_blocks) {
-		offsets[n++] = EXT3_IND_BLOCK;
-		offsets[n++] = i_block;
-		final = ptrs;
-	} else if ((i_block -= indirect_blocks) < double_blocks) {
-		offsets[n++] = EXT3_DIND_BLOCK;
-		offsets[n++] = i_block >> ptrs_bits;
-		offsets[n++] = i_block & (ptrs - 1);
-		final = ptrs;
-	} else if (((i_block -= double_blocks) >> (ptrs_bits * 2)) < ptrs) {
-		offsets[n++] = EXT3_TIND_BLOCK;
-		offsets[n++] = i_block >> (ptrs_bits * 2);
-		offsets[n++] = (i_block >> ptrs_bits) & (ptrs - 1);
-		offsets[n++] = i_block & (ptrs - 1);
-		final = ptrs;
-	} else {
-		ext3_warning(inode->i_sb, "ext3_block_to_path", "block > big");
+		ext3_warning(inode->i_sb, "ext3_block_to_path", "block < 0");
+		return 0;
 	}
+
+	depth = ifs_ext3_indirect_block_path(
+		(ifs_ext3_u64)i_block, ptrs, ptrs_bits,
+		core_offsets, boundary ? &core_boundary : NULL);
+	if (depth == 0) {
+		ext3_warning(inode->i_sb, "ext3_block_to_path", "block > big");
+		return 0;
+	}
+
+	for (index = 0; index < depth; index++)
+		offsets[index] = (int)core_offsets[index];
 	if (boundary)
-		*boundary = final - 1 - (i_block & (ptrs - 1));
-	return n;
+		*boundary = (int)core_boundary;
+	return depth;
 }
 
 
