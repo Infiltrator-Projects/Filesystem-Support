@@ -167,6 +167,14 @@ IfsExt2Status ifs_ext2_group_bounds(
     ifs_ext2_u64 *first_block,
     ifs_ext2_u64 *last_block);
 
+IfsExt2Status ifs_ext2_block_group_position(
+    ifs_ext2_u32 first_data_block,
+    ifs_ext2_u32 blocks_per_group,
+    ifs_ext2_u32 blocks_count,
+    ifs_ext2_u32 block,
+    ifs_ext2_u32 *group,
+    ifs_ext2_u32 *offset);
+
 IfsExt2Status ifs_ext2_validate_group_descriptor(
     const IfsExt2Superblock *superblock,
     ifs_ext2_u32 group,
