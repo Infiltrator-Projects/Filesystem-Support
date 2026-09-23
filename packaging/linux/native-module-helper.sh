@@ -66,6 +66,74 @@ preferred_module_filename() {
     modinfo -F filename "$module" 2>/dev/null | head -n1 || true
 }
 
+secure_boot_enabled() {
+    if command -v mokutil >/dev/null 2>&1; then
+        mokutil --sb-state 2>/dev/null | grep -qi 'SecureBoot enabled'
+        return
+    fi
+
+    local variable
+    variable=$(find /sys/firmware/efi/efivars -maxdepth 1         -name 'SecureBoot-*' -type f -print -quit 2>/dev/null || true)
+    [[ -n "$variable" ]] || return 1
+
+    [[ "$(od -An -t u1 -j 4 -N 1 "$variable" 2>/dev/null | tr -d '[:space:]')" == "1" ]]
+}
+
+sign_for_secure_boot() {
+    local image=$1
+
+    secure_boot_enabled || return 0
+
+    local key=/var/lib/shim-signed/mok/MOK.priv
+    local cert=/var/lib/shim-signed/mok/MOK.der
+
+    if [[ ! -r "$key" || ! -r "$cert" ]]; then
+        cat >&2 <<'EOF'
+Secure Boot is enabled, but no Ubuntu/Mint Machine Owner Key is available.
+
+Create and enroll the system MOK once with:
+  sudo update-secureboot-policy --new-key
+  sudo update-secureboot-policy --enroll-key
+
+Then reboot, complete MOK enrollment in the firmware/shim screen, and run
+Install native again. Filesystem Support will not disable Secure Boot or
+install an unsigned kernel module.
+EOF
+        exit 1
+    fi
+
+    if command -v mokutil >/dev/null 2>&1 &&
+       mokutil --help 2>&1 | grep -q -- '--test-key'; then
+        if ! mokutil --test-key "$cert" >/dev/null 2>&1; then
+            cat >&2 <<'EOF'
+Secure Boot is enabled and a MOK exists, but that certificate is not enrolled.
+
+Run:
+  sudo update-secureboot-policy --enroll-key
+
+Then reboot, complete MOK enrollment, and run Install native again.
+EOF
+            exit 1
+        fi
+    fi
+
+    if command -v kmodsign >/dev/null 2>&1; then
+        kmodsign sha512 "$key" "$cert" "$image"
+    elif [[ -x "$kernel_build/scripts/sign-file" ]]; then
+        "$kernel_build/scripts/sign-file" sha256 "$key" "$cert" "$image"
+    else
+        echo "Secure Boot is enabled but no kernel-module signing tool is available." >&2
+        exit 1
+    fi
+
+    local signer
+    signer=$(modinfo -F signer "$image" 2>/dev/null || true)
+    [[ -n "$signer" ]] || {
+        echo "kernel module signing completed without a readable signer; refusing installation" >&2
+        exit 1
+    }
+}
+
 install_native() {
     [[ -f "$source_linux/Makefile" ]] || {
         echo "packaged native source is missing for $filesystem" >&2
@@ -89,6 +157,8 @@ install_native() {
         echo "kernel build did not produce $module.ko" >&2
         exit 1
     }
+
+    sign_for_secure_boot "$built"
 
     local previous_preferred=""
     local previous_copy=""
