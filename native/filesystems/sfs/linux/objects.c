@@ -564,10 +564,14 @@ int asfs_createobject(struct super_block *sb,
 {
 	struct buffer_head *node_bh = NULL;
 	struct fsObjectNode *on = NULL;
+	struct fsObjectNode saved_node;
+	struct fsObject *destination = NULL;
 	u32 allocated_aux_block = 0U;
 	u32 nodeno = 0U;
 	size_t name_length;
+	size_t object_size;
 	int created_node = 0;
+	int saved_node_valid = 0;
 	int errorcode;
 	u32 hashblock;
 
@@ -589,14 +593,15 @@ int asfs_createobject(struct super_block *sb,
 	if (!force && be32_to_cpu((*io_o)->objectnode) == ASFS_RECYCLEDNODE)
 		return -EINVAL;
 
+	object_size = sizeof(struct fsObject) + name_length + 2U;
 	errorcode = findobjectspace(
-		sb, io_bh, io_o,
-		(u32)(sizeof(struct fsObject) + name_length + 2U));
+		sb, io_bh, io_o, (u32)object_size);
 	if (errorcode != 0)
 		return errorcode;
+	destination = *io_o;
 
 	{
-		struct fsObject *o2 = *io_o;
+		struct fsObject *o2 = destination;
 		u8 *name = o2->name;
 
 		**io_o = *src_o;
@@ -608,13 +613,15 @@ int asfs_createobject(struct super_block *sb,
 			errorcode = asfs_getnode(
 				sb, be32_to_cpu(o2->objectnode), &node_bh, &on);
 			if (errorcode != 0)
-				return errorcode;
+				goto fail_before_publish;
+			saved_node = *on;
+			saved_node_valid = 1;
 			nodeno = be32_to_cpu(o2->objectnode);
 		} else {
 			errorcode = asfs_createnode(
 				sb, &node_bh, (struct fsNode **)&on, &nodeno);
 			if (errorcode != 0)
-				return errorcode;
+				goto fail_before_publish;
 			created_node = 1;
 			on->hash16 = cpu_to_be16(asfs_hash(
 				o2->name,
@@ -683,7 +690,17 @@ int asfs_createobject(struct super_block *sb,
 	}
 
 fail_before_publish:
+	/*
+	 * None of the destination object bytes are durable until the caller
+	 * stores io_bh. Restore the cache image as well, otherwise a later,
+	 * unrelated dirtying of this buffer could persist a failed create.
+	 */
+	if (destination)
+		memset(destination, 0, object_size);
+
 	if (node_bh) {
+		if (saved_node_valid)
+			*on = saved_node;
 		asfs_brelse(node_bh);
 		node_bh = NULL;
 	}
