@@ -129,8 +129,19 @@ void refresh_row(RowState* row)
         fs::support_provider_label(row->descriptor->provider);
 
     if (!row->descriptor->modules.empty()) {
-        detail += "  •  Kernel: ";
-        detail += fs::kernel_state_label(row->probe.kernel_state);
+        if (row->descriptor->project_native_linux) {
+            detail += "  •  Infiltrator native: ";
+            if (!row->probe.project_native_installed) {
+                detail += "not installed";
+            } else if (!row->probe.project_native_selected) {
+                detail += "installed, but not selected by kernel";
+            } else {
+                detail += fs::kernel_state_label(row->probe.kernel_state);
+            }
+        } else {
+            detail += "  •  Kernel: ";
+            detail += fs::kernel_state_label(row->probe.kernel_state);
+        }
     }
 
     detail += ". ";
@@ -172,6 +183,16 @@ void refresh_row(RowState* row)
     }
 
     gtk_widget_show(row->module_button);
+
+    if (row->descriptor->project_native_linux) {
+        gtk_button_set_label(
+            GTK_BUTTON(row->module_button),
+            row->probe.project_native_installed
+                ? "Remove native"
+                : "Install native");
+        gtk_widget_set_sensitive(row->module_button, TRUE);
+        return;
+    }
 
     switch (row->probe.kernel_state) {
     case fs::KernelState::NotApplicable:
@@ -366,6 +387,47 @@ void module_clicked(GtkButton*, gpointer user_data)
 
     const std::string module = row->probe.module_name;
     gtk_widget_set_sensitive(row->module_button, FALSE);
+
+    if (row->descriptor->project_native_linux) {
+        const std::string filesystem_id(row->descriptor->id);
+
+        if (row->probe.project_native_installed) {
+            gtk_button_set_label(
+                GTK_BUTTON(row->module_button), "Removing native…");
+            fs::remove_native_module_async(
+                filesystem_id,
+                module,
+                [row](const bool success, const std::string& message) {
+                    refresh_all(row->app);
+                    if (!success) {
+                        show_message(
+                            GTK_WINDOW(row->app->window),
+                            GTK_MESSAGE_ERROR,
+                            "Native module removal failed",
+                            message +
+                                "\n\nUnmount any filesystem using this "
+                                "driver before removing it.");
+                    }
+                });
+        } else {
+            gtk_button_set_label(
+                GTK_BUTTON(row->module_button), "Installing native…");
+            fs::install_native_module_async(
+                filesystem_id,
+                module,
+                [row](const bool success, const std::string& message) {
+                    refresh_all(row->app);
+                    if (!success) {
+                        show_message(
+                            GTK_WINDOW(row->app->window),
+                            GTK_MESSAGE_ERROR,
+                            "Native module installation failed",
+                            message);
+                    }
+                });
+        }
+        return;
+    }
 
     if (row->probe.kernel_state == fs::KernelState::LoadableUnloaded) {
         gtk_button_set_label(GTK_BUTTON(row->module_button), "Loading…");
