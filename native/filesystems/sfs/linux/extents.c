@@ -372,11 +372,16 @@ static int sfs_split_child(
     parent_node = sfs_insert_sorted(
         parent, parent_capacity, right_key);
     if (IS_ERR(parent_node) || !parent_node) {
+        memcpy(
+            (u8 *)child->bnode +
+                left_count * child->nodesize,
+            right->bnode,
+            right_count * child->nodesize);
+        child->nodecount =
+            cpu_to_be16(child_count);
         asfs_brelse(right_bh);
         (void)asfs_freeadminspace(
             sb, right_block);
-        child->nodecount =
-            cpu_to_be16(child_count);
         return IS_ERR(parent_node)
             ? PTR_ERR(parent_node) : -EUCLEAN;
     }
