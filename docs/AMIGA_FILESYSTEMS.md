@@ -1,7 +1,7 @@
 # Amiga filesystem architecture
 
-Filesystem Support treats these as **five independent canonical filesystem
-implementations**:
+Filesystem Support maintains five independent canonical filesystem
+implementations:
 
 - OFS
 - FFS
@@ -11,7 +11,7 @@ implementations**:
 
 Historical relationships do not make their on-disk semantics interchangeable.
 
-## Target layout
+## Permanent layout
 
 ```text
 native/filesystems/ofs/
@@ -40,39 +40,41 @@ native/filesystems/pfs3/
   windows/
 ```
 
-Each `core/` ultimately owns that filesystem's format interpretation,
-allocation and mapping, directory and metadata rules, validation, mutation and
-recovery semantics. Linux and Windows remain host adapters.
+Each `core/` owns that filesystem's format interpretation, allocation and
+mapping, directory and metadata rules, validation, mutation and recovery
+semantics. Linux and Windows are host adapters around that filesystem's own
+core.
 
-## Source bases
+## Independence rule
 
-OFS and FFS start from the pinned Linux v6.12.107 `fs/affs` implementation.
-Linux upstream combines those formats; Filesystem Support does not. The proven
-upstream code was copied into the independent OFS and FFS migration trees and
-is modified there. No separate live `native/filesystems/affs/` implementation
-is retained: provenance is preserved by the copied source headers, this
-document and Git history rather than by maintaining a third duplicate tree.
+OFS, FFS, SFS, SFS2 and PFS3 must remain implementation-independent.
 
-SFS starts from the real ASFS Linux implementation by Marek Szyprowski and is
-kept distinct from SFS2.
+Code that implements filesystem semantics is not shared between filesystem
+directories, even when two formats currently use identical arithmetic or
+layout rules. If OFS and FFS need the same checksum, bitmap or name operation,
+each filesystem owns its own implementation in its own core. This prevents a
+future change to one filesystem from silently changing another.
 
-SFS2 starts from a real SFS2-capable implementation and owns its
-`SFS\\2` format rules separately. It must not be implemented as an SFS mode
-when the on-disk rule differs.
+Only genuinely filesystem-neutral infrastructure may be shared through
+`native/core/` or Infiltratr Common. Filesystem-specific parsing, allocation,
+mapping, namespace, metadata, recovery and format helpers stay with the owning
+filesystem.
 
-PFS3 starts from the real open PFS3 implementation. Its source licence remains
-part of the migration contract and must not be obscured by restructuring.
+## Current ownership state
+
+OFS and FFS now own separate canonical cores, format primitives and Linux
+adapter implementations. Neither depends on a shared Amiga filesystem layer.
+
+SFS has a canonical core but its Linux adapter is still being migrated to the
+same project-owned architecture. No migration-era unit is considered complete
+until its implementation body has been replaced and qualified.
+
+SFS2 and PFS3 currently expose project-owned canonical format cores. Their host
+adapters remain separate work and must bind directly to those cores rather than
+introducing alternate implementations.
 
 ## Binary rule
 
 The intended Linux result is one independently deployable module per
-filesystem: `ofs.ko`, `ffs.ko`, `sfs.ko`, `sfs2.ko`, and
-`pfs3.ko` as each implementation reaches qualification.
-
-A genuinely identical primitive may be shared through neutral infrastructure.
-The small AmigaDOS primitive layer lives at `native/primitives/amiga_dos/`,
-outside the filesystem tree. It is not a filesystem implementation and owns no
-mount, inode, namespace, allocation-policy or recovery behaviour. OFS and FFS
-own those behaviours independently in their own directories.
-
-Sharing a primitive never merges the five filesystem identities.
+filesystem: `ofs.ko`, `ffs.ko`, `sfs.ko`, `sfs2.ko`, and `pfs3.ko`
+as each implementation reaches qualification.
