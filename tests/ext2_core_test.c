@@ -80,6 +80,45 @@ int main(void)
         path.depth != 4U || path.offsets[0] != 14U)
         return fail("triple-indirect block path is wrong");
 
+    if (ifs_ext2_validate_directory_record(
+            0U, 12U, 1U, 2U, 1024U, 8192U) !=
+        IFS_EXT2_DIRECTORY_RECORD_OK)
+        return fail("valid directory record was rejected");
+    if (ifs_ext2_validate_directory_record(
+            0U, 8U, 0U, 0U, 1024U, 8192U) !=
+        IFS_EXT2_DIRECTORY_RECORD_TOO_SHORT)
+        return fail("short directory record was accepted");
+    if (ifs_ext2_validate_directory_record(
+            0U, 14U, 1U, 2U, 1024U, 8192U) !=
+        IFS_EXT2_DIRECTORY_RECORD_UNALIGNED)
+        return fail("unaligned directory record was accepted");
+    if (ifs_ext2_validate_directory_record(
+            0U, 12U, 5U, 2U, 1024U, 8192U) !=
+        IFS_EXT2_DIRECTORY_RECORD_NAME_TOO_LONG)
+        return fail("directory record with oversized name was accepted");
+    if (ifs_ext2_validate_directory_record(
+            1020U, 12U, 1U, 2U, 1024U, 8192U) !=
+        IFS_EXT2_DIRECTORY_RECORD_CROSSES_BLOCK)
+        return fail("cross-block directory record was accepted");
+    if (ifs_ext2_validate_directory_record(
+            0U, 12U, 1U, 8193U, 1024U, 8192U) !=
+        IFS_EXT2_DIRECTORY_RECORD_INODE_RANGE)
+        return fail("directory record with out-of-range inode was accepted");
+
+    {
+        ifs_ext2_u16 encoded = 0U;
+
+        if (ifs_ext2_directory_record_length_from_disk(
+                0xFFFFU, IFS_EXT2_MAX_BLOCK_SIZE) !=
+            IFS_EXT2_MAX_BLOCK_SIZE)
+            return fail("64K directory record did not decode");
+        if (ifs_ext2_directory_record_length_to_disk(
+                IFS_EXT2_MAX_BLOCK_SIZE, IFS_EXT2_MAX_BLOCK_SIZE,
+                &encoded) != IFS_EXT2_OK ||
+            encoded != 0xFFFFU)
+            return fail("64K directory record did not encode");
+    }
+
     store_le32(raw + 0x5CU,
                IFS_EXT2_FEATURE_COMPAT_EXT_ATTR |
                IFS_EXT2_FEATURE_COMPAT_HAS_JOURNAL);
