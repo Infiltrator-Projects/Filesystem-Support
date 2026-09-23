@@ -37,11 +37,12 @@ The following active EXT2 units are maintained as project-authored source:
 - `native/filesystems/ext2/core/ext2_engine.h`
 - `native/filesystems/ext2/linux/canonical.c`
 - `native/filesystems/ext2/linux/file.c`
+- `native/filesystems/ext2/linux/namei.c`
 - `native/filesystems/ext2/linux/Makefile`
 
-The regular-file unit was replaced on 23 September 2026. Its implementation
-uses the Linux VFS/IOMAP/DAX interfaces as platform APIs but does not retain the
-previous implementation body or third-party author block.
+The regular-file and namespace units were replaced on 23 September 2026. Their
+implementations use Linux VFS interfaces as platform APIs but do not retain the
+previous implementation bodies or third-party author blocks.
 
 ## EXT2 migration units still to replace
 
@@ -53,7 +54,6 @@ legal provenance until their implementation is genuinely replaced:
 - `ext2.h`
 - `ialloc.c`
 - `inode.c`
-- `namei.c`
 - `super.c`
 - `xattr.c`
 
