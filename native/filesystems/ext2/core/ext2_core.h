@@ -175,6 +175,9 @@ IfsExt2Status ifs_ext2_block_group_position(
     ifs_ext2_u32 *group,
     ifs_ext2_u32 *offset);
 
+int ifs_ext2_sparse_super_group(ifs_ext2_u32 group);
+int ifs_ext2_group_has_super(int sparse_super_enabled, ifs_ext2_u32 group);
+
 IfsExt2Status ifs_ext2_validate_group_descriptor(
     const IfsExt2Superblock *superblock,
     ifs_ext2_u32 group,
