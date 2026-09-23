@@ -125,7 +125,7 @@ IfsExt4LayoutStatus ifs_ext4_validate_layout(
     const ifs_ext4_u32 descriptors_per_block,
     const ifs_ext4_u32 inodes_per_group,
     const ifs_ext4_u32 inodes_count,
-    ifs_ext4_u32 *const group_count)
+    ifs_ext4_u64 *const group_count)
 {
     if (reserved_gdt_blocks > block_size / 4U)
         return IFS_EXT4_LAYOUT_RESERVED_GDT_TOO_LARGE;
@@ -153,7 +153,7 @@ IfsExt4LayoutStatus ifs_ext4_validate_layout(
         if (groups * inodes_per_group != inodes_count)
             return IFS_EXT4_LAYOUT_INVALID_INODE_COUNT;
 
-        *group_count = (ifs_ext4_u32)groups;
+        *group_count = groups;
     }
 
     return IFS_EXT4_LAYOUT_OK;
