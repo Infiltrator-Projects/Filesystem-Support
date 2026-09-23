@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "ext2_engine.h"
 
 #define EXT2_VALID_FS 0x0001U
