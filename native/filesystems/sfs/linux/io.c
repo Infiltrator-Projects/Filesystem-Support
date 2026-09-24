@@ -8,7 +8,7 @@
 #include <linux/fs.h>
 #include <linux/mpage.h>
 #include <linux/pagemap.h>
-#include "asfs_fs.h"
+#include "linux_adapter.h"
 
 static int sfs_load_extent(
     struct super_block *sb,
@@ -337,7 +337,7 @@ out_unlock:
 #include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/time.h>
-#include "asfs_fs.h"
+#include "linux_adapter.h"
 
 #define SFS_UNIX_EPOCH_DELTA ((365LL * 8LL + 2LL) * 24LL * 60LL * 60LL)
 

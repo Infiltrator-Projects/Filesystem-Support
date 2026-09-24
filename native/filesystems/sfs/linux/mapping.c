@@ -7,7 +7,7 @@
 #include <linux/errno.h>
 #include <linux/overflow.h>
 #include <linux/string.h>
-#include "asfs_fs.h"
+#include "linux_adapter.h"
 
 static int sfs_validate_btree(
     struct super_block *sb,
@@ -1114,7 +1114,7 @@ int asfs_addblocks(
 #include <linux/errno.h>
 #include <linux/overflow.h>
 #include <linux/string.h>
-#include "asfs_fs.h"
+#include "linux_adapter.h"
 
 static u32 sfs_node_leaf_capacity(struct super_block *sb)
 {
@@ -1957,7 +1957,7 @@ int asfs_deletenode(
 #include <linux/overflow.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include "asfs_fs.h"
+#include "linux_adapter.h"
 
 static u32 sfs_object_fixed_bytes(void)
 {

@@ -8,7 +8,7 @@
 #include <linux/fs.h>
 #include <linux/nls.h>
 #include <linux/string.h>
-#include "asfs_fs.h"
+#include "linux_adapter.h"
 
 extern const struct dentry_operations asfs_dentry_operations;
 
@@ -338,7 +338,7 @@ struct dentry *asfs_lookup(
 #include <linux/fs.h>
 #include <linux/nls.h>
 #include <linux/string.h>
-#include "asfs_fs.h"
+#include "linux_adapter.h"
 
 static u8 sfs_linux_upper_character(u8 character, struct nls_table *table)
 {
@@ -529,7 +529,7 @@ void asfs_translate(
 #include <linux/nls.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include "asfs_fs.h"
+#include "linux_adapter.h"
 
 struct sfs_link_writer {
     char *data;

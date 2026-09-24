@@ -20,7 +20,7 @@
 #include <linux/nls.h>
 #include <linux/string.h>
 
-#include "asfs_fs.h"
+#include "linux_adapter.h"
 #include "../core/sfs_core.h"
 
 static struct kmem_cache *sfs_inode_cache;

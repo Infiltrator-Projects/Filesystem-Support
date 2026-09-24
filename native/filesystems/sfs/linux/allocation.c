@@ -6,8 +6,8 @@
 #include <linux/buffer_head.h>
 #include <linux/errno.h>
 #include <linux/slab.h>
-#include "asfs_fs.h"
-#include "bitfuncs.h"
+#include "linux_adapter.h"
+#include "linux_adapter.h"
 
 #ifdef CONFIG_ASFS_RW
 
@@ -666,7 +666,7 @@ int asfs_freeadminspace(
 /* ===== bitmap operations ===== */
 #include <linux/types.h>
 #include <asm/byteorder.h>
-#include "bitfuncs.h"
+#include "linux_adapter.h"
 
 static int sfs_bitmap_find(
     const u32 *bitmap, int longs, int bitoffset, bool want_set)
