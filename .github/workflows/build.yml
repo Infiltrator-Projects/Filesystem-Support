@@ -173,6 +173,7 @@ jobs:
             native/filesystems/ext3/linux/file.c
             native/filesystems/ext3/linux/ialloc.c
             native/filesystems/ext3/linux/jbd_checkpoint.c
+            native/filesystems/ext3/linux/jbd_commit.c
             native/filesystems/ext3/linux/jbd_recovery.c
           )
           for file in "${rewritten[@]}"; do
