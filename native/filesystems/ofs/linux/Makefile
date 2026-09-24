@@ -1,5 +1,4 @@
-# Out-of-tree Linux OFS filesystem module.
-# OFS is maintained as an independent filesystem implementation.
-
+# OFS — independent Linux adapter build
 obj-m += ofs.o
-ofs-y := canonical.o super.o namei.o inode.o file.o dir.o amigaffs.o bitmap.o symlink.o
+ofs-y := core_bridge.o storage.o namespace.o lifecycle.o
+ccflags-y += -I$(src)

@@ -1,4 +1,4 @@
-#include "affs.h"
+#include "linux_adapter.h"
 #include "../core/ofs_core.h"
 
 #define IFS_OFS_FS_NAME "ofs"
