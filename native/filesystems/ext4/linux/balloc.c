@@ -9,6 +9,7 @@
 #include <linux/capability.h>
 #include <linux/fs.h>
 #include <linux/quotaops.h>
+#include <linux/overflow.h>
 
 #include "ext4.h"
 #include "ext4_jbd2.h"
@@ -98,7 +99,6 @@ static bool ifs_ext4_local_cluster(struct super_block *sb,
 				    unsigned int *cluster)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	ext4_fsblk_t first = ext4_group_first_block_no(sb, group);
 
 	if (!ifs_ext4_block_belongs_to_group(sb, block, group))
 		return false;
@@ -218,8 +218,6 @@ static int ifs_ext4_build_uninitialised_bitmap(struct super_block *sb,
 	unsigned int bit;
 	unsigned int cluster_count;
 	unsigned int base_clusters;
-
-	lockdep_assert_held(&EXT4_GROUP_LOCK(sb, group)->rlock);
 
 	if (!ext4_group_desc_csum_verify(sb, group, desc)) {
 		ext4_mark_group_bitmap_corrupted(
