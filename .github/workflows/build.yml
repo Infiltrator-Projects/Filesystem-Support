@@ -6,12 +6,15 @@ on:
   pull_request:
 
 concurrency:
-  group: filesystem-support-build-${{ github.ref }}
+  # v2 rotates away from a stale cancelled run that remained attached to
+  # self-hosted runners.  Future pushes still cancel superseded work on main.
+  group: filesystem-support-build-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   source-boundary:
     runs-on: ${{ startsWith(github.event.head_commit.message, 'Release ') && 'ubuntu-24.04' || 'linux-native' }}
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -228,6 +231,7 @@ jobs:
 
   linux:
     runs-on: ${{ startsWith(github.event.head_commit.message, 'Release ') && 'ubuntu-24.04' || 'linux-native' }}
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
