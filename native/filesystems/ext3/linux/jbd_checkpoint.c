@@ -1,28 +1,43 @@
 /*
- * Filesystem Support EXT3 embedded journal checkpoint engine.
+ * Copyright (C) 2026 Shannon Smith
  *
- * Checkpointing writes committed metadata to its home location, waits for the
- * writeback to finish, and only then retires the transaction from the JBD log.
- * The two JBD checkpoint rings are treated as ownership lists: pending buffers
- * live on t_checkpoint_list and submitted I/O lives on t_checkpoint_io_list.
+ * Filesystem Support EXT3 embedded checkpoint engine.
+ *
+ * A committed transaction remains journal-owned until every checkpointed
+ * metadata buffer has reached its home block.  Pending checkpoint buffers and
+ * submitted checkpoint I/O are maintained as two independent circular rings.
+ *
+ * Locking:
+ *   - j_list_lock protects checkpoint transaction/ring membership.
+ *   - buffer journal state is protected by the per-buffer JBD state lock.
+ *   - j_state_lock protects log head/tail accounting.
+ *
+ * The implementation is intentionally local to EXT3.  It implements the JBD
+ * contract required by this module without depending on an external jbd.ko.
  */
 
 #include <linux/blkdev.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/slab.h>
+
 #include "journal.h"
 
-#define IFS_EXT3_CHECKPOINT_BATCH 64
+#define IFS_EXT3_CP_BATCH_LIMIT 64U
 
-static void ifs_ext3_unlink_checkpoint_head(struct journal_head *jh)
+struct ifs_ext3_cp_batch {
+	struct buffer_head *items[IFS_EXT3_CP_BATCH_LIMIT];
+	unsigned int count;
+};
+
+static void ifs_ext3_cp_ring_detach(struct journal_head *jh)
 {
 	transaction_t *transaction = jh->b_cp_transaction;
 	struct journal_head *next = jh->b_cpnext;
-	struct journal_head *prev = jh->b_cpprev;
+	struct journal_head *previous = jh->b_cpprev;
 
-	prev->b_cpnext = next;
-	next->b_cpprev = prev;
+	previous->b_cpnext = next;
+	next->b_cpprev = previous;
 
 	if (transaction->t_checkpoint_list == jh)
 		transaction->t_checkpoint_list =
@@ -30,49 +45,235 @@ static void ifs_ext3_unlink_checkpoint_head(struct journal_head *jh)
 	if (transaction->t_checkpoint_io_list == jh)
 		transaction->t_checkpoint_io_list =
 			next == jh ? NULL : next;
+
+	jh->b_cpnext = NULL;
+	jh->b_cpprev = NULL;
 }
 
-static void ifs_ext3_move_checkpoint_to_io(struct journal_head *jh)
+static void ifs_ext3_cp_ring_append(struct journal_head **head,
+				    struct journal_head *jh)
 {
-	transaction_t *transaction = jh->b_cp_transaction;
-	struct journal_head *head;
-
-	ifs_ext3_unlink_checkpoint_head(jh);
-
-	head = transaction->t_checkpoint_io_list;
-	if (!head) {
+	if (!*head) {
 		jh->b_cpnext = jh;
 		jh->b_cpprev = jh;
-	} else {
-		jh->b_cpnext = head;
-		jh->b_cpprev = head->b_cpprev;
-		head->b_cpprev->b_cpnext = jh;
-		head->b_cpprev = jh;
+		*head = jh;
+		return;
 	}
-	transaction->t_checkpoint_io_list = jh;
+
+	jh->b_cpnext = *head;
+	jh->b_cpprev = (*head)->b_cpprev;
+	(*head)->b_cpprev->b_cpnext = jh;
+	(*head)->b_cpprev = jh;
 }
 
-static void ifs_ext3_flush_checkpoint_batch(
-	struct buffer_head **buffers, int *count)
+static void ifs_ext3_cp_move_to_io(struct journal_head *jh)
+{
+	transaction_t *transaction = jh->b_cp_transaction;
+
+	ifs_ext3_cp_ring_detach(jh);
+	ifs_ext3_cp_ring_append(&transaction->t_checkpoint_io_list, jh);
+}
+
+static void ifs_ext3_cp_batch_reset(struct ifs_ext3_cp_batch *batch)
+{
+	unsigned int index;
+
+	for (index = 0; index < batch->count; ++index)
+		batch->items[index] = NULL;
+	batch->count = 0;
+}
+
+static void ifs_ext3_cp_batch_submit(struct ifs_ext3_cp_batch *batch)
 {
 	struct blk_plug plug;
-	int index;
+	unsigned int index;
 
-	if (*count == 0)
+	if (!batch->count)
 		return;
 
 	blk_start_plug(&plug);
-	for (index = 0; index < *count; ++index)
-		write_dirty_buffer(buffers[index], REQ_SYNC);
+	for (index = 0; index < batch->count; ++index)
+		write_dirty_buffer(batch->items[index], REQ_SYNC);
 	blk_finish_plug(&plug);
 
-	for (index = 0; index < *count; ++index) {
-		clear_buffer_jwrite(buffers[index]);
-		__brelse(buffers[index]);
-		buffers[index] = NULL;
+	for (index = 0; index < batch->count; ++index) {
+		clear_buffer_jwrite(batch->items[index]);
+		__brelse(batch->items[index]);
 	}
 
-	*count = 0;
+	ifs_ext3_cp_batch_reset(batch);
+}
+
+static bool ifs_ext3_cp_transaction_still_current(
+	journal_t *journal, transaction_t *transaction, tid_t tid)
+{
+	return journal->j_checkpoint_transactions == transaction &&
+	       transaction->t_tid == tid;
+}
+
+static void ifs_ext3_cp_wait_for_state_lock(
+	journal_t *journal, struct buffer_head *bh,
+	struct ifs_ext3_cp_batch *batch)
+{
+	get_bh(bh);
+	spin_unlock(&journal->j_list_lock);
+	ifs_ext3_cp_batch_submit(batch);
+	jbd_lock_bh_state(bh);
+	jbd_unlock_bh_state(bh);
+	__brelse(bh);
+	cond_resched();
+	spin_lock(&journal->j_list_lock);
+}
+
+static void ifs_ext3_cp_wait_for_buffer(
+	journal_t *journal, struct buffer_head *bh,
+	struct ifs_ext3_cp_batch *batch)
+{
+	get_bh(bh);
+	spin_unlock(&journal->j_list_lock);
+	jbd_unlock_bh_state(bh);
+	ifs_ext3_cp_batch_submit(batch);
+	wait_on_buffer(bh);
+	__brelse(bh);
+	cond_resched();
+	spin_lock(&journal->j_list_lock);
+}
+
+static void ifs_ext3_cp_wait_for_transaction(
+	journal_t *journal, tid_t tid,
+	struct buffer_head *bh,
+	struct ifs_ext3_cp_batch *batch)
+{
+	spin_unlock(&journal->j_list_lock);
+	jbd_unlock_bh_state(bh);
+	ifs_ext3_cp_batch_submit(batch);
+	log_start_commit(journal, tid);
+	log_wait_commit(journal, tid);
+	cond_resched();
+	spin_lock(&journal->j_list_lock);
+}
+
+static int ifs_ext3_cp_submit_pending(
+	journal_t *journal, transaction_t *transaction)
+{
+	struct ifs_ext3_cp_batch batch = { };
+	const tid_t transaction_id = transaction->t_tid;
+	int first_error = 0;
+
+	while (ifs_ext3_cp_transaction_still_current(
+		       journal, transaction, transaction_id)) {
+		struct journal_head *jh;
+		struct buffer_head *bh;
+
+		jh = transaction->t_checkpoint_list;
+		if (!jh)
+			break;
+
+		bh = jh2bh(jh);
+		if (!jbd_trylock_bh_state(bh)) {
+			ifs_ext3_cp_wait_for_state_lock(journal, bh, &batch);
+			continue;
+		}
+
+		if (buffer_locked(bh)) {
+			ifs_ext3_cp_wait_for_buffer(journal, bh, &batch);
+			continue;
+		}
+
+		if (jh->b_transaction) {
+			tid_t owner_tid = jh->b_transaction->t_tid;
+
+			ifs_ext3_cp_wait_for_transaction(
+				journal, owner_tid, bh, &batch);
+			continue;
+		}
+
+		if (!buffer_dirty(bh)) {
+			if (buffer_write_io_error(bh) && !first_error)
+				first_error = -EIO;
+
+			get_bh(bh);
+			__journal_remove_checkpoint(jh);
+			jbd_unlock_bh_state(bh);
+			__brelse(bh);
+			continue;
+		}
+
+		get_bh(bh);
+		set_buffer_jwrite(bh);
+		batch.items[batch.count++] = bh;
+		ifs_ext3_cp_move_to_io(jh);
+		jbd_unlock_bh_state(bh);
+
+		if (batch.count == IFS_EXT3_CP_BATCH_LIMIT ||
+		    need_resched() ||
+		    spin_needbreak(&journal->j_list_lock)) {
+			spin_unlock(&journal->j_list_lock);
+			ifs_ext3_cp_batch_submit(&batch);
+			cond_resched();
+			spin_lock(&journal->j_list_lock);
+		}
+	}
+
+	if (batch.count) {
+		spin_unlock(&journal->j_list_lock);
+		ifs_ext3_cp_batch_submit(&batch);
+		spin_lock(&journal->j_list_lock);
+	}
+
+	return first_error;
+}
+
+static int ifs_ext3_cp_retire_submitted(
+	journal_t *journal, transaction_t *transaction)
+{
+	const tid_t transaction_id = transaction->t_tid;
+	int first_error = 0;
+
+	while (ifs_ext3_cp_transaction_still_current(
+		       journal, transaction, transaction_id)) {
+		struct journal_head *jh;
+		struct buffer_head *bh;
+
+		jh = transaction->t_checkpoint_io_list;
+		if (!jh)
+			break;
+
+		bh = jh2bh(jh);
+		if (!jbd_trylock_bh_state(bh)) {
+			get_bh(bh);
+			spin_unlock(&journal->j_list_lock);
+			jbd_lock_bh_state(bh);
+			jbd_unlock_bh_state(bh);
+			__brelse(bh);
+			spin_lock(&journal->j_list_lock);
+			continue;
+		}
+
+		get_bh(bh);
+		if (buffer_locked(bh)) {
+			spin_unlock(&journal->j_list_lock);
+			jbd_unlock_bh_state(bh);
+			wait_on_buffer(bh);
+			__brelse(bh);
+			spin_lock(&journal->j_list_lock);
+			continue;
+		}
+
+		if (buffer_write_io_error(bh) && !first_error)
+			first_error = -EIO;
+
+		__journal_remove_checkpoint(jh);
+		jbd_unlock_bh_state(bh);
+		__brelse(bh);
+	}
+
+	return first_error;
+}
+
+static bool ifs_ext3_cp_log_has_space(journal_t *journal, int required)
+{
+	return __log_space_left(journal) >= required;
 }
 
 void __log_wait_for_space(journal_t *journal)
@@ -80,13 +281,15 @@ void __log_wait_for_space(journal_t *journal)
 	int required;
 
 	assert_spin_locked(&journal->j_state_lock);
-	required = jbd_space_needed(journal);
 
-	while (__log_space_left(journal) < required) {
+	for (;;) {
 		bool have_checkpoint;
 		tid_t commit_tid = 0;
 		int available;
 
+		required = jbd_space_needed(journal);
+		if (ifs_ext3_cp_log_has_space(journal, required))
+			return;
 		if (journal->j_flags & JFS_ABORT)
 			return;
 
@@ -119,7 +322,7 @@ void __log_wait_for_space(journal_t *journal)
 				log_wait_commit(journal, commit_tid);
 			} else {
 				pr_err(
-					"JBD: %pg needs %d blocks but only %d remain\n",
+					"EXT3 JBD: %pg requires %d log blocks; %d available\n",
 					journal->j_dev,
 					required, available);
 				journal_abort(journal, -ENOSPC);
@@ -131,162 +334,15 @@ void __log_wait_for_space(journal_t *journal)
 	}
 }
 
-static int ifs_ext3_wait_checkpoint_io(
-	journal_t *journal, transaction_t *transaction)
-{
-	const tid_t tid = transaction->t_tid;
-	int result = 0;
-
-	for (;;) {
-		struct journal_head *jh;
-		struct buffer_head *bh;
-
-		if (journal->j_checkpoint_transactions != transaction ||
-		    transaction->t_tid != tid)
-			return result;
-
-		jh = transaction->t_checkpoint_io_list;
-		if (!jh)
-			return result;
-
-		bh = jh2bh(jh);
-		if (!jbd_trylock_bh_state(bh)) {
-			get_bh(bh);
-			spin_unlock(&journal->j_list_lock);
-			jbd_lock_bh_state(bh);
-			jbd_unlock_bh_state(bh);
-			__brelse(bh);
-			spin_lock(&journal->j_list_lock);
-			continue;
-		}
-
-		get_bh(bh);
-		if (buffer_locked(bh)) {
-			spin_unlock(&journal->j_list_lock);
-			jbd_unlock_bh_state(bh);
-			wait_on_buffer(bh);
-			__brelse(bh);
-			spin_lock(&journal->j_list_lock);
-			continue;
-		}
-
-		if (buffer_write_io_error(bh) && !result)
-			result = -EIO;
-
-		__journal_remove_checkpoint(jh);
-		jbd_unlock_bh_state(bh);
-		__brelse(bh);
-	}
-}
-
-static int ifs_ext3_checkpoint_pending(
-	journal_t *journal,
-	transaction_t *transaction)
-{
-	struct buffer_head *batch[IFS_EXT3_CHECKPOINT_BATCH];
-	const tid_t tid = transaction->t_tid;
-	int batch_count = 0;
-	int result = 0;
-
-	for (;;) {
-		struct journal_head *jh;
-		struct buffer_head *bh;
-
-		if (journal->j_checkpoint_transactions != transaction ||
-		    transaction->t_tid != tid)
-			break;
-
-		jh = transaction->t_checkpoint_list;
-		if (!jh)
-			break;
-
-		bh = jh2bh(jh);
-		if (!jbd_trylock_bh_state(bh)) {
-			get_bh(bh);
-			spin_unlock(&journal->j_list_lock);
-			ifs_ext3_flush_checkpoint_batch(
-				batch, &batch_count);
-			jbd_lock_bh_state(bh);
-			jbd_unlock_bh_state(bh);
-			__brelse(bh);
-			cond_resched();
-			spin_lock(&journal->j_list_lock);
-			continue;
-		}
-
-		if (buffer_locked(bh)) {
-			get_bh(bh);
-			spin_unlock(&journal->j_list_lock);
-			jbd_unlock_bh_state(bh);
-			ifs_ext3_flush_checkpoint_batch(
-				batch, &batch_count);
-			wait_on_buffer(bh);
-			__brelse(bh);
-			cond_resched();
-			spin_lock(&journal->j_list_lock);
-			continue;
-		}
-
-		if (jh->b_transaction) {
-			const tid_t wait_tid =
-				jh->b_transaction->t_tid;
-
-			spin_unlock(&journal->j_list_lock);
-			jbd_unlock_bh_state(bh);
-			ifs_ext3_flush_checkpoint_batch(
-				batch, &batch_count);
-			log_start_commit(journal, wait_tid);
-			log_wait_commit(journal, wait_tid);
-			cond_resched();
-			spin_lock(&journal->j_list_lock);
-			continue;
-		}
-
-		if (!buffer_dirty(bh)) {
-			if (buffer_write_io_error(bh) && !result)
-				result = -EIO;
-			get_bh(bh);
-			__journal_remove_checkpoint(jh);
-			jbd_unlock_bh_state(bh);
-			__brelse(bh);
-			continue;
-		}
-
-		get_bh(bh);
-		set_buffer_jwrite(bh);
-		batch[batch_count++] = bh;
-		ifs_ext3_move_checkpoint_to_io(jh);
-		jbd_unlock_bh_state(bh);
-
-		if (batch_count == IFS_EXT3_CHECKPOINT_BATCH ||
-		    need_resched() ||
-		    spin_needbreak(&journal->j_list_lock)) {
-			spin_unlock(&journal->j_list_lock);
-			ifs_ext3_flush_checkpoint_batch(
-				batch, &batch_count);
-			cond_resched();
-			spin_lock(&journal->j_list_lock);
-		}
-	}
-
-	if (batch_count) {
-		spin_unlock(&journal->j_list_lock);
-		ifs_ext3_flush_checkpoint_batch(batch, &batch_count);
-		spin_lock(&journal->j_list_lock);
-	}
-
-	return result;
-}
-
 int log_do_checkpoint(journal_t *journal)
 {
 	transaction_t *transaction;
-	int result;
-	int wait_result;
+	int error;
+	int retire_error;
 
-	result = cleanup_journal_tail(journal);
-	if (result <= 0)
-		return result;
+	error = cleanup_journal_tail(journal);
+	if (error <= 0)
+		return error;
 
 	spin_lock(&journal->j_list_lock);
 	transaction = journal->j_checkpoint_transactions;
@@ -295,86 +351,107 @@ int log_do_checkpoint(journal_t *journal)
 		return 0;
 	}
 
-	result = ifs_ext3_checkpoint_pending(journal, transaction);
-	wait_result =
-		ifs_ext3_wait_checkpoint_io(journal, transaction);
-	if (!result)
-		result = wait_result;
+	error = ifs_ext3_cp_submit_pending(journal, transaction);
+	retire_error =
+		ifs_ext3_cp_retire_submitted(journal, transaction);
+	if (!error)
+		error = retire_error;
 	spin_unlock(&journal->j_list_lock);
 
-	if (result < 0) {
-		journal_abort(journal, result);
-		return result;
+	if (error < 0) {
+		journal_abort(journal, error);
+		return error;
 	}
 
-	result = cleanup_journal_tail(journal);
-	return result < 0 ? result : 0;
+	error = cleanup_journal_tail(journal);
+	return error < 0 ? error : 0;
+}
+
+static void ifs_ext3_cp_oldest_log_position(
+	journal_t *journal, tid_t *tid, unsigned int *block)
+{
+	transaction_t *transaction;
+
+	transaction = journal->j_checkpoint_transactions;
+	if (transaction) {
+		*tid = transaction->t_tid;
+		*block = transaction->t_log_start;
+		return;
+	}
+
+	transaction = journal->j_committing_transaction;
+	if (transaction) {
+		*tid = transaction->t_tid;
+		*block = transaction->t_log_start;
+		return;
+	}
+
+	transaction = journal->j_running_transaction;
+	if (transaction) {
+		*tid = transaction->t_tid;
+		*block = journal->j_head;
+		return;
+	}
+
+	*tid = journal->j_transaction_sequence;
+	*block = journal->j_head;
+}
+
+static unsigned int ifs_ext3_cp_reclaimed_blocks(
+	const journal_t *journal, unsigned int new_tail)
+{
+	if (new_tail >= journal->j_tail)
+		return new_tail - journal->j_tail;
+
+	return (journal->j_last - journal->j_tail) +
+	       (new_tail - journal->j_first);
 }
 
 int cleanup_journal_tail(journal_t *journal)
 {
-	transaction_t *transaction;
-	tid_t first_tid;
-	unsigned int block;
-	unsigned int freed;
+	tid_t new_sequence;
+	unsigned int new_tail;
+	unsigned int reclaimed;
 
 	if (is_journal_aborted(journal))
 		return 1;
 
 	spin_lock(&journal->j_state_lock);
 	spin_lock(&journal->j_list_lock);
-
-	transaction = journal->j_checkpoint_transactions;
-	if (transaction) {
-		first_tid = transaction->t_tid;
-		block = transaction->t_log_start;
-	} else if (journal->j_committing_transaction) {
-		transaction = journal->j_committing_transaction;
-		first_tid = transaction->t_tid;
-		block = transaction->t_log_start;
-	} else if (journal->j_running_transaction) {
-		transaction = journal->j_running_transaction;
-		first_tid = transaction->t_tid;
-		block = journal->j_head;
-	} else {
-		first_tid = journal->j_transaction_sequence;
-		block = journal->j_head;
-	}
-
+	ifs_ext3_cp_oldest_log_position(
+		journal, &new_sequence, &new_tail);
 	spin_unlock(&journal->j_list_lock);
 
-	if (!block) {
+	if (!new_tail) {
 		spin_unlock(&journal->j_state_lock);
 		journal_abort(journal, -EUCLEAN);
 		return -EUCLEAN;
 	}
 
-	if (journal->j_tail_sequence == first_tid) {
+	if (journal->j_tail_sequence == new_sequence) {
 		spin_unlock(&journal->j_state_lock);
 		return 1;
 	}
 	spin_unlock(&journal->j_state_lock);
 
 	journal_update_sb_log_tail(
-		journal, first_tid, block,
+		journal, new_sequence, new_tail,
 		REQ_PREFLUSH | REQ_FUA);
 
 	spin_lock(&journal->j_state_lock);
-	freed = block - journal->j_tail;
-	if (block < journal->j_tail)
-		freed += journal->j_last - journal->j_first;
-
-	journal->j_free += freed;
-	journal->j_tail_sequence = first_tid;
-	journal->j_tail = block;
+	reclaimed = ifs_ext3_cp_reclaimed_blocks(journal, new_tail);
+	journal->j_free += reclaimed;
+	journal->j_tail_sequence = new_sequence;
+	journal->j_tail = new_tail;
 	spin_unlock(&journal->j_state_lock);
+
 	return 0;
 }
 
-static int ifs_ext3_try_remove_checkpoint(struct journal_head *jh)
+static int ifs_ext3_cp_try_prune(struct journal_head *jh)
 {
 	struct buffer_head *bh = jh2bh(jh);
-	int released;
+	int transaction_dropped;
 
 	if (!jbd_trylock_bh_state(bh))
 		return 0;
@@ -388,74 +465,77 @@ static int ifs_ext3_try_remove_checkpoint(struct journal_head *jh)
 	}
 
 	get_bh(bh);
-	released = __journal_remove_checkpoint(jh);
+	transaction_dropped = __journal_remove_checkpoint(jh);
 	jbd_unlock_bh_state(bh);
 	__brelse(bh);
-	return released ? 2 : 1;
+
+	return transaction_dropped ? 2 : 1;
 }
 
-static int ifs_ext3_clean_checkpoint_ring(
-	struct journal_head *first, int *transaction_released)
+static int ifs_ext3_cp_prune_ring(
+	struct journal_head *head, int *transaction_dropped)
 {
-	struct journal_head *last;
+	struct journal_head *stop;
 	struct journal_head *cursor;
-	int cleaned = 0;
+	int removed = 0;
 
-	*transaction_released = 0;
-	if (!first)
+	*transaction_dropped = 0;
+	if (!head)
 		return 0;
 
-	last = first->b_cpprev;
-	cursor = first;
+	stop = head->b_cpprev;
+	cursor = head;
+
 	for (;;) {
 		struct journal_head *next = cursor->b_cpnext;
-		int result =
-			ifs_ext3_try_remove_checkpoint(cursor);
+		int status = ifs_ext3_cp_try_prune(cursor);
 
-		if (result) {
-			cleaned++;
-			if (result == 2) {
-				*transaction_released = 1;
+		if (status) {
+			++removed;
+			if (status == 2) {
+				*transaction_dropped = 1;
 				break;
 			}
 		}
 
-		if (cursor == last || need_resched())
+		if (cursor == stop || need_resched())
 			break;
 		cursor = next;
 	}
 
-	return cleaned;
+	return removed;
 }
 
 int __journal_clean_checkpoint_list(journal_t *journal)
 {
-	transaction_t *transaction;
+	transaction_t *first;
 	transaction_t *last;
-	int cleaned = 0;
+	transaction_t *transaction;
+	int removed = 0;
 
-	transaction = journal->j_checkpoint_transactions;
-	if (!transaction)
+	first = journal->j_checkpoint_transactions;
+	if (!first)
 		return 0;
 
-	last = transaction->t_cpprev;
+	last = first->t_cpprev;
+	transaction = first;
+
 	for (;;) {
 		transaction_t *next = transaction->t_cpnext;
-		int released;
+		int dropped;
 
-		cleaned += ifs_ext3_clean_checkpoint_ring(
-			transaction->t_checkpoint_list, &released);
-		if (!released)
-			cleaned += ifs_ext3_clean_checkpoint_ring(
-				transaction->t_checkpoint_io_list,
-				&released);
+		removed += ifs_ext3_cp_prune_ring(
+			transaction->t_checkpoint_list, &dropped);
+		if (!dropped)
+			removed += ifs_ext3_cp_prune_ring(
+				transaction->t_checkpoint_io_list, &dropped);
 
-		if (need_resched() || transaction == last)
+		if (dropped || transaction == last || need_resched())
 			break;
 		transaction = next;
 	}
 
-	return cleaned;
+	return removed;
 }
 
 int __journal_remove_checkpoint(struct journal_head *jh)
@@ -467,7 +547,7 @@ int __journal_remove_checkpoint(struct journal_head *jh)
 		return 0;
 
 	journal = transaction->t_journal;
-	ifs_ext3_unlink_checkpoint_head(jh);
+	ifs_ext3_cp_ring_detach(jh);
 	jh->b_cp_transaction = NULL;
 	journal_put_journal_head(jh);
 
@@ -484,8 +564,6 @@ int __journal_remove_checkpoint(struct journal_head *jh)
 void __journal_insert_checkpoint(
 	struct journal_head *jh, transaction_t *transaction)
 {
-	struct journal_head *head;
-
 	J_ASSERT_JH(jh,
 		buffer_dirty(jh2bh(jh)) ||
 		buffer_jbddirty(jh2bh(jh)));
@@ -493,18 +571,7 @@ void __journal_insert_checkpoint(
 
 	journal_grab_journal_head(jh2bh(jh));
 	jh->b_cp_transaction = transaction;
-
-	head = transaction->t_checkpoint_list;
-	if (!head) {
-		jh->b_cpnext = jh;
-		jh->b_cpprev = jh;
-	} else {
-		jh->b_cpnext = head;
-		jh->b_cpprev = head->b_cpprev;
-		head->b_cpprev->b_cpnext = jh;
-		head->b_cpprev = jh;
-	}
-	transaction->t_checkpoint_list = jh;
+	ifs_ext3_cp_ring_append(&transaction->t_checkpoint_list, jh);
 }
 
 void __journal_drop_transaction(
