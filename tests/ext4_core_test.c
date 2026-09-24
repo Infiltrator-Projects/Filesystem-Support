@@ -213,6 +213,12 @@ int main(void)
             ifs_ext4_group_has_super(1, 2U) ||
             !ifs_ext4_group_has_super(0, 2U))
             return fail("EXT4 sparse-super policy is wrong");
+
+        if (!ifs_ext4_group_has_super_ex(1, 1, 7U, 11U, 7U) ||
+            !ifs_ext4_group_has_super_ex(1, 1, 7U, 11U, 11U) ||
+            ifs_ext4_group_has_super_ex(1, 1, 7U, 11U, 9U) ||
+            !ifs_ext4_group_has_super_ex(1, 0, 0U, 0U, 9U))
+            return fail("EXT4 sparse-super2 policy is wrong");
     }
 
     return 0;
