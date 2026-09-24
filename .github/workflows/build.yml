@@ -118,6 +118,21 @@ jobs:
           test ! -e native/filesystems/sfs2/reference
           test ! -e native/filesystems/pfs3/reference
 
+      - name: Guard rewritten EXT4 interface provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          rewritten=(
+            native/filesystems/ext4/linux/embedded_jbd2.h
+            native/filesystems/ext4/linux/truncate.h
+            native/filesystems/ext4/linux/fsmap.h
+            native/filesystems/ext4/linux/fast_commit.h
+          )
+          for file in "${rewritten[@]}"; do
+            test -s "$file"
+            ! grep -Eiq 'SPDX-License-Identifier|Copyright|Remy Card|Linus Torvalds|Stephen Tweedie|Darrick J\. Wong|GPL-2\.0' "$file"
+          done
+
       - name: Enforce single EXT2 engine on Windows
         shell: bash
         run: |
