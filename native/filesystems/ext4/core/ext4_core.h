@@ -49,6 +49,13 @@ IfsExt4BlockGroupStatus ifs_ext4_group_bounds(
 int ifs_ext4_sparse_super_group(ifs_ext4_u32 group);
 int ifs_ext4_group_has_super(int sparse_super_enabled, ifs_ext4_u32 group);
 
+int ifs_ext4_group_has_super_ex(
+    int sparse_super_enabled,
+    int sparse_super2_enabled,
+    ifs_ext4_u32 backup_group0,
+    ifs_ext4_u32 backup_group1,
+    ifs_ext4_u32 group);
+
 #endif
 
 #define IFS_EXT4_FEATURE_INCOMPAT_FILETYPE    0x0002U
