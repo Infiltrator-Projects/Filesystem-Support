@@ -265,6 +265,8 @@ int ext2_get_block(
 	return 0;
 }
 
+static bool ifs_ext2_block_all_zero(const __le32 *entries, u32 count);
+
 static u64 ifs_ext2_subtree_span(unsigned int level, u32 ptrs)
 {
 	u64 span = 1;
