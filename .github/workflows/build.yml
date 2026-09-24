@@ -138,6 +138,7 @@ jobs:
             native/filesystems/ext4/linux/move_extent.c
             native/filesystems/ext4/linux/sysfs.c
             native/filesystems/ext4/linux/indirect.c
+            native/filesystems/ext4/linux/ext4_jbd2.h
           )
           for file in "${rewritten[@]}"; do
             test -s "$file"
