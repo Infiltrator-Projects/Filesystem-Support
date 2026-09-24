@@ -124,18 +124,58 @@ EXT3 remains a single `ext3.ko`.  The rewrite continues subsystem by subsystem,
 moving format semantics into the canonical core and keeping only Linux VFS,
 block-device and kernel-lifetime policy in the Linux adapter.
 
-## EXT4 migration state
+## Project-authored EXT4 units
 
-EXT4 now has a project-authored canonical core for feature compatibility and
-bigalloc format invariants:
+EXT4 has already crossed the ownership boundary for its canonical core and for
+a substantial set of Linux-facing feature units.  CI treats the following as
+project-authored and rejects reintroduction of the historical EXT/Linux author
+blocks:
 
 - `native/filesystems/ext4/core/ext4_core.c`
 - `native/filesystems/ext4/core/ext4_core.h`
+- `native/filesystems/ext4/linux/canonical.c`
+- `native/filesystems/ext4/linux/embedded_jbd2.h`
+- `native/filesystems/ext4/linux/truncate.h`
+- `native/filesystems/ext4/linux/fsmap.h`
+- `native/filesystems/ext4/linux/fast_commit.h`
+- `native/filesystems/ext4/linux/crypto.c`
+- `native/filesystems/ext4/linux/verity.c`
+- `native/filesystems/ext4/linux/block_validity.c`
+- `native/filesystems/ext4/linux/balloc.c`
+- `native/filesystems/ext4/linux/dir.c`
+- `native/filesystems/ext4/linux/mmp.c`
+- `native/filesystems/ext4/linux/ext4_jbd2.c`
+- `native/filesystems/ext4/linux/readpage.c`
+- `native/filesystems/ext4/linux/fsmap.c`
+- `native/filesystems/ext4/linux/migrate.c`
+- `native/filesystems/ext4/linux/move_extent.c`
+- `native/filesystems/ext4/linux/sysfs.c`
+- `native/filesystems/ext4/linux/indirect.c`
+- `native/filesystems/ext4/linux/jbd2_checkpoint.c`
+- `native/filesystems/ext4/linux/jbd2_commit.c`
+- `native/filesystems/ext4/linux/jbd2_recovery.c`
+- `native/filesystems/ext4/linux/jbd2_revoke.c`
+- `native/filesystems/ext4/linux/ext4_jbd2.h`
+- `native/filesystems/ext4/linux/mballoc.h`
+- `native/filesystems/ext4/linux/extents_status.h`
+- `native/filesystems/ext4/linux/ext4_extents.h`
+- `native/filesystems/ext4/linux/xattr.h`
 
-The Linux wrapper links that exact core through `linux/canonical.c`. The rest of
-the active EXT4 `linux/` tree remains migration-era implementation and must be
-replaced feature by feature while preserving the one-`ext4.ko` architecture,
-EXT4-only registration and the complete supported feature set.
+This list records the implementation ownership already enforced by the build
+workflow.  The previous ledger incorrectly described all Linux EXT4 source
+outside the canonical core as migration-era code.
+
+## EXT4 migration state
+
+The remaining large EXT4 implementation bodies are still being replaced
+feature by feature.  In particular the inode, namespace, mount, allocation,
+page-I/O, xattr and embedded-JBD2 transaction/journal bodies are not promoted
+merely because adjacent headers or helper units have been rewritten.
+
+Historical attribution remains required wherever inherited implementation is
+still materially present.  EXT4 continues to build as one `ext4.ko`, and the
+rewrite must preserve EXT4-only registration plus the complete feature set
+advertised by the module.
 
 ## Retired EXT mechanisms
 
