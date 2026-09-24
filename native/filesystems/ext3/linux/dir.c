@@ -370,7 +370,7 @@ static bool ifs_ext3_emit_fname_chain(
 	struct fname *entry)
 {
 	struct dir_private_info *state = file->private_data;
-	const struct super_block *sb = file_inode(file)->i_sb;
+	struct super_block *sb = file_inode(file)->i_sb;
 
 	ctx->pos =
 		ifs_ext3_hash_position(file, entry->hash, entry->minor_hash);
