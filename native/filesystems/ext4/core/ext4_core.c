@@ -444,3 +444,246 @@ int ifs_ext4_group_has_super_ex(
 
     return ifs_ext4_group_has_super(sparse_super_enabled, group);
 }
+
+
+static ifs_ext4_u32 ifs_ext4_rol32(const ifs_ext4_u32 value,
+                                    const unsigned int shift)
+{
+    return (value << shift) | (value >> (32U - shift));
+}
+
+static ifs_ext4_u32 ifs_ext4_hash_boolean(
+    const unsigned int round,
+    const ifs_ext4_u32 x,
+    const ifs_ext4_u32 y,
+    const ifs_ext4_u32 z)
+{
+    switch (round) {
+    case 0U:
+        return z ^ (x & (y ^ z));
+    case 1U:
+        return (x & y) + ((x ^ y) & z);
+    default:
+        return x ^ y ^ z;
+    }
+}
+
+static void ifs_ext4_half_md4_rounds(
+    ifs_ext4_u32 state[4], const ifs_ext4_u32 words[8])
+{
+    static const unsigned char word_order[3][8] = {
+        { 0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U },
+        { 1U, 3U, 5U, 7U, 0U, 2U, 4U, 6U },
+        { 3U, 7U, 2U, 6U, 1U, 5U, 0U, 4U }
+    };
+    static const unsigned char rotations[3][4] = {
+        { 3U, 7U, 11U, 19U },
+        { 3U, 5U, 9U, 13U },
+        { 3U, 9U, 11U, 15U }
+    };
+    static const ifs_ext4_u32 constants[3] = {
+        0U, 0x5a827999U, 0x6ed9eba1U
+    };
+    static const unsigned char target_order[4] = { 0U, 3U, 2U, 1U };
+    ifs_ext4_u32 work[4];
+    unsigned int round;
+    unsigned int step;
+
+    work[0] = state[0];
+    work[1] = state[1];
+    work[2] = state[2];
+    work[3] = state[3];
+
+    for (round = 0U; round < 3U; ++round) {
+        for (step = 0U; step < 8U; ++step) {
+            const unsigned int target = target_order[step & 3U];
+            const unsigned int x_index = (target + 1U) & 3U;
+            const unsigned int y_index = (target + 2U) & 3U;
+            const unsigned int z_index = (target + 3U) & 3U;
+            const ifs_ext4_u32 mixed = ifs_ext4_hash_boolean(
+                round, work[x_index], work[y_index], work[z_index]);
+            const ifs_ext4_u32 sum =
+                work[target] + mixed +
+                words[word_order[round][step]] + constants[round];
+
+            work[target] = ifs_ext4_rol32(
+                sum, rotations[round][step & 3U]);
+        }
+    }
+
+    state[0] += work[0];
+    state[1] += work[1];
+    state[2] += work[2];
+    state[3] += work[3];
+}
+
+static void ifs_ext4_tea_hash_rounds(
+    ifs_ext4_u32 state[4], const ifs_ext4_u32 words[4])
+{
+    ifs_ext4_u32 left = state[0];
+    ifs_ext4_u32 right = state[1];
+    ifs_ext4_u32 sum = 0U;
+    unsigned int round;
+
+    for (round = 0U; round < 16U; ++round) {
+        sum += 0x9e3779b9U;
+        left += ((right << 4) + words[0]) ^
+                (right + sum) ^
+                ((right >> 5) + words[1]);
+        right += ((left << 4) + words[2]) ^
+                 (left + sum) ^
+                 ((left >> 5) + words[3]);
+    }
+
+    state[0] += left;
+    state[1] += right;
+}
+
+static void ifs_ext4_pack_hash_words(
+    const unsigned char *name,
+    const ifs_ext4_u32 remaining,
+    ifs_ext4_u32 *words,
+    const unsigned int word_count,
+    const int signed_bytes)
+{
+    const ifs_ext4_u32 capacity = (ifs_ext4_u32)word_count * 4U;
+    const ifs_ext4_u32 used = remaining < capacity ? remaining : capacity;
+    ifs_ext4_u32 pad = remaining | (remaining << 8);
+    ifs_ext4_u32 value;
+    unsigned int word = 0U;
+    ifs_ext4_u32 index;
+
+    pad |= pad << 16;
+    value = pad;
+
+    for (index = 0U; index < used; ++index) {
+        int byte_value;
+
+        if (signed_bytes != 0)
+            byte_value = (int)(signed char)name[index];
+        else
+            byte_value = (int)name[index];
+
+        value = (ifs_ext4_u32)byte_value + (value << 8);
+        if ((index & 3U) == 3U) {
+            words[word++] = value;
+            value = pad;
+        }
+    }
+
+    if (word < word_count)
+        words[word++] = value;
+    while (word < word_count)
+        words[word++] = pad;
+}
+
+static ifs_ext4_u32 ifs_ext4_legacy_directory_hash(
+    const unsigned char *name,
+    const ifs_ext4_u32 name_length,
+    const int signed_bytes)
+{
+    ifs_ext4_u32 previous = 0x37abe8f9U;
+    ifs_ext4_u32 current = 0x12a3fe2dU;
+    ifs_ext4_u32 index;
+
+    for (index = 0U; index < name_length; ++index) {
+        int byte_value;
+        ifs_ext4_u32 next;
+
+        if (signed_bytes != 0)
+            byte_value = (int)(signed char)name[index];
+        else
+            byte_value = (int)name[index];
+
+        next = previous +
+               (current ^ ((ifs_ext4_u32)byte_value * 7152373U));
+        if ((next & 0x80000000U) != 0U)
+            next -= 0x7fffffffU;
+
+        previous = current;
+        current = next;
+    }
+
+    return current << 1;
+}
+
+int ifs_ext4_directory_hash(
+    const unsigned char *name,
+    const ifs_ext4_u32 name_length,
+    const ifs_ext4_u32 hash_version,
+    const ifs_ext4_u32 seed[4],
+    ifs_ext4_u32 *major_hash,
+    ifs_ext4_u32 *minor_hash)
+{
+    ifs_ext4_u32 state[4] = {
+        0x67452301U, 0xefcdab89U, 0x98badcfeU, 0x10325476U
+    };
+    ifs_ext4_u32 major = 0U;
+    ifs_ext4_u32 minor = 0U;
+    ifs_ext4_u32 offset = 0U;
+    int signed_bytes;
+
+    if (name == 0 || major_hash == 0 || minor_hash == 0)
+        return -1;
+
+    if (seed != 0 &&
+        (seed[0] != 0U || seed[1] != 0U ||
+         seed[2] != 0U || seed[3] != 0U)) {
+        state[0] = seed[0];
+        state[1] = seed[1];
+        state[2] = seed[2];
+        state[3] = seed[3];
+    }
+
+    switch (hash_version) {
+    case IFS_EXT4_HASH_LEGACY:
+    case IFS_EXT4_HASH_LEGACY_UNSIGNED:
+        signed_bytes = hash_version == IFS_EXT4_HASH_LEGACY;
+        major = ifs_ext4_legacy_directory_hash(
+            name, name_length, signed_bytes);
+        break;
+
+    case IFS_EXT4_HASH_HALF_MD4:
+    case IFS_EXT4_HASH_HALF_MD4_UNSIGNED:
+        signed_bytes = hash_version == IFS_EXT4_HASH_HALF_MD4;
+        while (offset < name_length) {
+            ifs_ext4_u32 words[8];
+            const ifs_ext4_u32 remaining = name_length - offset;
+
+            ifs_ext4_pack_hash_words(
+                name + offset, remaining, words, 8U, signed_bytes);
+            ifs_ext4_half_md4_rounds(state, words);
+            offset += remaining > 32U ? 32U : remaining;
+        }
+        major = state[1];
+        minor = state[2];
+        break;
+
+    case IFS_EXT4_HASH_TEA:
+    case IFS_EXT4_HASH_TEA_UNSIGNED:
+        signed_bytes = hash_version == IFS_EXT4_HASH_TEA;
+        while (offset < name_length) {
+            ifs_ext4_u32 words[4];
+            const ifs_ext4_u32 remaining = name_length - offset;
+
+            ifs_ext4_pack_hash_words(
+                name + offset, remaining, words, 4U, signed_bytes);
+            ifs_ext4_tea_hash_rounds(state, words);
+            offset += remaining > 16U ? 16U : remaining;
+        }
+        major = state[0];
+        minor = state[1];
+        break;
+
+    default:
+        return -1;
+    }
+
+    major &= ~1U;
+    if (major == 0xfffffffeU)
+        major = 0xfffffffcU;
+
+    *major_hash = major;
+    *minor_hash = minor;
+    return 0;
+}
