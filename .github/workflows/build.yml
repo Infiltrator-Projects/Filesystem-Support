@@ -171,15 +171,11 @@ jobs:
             native/filesystems/sfs/linux/objects.c
             native/filesystems/sfs/linux/super.c
             native/filesystems/sfs/linux/symlink.c
-            native/filesystems/ext3/linux/balloc.c
-            native/filesystems/ext3/linux/dir.c
-            native/filesystems/ext3/linux/file.c
-            native/filesystems/ext3/linux/ialloc.c
-            native/filesystems/ext3/linux/jbd_checkpoint.c
-            native/filesystems/ext3/linux/jbd_commit.c
-            native/filesystems/ext3/linux/jbd_recovery.c
-            native/filesystems/ext3/linux/jbd_revoke.c
-            native/filesystems/ext3/linux/resize.c
+            native/filesystems/ext3/linux/allocation.c
+            native/filesystems/ext3/linux/directory_io.c
+            native/filesystems/ext3/linux/file_io.c
+            native/filesystems/ext3/linux/journal_durability.c
+            native/filesystems/ext3/linux/core_bridge.c
           )
           for file in "${rewritten[@]}"; do
             test -s "$file"
@@ -195,12 +191,12 @@ jobs:
         run: |
           set -euo pipefail
           inherited=(
-            native/filesystems/ext3/linux/inode.c
-            native/filesystems/ext3/linux/namei.c
-            native/filesystems/ext3/linux/super.c
-            native/filesystems/ext3/linux/xattr.c
-            native/filesystems/ext3/linux/jbd_journal.c
-            native/filesystems/ext3/linux/jbd_transaction.c
+            native/filesystems/ext3/linux/inode_adapter.c
+            native/filesystems/ext3/linux/namespace_mutation.c
+            native/filesystems/ext3/linux/lifecycle.c
+            native/filesystems/ext3/linux/extended_metadata.c
+            native/filesystems/ext3/linux/journal_core.c
+            native/filesystems/ext3/linux/journal_transactions.c
           )
           for file in "${inherited[@]}"; do
             test -s "$file"
