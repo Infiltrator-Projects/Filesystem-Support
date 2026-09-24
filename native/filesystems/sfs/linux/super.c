@@ -532,7 +532,6 @@ static void __exit sfs_exit(void)
 }
 
 MODULE_DESCRIPTION("Infiltrator SFS filesystem support");
-MODULE_LICENSE("GPL");
 MODULE_ALIAS_FS("sfs");
 
 module_init(sfs_init);
