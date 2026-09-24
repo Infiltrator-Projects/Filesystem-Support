@@ -277,16 +277,17 @@ static u32 ifs_ext2_xattr_entry_hash(
 		hash = (hash << 5) ^ (hash >> 27) ^ name_bytes[index];
 
 	for (index = 0; index < padded; index += sizeof(__le32)) {
-		u32 word = 0;
+		__le32 disk_word = 0;
+		u32 word;
 		size_t remaining;
 
 		if (index < value_length) {
-			remaining = min_t(size_t, sizeof(word),
+			remaining = min_t(size_t, sizeof(disk_word),
 					  value_length - index);
-			memcpy(&word, (const char *)value + index, remaining);
-			word = le32_to_cpu((__force __le32)word);
+			memcpy(&disk_word, (const char *)value + index, remaining);
 		}
 
+		word = le32_to_cpu(disk_word);
 		hash = (hash << 16) ^ (hash >> 16) ^ word;
 	}
 
