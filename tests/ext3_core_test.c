@@ -86,6 +86,50 @@ int main(void)
         return fail("zero blocks per group was accepted by layout arithmetic");
 
     {
+        ifs_ext3_u32 group = 0U;
+        ifs_ext3_u32 offset = 0U;
+        ifs_ext3_u64 first = 0U;
+        ifs_ext3_u64 last = 0U;
+
+        if (ifs_ext3_block_group_position(
+                32769U, 1U, 32768U, 4U,
+                &group, &offset) != IFS_EXT3_BLOCK_GROUP_OK ||
+            group != 1U || offset != 0U)
+            return fail("EXT3 block-group mapping is wrong");
+
+        if (ifs_ext3_block_group_position(
+                0U, 1U, 32768U, 4U,
+                &group, &offset) != IFS_EXT3_BLOCK_GROUP_OUT_OF_RANGE)
+            return fail("EXT3 block before first data block was accepted");
+
+        if (ifs_ext3_group_bounds(
+                3U, 1U, 32768U, 100000U,
+                &first, &last) != IFS_EXT3_BLOCK_GROUP_OK ||
+            first != 98305U || last != 99999U)
+            return fail("EXT3 final block-group bounds are wrong");
+
+        if (!ifs_ext3_sparse_super_group(0U) ||
+            !ifs_ext3_sparse_super_group(1U) ||
+            !ifs_ext3_sparse_super_group(9U) ||
+            !ifs_ext3_sparse_super_group(25U) ||
+            !ifs_ext3_sparse_super_group(49U) ||
+            ifs_ext3_sparse_super_group(2U) ||
+            ifs_ext3_group_has_super(1, 2U) ||
+            !ifs_ext3_group_has_super(0, 2U))
+            return fail("EXT3 sparse-super policy is wrong");
+
+        if (ifs_ext3_meta_gdb_count(0U, 32U) != 1U ||
+            ifs_ext3_meta_gdb_count(1U, 32U) != 1U ||
+            ifs_ext3_meta_gdb_count(31U, 32U) != 1U ||
+            ifs_ext3_meta_gdb_count(2U, 32U) != 0U ||
+            ifs_ext3_meta_gdb_count(32U, 32U) != 1U ||
+            ifs_ext3_meta_gdb_count(33U, 32U) != 1U ||
+            ifs_ext3_meta_gdb_count(63U, 32U) != 1U ||
+            ifs_ext3_meta_gdb_count(34U, 32U) != 0U)
+            return fail("EXT3 meta block-group descriptor placement is wrong");
+    }
+
+    {
         ifs_ext3_u16 encoded = 0U;
 
         if (ifs_ext3_directory_record_length_from_disk(0xFFFFU, 65536U) != 65536U)
