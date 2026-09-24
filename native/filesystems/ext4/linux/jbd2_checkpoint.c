@@ -275,7 +275,7 @@ static unsigned long ifs_jbd2_shrink_checkpoint_ring(
 	bool *transaction_released)
 {
 	struct journal_head *last;
-	struct journal_head *current;
+	struct journal_head *cursor;
 	unsigned long removed = 0;
 
 	*transaction_released = false;
@@ -283,16 +283,16 @@ static unsigned long ifs_jbd2_shrink_checkpoint_ring(
 		return 0;
 
 	last = first->b_cpprev;
-	current = first;
+	cursor = first;
 
 	for (;;) {
-		struct journal_head *next = current->b_cpnext;
+		struct journal_head *next = cursor->b_cpnext;
 		int result;
 
 		if (type == JBD2_SHRINK_DESTROY)
-			result = __jbd2_journal_remove_checkpoint(current);
+			result = __jbd2_journal_remove_checkpoint(cursor);
 		else
-			result = jbd2_journal_try_remove_checkpoint(current);
+			result = jbd2_journal_try_remove_checkpoint(cursor);
 
 		if (result < 0) {
 			if (type != JBD2_SHRINK_BUSY_SKIP)
@@ -305,9 +305,9 @@ static unsigned long ifs_jbd2_shrink_checkpoint_ring(
 			}
 		}
 
-		if (current == last || need_resched())
+		if (cursor == last || need_resched())
 			break;
-		current = next;
+		cursor = next;
 	}
 
 	return removed;
