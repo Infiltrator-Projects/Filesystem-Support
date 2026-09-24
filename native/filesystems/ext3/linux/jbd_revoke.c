@@ -57,19 +57,6 @@ ifs_ext3_find_revoke_locked(
 	return NULL;
 }
 
-static struct ifs_ext3_revoke_record *
-ifs_ext3_find_revoke(
-	journal_t *journal, unsigned int block)
-{
-	struct ifs_ext3_revoke_record *record;
-
-	spin_lock(&journal->j_revoke_lock);
-	record = ifs_ext3_find_revoke_locked(
-		journal->j_revoke, block);
-	spin_unlock(&journal->j_revoke_lock);
-	return record;
-}
-
 static int ifs_ext3_add_revoke(
 	journal_t *journal,
 	unsigned int block,
