@@ -63,24 +63,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s native/filesystems/ext2/linux/xattr.c
-          ! grep -Eiq 'SPDX-License-Identifier|Remy Card|Linus Torvalds|Stephen Tweedie|David S\. Miller|Al Viro|Jakub Jelinek' native/filesystems/ext2/linux/xattr.c
-          test -s native/filesystems/ext2/linux/super.c
-          ! grep -Eiq 'SPDX-License-Identifier|Remy Card|Linus Torvalds|Stephen Tweedie|David S\. Miller|Al Viro|Jakub Jelinek' native/filesystems/ext2/linux/super.c
-          test -s native/filesystems/ext2/linux/inode.c
-          ! grep -Eiq 'SPDX-License-Identifier|Remy Card|Linus Torvalds|Stephen Tweedie|Al Viro|Jakub Jelinek' native/filesystems/ext2/linux/inode.c
-          file=native/filesystems/ext2/linux/file.c
-          grep -Fq 'Copyright (C) 2026 Shannon Smith' "$file"
-          ! grep -Eiq 'linux/fs/ext2|Remy Card|Linus Torvalds|Stephen Tweedie|Red Hat' "$file"
-          for file in \
-            native/filesystems/ext2/linux/namei.c \
-            native/filesystems/ext2/linux/ialloc.c \
-            native/filesystems/ext2/linux/balloc.c \
-            native/filesystems/ext2/linux/dir.c \
-            native/filesystems/ext2/linux/ext2.h; do
+          rewritten=(
+            native/filesystems/ext2/linux/allocation.c
+            native/filesystems/ext2/linux/namespace.c
+            native/filesystems/ext2/linux/io.c
+            native/filesystems/ext2/linux/metadata.c
+            native/filesystems/ext2/linux/lifecycle.c
+            native/filesystems/ext2/linux/linux_adapter.h
+            native/filesystems/ext2/linux/core_bridge.c
+          )
+          for file in "${rewritten[@]}"; do
             test -s "$file"
-            ! grep -Eiq 'linux/fs/(ext2|minix)|Remy Card|Linus Torvalds|Stephen Tweedie|David S\. Miller|Al Viro' "$file"
+            ! grep -Eiq 'linux/fs/(ext2|minix)|SPDX-License-Identifier|Remy Card|Linus Torvalds|Stephen Tweedie|David S\. Miller|Al Viro|Jakub Jelinek|Red Hat' "$file"
           done
+          grep -Fq 'Copyright (C) 2026 Shannon Smith' native/filesystems/ext2/linux/io.c
 
       - name: Verify rewritten Amiga adapter provenance
         shell: bash
@@ -223,8 +219,8 @@ jobs:
           grep -Fq '..\core\ext2_core.c'               native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
           grep -Fq '..\core\ext2_engine.c'               native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
           grep -Fq '#include "../core/ext2_engine.h"'               native/filesystems/ext2/windows/ext2_driver.h
-          grep -Fq '#include "../core/ext2_engine.c"'               native/filesystems/ext2/linux/canonical.c
-          grep -Fq 'xattr.o' native/filesystems/ext2/linux/Makefile
+          grep -Fq '#include "../core/ext2_engine.c"'               native/filesystems/ext2/linux/core_bridge.c
+          grep -Fq 'metadata.o' native/filesystems/ext2/linux/Makefile
           grep -Fq -- '-DCONFIG_EXT2_FS_XATTR=1' native/filesystems/ext2/linux/Makefile
           grep -Fq -- '-DCONFIG_EXT2_FS_POSIX_ACL=1' native/filesystems/ext2/linux/Makefile
           grep -Fq -- '-DCONFIG_EXT2_FS_SECURITY=1' native/filesystems/ext2/linux/Makefile
@@ -330,7 +326,7 @@ jobs:
             KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/ext2-build.log
           test -s native/filesystems/ext2/linux/ext2.ko
           ! grep -Fq 'section mismatch' /tmp/ext2-build.log
-          grep -Fq 'xattr.o' /tmp/ext2-build.log
+          grep -Fq 'metadata.o' /tmp/ext2-build.log
 
   linux-ext3-module:
     runs-on: ubuntu-24.04
