@@ -3,9 +3,9 @@
 #endif
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include "amigaffs.h"
-#ifndef INFILTRATOR_FFS_LINUX_H
-#define INFILTRATOR_FFS_LINUX_H
+#include "disk_layout.h"
+#ifndef INFILTRATOR_FFS_LINUX_ADAPTER_H
+#define INFILTRATOR_FFS_LINUX_ADAPTER_H
 
 #include <linux/types.h>
 #include <linux/fs.h>

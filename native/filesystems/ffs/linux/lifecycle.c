@@ -1,4 +1,4 @@
-#include "affs.h"
+#include "linux_adapter.h"
 #include "../core/ffs_core.h"
 
 #define IFS_FFS_FS_NAME "ffs"
