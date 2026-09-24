@@ -71,6 +71,116 @@ IfsExt3LayoutStatus ifs_ext3_compute_group_count(
     return IFS_EXT3_LAYOUT_OK;
 }
 
+IfsExt3BlockGroupStatus ifs_ext3_block_group_position(
+    const ifs_ext3_u64 block,
+    const ifs_ext3_u32 first_data_block,
+    const ifs_ext3_u32 blocks_per_group,
+    const ifs_ext3_u32 group_count,
+    ifs_ext3_u32 *const group,
+    ifs_ext3_u32 *const block_offset)
+{
+    ifs_ext3_u64 relative;
+    ifs_ext3_u64 computed_group;
+
+    if (group == 0 || block_offset == 0)
+        return IFS_EXT3_BLOCK_GROUP_INVALID_ARGUMENT;
+    if (blocks_per_group == 0U)
+        return IFS_EXT3_BLOCK_GROUP_INVALID_GEOMETRY;
+    if (block < first_data_block)
+        return IFS_EXT3_BLOCK_GROUP_OUT_OF_RANGE;
+
+    relative = block - first_data_block;
+    computed_group = relative / blocks_per_group;
+    if (computed_group >= group_count || computed_group > 0xffffffffULL)
+        return IFS_EXT3_BLOCK_GROUP_OUT_OF_RANGE;
+
+    *group = (ifs_ext3_u32)computed_group;
+    *block_offset = (ifs_ext3_u32)(relative % blocks_per_group);
+    return IFS_EXT3_BLOCK_GROUP_OK;
+}
+
+IfsExt3BlockGroupStatus ifs_ext3_group_bounds(
+    const ifs_ext3_u32 group,
+    const ifs_ext3_u32 first_data_block,
+    const ifs_ext3_u32 blocks_per_group,
+    const ifs_ext3_u64 blocks_count,
+    ifs_ext3_u64 *const first_block,
+    ifs_ext3_u64 *const last_block)
+{
+    ifs_ext3_u64 first;
+    ifs_ext3_u64 last;
+
+    if (first_block == 0 || last_block == 0)
+        return IFS_EXT3_BLOCK_GROUP_INVALID_ARGUMENT;
+    if (blocks_per_group == 0U || blocks_count <= first_data_block)
+        return IFS_EXT3_BLOCK_GROUP_INVALID_GEOMETRY;
+
+    first = (ifs_ext3_u64)first_data_block +
+            (ifs_ext3_u64)group * blocks_per_group;
+    if (first >= blocks_count)
+        return IFS_EXT3_BLOCK_GROUP_OUT_OF_RANGE;
+
+    last = first + blocks_per_group - 1U;
+    if (last < first || last >= blocks_count)
+        last = blocks_count - 1U;
+
+    *first_block = first;
+    *last_block = last;
+    return IFS_EXT3_BLOCK_GROUP_OK;
+}
+
+static int ifs_ext3_is_power_of(
+    ifs_ext3_u32 value, const ifs_ext3_u32 base)
+{
+    if (value < 1U || base < 2U)
+        return 0;
+    while (value > 1U && value % base == 0U)
+        value /= base;
+    return value == 1U;
+}
+
+int ifs_ext3_sparse_super_group(const ifs_ext3_u32 group)
+{
+    if (group <= 1U)
+        return 1;
+    if ((group & 1U) == 0U)
+        return 0;
+    return ifs_ext3_is_power_of(group, 3U) ||
+           ifs_ext3_is_power_of(group, 5U) ||
+           ifs_ext3_is_power_of(group, 7U);
+}
+
+int ifs_ext3_group_has_super(
+    const int sparse_super_enabled,
+    const ifs_ext3_u32 group)
+{
+    return sparse_super_enabled == 0 ||
+           ifs_ext3_sparse_super_group(group);
+}
+
+ifs_ext3_u32 ifs_ext3_meta_gdb_count(
+    const ifs_ext3_u32 group,
+    const ifs_ext3_u32 descriptors_per_block)
+{
+    ifs_ext3_u32 meta_group;
+    ifs_ext3_u32 first;
+    ifs_ext3_u32 last;
+
+    if (descriptors_per_block == 0U)
+        return 0U;
+
+    meta_group = group / descriptors_per_block;
+    first = meta_group * descriptors_per_block;
+    last = first + descriptors_per_block - 1U;
+    if (last < first)
+        return 0U;
+
+    return group == first ||
+           group == first + 1U ||
+           group == last ? 1U : 0U;
+}
+
+
 
 
 ifs_ext3_u32 ifs_ext3_directory_record_length_from_disk(
