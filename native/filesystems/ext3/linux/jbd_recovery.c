@@ -77,7 +77,7 @@ static int ifs_ext3_read_log_block(
 
 	*result = NULL;
 	if (offset >= journal->j_maxlen)
-		return -EFSCORRUPTED;
+		return -EUCLEAN;
 
 	error = journal_bmap(journal, offset, &physical);
 	if (error)
@@ -122,7 +122,7 @@ static int ifs_ext3_descriptor_tag_count(
 
 		if (!(flags & JFS_FLAG_SAME_UUID)) {
 			if (cursor + 16 > limit)
-				return -EFSCORRUPTED;
+				return -EUCLEAN;
 			cursor += 16;
 		}
 
@@ -145,9 +145,9 @@ static int ifs_ext3_scan_revoke_block(
 	unsigned int end = be32_to_cpu(header->r_count);
 
 	if (end < sizeof(*header) || end > journal->j_blocksize)
-		return -EFSCORRUPTED;
+		return -EUCLEAN;
 	if ((end - sizeof(*header)) & 3U)
-		return -EFSCORRUPTED;
+		return -EUCLEAN;
 
 	while (offset < end) {
 		unsigned int block =
@@ -194,7 +194,7 @@ static int ifs_ext3_replay_descriptor(
 
 		if (!(flags & JFS_FLAG_SAME_UUID)) {
 			if (cursor + 16 > limit)
-				return -EFSCORRUPTED;
+				return -EUCLEAN;
 			cursor += 16;
 		}
 
