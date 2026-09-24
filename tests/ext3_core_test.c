@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "ext3_core.h"
 
 #include <stdio.h>
@@ -105,6 +104,30 @@ int main(void)
             return fail("out-of-range directory inode was accepted");
     }
 
+
+    {
+        static const ifs_ext3_u8 name[] = "hello.txt";
+        ifs_ext3_u32 major = 0U;
+        ifs_ext3_u32 minor = 0U;
+
+        if (ifs_ext3_directory_hash(
+                name, 9U, IFS_EXT3_HASH_LEGACY, 0,
+                &major, &minor) != 0 ||
+            major != 0x65a05776U || minor != 0U)
+            return fail("legacy directory hash compatibility vector failed");
+
+        if (ifs_ext3_directory_hash(
+                name, 9U, IFS_EXT3_HASH_HALF_MD4, 0,
+                &major, &minor) != 0 ||
+            major != 0xa26e1d86U || minor != 0x133b3f98U)
+            return fail("half-MD4 directory hash compatibility vector failed");
+
+        if (ifs_ext3_directory_hash(
+                name, 9U, IFS_EXT3_HASH_TEA, 0,
+                &major, &minor) != 0 ||
+            major != 0x5107c3f2U || minor != 0x03840cb7U)
+            return fail("TEA directory hash compatibility vector failed");
+    }
 
     {
         ifs_ext3_u32 offsets[4] = { 0U, 0U, 0U, 0U };
