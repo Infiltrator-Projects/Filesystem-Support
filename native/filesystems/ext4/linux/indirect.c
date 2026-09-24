@@ -338,7 +338,7 @@ int ext4_ind_map_blocks(handle_t *handle, struct inode *inode,
 
 		while (count < map->m_len &&
 		       count <= boundary &&
-		       le32_to_cpu(chain[depth - 1].slot + count) ==
+		       le32_to_cpu(*(chain[depth - 1].slot + count)) ==
 			       first + count)
 			count++;
 
