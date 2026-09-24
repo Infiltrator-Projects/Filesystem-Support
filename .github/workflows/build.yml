@@ -200,7 +200,7 @@ jobs:
           grep -Fq -- '-DCONFIG_EXT2_FS_SECURITY=1' native/filesystems/ext2/linux/Makefile
 
   linux:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ startsWith(github.event.head_commit.message, 'Release ') && 'ubuntu-24.04' || 'linux-native' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -208,9 +208,23 @@ jobs:
           submodules: recursive
 
       - name: Dependencies
+        if: runner.environment == 'github-hosted'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev
+
+      - name: Verify self-hosted dependencies
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for command_name in cmake ctest ninja pkg-config; do
+            command -v "$command_name" >/dev/null 2>&1 || {
+              echo "Self-hosted runner is missing $command_name." >&2
+              exit 1
+            }
+          done
+          pkg-config --exists gtk+-3.0
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
