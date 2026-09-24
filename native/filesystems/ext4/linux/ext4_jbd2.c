@@ -1,385 +1,252 @@
-// SPDX-License-Identifier: GPL-2.0
-
-/*
- * EXT4 — EXT4-to-JBD2 adapter
- *
- * Purpose:
- *   Translates EXT4 metadata operations into JBD2 handle and buffer-access operations while centralising filesystem-specific error handling.
- *
- * Filesystem model:
- *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
- *
- * Correctness focus:
- *   Adapter failures must abort or propagate consistently so EXT4 never reports metadata durable when the journal rejected the operation.
- *
- * Project rules:
- *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
- *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
 #include "ext4_jbd2.h"
 
 #include <trace/events/ext4.h>
 
-
-/**
- * ext4_inode_journal_mode - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext4_inode_journal_mode(struct inode *inode)
 {
-	if (EXT4_JOURNAL(inode) == NULL)
+	if (!EXT4_JOURNAL(inode))
 		return EXT4_INODE_WRITEBACK_DATA_MODE;
 
 	if (!S_ISREG(inode->i_mode) ||
 	    ext4_test_inode_flag(inode, EXT4_INODE_EA_INODE) ||
 	    test_opt(inode->i_sb, DATA_FLAGS) == EXT4_MOUNT_JOURNAL_DATA ||
 	    (ext4_test_inode_flag(inode, EXT4_INODE_JOURNAL_DATA) &&
-	    !test_opt(inode->i_sb, DELALLOC))) {
-
+	     !test_opt(inode->i_sb, DELALLOC))) {
 		if (S_ISREG(inode->i_mode) && IS_ENCRYPTED(inode))
 			return EXT4_INODE_ORDERED_DATA_MODE;
 		return EXT4_INODE_JOURNAL_DATA_MODE;
 	}
+
 	if (test_opt(inode->i_sb, DATA_FLAGS) == EXT4_MOUNT_ORDERED_DATA)
 		return EXT4_INODE_ORDERED_DATA_MODE;
 	if (test_opt(inode->i_sb, DATA_FLAGS) == EXT4_MOUNT_WRITEBACK_DATA)
 		return EXT4_INODE_WRITEBACK_DATA_MODE;
+
 	BUG();
 }
 
-
-/**
- * ext4_get_nojournal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static handle_t *ext4_get_nojournal(void)
+static handle_t *ext4_nojournal_get(void)
 {
-	handle_t *handle = current->journal_info;
-	unsigned long ref_cnt = (unsigned long)handle;
+	unsigned long refs = (unsigned long)current->journal_info;
 
-	BUG_ON(ref_cnt >= EXT4_NOJOURNAL_MAX_REF_COUNT);
-
-	ref_cnt++;
-	handle = (handle_t *)ref_cnt;
-
-	current->journal_info = handle;
-	return handle;
+	BUG_ON(refs >= EXT4_NOJOURNAL_MAX_REF_COUNT);
+	refs++;
+	current->journal_info = (handle_t *)refs;
+	return (handle_t *)refs;
 }
 
-
-/**
- * ext4_put_nojournal - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void ext4_put_nojournal(handle_t *handle)
+static void ext4_nojournal_put(handle_t *handle)
 {
-	unsigned long ref_cnt = (unsigned long)handle;
+	unsigned long refs = (unsigned long)handle;
 
-	BUG_ON(ref_cnt == 0);
-
-	ref_cnt--;
-	handle = (handle_t *)ref_cnt;
-
-	current->journal_info = handle;
+	BUG_ON(refs == 0);
+	current->journal_info = (handle_t *)(refs - 1);
 }
 
-
-/**
- * ext4_journal_check_start - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext4_journal_check_start(struct super_block *sb)
+static int ext4_journal_can_start(struct super_block *sb)
 {
 	journal_t *journal;
 
 	might_sleep();
-
 	if (unlikely(ext4_forced_shutdown(sb)))
 		return -EIO;
-
 	if (WARN_ON_ONCE(sb_rdonly(sb)))
 		return -EROFS;
 
 	WARN_ON(sb->s_writers.frozen == SB_FREEZE_COMPLETE);
 	journal = EXT4_SB(sb)->s_journal;
-
-
 	if (journal && is_journal_aborted(journal)) {
-		ext4_abort(sb, -journal->j_errno, "Detected aborted journal");
+		ext4_abort(sb, -journal->j_errno, "aborted journal");
 		return -EROFS;
 	}
+
 	return 0;
 }
 
-
-/**
- * __ext4_journal_start_sb - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 handle_t *__ext4_journal_start_sb(struct inode *inode,
-				  struct super_block *sb, unsigned int line,
-				  int type, int blocks, int rsv_blocks,
-				  int revoke_creds)
+				  struct super_block *sb,
+				  unsigned int line, int type,
+				  int blocks, int reserved_blocks,
+				  int revoke_credits)
 {
 	journal_t *journal;
 	int err;
+
 	if (inode)
-		trace_ext4_journal_start_inode(inode, blocks, rsv_blocks,
-					revoke_creds, type,
-					_RET_IP_);
+		trace_ext4_journal_start_inode(
+			inode, blocks, reserved_blocks,
+			revoke_credits, type, _RET_IP_);
 	else
-		trace_ext4_journal_start_sb(sb, blocks, rsv_blocks,
-					revoke_creds, type,
-					_RET_IP_);
-	err = ext4_journal_check_start(sb);
-	if (err < 0)
+		trace_ext4_journal_start_sb(
+			sb, blocks, reserved_blocks,
+			revoke_credits, type, _RET_IP_);
+
+	err = ext4_journal_can_start(sb);
+	if (err)
 		return ERR_PTR(err);
 
 	journal = EXT4_SB(sb)->s_journal;
 	if (!journal || (EXT4_SB(sb)->s_mount_state & EXT4_FC_REPLAY))
-		return ext4_get_nojournal();
-	return jbd2__journal_start(journal, blocks, rsv_blocks, revoke_creds,
-				   GFP_NOFS, type, line);
+		return ext4_nojournal_get();
+
+	return jbd2__journal_start(
+		journal, blocks, reserved_blocks, revoke_credits,
+		GFP_NOFS, type, line);
 }
 
-
-/**
- * __ext4_journal_stop - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int __ext4_journal_stop(const char *where, unsigned int line, handle_t *handle)
+int __ext4_journal_stop(const char *where, unsigned int line,
+			handle_t *handle)
 {
 	struct super_block *sb;
-	int err;
-	int rc;
+	int stored_err;
+	int stop_err;
 
 	if (!ext4_handle_valid(handle)) {
-		ext4_put_nojournal(handle);
+		ext4_nojournal_put(handle);
 		return 0;
 	}
 
-	err = handle->h_err;
+	stored_err = handle->h_err;
 	if (!handle->h_transaction) {
-		rc = jbd2_journal_stop(handle);
-		return err ? err : rc;
+		stop_err = jbd2_journal_stop(handle);
+		return stored_err ? stored_err : stop_err;
 	}
 
 	sb = handle->h_transaction->t_journal->j_private;
-	rc = jbd2_journal_stop(handle);
-
-	if (!err)
-		err = rc;
-	if (err)
-		__ext4_std_error(sb, where, line, err);
-	return err;
+	stop_err = jbd2_journal_stop(handle);
+	if (!stored_err)
+		stored_err = stop_err;
+	if (stored_err)
+		__ext4_std_error(sb, where, line, stored_err);
+	return stored_err;
 }
 
-
-/**
- * __ext4_journal_start_reserved - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-handle_t *__ext4_journal_start_reserved(handle_t *handle, unsigned int line,
-					int type)
+handle_t *__ext4_journal_start_reserved(handle_t *handle,
+					unsigned int line, int type)
 {
 	struct super_block *sb;
 	int err;
 
 	if (!ext4_handle_valid(handle))
-		return ext4_get_nojournal();
+		return ext4_nojournal_get();
 
 	sb = handle->h_journal->j_private;
-	trace_ext4_journal_start_reserved(sb,
-				jbd2_handle_buffer_credits(handle), _RET_IP_);
-	err = ext4_journal_check_start(sb);
-	if (err < 0) {
+	trace_ext4_journal_start_reserved(
+		sb, jbd2_handle_buffer_credits(handle), _RET_IP_);
+
+	err = ext4_journal_can_start(sb);
+	if (err) {
 		jbd2_journal_free_reserved(handle);
 		return ERR_PTR(err);
 	}
 
 	err = jbd2_journal_start_reserved(handle, type, line);
-	if (err < 0)
-		return ERR_PTR(err);
-	return handle;
+	return err ? ERR_PTR(err) : handle;
 }
 
-
-/**
- * __ext4_journal_ensure_credits - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int __ext4_journal_ensure_credits(handle_t *handle, int check_cred,
-				  int extend_cred, int revoke_cred)
+int __ext4_journal_ensure_credits(handle_t *handle, int check_credits,
+				  int extend_credits, int revoke_credits)
 {
 	if (!ext4_handle_valid(handle))
 		return 0;
 	if (is_handle_aborted(handle))
 		return -EROFS;
-	if (jbd2_handle_buffer_credits(handle) >= check_cred &&
-	    handle->h_revoke_credits >= revoke_cred)
+	if (jbd2_handle_buffer_credits(handle) >= check_credits &&
+	    handle->h_revoke_credits >= revoke_credits)
 		return 0;
-	extend_cred = max(0, extend_cred - jbd2_handle_buffer_credits(handle));
-	revoke_cred = max(0, revoke_cred - handle->h_revoke_credits);
-	return ext4_journal_extend(handle, extend_cred, revoke_cred);
+
+	extend_credits = max(
+		0, extend_credits - jbd2_handle_buffer_credits(handle));
+	revoke_credits = max(
+		0, revoke_credits - handle->h_revoke_credits);
+	return ext4_journal_extend(
+		handle, extend_credits, revoke_credits);
 }
 
-
-/**
- * ext4_journal_abort_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void ext4_journal_abort_handle(const char *caller, unsigned int line,
-				      const char *err_fn,
-				      struct buffer_head *bh,
-				      handle_t *handle, int err)
+static void ext4_abort_handle(const char *where, unsigned int line,
+			      const char *operation,
+			      struct buffer_head *bh,
+			      handle_t *handle, int err)
 {
-	char nbuf[16];
-	const char *errstr = ext4_decode_error(NULL, err, nbuf);
+	char error_text[16];
 
 	BUG_ON(!ext4_handle_valid(handle));
-
 	if (bh)
 		BUFFER_TRACE(bh, "abort");
-
 	if (!handle->h_err)
 		handle->h_err = err;
-
 	if (is_handle_aborted(handle))
 		return;
 
-	printk(KERN_ERR "EXT4-fs: %s:%d: aborting transaction: %s in %s\n",
-	       caller, line, errstr, err_fn);
-
+	pr_err("EXT4-fs: %s:%u: aborting transaction: %s in %s\n",
+	       where, line,
+	       ext4_decode_error(NULL, err, error_text), operation);
 	jbd2_journal_abort_handle(handle);
 }
 
-
-/**
- * ext4_check_bdev_write_error - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void ext4_check_bdev_write_error(struct super_block *sb)
+static void ext4_check_device_writeback(struct super_block *sb)
 {
-	struct address_space *mapping = sb->s_bdev->bd_mapping;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	struct address_space *mapping = sb->s_bdev->bd_mapping;
 	int err;
 
+	if (!errseq_check(&mapping->wb_err, READ_ONCE(sbi->s_bdev_wb_err)))
+		return;
 
-	if (errseq_check(&mapping->wb_err, READ_ONCE(sbi->s_bdev_wb_err))) {
-		spin_lock(&sbi->s_bdev_wb_lock);
-		err = errseq_check_and_advance(&mapping->wb_err, &sbi->s_bdev_wb_err);
-		spin_unlock(&sbi->s_bdev_wb_lock);
-		if (err)
-			ext4_error_err(sb, -err,
-				       "Error while async write back metadata");
-	}
+	spin_lock(&sbi->s_bdev_wb_lock);
+	err = errseq_check_and_advance(
+		&mapping->wb_err, &sbi->s_bdev_wb_err);
+	spin_unlock(&sbi->s_bdev_wb_lock);
+
+	if (err)
+		ext4_error_err(
+			sb, -err, "asynchronous metadata writeback failed");
 }
 
+static void ext4_set_journal_trigger(struct super_block *sb,
+				     struct buffer_head *bh,
+				     enum ext4_journal_trigger_type type)
+{
+	if (type == EXT4_JTR_NONE || !ext4_has_metadata_csum(sb))
+		return;
 
-/**
- * __ext4_journal_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
+	BUG_ON(type >= EXT4_JOURNAL_TRIGGER_COUNT);
+	jbd2_journal_set_triggers(
+		bh, &EXT4_SB(sb)->s_journal_triggers[type].tr_triggers);
+}
+
 int __ext4_journal_get_write_access(const char *where, unsigned int line,
-				    handle_t *handle, struct super_block *sb,
+				    handle_t *handle,
+				    struct super_block *sb,
 				    struct buffer_head *bh,
-				    enum ext4_journal_trigger_type trigger_type)
+				    enum ext4_journal_trigger_type type)
 {
 	int err;
 
 	might_sleep();
-
 	if (ext4_handle_valid(handle)) {
 		err = jbd2_journal_get_write_access(handle, bh);
 		if (err) {
-			ext4_journal_abort_handle(where, line, __func__, bh,
-						  handle, err);
+			ext4_abort_handle(
+				where, line, __func__, bh, handle, err);
 			return err;
 		}
-	} else
-		ext4_check_bdev_write_error(sb);
-	if (trigger_type == EXT4_JTR_NONE || !ext4_has_metadata_csum(sb))
-		return 0;
-	BUG_ON(trigger_type >= EXT4_JOURNAL_TRIGGER_COUNT);
-	jbd2_journal_set_triggers(bh,
-		&EXT4_SB(sb)->s_journal_triggers[trigger_type].tr_triggers);
+	} else {
+		ext4_check_device_writeback(sb);
+	}
+
+	ext4_set_journal_trigger(sb, bh, type);
 	return 0;
 }
 
-
-/**
- * __ext4_forget - Implements the forget operation within the ext4-to-jbd2 adapter subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int __ext4_forget(const char *where, unsigned int line, handle_t *handle,
-		  int is_metadata, struct inode *inode,
-		  struct buffer_head *bh, ext4_fsblk_t blocknr)
+		  int metadata, struct inode *inode,
+		  struct buffer_head *bh, ext4_fsblk_t block)
 {
 	int err;
 
 	might_sleep();
-
-	trace_ext4_forget(inode, is_metadata, blocknr);
-	BUFFER_TRACE(bh, "enter");
-
-	ext4_debug("forgetting bh %p: is_metadata=%d, mode %o, data mode %x\n",
-		  bh, is_metadata, inode->i_mode,
-		  test_opt(inode->i_sb, DATA_FLAGS));
-
+	trace_ext4_forget(inode, metadata, block);
 
 	if (!ext4_handle_valid(handle)) {
 		if (bh) {
@@ -390,46 +257,33 @@ int __ext4_forget(const char *where, unsigned int line, handle_t *handle,
 		return 0;
 	}
 
-
 	if (test_opt(inode->i_sb, DATA_FLAGS) == EXT4_MOUNT_JOURNAL_DATA ||
-	    (!is_metadata && !ext4_should_journal_data(inode))) {
-		if (bh) {
-			BUFFER_TRACE(bh, "call jbd2_journal_forget");
-			err = jbd2_journal_forget(handle, bh);
-			if (err)
-				ext4_journal_abort_handle(where, line, __func__,
-							  bh, handle, err);
-			return err;
-		}
-		return 0;
+	    (!metadata && !ext4_should_journal_data(inode))) {
+		if (!bh)
+			return 0;
+		err = jbd2_journal_forget(handle, bh);
+		if (err)
+			ext4_abort_handle(
+				where, line, __func__, bh, handle, err);
+		return err;
 	}
 
-
-	BUFFER_TRACE(bh, "call jbd2_journal_revoke");
-	err = jbd2_journal_revoke(handle, blocknr, bh);
+	err = jbd2_journal_revoke(handle, block, bh);
 	if (err) {
-		ext4_journal_abort_handle(where, line, __func__,
-					  bh, handle, err);
-		__ext4_error(inode->i_sb, where, line, true, -err, 0,
-			     "error %d when attempting revoke", err);
+		ext4_abort_handle(
+			where, line, __func__, bh, handle, err);
+		__ext4_error(
+			inode->i_sb, where, line, true, -err, 0,
+			"journal revoke failed: %d", err);
 	}
-	BUFFER_TRACE(bh, "exit");
 	return err;
 }
 
-
-/**
- * __ext4_journal_get_create_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int __ext4_journal_get_create_access(const char *where, unsigned int line,
-				handle_t *handle, struct super_block *sb,
-				struct buffer_head *bh,
-				enum ext4_journal_trigger_type trigger_type)
+int __ext4_journal_get_create_access(
+	const char *where, unsigned int line,
+	handle_t *handle, struct super_block *sb,
+	struct buffer_head *bh,
+	enum ext4_journal_trigger_type type)
 {
 	int err;
 
@@ -438,27 +292,15 @@ int __ext4_journal_get_create_access(const char *where, unsigned int line,
 
 	err = jbd2_journal_get_create_access(handle, bh);
 	if (err) {
-		ext4_journal_abort_handle(where, line, __func__, bh, handle,
-					  err);
+		ext4_abort_handle(
+			where, line, __func__, bh, handle, err);
 		return err;
 	}
-	if (trigger_type == EXT4_JTR_NONE || !ext4_has_metadata_csum(sb))
-		return 0;
-	BUG_ON(trigger_type >= EXT4_JOURNAL_TRIGGER_COUNT);
-	jbd2_journal_set_triggers(bh,
-		&EXT4_SB(sb)->s_journal_triggers[trigger_type].tr_triggers);
+
+	ext4_set_journal_trigger(sb, bh, type);
 	return 0;
 }
 
-
-/**
- * __ext4_handle_dirty_metadata - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int __ext4_handle_dirty_metadata(const char *where, unsigned int line,
 				 handle_t *handle, struct inode *inode,
 				 struct buffer_head *bh)
@@ -466,51 +308,42 @@ int __ext4_handle_dirty_metadata(const char *where, unsigned int line,
 	int err = 0;
 
 	might_sleep();
-
 	set_buffer_meta(bh);
 	set_buffer_prio(bh);
 	set_buffer_uptodate(bh);
+
 	if (ext4_handle_valid(handle)) {
 		err = jbd2_journal_dirty_metadata(handle, bh);
-
 		if (!is_handle_aborted(handle) && WARN_ON_ONCE(err)) {
-			ext4_journal_abort_handle(where, line, __func__, bh,
-						  handle, err);
-			if (inode == NULL) {
-				pr_err("EXT4: jbd2_journal_dirty_metadata "
-				       "failed: handle type %u started at "
-				       "line %u, credits %u/%u, errcode %d",
-				       handle->h_type,
-				       handle->h_line_no,
-				       handle->h_requested_credits,
-				       jbd2_handle_buffer_credits(handle), err);
-				return err;
-			}
-			ext4_error_inode(inode, where, line,
-					 bh->b_blocknr,
-					 "journal_dirty_metadata failed: "
-					 "handle type %u started at line %u, "
-					 "credits %u/%u, errcode %d",
-					 handle->h_type,
-					 handle->h_line_no,
-					 handle->h_requested_credits,
-					 jbd2_handle_buffer_credits(handle),
-					 err);
+			ext4_abort_handle(
+				where, line, __func__, bh, handle, err);
+			if (inode)
+				ext4_error_inode(
+					inode, where, line, bh->b_blocknr,
+					"journal metadata dirty failed: %d",
+					err);
+			else
+				pr_err(
+					"EXT4: journal metadata dirty failed: %d\n",
+					err);
 		}
-	} else {
-		if (inode)
-			mark_buffer_dirty_inode(bh, inode);
-		else
-			mark_buffer_dirty(bh);
-		if (inode && inode_needs_sync(inode)) {
-			sync_dirty_buffer(bh);
-			if (buffer_req(bh) && !buffer_uptodate(bh)) {
-				ext4_error_inode_err(inode, where, line,
-						     bh->b_blocknr, EIO,
-					"IO error syncing itable block");
-				err = -EIO;
-			}
+		return err;
+	}
+
+	if (inode)
+		mark_buffer_dirty_inode(bh, inode);
+	else
+		mark_buffer_dirty(bh);
+
+	if (inode && inode_needs_sync(inode)) {
+		sync_dirty_buffer(bh);
+		if (buffer_req(bh) && !buffer_uptodate(bh)) {
+			ext4_error_inode_err(
+				inode, where, line, bh->b_blocknr, EIO,
+				"metadata sync failed");
+			err = -EIO;
 		}
 	}
+
 	return err;
 }
