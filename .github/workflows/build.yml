@@ -139,6 +139,7 @@ jobs:
             native/filesystems/ext4/linux/sysfs.c
             native/filesystems/ext4/linux/indirect.c
             native/filesystems/ext4/linux/ext4_jbd2.h
+            native/filesystems/ext4/linux/mballoc.h
           )
           for file in "${rewritten[@]}"; do
             test -s "$file"
