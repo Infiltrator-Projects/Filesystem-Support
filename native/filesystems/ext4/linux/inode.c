@@ -2608,10 +2608,16 @@ static int ext4_do_writepages(struct mpage_da_data *mpd)
 	mpd->journalled_more_data = 0;
 
 	if (ext4_should_dioread_nolock(inode)) {
+		const int blocks_per_page =
+			PAGE_SIZE >> inode->i_blkbits;
 
-
-		rsv_blocks = 1 + ext4_chunk_trans_blocks(inode,
-						PAGE_SIZE >> inode->i_blkbits);
+		/*
+		 * Sparse dirtying can split one unwritten extent into many
+		 * written extents.  Reserve for the maximum number of extent
+		 * records touched by this page rather than a single extent.
+		 */
+		rsv_blocks = ext4_meta_trans_blocks(
+			inode, blocks_per_page, blocks_per_page);
 	}
 
 	if (wbc->range_start == 0 && wbc->range_end == LLONG_MAX)
