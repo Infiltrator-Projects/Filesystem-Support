@@ -21,10 +21,16 @@
 #define IFS_FFS_AOPS_WRITE_CONTEXT_ARG iocb
 #define IFS_FFS_INODE_IS_NEW(inode) \
     ((inode_state_read_once(inode) & I_NEW) != 0)
+#define IFS_FFS_MKDIR_RETURN struct dentry *
+#define IFS_FFS_MKDIR_FAILURE(error) ERR_PTR(error)
+#define IFS_FFS_MKDIR_SUCCESS NULL
 #else
 #define IFS_FFS_AOPS_WRITE_CONTEXT struct file *file
 #define IFS_FFS_AOPS_WRITE_CONTEXT_ARG file
 #define IFS_FFS_INODE_IS_NEW(inode) (((inode)->i_state & I_NEW) != 0)
+#define IFS_FFS_MKDIR_RETURN int
+#define IFS_FFS_MKDIR_FAILURE(error) (error)
+#define IFS_FFS_MKDIR_SUCCESS 0
 #endif
 
 #define AFFS_HEAD(bh)     ((struct affs_head *)(bh)->b_data)
@@ -171,7 +177,7 @@ int affs_unlink(struct inode *dir, struct dentry *dentry);
 int affs_create(
     struct mnt_idmap *idmap, struct inode *dir,
     struct dentry *dentry, umode_t mode, bool exclusive);
-int affs_mkdir(
+IFS_FFS_MKDIR_RETURN affs_mkdir(
     struct mnt_idmap *idmap, struct inode *dir,
     struct dentry *dentry, umode_t mode);
 int affs_rmdir(struct inode *dir, struct dentry *dentry);

@@ -962,7 +962,7 @@ int affs_create(
 
     inode = affs_new_inode(dir);
     if (!inode)
-        return -ENOSPC;
+        return IFS_OFS_MKDIR_FAILURE(-ENOSPC);
 
     inode->i_mode = mode;
     affs_mode_to_prot(inode);
@@ -982,7 +982,7 @@ int affs_create(
     return result;
 }
 
-int affs_mkdir(
+IFS_OFS_MKDIR_RETURN affs_mkdir(
     struct mnt_idmap *idmap, struct inode *dir,
     struct dentry *dentry, umode_t mode)
 {
@@ -1003,8 +1003,9 @@ int affs_mkdir(
         clear_nlink(inode);
         mark_inode_dirty(inode);
         iput(inode);
+        return IFS_OFS_MKDIR_FAILURE(result);
     }
-    return result;
+    return IFS_OFS_MKDIR_SUCCESS;
 }
 
 int affs_rmdir(struct inode *dir, struct dentry *dentry)
