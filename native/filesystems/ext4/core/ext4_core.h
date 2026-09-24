@@ -22,6 +22,33 @@ typedef uint32_t ifs_ext4_u32;
 typedef uint64_t ifs_ext4_u64;
 
 
+typedef enum IfsExt4BlockGroupStatus {
+    IFS_EXT4_BLOCK_GROUP_OK = 0,
+    IFS_EXT4_BLOCK_GROUP_INVALID_ARGUMENT,
+    IFS_EXT4_BLOCK_GROUP_INVALID_GEOMETRY,
+    IFS_EXT4_BLOCK_GROUP_OUT_OF_RANGE
+} IfsExt4BlockGroupStatus;
+
+IfsExt4BlockGroupStatus ifs_ext4_block_group_position(
+    ifs_ext4_u64 block,
+    ifs_ext4_u32 first_data_block,
+    ifs_ext4_u32 blocks_per_group,
+    ifs_ext4_u32 cluster_bits,
+    ifs_ext4_u32 group_count,
+    ifs_ext4_u32 *group,
+    ifs_ext4_u32 *cluster_offset);
+
+IfsExt4BlockGroupStatus ifs_ext4_group_bounds(
+    ifs_ext4_u32 group,
+    ifs_ext4_u32 first_data_block,
+    ifs_ext4_u32 blocks_per_group,
+    ifs_ext4_u64 blocks_count,
+    ifs_ext4_u64 *first_block,
+    ifs_ext4_u64 *last_block);
+
+int ifs_ext4_sparse_super_group(ifs_ext4_u32 group);
+int ifs_ext4_group_has_super(int sparse_super_enabled, ifs_ext4_u32 group);
+
 #endif
 
 #define IFS_EXT4_FEATURE_INCOMPAT_FILETYPE    0x0002U
