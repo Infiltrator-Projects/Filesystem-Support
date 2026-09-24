@@ -1,697 +1,572 @@
 /*
- *  linux/fs/ext3/ialloc.c
+ * Filesystem Support EXT3 inode allocation.
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  BSD ufs-inspired inode and directory allocation by
- *  Stephen Tweedie (sct@redhat.com), 1993
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
+ * This Linux adapter owns inode-bitmap reservation and EXT3 journal ordering.
+ * Selection policy is deliberately separate from publication: a candidate
+ * group is chosen first, then bitmap and descriptor accounting are changed
+ * together through the caller's journal handle.
  */
 
-/*
- * EXT3 — Inode allocation
- *
- * Purpose:
- *   Selects block groups for new inodes and maintains inode/directory allocation accounting.
- *
- * Filesystem model:
- *   This file belongs to a standalone EXT3 VFS implementation with its historical JBD engine embedded in ext3.ko.
- *
- * Correctness focus:
- *   Group selection is policy; bitmap and counter updates are correctness state and must remain atomic with the filesystem's transaction model.
- *
- * Project rules:
- *   - EXT3 requires its journal semantics; it is not an EXT4 compatibility registration.
- *   - Preserve the journal, recovery, ordered/writeback/journal data modes and EXT3 on-disk limits.
- *   - JBD and the metadata cache are private implementation code, not separately deployed modules.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
+#include <linux/buffer_head.h>
 #include <linux/quotaops.h>
 #include <linux/random.h>
 
 #include "ext3.h"
 
-
-/**
- * read_inode_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static struct buffer_head *
-read_inode_bitmap(struct super_block * sb, unsigned long block_group)
+static struct buffer_head *ifs_ext3_read_inode_bitmap(
+	struct super_block *sb, unsigned int group)
 {
 	struct ext3_group_desc *desc;
-	struct buffer_head *bh = NULL;
+	u32 block;
 
-	desc = ext3_get_group_desc(sb, block_group, NULL);
+	desc = ext3_get_group_desc(sb, group, NULL);
 	if (!desc)
-		goto error_out;
+		return NULL;
 
-	bh = sb_bread(sb, le32_to_cpu(desc->bg_inode_bitmap));
-	if (!bh)
-		ext3_error(sb, "read_inode_bitmap",
-			    "Cannot read inode bitmap - "
-			    "block_group = %lu, inode_bitmap = %u",
-			    block_group, le32_to_cpu(desc->bg_inode_bitmap));
-error_out:
-	return bh;
+	block = le32_to_cpu(desc->bg_inode_bitmap);
+	if (block == 0U)
+		return NULL;
+
+	return sb_bread(sb, block);
 }
 
-
-/**
- * ext3_free_inode - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext3_free_inode (handle_t *handle, struct inode * inode)
+static int ifs_ext3_inode_position(
+	struct super_block *sb, unsigned long ino,
+	unsigned int *group, unsigned int *bit)
 {
-	struct super_block * sb = inode->i_sb;
-	int is_directory;
-	unsigned long ino;
-	struct buffer_head *bitmap_bh = NULL;
-	struct buffer_head *bh2;
-	unsigned long block_group;
-	unsigned long bit;
-	struct ext3_group_desc * gdp;
-	struct ext3_super_block * es;
-	struct ext3_sb_info *sbi;
-	int fatal = 0, err;
+	const u32 per_group = EXT3_INODES_PER_GROUP(sb);
+	const u32 total = le32_to_cpu(EXT3_SB(sb)->s_es->s_inodes_count);
+	u64 zero_based;
 
-	if (atomic_read(&inode->i_count) > 1) {
-		printk ("ext3_free_inode: inode has count=%d\n",
-					atomic_read(&inode->i_count));
-		return;
-	}
-	if (inode->i_nlink) {
-		printk ("ext3_free_inode: inode has nlink=%d\n",
-			inode->i_nlink);
-		return;
-	}
-	if (!sb) {
-		printk("ext3_free_inode: inode on nonexistent device\n");
-		return;
-	}
-	sbi = EXT3_SB(sb);
+	if (!group || !bit || per_group == 0U ||
+	    ino < EXT3_FIRST_INO(sb) || ino > total)
+		return -EINVAL;
 
-	ino = inode->i_ino;
-	ext3_debug ("freeing inode %lu\n", ino);
-
-
-	is_directory = S_ISDIR(inode->i_mode);
-
-	es = EXT3_SB(sb)->s_es;
-	if (ino < EXT3_FIRST_INO(sb) || ino > le32_to_cpu(es->s_inodes_count)) {
-		ext3_error (sb, "ext3_free_inode",
-			    "reserved or nonexistent inode %lu", ino);
-		goto error_return;
-	}
-	block_group = (ino - 1) / EXT3_INODES_PER_GROUP(sb);
-	bit = (ino - 1) % EXT3_INODES_PER_GROUP(sb);
-	bitmap_bh = read_inode_bitmap(sb, block_group);
-	if (!bitmap_bh)
-		goto error_return;
-
-	BUFFER_TRACE(bitmap_bh, "get_write_access");
-	fatal = ext3_journal_get_write_access(handle, bitmap_bh);
-	if (fatal)
-		goto error_return;
-
-
-	if (!ext3_clear_bit_atomic(sb_bgl_lock(sbi, block_group),
-					bit, bitmap_bh->b_data))
-		ext3_error (sb, "ext3_free_inode",
-			      "bit already cleared for inode %lu", ino);
-	else {
-		gdp = ext3_get_group_desc (sb, block_group, &bh2);
-
-		BUFFER_TRACE(bh2, "get_write_access");
-		fatal = ext3_journal_get_write_access(handle, bh2);
-		if (fatal) goto error_return;
-
-		if (gdp) {
-			spin_lock(sb_bgl_lock(sbi, block_group));
-			le16_add_cpu(&gdp->bg_free_inodes_count, 1);
-			if (is_directory)
-				le16_add_cpu(&gdp->bg_used_dirs_count, -1);
-			spin_unlock(sb_bgl_lock(sbi, block_group));
-			percpu_counter_inc(&sbi->s_freeinodes_counter);
-			if (is_directory)
-				percpu_counter_dec(&sbi->s_dirs_counter);
-
-		}
-		BUFFER_TRACE(bh2, "call ext3_journal_dirty_metadata");
-		err = ext3_journal_dirty_metadata(handle, bh2);
-		if (!fatal) fatal = err;
-	}
-	BUFFER_TRACE(bitmap_bh, "call ext3_journal_dirty_metadata");
-	err = ext3_journal_dirty_metadata(handle, bitmap_bh);
-	if (!fatal)
-		fatal = err;
-
-error_return:
-	brelse(bitmap_bh);
-	ext3_std_error(sb, fatal);
+	zero_based = (u64)ino - 1U;
+	*group = (unsigned int)(zero_based / per_group);
+	*bit = (unsigned int)(zero_based % per_group);
+	if (*group >= EXT3_SB(sb)->s_groups_count)
+		return -EUCLEAN;
+	return 0;
 }
 
-
-/**
- * find_group_orlov - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int find_group_orlov(struct super_block *sb, struct inode *parent)
+static int ifs_ext3_group_is_usable(
+	struct super_block *sb, unsigned int group, bool directory)
 {
-	int parent_group = EXT3_I(parent)->i_block_group;
+	struct ext3_group_desc *desc;
+
+	desc = ext3_get_group_desc(sb, group, NULL);
+	if (!desc)
+		return 0;
+	if (le16_to_cpu(desc->bg_free_inodes_count) == 0U)
+		return 0;
+	if (!directory)
+		return 1;
+	return le16_to_cpu(desc->bg_free_blocks_count) != 0U;
+}
+
+static int ifs_ext3_choose_directory_group(
+	struct super_block *sb, const struct inode *parent)
+{
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
-	int ngroups = sbi->s_groups_count;
-	int inodes_per_group = EXT3_INODES_PER_GROUP(sb);
-	unsigned int freei, avefreei;
-	ext3_fsblk_t freeb, avefreeb;
-	unsigned int ndirs;
-	int max_dirs, min_inodes;
-	ext3_grpblk_t min_blocks;
-	int group = -1, i;
-	struct ext3_group_desc *desc;
+	const unsigned int groups = sbi->s_groups_count;
+	unsigned int free_inodes;
+	unsigned int free_blocks;
+	unsigned int average_inodes;
+	unsigned int average_blocks;
+	unsigned int start;
+	unsigned int best = groups;
+	unsigned int best_dirs = UINT_MAX;
+	unsigned int step;
 
-	freei = percpu_counter_read_positive(&sbi->s_freeinodes_counter);
-	avefreei = freei / ngroups;
-	freeb = percpu_counter_read_positive(&sbi->s_freeblocks_counter);
-	avefreeb = freeb / ngroups;
-	ndirs = percpu_counter_read_positive(&sbi->s_dirs_counter);
+	if (groups == 0U)
+		return -1;
 
-	if ((parent == d_inode(sb->s_root)) ||
-	    (EXT3_I(parent)->i_flags & EXT3_TOPDIR_FL)) {
-		int best_ndir = inodes_per_group;
-		int best_group = -1;
+	free_inodes =
+		(unsigned int)percpu_counter_read_positive(&sbi->s_freeinodes_counter);
+	free_blocks =
+		(unsigned int)percpu_counter_read_positive(&sbi->s_freeblocks_counter);
+	average_inodes = free_inodes / groups;
+	average_blocks = free_blocks / groups;
 
-		group = get_random_u32();
-		parent_group = (unsigned)group % ngroups;
-		for (i = 0; i < ngroups; i++) {
-			group = (parent_group + i) % ngroups;
-			desc = ext3_get_group_desc (sb, group, NULL);
-			if (!desc || !desc->bg_free_inodes_count)
-				continue;
-			if (le16_to_cpu(desc->bg_used_dirs_count) >= best_ndir)
-				continue;
-			if (le16_to_cpu(desc->bg_free_inodes_count) < avefreei)
-				continue;
-			if (le16_to_cpu(desc->bg_free_blocks_count) < avefreeb)
-				continue;
-			best_group = group;
-			best_ndir = le16_to_cpu(desc->bg_used_dirs_count);
+	start = (EXT3_I(parent)->i_block_group +
+		 (get_random_u32() % groups)) % groups;
+
+	for (step = 0U; step < groups; ++step) {
+		const unsigned int group = (start + step) % groups;
+		struct ext3_group_desc *desc = ext3_get_group_desc(sb, group, NULL);
+		unsigned int dirs;
+
+		if (!desc)
+			continue;
+		if (le16_to_cpu(desc->bg_free_inodes_count) < average_inodes ||
+		    le16_to_cpu(desc->bg_free_blocks_count) < average_blocks)
+			continue;
+
+		dirs = le16_to_cpu(desc->bg_used_dirs_count);
+		if (dirs < best_dirs) {
+			best = group;
+			best_dirs = dirs;
 		}
-		if (best_group >= 0)
-			return best_group;
-		goto fallback;
 	}
 
-	max_dirs = ndirs / ngroups + inodes_per_group / 16;
-	min_inodes = avefreei - inodes_per_group / 4;
-	min_blocks = avefreeb - EXT3_BLOCKS_PER_GROUP(sb) / 4;
+	if (best != groups)
+		return (int)best;
 
-	for (i = 0; i < ngroups; i++) {
-		group = (parent_group + i) % ngroups;
-		desc = ext3_get_group_desc (sb, group, NULL);
-		if (!desc || !desc->bg_free_inodes_count)
-			continue;
-		if (le16_to_cpu(desc->bg_used_dirs_count) >= max_dirs)
-			continue;
-		if (le16_to_cpu(desc->bg_free_inodes_count) < min_inodes)
-			continue;
-		if (le16_to_cpu(desc->bg_free_blocks_count) < min_blocks)
-			continue;
-		return group;
-	}
+	for (step = 0U; step < groups; ++step) {
+		const unsigned int group =
+			(EXT3_I(parent)->i_block_group + step) % groups;
 
-fallback:
-	for (i = 0; i < ngroups; i++) {
-		group = (parent_group + i) % ngroups;
-		desc = ext3_get_group_desc (sb, group, NULL);
-		if (!desc || !desc->bg_free_inodes_count)
-			continue;
-		if (le16_to_cpu(desc->bg_free_inodes_count) >= avefreei)
-			return group;
-	}
-
-	if (avefreei) {
-
-
-		avefreei = 0;
-		goto fallback;
+		if (ifs_ext3_group_is_usable(sb, group, true))
+			return (int)group;
 	}
 
 	return -1;
 }
 
-
-/**
- * find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int find_group_other(struct super_block *sb, struct inode *parent)
+static int ifs_ext3_choose_file_group(
+	struct super_block *sb, const struct inode *parent)
 {
-	int parent_group = EXT3_I(parent)->i_block_group;
-	int ngroups = EXT3_SB(sb)->s_groups_count;
-	struct ext3_group_desc *desc;
-	int group, i;
+	const unsigned int groups = EXT3_SB(sb)->s_groups_count;
+	const unsigned int parent_group = EXT3_I(parent)->i_block_group;
+	unsigned int stride;
+	unsigned int group;
 
+	if (groups == 0U)
+		return -1;
 
-	group = parent_group;
-	desc = ext3_get_group_desc (sb, group, NULL);
-	if (desc && le16_to_cpu(desc->bg_free_inodes_count) &&
-			le16_to_cpu(desc->bg_free_blocks_count))
-		return group;
+	if (parent_group < groups &&
+	    ifs_ext3_group_is_usable(sb, parent_group, false))
+		return (int)parent_group;
 
-
-	group = (group + parent->i_ino) % ngroups;
-
-
-	for (i = 1; i < ngroups; i <<= 1) {
-		group += i;
-		if (group >= ngroups)
-			group -= ngroups;
-		desc = ext3_get_group_desc (sb, group, NULL);
-		if (desc && le16_to_cpu(desc->bg_free_inodes_count) &&
-				le16_to_cpu(desc->bg_free_blocks_count))
-			return group;
+	group = (parent_group + (unsigned int)parent->i_ino) % groups;
+	for (stride = 1U; stride < groups; stride <<= 1U) {
+		group = (group + stride) % groups;
+		if (ifs_ext3_group_is_usable(sb, group, false))
+			return (int)group;
 	}
 
-
-	group = parent_group;
-	for (i = 0; i < ngroups; i++) {
-		if (++group >= ngroups)
-			group = 0;
-		desc = ext3_get_group_desc (sb, group, NULL);
-		if (desc && le16_to_cpu(desc->bg_free_inodes_count))
-			return group;
+	for (stride = 1U; stride <= groups; ++stride) {
+		group = (parent_group + stride) % groups;
+		if (ifs_ext3_group_is_usable(sb, group, false))
+			return (int)group;
 	}
 
 	return -1;
 }
 
+static int ifs_ext3_mark_inode_accounting(
+	handle_t *handle, struct super_block *sb,
+	unsigned int group, bool directory, int delta)
+{
+	struct ext3_sb_info *sbi = EXT3_SB(sb);
+	struct ext3_group_desc *desc;
+	struct buffer_head *desc_bh;
+	int error;
 
-/**
- * ext3_new_inode - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-struct inode *ext3_new_inode(handle_t *handle, struct inode * dir,
-			     const struct qstr *qstr, umode_t mode)
+	desc = ext3_get_group_desc(sb, group, &desc_bh);
+	if (!desc || !desc_bh)
+		return -EIO;
+
+	error = ext3_journal_get_write_access(handle, desc_bh);
+	if (error)
+		return error;
+
+	spin_lock(sb_bgl_lock(sbi, group));
+	le16_add_cpu(&desc->bg_free_inodes_count, delta);
+	if (directory)
+		le16_add_cpu(&desc->bg_used_dirs_count, -delta);
+	spin_unlock(sb_bgl_lock(sbi, group));
+
+	error = ext3_journal_dirty_metadata(handle, desc_bh);
+	if (error)
+		return error;
+
+	if (delta < 0) {
+		percpu_counter_dec(&sbi->s_freeinodes_counter);
+		if (directory)
+			percpu_counter_inc(&sbi->s_dirs_counter);
+	} else {
+		percpu_counter_inc(&sbi->s_freeinodes_counter);
+		if (directory)
+			percpu_counter_dec(&sbi->s_dirs_counter);
+	}
+
+	return 0;
+}
+
+static int ifs_ext3_change_inode_bit(
+	handle_t *handle, struct super_block *sb,
+	unsigned int group, unsigned int bit, bool allocate)
+{
+	struct ext3_sb_info *sbi = EXT3_SB(sb);
+	struct buffer_head *bitmap;
+	int changed;
+	int error;
+
+	bitmap = ifs_ext3_read_inode_bitmap(sb, group);
+	if (!bitmap)
+		return -EIO;
+
+	error = ext3_journal_get_write_access(handle, bitmap);
+	if (error)
+		goto out;
+
+	if (allocate)
+		changed = !ext3_set_bit_atomic(
+			sb_bgl_lock(sbi, group), bit, bitmap->b_data);
+	else
+		changed = ext3_clear_bit_atomic(
+			sb_bgl_lock(sbi, group), bit, bitmap->b_data);
+
+	if (!changed) {
+		error = allocate ? -EAGAIN : -EUCLEAN;
+		goto out_release;
+	}
+
+	error = ext3_journal_dirty_metadata(handle, bitmap);
+	goto out;
+
+out_release:
+	journal_release_buffer(handle, bitmap);
+out:
+	brelse(bitmap);
+	return error;
+}
+
+static int ifs_ext3_reserve_inode(
+	handle_t *handle, struct super_block *sb,
+	unsigned int preferred_group, bool directory,
+	unsigned int *group_out, unsigned int *bit_out)
+{
+	struct ext3_sb_info *sbi = EXT3_SB(sb);
+	const unsigned int groups = sbi->s_groups_count;
+	const unsigned int per_group = EXT3_INODES_PER_GROUP(sb);
+	unsigned int pass;
+
+	if (!group_out || !bit_out || groups == 0U || per_group == 0U)
+		return -EINVAL;
+
+	for (pass = 0U; pass < groups; ++pass) {
+		const unsigned int group = (preferred_group + pass) % groups;
+		struct buffer_head *bitmap;
+		unsigned long bit;
+		unsigned long start = 0U;
+		int error;
+
+		if (!ifs_ext3_group_is_usable(sb, group, directory))
+			continue;
+
+		if (group == 0U && EXT3_FIRST_INO(sb) > 1U)
+			start = EXT3_FIRST_INO(sb) - 1U;
+
+		bitmap = ifs_ext3_read_inode_bitmap(sb, group);
+		if (!bitmap)
+			return -EIO;
+
+		bit = ext3_find_next_zero_bit(
+			(unsigned long *)bitmap->b_data, per_group, start);
+		brelse(bitmap);
+		while (bit < per_group) {
+			error = ifs_ext3_change_inode_bit(
+				handle, sb, group, (unsigned int)bit, true);
+			if (error == -EAGAIN) {
+				bit++;
+				bitmap = ifs_ext3_read_inode_bitmap(sb, group);
+				if (!bitmap)
+					return -EIO;
+				bit = ext3_find_next_zero_bit(
+					(unsigned long *)bitmap->b_data,
+					per_group, bit);
+				brelse(bitmap);
+				continue;
+			}
+			if (error)
+				return error;
+
+			error = ifs_ext3_mark_inode_accounting(
+				handle, sb, group, directory, -1);
+			if (error) {
+				ifs_ext3_change_inode_bit(
+					handle, sb, group, (unsigned int)bit, false);
+				return error;
+			}
+
+			*group_out = group;
+			*bit_out = (unsigned int)bit;
+			return 0;
+		}
+	}
+
+	return -ENOSPC;
+}
+
+static void ifs_ext3_rollback_inode_reservation(
+	handle_t *handle, struct super_block *sb,
+	unsigned int group, unsigned int bit, bool directory)
+{
+	int bit_error;
+	int count_error;
+
+	bit_error = ifs_ext3_change_inode_bit(
+		handle, sb, group, bit, false);
+	count_error = ifs_ext3_mark_inode_accounting(
+		handle, sb, group, directory, 1);
+
+	if (bit_error && bit_error != -EUCLEAN)
+		ext3_std_error(sb, bit_error);
+	if (count_error)
+		ext3_std_error(sb, count_error);
+}
+
+void ext3_free_inode(handle_t *handle, struct inode *inode)
 {
 	struct super_block *sb;
-	struct buffer_head *bitmap_bh = NULL;
-	struct buffer_head *bh2;
-	int group;
-	unsigned long ino = 0;
-	struct inode * inode;
-	struct ext3_group_desc * gdp = NULL;
-	struct ext3_super_block * es;
-	struct ext3_inode_info *ei;
+	unsigned int group;
+	unsigned int bit;
+	const bool directory = S_ISDIR(inode->i_mode);
+	int error;
+
+	if (!handle || !inode || inode->i_nlink != 0U ||
+	    atomic_read(&inode->i_count) > 1)
+		return;
+
+	sb = inode->i_sb;
+	if (!sb)
+		return;
+
+	error = ifs_ext3_inode_position(
+		sb, inode->i_ino, &group, &bit);
+	if (error) {
+		ext3_error(sb, __func__,
+			   "invalid inode number %lu", inode->i_ino);
+		return;
+	}
+
+	error = ifs_ext3_change_inode_bit(
+		handle, sb, group, bit, false);
+	if (error) {
+		ext3_std_error(sb, error);
+		return;
+	}
+
+	error = ifs_ext3_mark_inode_accounting(
+		handle, sb, group, directory, 1);
+	ext3_std_error(sb, error);
+}
+
+struct inode *ext3_new_inode(
+	handle_t *handle, struct inode *dir,
+	const struct qstr *qstr, umode_t mode)
+{
+	struct super_block *sb;
 	struct ext3_sb_info *sbi;
-	int err = 0;
-	struct inode *ret;
-	int i;
+	struct ext3_inode_info *info;
+	struct inode *inode;
+	unsigned int group;
+	unsigned int bit;
+	unsigned long ino;
+	const bool directory = S_ISDIR(mode);
+	int selected;
+	int error;
 
-
-	if (!dir || !dir->i_nlink)
+	if (!handle || !dir || dir->i_nlink == 0U)
 		return ERR_PTR(-EPERM);
 
 	sb = dir->i_sb;
+	sbi = EXT3_SB(sb);
+
+	selected = directory ?
+		ifs_ext3_choose_directory_group(sb, dir) :
+		ifs_ext3_choose_file_group(sb, dir);
+	if (selected < 0)
+		return ERR_PTR(-ENOSPC);
+
+	error = ifs_ext3_reserve_inode(
+		handle, sb, (unsigned int)selected,
+		directory, &group, &bit);
+	if (error)
+		return ERR_PTR(error);
+
+	ino = (unsigned long)group * EXT3_INODES_PER_GROUP(sb) +
+	      bit + 1U;
+	if (ino < EXT3_FIRST_INO(sb) ||
+	    ino > le32_to_cpu(sbi->s_es->s_inodes_count)) {
+		ifs_ext3_rollback_inode_reservation(
+			handle, sb, group, bit, directory);
+		return ERR_PTR(-EUCLEAN);
+	}
 
 	inode = new_inode(sb);
-	if (!inode)
+	if (!inode) {
+		ifs_ext3_rollback_inode_reservation(
+			handle, sb, group, bit, directory);
 		return ERR_PTR(-ENOMEM);
-	ei = EXT3_I(inode);
-
-	sbi = EXT3_SB(sb);
-	es = sbi->s_es;
-	if (S_ISDIR(mode))
-		group = find_group_orlov(sb, dir);
-	else
-		group = find_group_other(sb, dir);
-
-	err = -ENOSPC;
-	if (group == -1)
-		goto out;
-
-	for (i = 0; i < sbi->s_groups_count; i++) {
-		err = -EIO;
-
-		gdp = ext3_get_group_desc(sb, group, &bh2);
-		if (!gdp)
-			goto fail;
-
-		brelse(bitmap_bh);
-		bitmap_bh = read_inode_bitmap(sb, group);
-		if (!bitmap_bh)
-			goto fail;
-
-		ino = 0;
-
-repeat_in_this_group:
-		ino = ext3_find_next_zero_bit((unsigned long *)
-				bitmap_bh->b_data, EXT3_INODES_PER_GROUP(sb), ino);
-		if (ino < EXT3_INODES_PER_GROUP(sb)) {
-
-			BUFFER_TRACE(bitmap_bh, "get_write_access");
-			err = ext3_journal_get_write_access(handle, bitmap_bh);
-			if (err)
-				goto fail;
-
-			if (!ext3_set_bit_atomic(sb_bgl_lock(sbi, group),
-						ino, bitmap_bh->b_data)) {
-
-				BUFFER_TRACE(bitmap_bh,
-					"call ext3_journal_dirty_metadata");
-				err = ext3_journal_dirty_metadata(handle,
-								bitmap_bh);
-				if (err)
-					goto fail;
-				goto got;
-			}
-
-			journal_release_buffer(handle, bitmap_bh);
-
-			if (++ino < EXT3_INODES_PER_GROUP(sb))
-				goto repeat_in_this_group;
-		}
-
-
-		if (++group == sbi->s_groups_count)
-			group = 0;
-	}
-	err = -ENOSPC;
-	goto out;
-
-got:
-	ino += group * EXT3_INODES_PER_GROUP(sb) + 1;
-	if (ino < EXT3_FIRST_INO(sb) || ino > le32_to_cpu(es->s_inodes_count)) {
-		ext3_error (sb, "ext3_new_inode",
-			    "reserved inode or inode > inodes count - "
-			    "block_group = %d, inode=%lu", group, ino);
-		err = -EIO;
-		goto fail;
 	}
 
-	BUFFER_TRACE(bh2, "get_write_access");
-	err = ext3_journal_get_write_access(handle, bh2);
-	if (err) goto fail;
-	spin_lock(sb_bgl_lock(sbi, group));
-	le16_add_cpu(&gdp->bg_free_inodes_count, -1);
-	if (S_ISDIR(mode)) {
-		le16_add_cpu(&gdp->bg_used_dirs_count, 1);
-	}
-	spin_unlock(sb_bgl_lock(sbi, group));
-	BUFFER_TRACE(bh2, "call ext3_journal_dirty_metadata");
-	err = ext3_journal_dirty_metadata(handle, bh2);
-	if (err) goto fail;
-
-	percpu_counter_dec(&sbi->s_freeinodes_counter);
-	if (S_ISDIR(mode))
-		percpu_counter_inc(&sbi->s_dirs_counter);
-
+	info = EXT3_I(inode);
+	inode->i_ino = ino;
+	inode->i_blocks = 0;
 
 	if (test_opt(sb, GRPID)) {
 		inode->i_mode = mode;
 		inode->i_uid = current_fsuid();
 		inode->i_gid = dir->i_gid;
-	} else
+	} else {
 		inode_init_owner(&nop_mnt_idmap, inode, dir, mode);
+	}
 
-	inode->i_ino = ino;
-
-	inode->i_blocks = 0;
 	{
-		struct timespec64 now = current_time(inode);
-
+		const struct timespec64 now = current_time(inode);
 		inode_set_atime_to_ts(inode, now);
 		inode_set_mtime_to_ts(inode, now);
 		inode_set_ctime_to_ts(inode, now);
 	}
 
-	memset(ei->i_data, 0, sizeof(ei->i_data));
-	ei->i_dir_start_lookup = 0;
-	ei->i_disksize = 0;
-
-	ei->i_flags =
+	memset(info->i_data, 0, sizeof(info->i_data));
+	info->i_dir_start_lookup = 0;
+	info->i_disksize = 0;
+	info->i_flags =
 		ext3_mask_flags(mode, EXT3_I(dir)->i_flags & EXT3_FL_INHERITED);
 #ifdef EXT3_FRAGMENTS
-	ei->i_faddr = 0;
-	ei->i_frag_no = 0;
-	ei->i_frag_size = 0;
+	info->i_faddr = 0;
+	info->i_frag_no = 0;
+	info->i_frag_size = 0;
 #endif
-	ei->i_file_acl = 0;
-	ei->i_dir_acl = 0;
-	ei->i_dtime = 0;
-	ei->i_block_alloc_info = NULL;
-	ei->i_block_group = group;
+	info->i_file_acl = 0;
+	info->i_dir_acl = 0;
+	info->i_dtime = 0;
+	info->i_block_alloc_info = NULL;
+	info->i_block_group = group;
+	info->i_state_flags = 0;
+	info->i_extra_isize =
+		ino >= EXT3_FIRST_INO(sb) + 1U &&
+		EXT3_INODE_SIZE(sb) > EXT3_GOOD_OLD_INODE_SIZE ?
+		sizeof(struct ext3_inode) - EXT3_GOOD_OLD_INODE_SIZE : 0U;
 
 	ext3_set_inode_flags(inode);
+	ext3_set_inode_state(inode, EXT3_STATE_NEW);
 	if (IS_DIRSYNC(inode))
 		handle->h_sync = 1;
+
 	if (insert_inode_locked(inode) < 0) {
-
-
-		err = -EIO;
-		goto fail;
+		error = -EIO;
+		goto fail_unpublished;
 	}
+
 	spin_lock(&sbi->s_next_gen_lock);
 	inode->i_generation = sbi->s_next_generation++;
 	spin_unlock(&sbi->s_next_gen_lock);
 
-	ei->i_state_flags = 0;
-	ext3_set_inode_state(inode, EXT3_STATE_NEW);
-
-
-	if (ino >= EXT3_FIRST_INO(sb) + 1 &&
-	    EXT3_INODE_SIZE(sb) > EXT3_GOOD_OLD_INODE_SIZE) {
-		ei->i_extra_isize =
-			sizeof(struct ext3_inode) - EXT3_GOOD_OLD_INODE_SIZE;
-	} else {
-		ei->i_extra_isize = 0;
-	}
-
-	ret = inode;
 	dquot_initialize(inode);
-	err = dquot_alloc_inode(inode);
-	if (err)
-		goto fail_drop;
+	error = dquot_alloc_inode(inode);
+	if (error)
+		goto fail_inserted;
 
-	err = ext3_init_acl(handle, inode, dir);
-	if (err)
-		goto fail_free_drop;
+	error = ext3_init_acl(handle, inode, dir);
+	if (error)
+		goto fail_quota;
 
-	err = ext3_init_security(handle, inode, dir, qstr);
-	if (err)
-		goto fail_free_drop;
+	error = ext3_init_security(handle, inode, dir, qstr);
+	if (error)
+		goto fail_quota;
 
-	err = ext3_mark_inode_dirty(handle, inode);
-	if (err) {
-		ext3_std_error(sb, err);
-		goto fail_free_drop;
-	}
+	error = ext3_mark_inode_dirty(handle, inode);
+	if (error)
+		goto fail_quota;
 
-	ext3_debug("allocating inode %lu\n", inode->i_ino);
+	return inode;
 
-	goto really_out;
-fail:
-	ext3_std_error(sb, err);
-out:
-	iput(inode);
-	ret = ERR_PTR(err);
-really_out:
-	brelse(bitmap_bh);
-	return ret;
-
-fail_free_drop:
+fail_quota:
 	dquot_free_inode(inode);
-
-fail_drop:
+fail_inserted:
 	dquot_drop(inode);
 	inode->i_flags |= S_NOQUOTA;
 	clear_nlink(inode);
 	unlock_new_inode(inode);
 	iput(inode);
-	brelse(bitmap_bh);
-	return ERR_PTR(err);
+	ifs_ext3_rollback_inode_reservation(
+		handle, sb, group, bit, directory);
+	ext3_std_error(sb, error);
+	return ERR_PTR(error);
+
+fail_unpublished:
+	clear_nlink(inode);
+	iput(inode);
+	ifs_ext3_rollback_inode_reservation(
+		handle, sb, group, bit, directory);
+	ext3_std_error(sb, error);
+	return ERR_PTR(error);
 }
 
-
-/**
- * ext3_orphan_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 struct inode *ext3_orphan_get(struct super_block *sb, unsigned long ino)
 {
-	unsigned long max_ino = le32_to_cpu(EXT3_SB(sb)->s_es->s_inodes_count);
-	unsigned long block_group;
-	int bit;
-	struct buffer_head *bitmap_bh;
-	struct inode *inode = NULL;
-	long err = -EIO;
+	const unsigned long max_ino =
+		le32_to_cpu(EXT3_SB(sb)->s_es->s_inodes_count);
+	unsigned int group;
+	unsigned int bit;
+	struct buffer_head *bitmap;
+	struct inode *inode;
+	int error;
 
+	error = ifs_ext3_inode_position(sb, ino, &group, &bit);
+	if (error || ino > max_ino)
+		return ERR_PTR(-EIO);
 
-	if (ino > max_ino) {
-		ext3_warning(sb, __func__,
-			     "bad orphan ino %lu!  e2fsck was run?", ino);
-		goto error;
+	bitmap = ifs_ext3_read_inode_bitmap(sb, group);
+	if (!bitmap)
+		return ERR_PTR(-EIO);
+
+	if (!ext3_test_bit(bit, bitmap->b_data)) {
+		brelse(bitmap);
+		return ERR_PTR(-EIO);
 	}
-
-	block_group = (ino - 1) / EXT3_INODES_PER_GROUP(sb);
-	bit = (ino - 1) % EXT3_INODES_PER_GROUP(sb);
-	bitmap_bh = read_inode_bitmap(sb, block_group);
-	if (!bitmap_bh) {
-		ext3_warning(sb, __func__,
-			     "inode bitmap error for orphan %lu", ino);
-		goto error;
-	}
-
-
-	if (!ext3_test_bit(bit, bitmap_bh->b_data))
-		goto bad_orphan;
+	brelse(bitmap);
 
 	inode = ext3_iget(sb, ino);
 	if (IS_ERR(inode))
-		goto iget_failed;
+		return inode;
 
-
-	if (inode->i_nlink && !ext3_can_truncate(inode))
-		goto bad_orphan;
-
-	if (NEXT_ORPHAN(inode) > max_ino)
-		goto bad_orphan;
-	brelse(bitmap_bh);
-	return inode;
-
-iget_failed:
-	err = PTR_ERR(inode);
-	inode = NULL;
-bad_orphan:
-	ext3_warning(sb, __func__,
-		     "bad orphan inode %lu!  e2fsck was run?", ino);
-	printk(KERN_NOTICE "ext3_test_bit(bit=%d, block=%llu) = %d\n",
-	       bit, (unsigned long long)bitmap_bh->b_blocknr,
-	       ext3_test_bit(bit, bitmap_bh->b_data));
-	printk(KERN_NOTICE "inode=%p\n", inode);
-	if (inode) {
-		printk(KERN_NOTICE "is_bad_inode(inode)=%d\n",
-		       is_bad_inode(inode));
-		printk(KERN_NOTICE "NEXT_ORPHAN(inode)=%u\n",
-		       NEXT_ORPHAN(inode));
-		printk(KERN_NOTICE "max_ino=%lu\n", max_ino);
-		printk(KERN_NOTICE "i_nlink=%u\n", inode->i_nlink);
-
-		if (inode->i_nlink == 0)
+	if ((inode->i_nlink != 0U && !ext3_can_truncate(inode)) ||
+	    NEXT_ORPHAN(inode) > max_ino) {
+		if (inode->i_nlink == 0U)
 			inode->i_blocks = 0;
 		iput(inode);
+		return ERR_PTR(-EIO);
 	}
-	brelse(bitmap_bh);
-error:
-	return ERR_PTR(err);
+
+	return inode;
 }
 
-
-/**
- * ext3_count_free_inodes - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long ext3_count_free_inodes (struct super_block * sb)
-{
-	unsigned long desc_count;
-	struct ext3_group_desc *gdp;
-	int i;
-#ifdef EXT3FS_DEBUG
-	struct ext3_super_block *es;
-	unsigned long bitmap_count, x;
-	struct buffer_head *bitmap_bh = NULL;
-
-	es = EXT3_SB(sb)->s_es;
-	desc_count = 0;
-	bitmap_count = 0;
-	gdp = NULL;
-	for (i = 0; i < EXT3_SB(sb)->s_groups_count; i++) {
-		gdp = ext3_get_group_desc (sb, i, NULL);
-		if (!gdp)
-			continue;
-		desc_count += le16_to_cpu(gdp->bg_free_inodes_count);
-		brelse(bitmap_bh);
-		bitmap_bh = read_inode_bitmap(sb, i);
-		if (!bitmap_bh)
-			continue;
-
-		x = ext3_count_free(bitmap_bh, EXT3_INODES_PER_GROUP(sb) / 8);
-		printk("group %d: stored = %d, counted = %lu\n",
-			i, le16_to_cpu(gdp->bg_free_inodes_count), x);
-		bitmap_count += x;
-	}
-	brelse(bitmap_bh);
-	printk("ext3_count_free_inodes: stored = %u, computed = %lu, %lu\n",
-		le32_to_cpu(es->s_free_inodes_count), desc_count, bitmap_count);
-	return desc_count;
-#else
-	desc_count = 0;
-	for (i = 0; i < EXT3_SB(sb)->s_groups_count; i++) {
-		gdp = ext3_get_group_desc (sb, i, NULL);
-		if (!gdp)
-			continue;
-		desc_count += le16_to_cpu(gdp->bg_free_inodes_count);
-		cond_resched();
-	}
-	return desc_count;
-#endif
-}
-
-
-/**
- * ext3_count_dirs - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long ext3_count_dirs (struct super_block * sb)
+unsigned long ext3_count_free_inodes(struct super_block *sb)
 {
 	unsigned long count = 0;
-	int i;
+	unsigned int group;
 
-	for (i = 0; i < EXT3_SB(sb)->s_groups_count; i++) {
-		struct ext3_group_desc *gdp = ext3_get_group_desc (sb, i, NULL);
-		if (!gdp)
-			continue;
-		count += le16_to_cpu(gdp->bg_used_dirs_count);
+	for (group = 0U; group < EXT3_SB(sb)->s_groups_count; ++group) {
+		struct ext3_group_desc *desc =
+			ext3_get_group_desc(sb, group, NULL);
+
+		if (desc)
+			count += le16_to_cpu(desc->bg_free_inodes_count);
+		cond_resched();
 	}
+
+	return count;
+}
+
+unsigned long ext3_count_dirs(struct super_block *sb)
+{
+	unsigned long count = 0;
+	unsigned int group;
+
+	for (group = 0U; group < EXT3_SB(sb)->s_groups_count; ++group) {
+		struct ext3_group_desc *desc =
+			ext3_get_group_desc(sb, group, NULL);
+
+		if (desc)
+			count += le16_to_cpu(desc->bg_used_dirs_count);
+	}
+
 	return count;
 }
