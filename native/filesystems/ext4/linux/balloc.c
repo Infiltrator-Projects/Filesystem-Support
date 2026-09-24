@@ -99,6 +99,7 @@ static bool ifs_ext4_local_cluster(struct super_block *sb,
 				    unsigned int *cluster)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	ext4_fsblk_t first = ext4_group_first_block_no(sb, group);
 
 	if (!ifs_ext4_block_belongs_to_group(sb, block, group))
 		return false;
@@ -158,7 +159,6 @@ static unsigned int ifs_ext4_metadata_clusters(struct super_block *sb,
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ifs_ext4_cluster_span spans[4] = { };
-	ext4_fsblk_t first = ext4_group_first_block_no(sb, group);
 	unsigned int group_clusters = ifs_ext4_group_cluster_count(sb, group);
 	unsigned int span_count = 0;
 	unsigned int base_blocks;
@@ -212,7 +212,6 @@ static int ifs_ext4_build_uninitialised_bitmap(struct super_block *sb,
 						struct ext4_group_desc *desc)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	ext4_fsblk_t first = ext4_group_first_block_no(sb, group);
 	ext4_fsblk_t table;
 	unsigned int cluster;
 	unsigned int bit;
