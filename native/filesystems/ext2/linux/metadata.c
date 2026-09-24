@@ -1,5 +1,5 @@
 /*
- * Filesystem Support EXT2 extended metadata adapter.
+ * Infiltrator Filesystem Support — EXT2 Linux metadata adapter.
  *
  * EXT2 xattrs occupy one filesystem block referenced by i_file_acl.  This
  * implementation validates every disk offset before use, serialises entries
@@ -17,7 +17,7 @@
 #include <linux/sort.h>
 #include <linux/string.h>
 
-#include "ext2.h"
+#include "linux_adapter.h"
 
 #define IFS_EXT2_XATTR_SENTINEL_SIZE 4U
 

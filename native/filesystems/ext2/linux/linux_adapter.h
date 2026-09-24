@@ -1,5 +1,5 @@
-#ifndef INFILTRATOR_EXT2_LINUX_H
-#define INFILTRATOR_EXT2_LINUX_H
+#ifndef INFILTRATOR_EXT2_LINUX_ADAPTER_H
+#define INFILTRATOR_EXT2_LINUX_ADAPTER_H
 
 #include <linux/atomic.h>
 #include <linux/blockgroup_lock.h>

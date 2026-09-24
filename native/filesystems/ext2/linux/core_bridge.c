@@ -1,6 +1,6 @@
 
 /*
- * EXT2 — Filesystem implementation unit
+ * EXT2 — canonical-core Linux build bridge
  *
  * Purpose:
  *   Implements the canonical portion of EXT2.

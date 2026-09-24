@@ -23,7 +23,7 @@
 #include <linux/dax.h>
 #include <linux/iversion.h>
 
-#include "ext2.h"
+#include "linux_adapter.h"
 
 static struct kmem_cache *ext2_inode_cachep;
 
