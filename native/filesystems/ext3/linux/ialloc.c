@@ -485,8 +485,11 @@ fail_inserted:
 	clear_nlink(inode);
 	unlock_new_inode(inode);
 	iput(inode);
-	ifs_ext3_rollback_inode_reservation(
-		handle, sb, group, bit, directory);
+	/*
+	 * Once the inode is published, ext3_evict_inode() owns teardown and
+	 * releases the bitmap reservation through ext3_free_inode().  Rolling
+	 * it back here as well would double-free the inode number.
+	 */
 	ext3_std_error(sb, error);
 	return ERR_PTR(error);
 
