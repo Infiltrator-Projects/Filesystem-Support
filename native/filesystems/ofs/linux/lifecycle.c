@@ -553,10 +553,8 @@ static int ifs_ofs_fill_super_config(
     sb->s_maxbytes = U32_MAX;
 
     sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
-    if (!sbi) {
-        result = -ENOMEM;
-        goto out_config;
-    }
+    if (!sbi)
+        return -ENOMEM;
 
     sb->s_fs_info = sbi;
     sbi->sb = sb;
