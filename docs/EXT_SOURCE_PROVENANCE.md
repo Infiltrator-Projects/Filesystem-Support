@@ -39,6 +39,7 @@ The following active EXT2 units are maintained as project-authored source:
 - `native/filesystems/ext2/linux/file.c`
 - `native/filesystems/ext2/linux/namei.c`
 - `native/filesystems/ext2/linux/ialloc.c`
+- `native/filesystems/ext2/linux/inode.c`
 - `native/filesystems/ext2/linux/Makefile`
 
 The regular-file, namespace, inode-allocation, directory, block-allocation and
@@ -51,7 +52,6 @@ previous implementation bodies or third-party author blocks.
 These active Linux-side units remain migration work and must retain any existing
 legal provenance until their implementation is genuinely replaced:
 
-- `inode.c`
 - `super.c`
 - `xattr.c`
 
@@ -72,9 +72,9 @@ Current EXT2 semantic extractions include:
 - absolute block to block-group/offset mapping used by allocator paths; and
 - sparse-superblock group placement and feature policy.
 
-The directory, allocator and Linux private-model replacements have now crossed
+The directory, allocator, inode lifecycle/mapping and Linux private-model replacements have now crossed
 the implementation-ownership boundary. The remaining EXT2 migration work is
-limited to inode lifecycle/mapping, mount/superblock handling and xattrs.
+limited to mount/superblock handling and xattrs.
 
 ## EXT3 migration state
 
