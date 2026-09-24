@@ -624,9 +624,9 @@ static int ifs_ofs_ofs_read_range(
         return -EUCLEAN;
 
     while (copied < length) {
-        const u64 current = file_offset + copied;
-        const u32 logical = (u32)(current / payload);
-        const u32 within = (u32)(current % payload);
+        const u64 file_position = file_offset + copied;
+        const u32 logical = (u32)(file_position / payload);
+        const u32 within = (u32)(file_position % payload);
         const size_t chunk =
             min_t(size_t, payload - within, length - copied);
         struct buffer_head *bh;
