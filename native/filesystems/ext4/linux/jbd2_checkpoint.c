@@ -1,474 +1,398 @@
-// SPDX-License-Identifier: GPL-2.0+
 /*
- * linux/fs/jbd2/checkpoint.c
+ * Filesystem Support EXT4 embedded journal checkpoint engine.
  *
- * Written by Stephen C. Tweedie <sct@redhat.com>, 1999
- *
- * Copyright 1999 Red Hat Software --- All Rights Reserved
- *
- * Checkpoint routines for the generic filesystem journaling code.
- * Part of the ext2fs journaling system.
- *
- * Checkpointing is the process of ensuring that a section of the log is
- * committed fully to disk, so that that portion of the log can be
- * reused.
+ * Checkpointing writes committed metadata to its home location and retires
+ * journal transactions only after recovery no longer depends on them.
  */
 
-/*
- * EXT4 — JBD2 checkpointing
- *
- * Purpose:
- *   Moves committed metadata toward home locations and advances the recoverable journal tail.
- *
- * Filesystem model:
- *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
- *
- * Correctness focus:
- *   Journal space can be reclaimed only after recovery no longer needs the corresponding logged metadata.
- *
- * Project rules:
- *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
- *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
-#include <linux/time.h>
+#include <linux/blkdev.h>
+#include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/jbd2.h>
-#include <linux/errno.h>
-#include <linux/slab.h>
-#include <linux/blkdev.h>
+#include <linux/sched.h>
 #include <trace/events/jbd2.h>
 
-
-/**
- * __buffer_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline void __buffer_unlink(struct journal_head *jh)
+static void ifs_jbd2_unlink_checkpoint_head(struct journal_head *jh)
 {
 	transaction_t *transaction = jh->b_cp_transaction;
+	struct journal_head *next = jh->b_cpnext;
+	struct journal_head *prev = jh->b_cpprev;
 
-	jh->b_cpnext->b_cpprev = jh->b_cpprev;
-	jh->b_cpprev->b_cpnext = jh->b_cpnext;
-	if (transaction->t_checkpoint_list == jh) {
-		transaction->t_checkpoint_list = jh->b_cpnext;
-		if (transaction->t_checkpoint_list == jh)
-			transaction->t_checkpoint_list = NULL;
-	}
+	prev->b_cpnext = next;
+	next->b_cpprev = prev;
+
+	if (transaction->t_checkpoint_list != jh)
+		return;
+
+	transaction->t_checkpoint_list = next == jh ? NULL : next;
 }
 
+static void ifs_jbd2_flush_checkpoint_batch(journal_t *journal,
+					    int *batch_count)
+{
+	struct blk_plug plug;
+	int index;
 
-/**
- * __releases - Implements the releases operation within the jbd2 checkpointing subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
+	if (*batch_count == 0)
+		return;
+
+	blk_start_plug(&plug);
+	for (index = 0; index < *batch_count; ++index)
+		write_dirty_buffer(journal->j_chkpt_bhs[index], REQ_SYNC);
+	blk_finish_plug(&plug);
+
+	for (index = 0; index < *batch_count; ++index) {
+		struct buffer_head *bh = journal->j_chkpt_bhs[index];
+
+		journal->j_chkpt_bhs[index] = NULL;
+		__brelse(bh);
+	}
+
+	*batch_count = 0;
+}
+
 void __jbd2_log_wait_for_space(journal_t *journal)
 __acquires(&journal->j_state_lock)
 __releases(&journal->j_state_lock)
 {
-	int nblocks, space_left;
+	const int required = journal->j_max_transaction_buffers;
 
+	while (jbd2_log_space_left(journal) < required) {
+		bool have_checkpoint;
+		bool have_commit = false;
+		tid_t commit_tid = 0;
+		int available;
 
-	nblocks = journal->j_max_transaction_buffers;
-	while (jbd2_log_space_left(journal) < nblocks) {
 		write_unlock(&journal->j_state_lock);
 		mutex_lock_io(&journal->j_checkpoint_mutex);
-
-
 		write_lock(&journal->j_state_lock);
+
 		if (journal->j_flags & JBD2_ABORT) {
 			mutex_unlock(&journal->j_checkpoint_mutex);
 			return;
 		}
+
 		spin_lock(&journal->j_list_lock);
-		space_left = jbd2_log_space_left(journal);
-		if (space_left < nblocks) {
-			int chkpt = journal->j_checkpoint_transactions != NULL;
-			tid_t tid = 0;
-			bool has_transaction = false;
-
-			if (journal->j_committing_transaction) {
-				tid = journal->j_committing_transaction->t_tid;
-				has_transaction = true;
-			}
+		available = jbd2_log_space_left(journal);
+		if (available >= required) {
 			spin_unlock(&journal->j_list_lock);
-			write_unlock(&journal->j_state_lock);
-			if (chkpt) {
-				jbd2_log_do_checkpoint(journal);
-			} else if (jbd2_cleanup_journal_tail(journal) <= 0) {
+			mutex_unlock(&journal->j_checkpoint_mutex);
+			continue;
+		}
 
+		have_checkpoint = journal->j_checkpoint_transactions != NULL;
+		if (journal->j_committing_transaction) {
+			have_commit = true;
+			commit_tid = journal->j_committing_transaction->t_tid;
+		}
+		spin_unlock(&journal->j_list_lock);
+		write_unlock(&journal->j_state_lock);
 
-				;
-			} else if (has_transaction) {
+		if (have_checkpoint) {
+			jbd2_log_do_checkpoint(journal);
+		} else {
+			int tail_result = jbd2_cleanup_journal_tail(journal);
 
-
+			if (tail_result > 0 && have_commit) {
 				mutex_unlock(&journal->j_checkpoint_mutex);
-				jbd2_log_wait_commit(journal, tid);
+				jbd2_log_wait_commit(journal, commit_tid);
 				write_lock(&journal->j_state_lock);
 				continue;
-			} else {
-				printk(KERN_ERR "%s: needed %d blocks and "
-				       "only had %d space available\n",
-				       __func__, nblocks, space_left);
-				printk(KERN_ERR "%s: no way to get more "
-				       "journal space in %s\n", __func__,
-				       journal->j_devname);
-				WARN_ON(1);
+			}
+
+			if (tail_result > 0 && !have_commit) {
+				pr_err("JBD2: %s needs %d journal blocks but only %d remain\n",
+				       journal->j_devname, required, available);
 				jbd2_journal_abort(journal, -EIO);
 			}
-			write_lock(&journal->j_state_lock);
-		} else {
-			spin_unlock(&journal->j_list_lock);
 		}
+
+		write_lock(&journal->j_state_lock);
 		mutex_unlock(&journal->j_checkpoint_mutex);
 	}
 }
 
-
-/**
- * __flush_batch - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void
-__flush_batch(journal_t *journal, int *batch_count)
+static bool ifs_jbd2_checkpoint_transaction_changed(
+	const journal_t *journal,
+	const transaction_t *transaction,
+	const tid_t tid)
 {
-	int i;
-	struct blk_plug plug;
-
-	blk_start_plug(&plug);
-	for (i = 0; i < *batch_count; i++)
-		write_dirty_buffer(journal->j_chkpt_bhs[i], REQ_SYNC);
-	blk_finish_plug(&plug);
-
-	for (i = 0; i < *batch_count; i++) {
-		struct buffer_head *bh = journal->j_chkpt_bhs[i];
-		BUFFER_TRACE(bh, "brelse");
-		__brelse(bh);
-		journal->j_chkpt_bhs[i] = NULL;
-	}
-	*batch_count = 0;
+	return journal->j_checkpoint_transactions != transaction ||
+	       transaction->t_tid != tid;
 }
 
+static int ifs_jbd2_checkpoint_queue_buffer(
+	journal_t *journal,
+	transaction_t *transaction,
+	struct journal_head *jh,
+	int *batch_count)
+{
+	struct buffer_head *bh = jh2bh(jh);
 
-/**
- * jbd2_log_do_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
+	if (WARN_ON_ONCE(buffer_jwrite(bh)))
+		return -EFSCORRUPTED;
+
+	get_bh(bh);
+	journal->j_chkpt_bhs[*batch_count] = bh;
+	(*batch_count)++;
+	transaction->t_chp_stats.cs_written++;
+	transaction->t_checkpoint_list = jh->b_cpnext;
+	return 0;
+}
+
 int jbd2_log_do_checkpoint(journal_t *journal)
 {
-	struct journal_head	*jh;
-	struct buffer_head	*bh;
-	transaction_t		*transaction;
-	tid_t			this_tid;
-	int			result, batch_count = 0;
-
-	jbd2_debug(1, "Start checkpoint\n");
-
+	transaction_t *transaction;
+	tid_t transaction_tid;
+	int batch_count = 0;
+	int result;
 
 	result = jbd2_cleanup_journal_tail(journal);
 	trace_jbd2_checkpoint(journal, result);
-	jbd2_debug(1, "cleanup_journal_tail returned %d\n", result);
 	if (result <= 0)
 		return result;
 
-
 	spin_lock(&journal->j_list_lock);
-	if (!journal->j_checkpoint_transactions)
-		goto out;
 	transaction = journal->j_checkpoint_transactions;
+	if (!transaction)
+		goto out_unlock;
+
 	if (transaction->t_chp_stats.cs_chp_time == 0)
 		transaction->t_chp_stats.cs_chp_time = jiffies;
-	this_tid = transaction->t_tid;
-restart:
+	transaction_tid = transaction->t_tid;
 
+	for (;;) {
+		struct journal_head *jh;
+		struct buffer_head *bh;
 
-	if (journal->j_checkpoint_transactions != transaction ||
-	    transaction->t_tid != this_tid)
-		goto out;
+		if (ifs_jbd2_checkpoint_transaction_changed(
+			    journal, transaction, transaction_tid))
+			break;
 
-
-	while (transaction->t_checkpoint_list) {
 		jh = transaction->t_checkpoint_list;
+		if (!jh)
+			break;
 		bh = jh2bh(jh);
 
-		if (jh->b_transaction != NULL) {
-			transaction_t *t = jh->b_transaction;
-			tid_t tid = t->t_tid;
+		if (jh->b_transaction) {
+			const tid_t wait_tid = jh->b_transaction->t_tid;
 
 			transaction->t_chp_stats.cs_forced_to_close++;
 			spin_unlock(&journal->j_list_lock);
-			if (unlikely(journal->j_flags & JBD2_UNMOUNT))
-
-
-				printk(KERN_ERR
-		"JBD2: %s: Waiting for Godot: block %llu\n",
-		journal->j_devname, (unsigned long long) bh->b_blocknr);
-
 			if (batch_count)
-				__flush_batch(journal, &batch_count);
-			jbd2_log_start_commit(journal, tid);
+				ifs_jbd2_flush_checkpoint_batch(
+					journal, &batch_count);
 
-
+			jbd2_log_start_commit(journal, wait_tid);
 			mutex_unlock(&journal->j_checkpoint_mutex);
-			jbd2_log_wait_commit(journal, tid);
+			jbd2_log_wait_commit(journal, wait_tid);
 			mutex_lock_io(&journal->j_checkpoint_mutex);
 			spin_lock(&journal->j_list_lock);
-			goto restart;
+			continue;
 		}
+
 		if (!trylock_buffer(bh)) {
-
-
 			get_bh(bh);
 			spin_unlock(&journal->j_list_lock);
-			wait_on_buffer(bh);
-
-			BUFFER_TRACE(bh, "brelse");
-			__brelse(bh);
-			goto retry;
-		} else if (!buffer_dirty(bh)) {
-			unlock_buffer(bh);
-			BUFFER_TRACE(bh, "remove from checkpoint");
-
-
-			if (__jbd2_journal_remove_checkpoint(jh) ||
-			    !transaction->t_checkpoint_list)
-				goto out;
-		} else {
-			unlock_buffer(bh);
-
-
-			BUFFER_TRACE(bh, "queue");
-			get_bh(bh);
-			if (WARN_ON_ONCE(buffer_jwrite(bh))) {
-				put_bh(bh);
-				spin_unlock(&journal->j_list_lock);
-
-				if (batch_count)
-					__flush_batch(journal, &batch_count);
-				jbd2_journal_abort(journal, -EFSCORRUPTED);
-				return -EFSCORRUPTED;
-			}
-			journal->j_chkpt_bhs[batch_count++] = bh;
-			transaction->t_chp_stats.cs_written++;
-			transaction->t_checkpoint_list = jh->b_cpnext;
-		}
-
-		if ((batch_count == JBD2_NR_BATCH) ||
-		    need_resched() || spin_needbreak(&journal->j_list_lock) ||
-		    jh2bh(transaction->t_checkpoint_list) == journal->j_chkpt_bhs[0])
-			goto unlock_and_flush;
-	}
-
-	if (batch_count) {
-		unlock_and_flush:
-			spin_unlock(&journal->j_list_lock);
-		retry:
 			if (batch_count)
-				__flush_batch(journal, &batch_count);
+				ifs_jbd2_flush_checkpoint_batch(
+					journal, &batch_count);
+			wait_on_buffer(bh);
+			__brelse(bh);
 			cond_resched();
 			spin_lock(&journal->j_list_lock);
-			goto restart;
+			continue;
+		}
+
+		if (!buffer_dirty(bh)) {
+			unlock_buffer(bh);
+			if (__jbd2_journal_remove_checkpoint(jh) ||
+			    !transaction->t_checkpoint_list)
+				break;
+			continue;
+		}
+
+		unlock_buffer(bh);
+		result = ifs_jbd2_checkpoint_queue_buffer(
+			journal, transaction, jh, &batch_count);
+		if (result) {
+			spin_unlock(&journal->j_list_lock);
+			ifs_jbd2_flush_checkpoint_batch(
+				journal, &batch_count);
+			jbd2_journal_abort(journal, result);
+			return result;
+		}
+
+		if (batch_count == JBD2_NR_BATCH ||
+		    need_resched() ||
+		    spin_needbreak(&journal->j_list_lock) ||
+		    jh2bh(transaction->t_checkpoint_list) ==
+			    journal->j_chkpt_bhs[0]) {
+			spin_unlock(&journal->j_list_lock);
+			ifs_jbd2_flush_checkpoint_batch(
+				journal, &batch_count);
+			cond_resched();
+			spin_lock(&journal->j_list_lock);
+		}
 	}
 
-out:
+out_unlock:
 	spin_unlock(&journal->j_list_lock);
-	result = jbd2_cleanup_journal_tail(journal);
+	if (batch_count)
+		ifs_jbd2_flush_checkpoint_batch(journal, &batch_count);
 
-	return (result < 0) ? result : 0;
+	result = jbd2_cleanup_journal_tail(journal);
+	return result < 0 ? result : 0;
 }
 
-
-/**
- * jbd2_cleanup_journal_tail - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int jbd2_cleanup_journal_tail(journal_t *journal)
 {
-	tid_t		first_tid;
-	unsigned long	blocknr;
+	tid_t oldest_tid;
+	unsigned long oldest_block;
 
 	if (is_journal_aborted(journal))
 		return -EIO;
 
-	if (!jbd2_journal_get_log_tail(journal, &first_tid, &blocknr))
+	if (!jbd2_journal_get_log_tail(
+		    journal, &oldest_tid, &oldest_block))
 		return 1;
-	if (WARN_ON_ONCE(blocknr == 0)) {
+
+	if (WARN_ON_ONCE(oldest_block == 0)) {
 		jbd2_journal_abort(journal, -EFSCORRUPTED);
 		return -EFSCORRUPTED;
 	}
 
-
 	if (journal->j_flags & JBD2_BARRIER)
 		blkdev_issue_flush(journal->j_fs_dev);
 
-	return __jbd2_update_log_tail(journal, first_tid, blocknr);
+	return __jbd2_update_log_tail(
+		journal, oldest_tid, oldest_block);
 }
 
-
-/**
- * journal_shrink_one_cp_list - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned long journal_shrink_one_cp_list(struct journal_head *jh,
-						enum jbd2_shrink_type type,
-						bool *released)
+static unsigned long ifs_jbd2_shrink_checkpoint_ring(
+	struct journal_head *first,
+	enum jbd2_shrink_type type,
+	bool *transaction_released)
 {
-	struct journal_head *last_jh;
-	struct journal_head *next_jh = jh;
-	unsigned long nr_freed = 0;
-	int ret;
+	struct journal_head *last;
+	struct journal_head *current;
+	unsigned long removed = 0;
 
-	*released = false;
-	if (!jh)
+	*transaction_released = false;
+	if (!first)
 		return 0;
 
-	last_jh = jh->b_cpprev;
-	do {
-		jh = next_jh;
-		next_jh = jh->b_cpnext;
+	last = first->b_cpprev;
+	current = first;
 
-		if (type == JBD2_SHRINK_DESTROY) {
-			ret = __jbd2_journal_remove_checkpoint(jh);
+	for (;;) {
+		struct journal_head *next = current->b_cpnext;
+		int result;
+
+		if (type == JBD2_SHRINK_DESTROY)
+			result = __jbd2_journal_remove_checkpoint(current);
+		else
+			result = jbd2_journal_try_remove_checkpoint(current);
+
+		if (result < 0) {
+			if (type != JBD2_SHRINK_BUSY_SKIP)
+				break;
 		} else {
-			ret = jbd2_journal_try_remove_checkpoint(jh);
-			if (ret < 0) {
-				if (type == JBD2_SHRINK_BUSY_SKIP)
-					continue;
+			removed++;
+			if (result > 0) {
+				*transaction_released = true;
 				break;
 			}
 		}
 
-		nr_freed++;
-		if (ret) {
-			*released = true;
+		if (current == last || need_resched())
+			break;
+		current = next;
+	}
+
+	return removed;
+}
+
+unsigned long jbd2_journal_shrink_checkpoint_list(
+	journal_t *journal,
+	unsigned long *nr_to_scan)
+{
+	transaction_t *transaction;
+	transaction_t *last;
+	unsigned long removed_total = 0;
+	tid_t first_tid = 0;
+	tid_t current_tid = 0;
+	tid_t last_tid = 0;
+	tid_t next_tid = 0;
+	bool first_seen = false;
+
+	for (;;) {
+		spin_lock(&journal->j_list_lock);
+		if (!journal->j_checkpoint_transactions) {
+			spin_unlock(&journal->j_list_lock);
 			break;
 		}
 
-		if (need_resched())
-			break;
-	} while (jh != last_jh);
+		transaction = journal->j_shrink_transaction ?
+			journal->j_shrink_transaction :
+			journal->j_checkpoint_transactions;
+		last = journal->j_checkpoint_transactions->t_cpprev;
 
-	return nr_freed;
-}
+		if (!first_seen) {
+			first_tid = transaction->t_tid;
+			first_seen = true;
+		}
+		last_tid = last->t_tid;
 
+		for (;;) {
+			transaction_t *next = transaction->t_cpnext;
+			bool released;
+			unsigned long removed;
 
-/**
- * jbd2_journal_shrink_checkpoint_list - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long jbd2_journal_shrink_checkpoint_list(journal_t *journal,
-						  unsigned long *nr_to_scan)
-{
-	transaction_t *transaction, *last_transaction, *next_transaction;
-	bool __maybe_unused released;
-	tid_t first_tid = 0, last_tid = 0, next_tid = 0;
-	tid_t tid = 0;
-	unsigned long nr_freed = 0;
-	unsigned long freed;
-	bool first_set = false;
+			current_tid = transaction->t_tid;
+			removed = ifs_jbd2_shrink_checkpoint_ring(
+				transaction->t_checkpoint_list,
+				JBD2_SHRINK_BUSY_SKIP, &released);
+			removed_total += removed;
+			*nr_to_scan -= min(*nr_to_scan, removed);
 
-again:
-	spin_lock(&journal->j_list_lock);
-	if (!journal->j_checkpoint_transactions) {
+			if (*nr_to_scan == 0 ||
+			    transaction == last ||
+			    need_resched() ||
+			    spin_needbreak(&journal->j_list_lock)) {
+				if (transaction != last) {
+					journal->j_shrink_transaction = next;
+					next_tid = next->t_tid;
+				} else {
+					journal->j_shrink_transaction = NULL;
+					next_tid = 0;
+				}
+				break;
+			}
+
+			transaction = next;
+		}
+
 		spin_unlock(&journal->j_list_lock);
-		goto out;
-	}
+		cond_resched();
 
-
-	if (journal->j_shrink_transaction)
-		transaction = journal->j_shrink_transaction;
-	else
-		transaction = journal->j_checkpoint_transactions;
-
-	if (!first_set) {
-		first_tid = transaction->t_tid;
-		first_set = true;
-	}
-	last_transaction = journal->j_checkpoint_transactions->t_cpprev;
-	next_transaction = transaction;
-	last_tid = last_transaction->t_tid;
-	do {
-		transaction = next_transaction;
-		next_transaction = transaction->t_cpnext;
-		tid = transaction->t_tid;
-
-		freed = journal_shrink_one_cp_list(transaction->t_checkpoint_list,
-						   JBD2_SHRINK_BUSY_SKIP, &released);
-		nr_freed += freed;
-		(*nr_to_scan) -= min(*nr_to_scan, freed);
-		if (*nr_to_scan == 0)
+		if (*nr_to_scan == 0 ||
+		    !journal->j_shrink_transaction)
 			break;
-		if (need_resched() || spin_needbreak(&journal->j_list_lock))
-			break;
-	} while (transaction != last_transaction);
-
-	if (transaction != last_transaction) {
-		journal->j_shrink_transaction = next_transaction;
-		next_tid = next_transaction->t_tid;
-	} else {
-		journal->j_shrink_transaction = NULL;
-		next_tid = 0;
 	}
 
-	spin_unlock(&journal->j_list_lock);
-	cond_resched();
-
-	if (*nr_to_scan && journal->j_shrink_transaction)
-		goto again;
-out:
-	trace_jbd2_shrink_checkpoint_list(journal, first_tid, tid, last_tid,
-					  nr_freed, next_tid);
-
-	return nr_freed;
+	trace_jbd2_shrink_checkpoint_list(
+		journal, first_tid, current_tid, last_tid,
+		removed_total, next_tid);
+	return removed_total;
 }
 
-
-/**
- * __jbd2_journal_clean_checkpoint_list - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void __jbd2_journal_clean_checkpoint_list(journal_t *journal,
-					  enum jbd2_shrink_type type)
+void __jbd2_journal_clean_checkpoint_list(
+	journal_t *journal,
+	enum jbd2_shrink_type type)
 {
-	transaction_t *transaction, *last_transaction, *next_transaction;
-	bool released;
+	transaction_t *transaction;
+	transaction_t *last;
 
 	WARN_ON_ONCE(type == JBD2_SHRINK_BUSY_SKIP);
 
@@ -476,116 +400,78 @@ void __jbd2_journal_clean_checkpoint_list(journal_t *journal,
 	if (!transaction)
 		return;
 
-	last_transaction = transaction->t_cpprev;
-	next_transaction = transaction;
-	do {
-		transaction = next_transaction;
-		next_transaction = transaction->t_cpnext;
-		journal_shrink_one_cp_list(transaction->t_checkpoint_list,
-					   type, &released);
+	last = transaction->t_cpprev;
+	for (;;) {
+		transaction_t *next = transaction->t_cpnext;
+		bool released;
 
+		ifs_jbd2_shrink_checkpoint_ring(
+			transaction->t_checkpoint_list, type, &released);
 
-		if (need_resched())
+		if (need_resched() || !released ||
+		    transaction == last)
 			return;
 
-
-		if (!released)
-			return;
-	} while (transaction != last_transaction);
+		transaction = next;
+	}
 }
 
-
-/**
- * jbd2_journal_destroy_checkpoint - Tears down subsystem state after users have been quiesced.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 void jbd2_journal_destroy_checkpoint(journal_t *journal)
 {
-
-
-	while (1) {
+	for (;;) {
 		spin_lock(&journal->j_list_lock);
 		if (!journal->j_checkpoint_transactions) {
 			spin_unlock(&journal->j_list_lock);
-			break;
+			return;
 		}
-		__jbd2_journal_clean_checkpoint_list(journal, JBD2_SHRINK_DESTROY);
+		__jbd2_journal_clean_checkpoint_list(
+			journal, JBD2_SHRINK_DESTROY);
 		spin_unlock(&journal->j_list_lock);
 		cond_resched();
 	}
 }
 
-
-/**
- * __jbd2_journal_remove_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int __jbd2_journal_remove_checkpoint(struct journal_head *jh)
 {
-	struct transaction_chp_stats_s *stats;
-	transaction_t *transaction;
+	transaction_t *transaction = jh->b_cp_transaction;
 	journal_t *journal;
+	struct transaction_chp_stats_s *stats;
 
-	JBUFFER_TRACE(jh, "entry");
-
-	transaction = jh->b_cp_transaction;
-	if (!transaction) {
-		JBUFFER_TRACE(jh, "not on transaction");
+	if (!transaction)
 		return 0;
-	}
+
 	journal = transaction->t_journal;
-
-	JBUFFER_TRACE(jh, "removing from transaction");
-
-	__buffer_unlink(jh);
+	ifs_jbd2_unlink_checkpoint_head(jh);
 	jh->b_cp_transaction = NULL;
 	percpu_counter_dec(&journal->j_checkpoint_jh_count);
 	jbd2_journal_put_journal_head(jh);
 
-
-	if (transaction->t_checkpoint_list)
+	if (transaction->t_checkpoint_list ||
+	    transaction->t_state != T_FINISHED)
 		return 0;
-
-
-	if (transaction->t_state != T_FINISHED)
-		return 0;
-
 
 	stats = &transaction->t_chp_stats;
 	if (stats->cs_chp_time)
-		stats->cs_chp_time = jbd2_time_diff(stats->cs_chp_time,
-						    jiffies);
-	trace_jbd2_checkpoint_stats(journal->j_fs_dev->bd_dev,
-				    transaction->t_tid, stats);
+		stats->cs_chp_time =
+			jbd2_time_diff(stats->cs_chp_time, jiffies);
+
+	trace_jbd2_checkpoint_stats(
+		journal->j_fs_dev->bd_dev,
+		transaction->t_tid, stats);
 
 	__jbd2_journal_drop_transaction(journal, transaction);
 	jbd2_journal_free_transaction(transaction);
 	return 1;
 }
 
-
-/**
- * jbd2_journal_try_remove_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int jbd2_journal_try_remove_checkpoint(struct journal_head *jh)
 {
-	struct buffer_head *bh = jh2bh(jh);
+	struct buffer_head *bh;
 
 	if (jh->b_transaction)
 		return -EBUSY;
+
+	bh = jh2bh(jh);
 	if (!trylock_buffer(bh))
 		return -EBUSY;
 	if (buffer_dirty(bh)) {
@@ -594,53 +480,41 @@ int jbd2_journal_try_remove_checkpoint(struct journal_head *jh)
 	}
 	unlock_buffer(bh);
 
-
-	JBUFFER_TRACE(jh, "remove from checkpoint list");
 	return __jbd2_journal_remove_checkpoint(jh);
 }
 
-
-/**
- * __jbd2_journal_insert_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void __jbd2_journal_insert_checkpoint(struct journal_head *jh,
-			       transaction_t *transaction)
+void __jbd2_journal_insert_checkpoint(
+	struct journal_head *jh,
+	transaction_t *transaction)
 {
-	JBUFFER_TRACE(jh, "entry");
-	J_ASSERT_JH(jh, buffer_dirty(jh2bh(jh)) || buffer_jbddirty(jh2bh(jh)));
-	J_ASSERT_JH(jh, jh->b_cp_transaction == NULL);
+	struct journal_head *head;
 
+	J_ASSERT_JH(jh,
+		buffer_dirty(jh2bh(jh)) ||
+		buffer_jbddirty(jh2bh(jh)));
+	J_ASSERT_JH(jh, jh->b_cp_transaction == NULL);
 
 	jbd2_journal_grab_journal_head(jh2bh(jh));
 	jh->b_cp_transaction = transaction;
 
-	if (!transaction->t_checkpoint_list) {
-		jh->b_cpnext = jh->b_cpprev = jh;
+	head = transaction->t_checkpoint_list;
+	if (!head) {
+		jh->b_cpnext = jh;
+		jh->b_cpprev = jh;
 	} else {
-		jh->b_cpnext = transaction->t_checkpoint_list;
-		jh->b_cpprev = transaction->t_checkpoint_list->b_cpprev;
-		jh->b_cpprev->b_cpnext = jh;
-		jh->b_cpnext->b_cpprev = jh;
+		jh->b_cpnext = head;
+		jh->b_cpprev = head->b_cpprev;
+		head->b_cpprev->b_cpnext = jh;
+		head->b_cpprev = jh;
 	}
 	transaction->t_checkpoint_list = jh;
-	percpu_counter_inc(&transaction->t_journal->j_checkpoint_jh_count);
+	percpu_counter_inc(
+		&transaction->t_journal->j_checkpoint_jh_count);
 }
 
-
-/**
- * __jbd2_journal_drop_transaction - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void __jbd2_journal_drop_transaction(journal_t *journal, transaction_t *transaction)
+void __jbd2_journal_drop_transaction(
+	journal_t *journal,
+	transaction_t *transaction)
 {
 	assert_spin_locked(&journal->j_list_lock);
 
@@ -648,11 +522,14 @@ void __jbd2_journal_drop_transaction(journal_t *journal, transaction_t *transact
 	if (transaction->t_cpnext) {
 		transaction->t_cpnext->t_cpprev = transaction->t_cpprev;
 		transaction->t_cpprev->t_cpnext = transaction->t_cpnext;
-		if (journal->j_checkpoint_transactions == transaction)
+
+		if (journal->j_checkpoint_transactions == transaction) {
 			journal->j_checkpoint_transactions =
 				transaction->t_cpnext;
-		if (journal->j_checkpoint_transactions == transaction)
-			journal->j_checkpoint_transactions = NULL;
+			if (journal->j_checkpoint_transactions ==
+			    transaction)
+				journal->j_checkpoint_transactions = NULL;
+		}
 	}
 
 	J_ASSERT(transaction->t_state == T_FINISHED);
@@ -665,6 +542,4 @@ void __jbd2_journal_drop_transaction(journal_t *journal, transaction_t *transact
 	J_ASSERT(journal->j_running_transaction != transaction);
 
 	trace_jbd2_drop_transaction(journal, transaction);
-
-	jbd2_debug(1, "Dropping transaction %d, all done\n", transaction->t_tid);
 }
