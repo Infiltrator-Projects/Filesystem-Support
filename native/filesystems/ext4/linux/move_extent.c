@@ -1,696 +1,556 @@
-// SPDX-License-Identifier: LGPL-2.1
-/*
- * Copyright (c) 2008,2009 NEC Software Tohoku, Ltd.
- * Written by Takashi Sato <t-sato@yk.jp.nec.com>
- *            Akira Fujita <a-fujita@rs.jp.nec.com>
- */
-
-/*
- * EXT4 — Extent relocation
- *
- * Purpose:
- *   Implements controlled swapping/movement of mapped extents between files for online defragmentation-style operations.
- *
- * Filesystem model:
- *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
- *
- * Correctness focus:
- *   Both files' mappings, data validity and journal state must change as one logical operation to prevent cross-file data exposure.
- *
- * Project rules:
- *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
- *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
 #include <linux/fs.h>
 #include <linux/quotaops.h>
-#include <linux/slab.h>
 #include <linux/sched/mm.h>
-#include "ext4_jbd2.h"
+#include <linux/slab.h>
+
 #include "ext4.h"
 #include "ext4_extents.h"
+#include "ext4_jbd2.h"
 
-
-/**
- * get_ext_path - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline struct ext4_ext_path *
-get_ext_path(struct inode *inode, ext4_lblk_t lblock,
-	     struct ext4_ext_path *path)
+static struct ext4_ext_path *
+ext4_move_find_path(struct inode *inode, ext4_lblk_t block,
+		    struct ext4_ext_path *path)
 {
-	path = ext4_find_extent(inode, lblock, path, EXT4_EX_NOCACHE);
+	path = ext4_find_extent(inode, block, path, EXT4_EX_NOCACHE);
 	if (IS_ERR(path))
 		return path;
-	if (path[ext_depth(inode)].p_ext == NULL) {
+
+	if (!path[path->p_depth].p_ext) {
 		ext4_free_ext_path(path);
 		return ERR_PTR(-ENODATA);
 	}
 	return path;
 }
 
-
-/**
- * ext4_double_down_write_data_sem - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void
-ext4_double_down_write_data_sem(struct inode *first, struct inode *second)
+void ext4_double_down_write_data_sem(struct inode *first, struct inode *second)
 {
 	if (first < second) {
 		down_write(&EXT4_I(first)->i_data_sem);
-		down_write_nested(&EXT4_I(second)->i_data_sem, I_DATA_SEM_OTHER);
+		down_write_nested(
+			&EXT4_I(second)->i_data_sem, I_DATA_SEM_OTHER);
 	} else {
 		down_write(&EXT4_I(second)->i_data_sem);
-		down_write_nested(&EXT4_I(first)->i_data_sem, I_DATA_SEM_OTHER);
-
+		down_write_nested(
+			&EXT4_I(first)->i_data_sem, I_DATA_SEM_OTHER);
 	}
 }
 
-
-/**
- * ext4_double_up_write_data_sem - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void
-ext4_double_up_write_data_sem(struct inode *orig_inode,
-			      struct inode *donor_inode)
+void ext4_double_up_write_data_sem(struct inode *first, struct inode *second)
 {
-	up_write(&EXT4_I(orig_inode)->i_data_sem);
-	up_write(&EXT4_I(donor_inode)->i_data_sem);
+	up_write(&EXT4_I(first)->i_data_sem);
+	up_write(&EXT4_I(second)->i_data_sem);
 }
 
-
-/**
- * mext_check_coverage - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int
-mext_check_coverage(struct inode *inode, ext4_lblk_t from, ext4_lblk_t count,
-		    int unwritten, int *err)
+static int ext4_move_same_extent_state(struct inode *inode,
+				       ext4_lblk_t start,
+				       ext4_lblk_t count,
+				       bool unwritten,
+				       int *err)
 {
 	struct ext4_ext_path *path = NULL;
-	struct ext4_extent *ext;
-	int ret = 0;
-	ext4_lblk_t last = from + count;
-	while (from < last) {
-		path = get_ext_path(inode, from, path);
+	const ext4_lblk_t end = start + count;
+	int covered = 0;
+
+	while (start < end) {
+		struct ext4_extent *extent;
+		ext4_lblk_t extent_start;
+		ext4_lblk_t extent_end;
+
+		path = ext4_move_find_path(inode, start, path);
 		if (IS_ERR(path)) {
 			*err = PTR_ERR(path);
-			return ret;
+			return covered;
 		}
-		ext = path[ext_depth(inode)].p_ext;
-		if (unwritten != ext4_ext_is_unwritten(ext))
+
+		extent = path[path->p_depth].p_ext;
+		if (unwritten != ext4_ext_is_unwritten(extent))
 			goto out;
-		from += ext4_ext_get_actual_len(ext);
+
+		extent_start = le32_to_cpu(extent->ee_block);
+		extent_end = extent_start + ext4_ext_get_actual_len(extent);
+		if (start < extent_start) {
+			*err = -ENODATA;
+			goto out;
+		}
+		start = extent_end;
 	}
-	ret = 1;
+
+	covered = 1;
 out:
 	ext4_free_ext_path(path);
-	return ret;
+	return covered;
 }
 
-
-/**
- * mext_folio_double_lock - Implements the mext folio double lock operation within the extent relocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int
-mext_folio_double_lock(struct inode *inode1, struct inode *inode2,
-		      pgoff_t index1, pgoff_t index2, struct folio *folio[2])
+static int ext4_move_lock_folios(struct inode *first_inode,
+				  struct inode *second_inode,
+				  pgoff_t first_index,
+				  pgoff_t second_index,
+				  struct folio *folios[2])
 {
 	struct address_space *mapping[2];
-	unsigned int flags;
+	unsigned int nofs;
 
-	BUG_ON(!inode1 || !inode2);
-	if (inode1 < inode2) {
-		mapping[0] = inode1->i_mapping;
-		mapping[1] = inode2->i_mapping;
+	if (first_inode < second_inode) {
+		mapping[0] = first_inode->i_mapping;
+		mapping[1] = second_inode->i_mapping;
 	} else {
-		swap(index1, index2);
-		mapping[0] = inode2->i_mapping;
-		mapping[1] = inode1->i_mapping;
+		swap(first_index, second_index);
+		mapping[0] = second_inode->i_mapping;
+		mapping[1] = first_inode->i_mapping;
 	}
 
-	flags = memalloc_nofs_save();
-	folio[0] = __filemap_get_folio(mapping[0], index1, FGP_WRITEBEGIN,
-			mapping_gfp_mask(mapping[0]));
-	if (IS_ERR(folio[0])) {
-		memalloc_nofs_restore(flags);
-		return PTR_ERR(folio[0]);
+	nofs = memalloc_nofs_save();
+	folios[0] = __filemap_get_folio(
+		mapping[0], first_index, FGP_WRITEBEGIN,
+		mapping_gfp_mask(mapping[0]));
+	if (IS_ERR(folios[0])) {
+		memalloc_nofs_restore(nofs);
+		return PTR_ERR(folios[0]);
 	}
 
-	folio[1] = __filemap_get_folio(mapping[1], index2, FGP_WRITEBEGIN,
-			mapping_gfp_mask(mapping[1]));
-	memalloc_nofs_restore(flags);
-	if (IS_ERR(folio[1])) {
-		folio_unlock(folio[0]);
-		folio_put(folio[0]);
-		return PTR_ERR(folio[1]);
+	folios[1] = __filemap_get_folio(
+		mapping[1], second_index, FGP_WRITEBEGIN,
+		mapping_gfp_mask(mapping[1]));
+	memalloc_nofs_restore(nofs);
+	if (IS_ERR(folios[1])) {
+		folio_unlock(folios[0]);
+		folio_put(folios[0]);
+		return PTR_ERR(folios[1]);
 	}
 
-
-	folio_wait_writeback(folio[0]);
-	folio_wait_writeback(folio[1]);
-	if (inode1 > inode2)
-		swap(folio[0], folio[1]);
-
+	folio_wait_writeback(folios[0]);
+	folio_wait_writeback(folios[1]);
+	if (first_inode > second_inode)
+		swap(folios[0], folios[1]);
 	return 0;
 }
 
-
-/**
- * mext_page_mkuptodate - Implements the mext page mkuptodate operation within the extent relocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int mext_page_mkuptodate(struct folio *folio, size_t from, size_t to)
+static int ext4_move_ensure_folio_uptodate(struct folio *folio,
+					   size_t from, size_t to)
 {
 	struct inode *inode = folio->mapping->host;
+	const unsigned int block_size = i_blocksize(inode);
+	struct buffer_head *head;
+	struct buffer_head *bh;
 	sector_t block;
-	struct buffer_head *bh, *head;
-	unsigned int blocksize, block_start, block_end;
-	int nr = 0;
+	unsigned int block_start = 0;
 	bool partial = false;
+	int reads = 0;
 
 	BUG_ON(!folio_test_locked(folio));
 	BUG_ON(folio_test_writeback(folio));
-
 	if (folio_test_uptodate(folio))
 		return 0;
 
-	blocksize = i_blocksize(inode);
 	head = folio_buffers(folio);
 	if (!head)
-		head = create_empty_buffers(folio, blocksize, 0);
+		head = create_empty_buffers(folio, block_size, 0);
 
 	block = folio_pos(folio) >> inode->i_blkbits;
-	block_end = 0;
 	bh = head;
 	do {
-		block_start = block_end;
-		block_end = block_start + blocksize;
+		const unsigned int block_end = block_start + block_size;
+
 		if (block_end <= from || block_start >= to) {
 			if (!buffer_uptodate(bh))
 				partial = true;
-			continue;
+			goto advance;
 		}
 		if (buffer_uptodate(bh))
-			continue;
+			goto advance;
+
 		if (!buffer_mapped(bh)) {
 			int err = ext4_get_block(inode, block, bh, 0);
+
 			if (err)
 				return err;
 			if (!buffer_mapped(bh)) {
-				folio_zero_range(folio, block_start, blocksize);
+				folio_zero_range(folio, block_start, block_size);
 				set_buffer_uptodate(bh);
-				continue;
+				goto advance;
 			}
 		}
+
 		lock_buffer(bh);
 		if (buffer_uptodate(bh)) {
 			unlock_buffer(bh);
-			continue;
+			goto advance;
 		}
 		ext4_read_bh_nowait(bh, 0, NULL, false);
-		nr++;
-	} while (block++, (bh = bh->b_this_page) != head);
+		reads++;
 
+advance:
+		block++;
+		block_start += block_size;
+		bh = bh->b_this_page;
+	} while (bh != head);
 
-	if (!nr)
-		goto out;
+	if (reads) {
+		bh = head;
+		do {
+			if (bh_offset(bh) + block_size <= from)
+				goto next_wait;
+			if (bh_offset(bh) >= to)
+				break;
+			wait_on_buffer(bh);
+			if (!buffer_uptodate(bh))
+				return -EIO;
+next_wait:
+			bh = bh->b_this_page;
+		} while (bh != head);
+	}
 
-	bh = head;
-	do {
-		if (bh_offset(bh) + blocksize <= from)
-			continue;
-		if (bh_offset(bh) >= to)
-			break;
-		wait_on_buffer(bh);
-		if (buffer_uptodate(bh))
-			continue;
-		return -EIO;
-	} while ((bh = bh->b_this_page) != head);
-out:
 	if (!partial)
 		folio_mark_uptodate(folio);
 	return 0;
 }
 
-
-/**
- * move_extent_per_page - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int
-move_extent_per_page(struct file *o_filp, struct inode *donor_inode,
-		     pgoff_t orig_page_offset, pgoff_t donor_page_offset,
-		     int data_offset_in_page,
-		     int block_len_in_page, int unwritten, int *err)
+static void ext4_move_unlock_folios(struct folio *folios[2])
 {
-	struct inode *orig_inode = file_inode(o_filp);
-	struct folio *folio[2] = {NULL, NULL};
+	unsigned int i;
+
+	for (i = 0; i < 2; ++i) {
+		if (!folios[i])
+			continue;
+		folio_unlock(folios[i]);
+		folio_put(folios[i]);
+		folios[i] = NULL;
+	}
+}
+
+static int ext4_move_one_folio(struct file *file,
+			       struct inode *donor,
+			       pgoff_t source_page,
+			       pgoff_t donor_page,
+			       int block_offset,
+			       int block_count,
+			       bool unwritten,
+			       int *err)
+{
+	struct inode *source = file_inode(file);
+	struct super_block *sb = source->i_sb;
+	struct folio *folios[2] = { NULL, NULL };
+	const unsigned int blocks_per_page =
+		PAGE_SIZE >> source->i_blkbits;
+	const unsigned int block_size = 1U << source->i_blkbits;
+	const ext4_lblk_t source_block =
+		source_page * blocks_per_page + block_offset;
+	const ext4_lblk_t donor_block =
+		donor_page * blocks_per_page + block_offset;
+	const int from = block_offset << source->i_blkbits;
+	unsigned int data_size;
+	unsigned int replaced_size;
 	handle_t *handle;
-	ext4_lblk_t orig_blk_offset, donor_blk_offset;
-	unsigned long blocksize = orig_inode->i_sb->s_blocksize;
-	unsigned int tmp_data_size, data_size, replaced_size;
-	int i, err2, jblocks, retries = 0;
-	int replaced_count = 0;
-	int from = data_offset_in_page << orig_inode->i_blkbits;
-	int blocks_per_page = PAGE_SIZE >> orig_inode->i_blkbits;
-	struct super_block *sb = orig_inode->i_sb;
-	struct buffer_head *bh = NULL;
+	struct buffer_head *bh;
+	int journal_blocks;
+	int retries = 0;
+	int replaced = 0;
+	int i;
 
-
-again:
+retry:
 	*err = 0;
-	jblocks = ext4_writepage_trans_blocks(orig_inode) * 2;
-	handle = ext4_journal_start(orig_inode, EXT4_HT_MOVE_EXTENTS, jblocks);
+	journal_blocks = ext4_writepage_trans_blocks(source) * 2;
+	handle = ext4_journal_start(
+		source, EXT4_HT_MOVE_EXTENTS, journal_blocks);
 	if (IS_ERR(handle)) {
 		*err = PTR_ERR(handle);
 		return 0;
 	}
 
-	orig_blk_offset = orig_page_offset * blocks_per_page +
-		data_offset_in_page;
-
-	donor_blk_offset = donor_page_offset * blocks_per_page +
-		data_offset_in_page;
-
-
-	if ((orig_blk_offset + block_len_in_page - 1) ==
-	    ((orig_inode->i_size - 1) >> orig_inode->i_blkbits)) {
-
-		tmp_data_size = orig_inode->i_size & (blocksize - 1);
-
-
-		if (tmp_data_size == 0)
-			tmp_data_size = blocksize;
-
-		data_size = tmp_data_size +
-			((block_len_in_page - 1) << orig_inode->i_blkbits);
-	} else
-		data_size = block_len_in_page << orig_inode->i_blkbits;
-
+	if (source_block + block_count - 1 ==
+	    (source->i_size - 1) >> source->i_blkbits) {
+		const unsigned int tail = source->i_size & (block_size - 1);
+		data_size = (tail ? tail : block_size) +
+			((block_count - 1) << source->i_blkbits);
+	} else {
+		data_size = block_count << source->i_blkbits;
+	}
 	replaced_size = data_size;
 
-	*err = mext_folio_double_lock(orig_inode, donor_inode, orig_page_offset,
-				     donor_page_offset, folio);
-	if (unlikely(*err < 0))
-		goto stop_journal;
+	*err = ext4_move_lock_folios(
+		source, donor, source_page, donor_page, folios);
+	if (*err)
+		goto stop;
 
-
-	VM_BUG_ON_FOLIO(folio_test_large(folio[0]), folio[0]);
-	VM_BUG_ON_FOLIO(folio_test_large(folio[1]), folio[1]);
-	VM_BUG_ON_FOLIO(folio_nr_pages(folio[0]) != folio_nr_pages(folio[1]), folio[1]);
+	VM_BUG_ON_FOLIO(folio_test_large(folios[0]), folios[0]);
+	VM_BUG_ON_FOLIO(folio_test_large(folios[1]), folios[1]);
 
 	if (unwritten) {
-		ext4_double_down_write_data_sem(orig_inode, donor_inode);
+		bool both_unwritten;
 
-
-		unwritten = mext_check_coverage(orig_inode, orig_blk_offset,
-						block_len_in_page, 1, err);
-		if (*err)
-			goto drop_data_sem;
-
-		unwritten &= mext_check_coverage(donor_inode, donor_blk_offset,
-						 block_len_in_page, 1, err);
-		if (*err)
-			goto drop_data_sem;
-
-		if (!unwritten) {
-			ext4_double_up_write_data_sem(orig_inode, donor_inode);
-			goto data_copy;
+		ext4_double_down_write_data_sem(source, donor);
+		both_unwritten = ext4_move_same_extent_state(
+			source, source_block, block_count, true, err);
+		if (!*err)
+			both_unwritten &=
+				ext4_move_same_extent_state(
+					donor, donor_block,
+					block_count, true, err);
+		if (*err) {
+			ext4_double_up_write_data_sem(source, donor);
+			goto unlock;
 		}
-		if (!filemap_release_folio(folio[0], 0) ||
-		    !filemap_release_folio(folio[1], 0)) {
-			*err = -EBUSY;
-			goto drop_data_sem;
+
+		if (both_unwritten) {
+			if (!filemap_release_folio(folios[0], 0) ||
+			    !filemap_release_folio(folios[1], 0)) {
+				*err = -EBUSY;
+				ext4_double_up_write_data_sem(source, donor);
+				goto unlock;
+			}
+			replaced = ext4_swap_extents(
+				handle, source, donor,
+				source_block, donor_block,
+				block_count, 1, err);
+			ext4_double_up_write_data_sem(source, donor);
+			goto unlock;
 		}
-		replaced_count = ext4_swap_extents(handle, orig_inode,
-						   donor_inode, orig_blk_offset,
-						   donor_blk_offset,
-						   block_len_in_page, 1, err);
-	drop_data_sem:
-		ext4_double_up_write_data_sem(orig_inode, donor_inode);
-		goto unlock_folios;
+		ext4_double_up_write_data_sem(source, donor);
 	}
-data_copy:
-	*err = mext_page_mkuptodate(folio[0], from, from + replaced_size);
+
+	*err = ext4_move_ensure_folio_uptodate(
+		folios[0], from, from + replaced_size);
 	if (*err)
-		goto unlock_folios;
+		goto unlock;
 
-
-	if (!filemap_release_folio(folio[0], 0) ||
-	    !filemap_release_folio(folio[1], 0)) {
+	if (!filemap_release_folio(folios[0], 0) ||
+	    !filemap_release_folio(folios[1], 0)) {
 		*err = -EBUSY;
-		goto unlock_folios;
+		goto unlock;
 	}
-	ext4_double_down_write_data_sem(orig_inode, donor_inode);
-	replaced_count = ext4_swap_extents(handle, orig_inode, donor_inode,
-					       orig_blk_offset, donor_blk_offset,
-					   block_len_in_page, 1, err);
-	ext4_double_up_write_data_sem(orig_inode, donor_inode);
+
+	ext4_double_down_write_data_sem(source, donor);
+	replaced = ext4_swap_extents(
+		handle, source, donor,
+		source_block, donor_block,
+		block_count, 1, err);
+	ext4_double_up_write_data_sem(source, donor);
+
+	if (*err && replaced == 0)
+		goto unlock;
 	if (*err) {
-		if (replaced_count) {
-			block_len_in_page = replaced_count;
-			replaced_size =
-				block_len_in_page << orig_inode->i_blkbits;
-		} else
-			goto unlock_folios;
+		block_count = replaced;
+		replaced_size = block_count << source->i_blkbits;
 	}
 
-
-	bh = folio_buffers(folio[0]);
+	bh = folio_buffers(folios[0]);
 	if (!bh)
-		bh = create_empty_buffers(folio[0],
-				1 << orig_inode->i_blkbits, 0);
-	for (i = 0; i < data_offset_in_page; i++)
+		bh = create_empty_buffers(
+			folios[0], 1U << source->i_blkbits, 0);
+	for (i = 0; i < block_offset; ++i)
 		bh = bh->b_this_page;
-	for (i = 0; i < block_len_in_page; i++) {
-		*err = ext4_get_block(orig_inode, orig_blk_offset + i, bh, 0);
-		if (*err < 0)
-			goto repair_branches;
+
+	for (i = 0; i < block_count; ++i) {
+		*err = ext4_get_block(source, source_block + i, bh, 0);
+		if (*err)
+			goto rollback;
 		bh = bh->b_this_page;
 	}
 
-	block_commit_write(&folio[0]->page, from, from + replaced_size);
+	block_commit_write(&folios[0]->page, from, from + replaced_size);
+	*err = ext4_jbd2_inode_add_write(
+		handle, source,
+		(loff_t)source_page << PAGE_SHIFT,
+		replaced_size);
+	goto unlock;
 
+rollback:
+	{
+		int rollback_err = 0;
+		int restored;
 
-	*err = ext4_jbd2_inode_add_write(handle, orig_inode,
-			(loff_t)orig_page_offset << PAGE_SHIFT, replaced_size);
+		ext4_double_down_write_data_sem(source, donor);
+		restored = ext4_swap_extents(
+			handle, donor, source,
+			source_block, donor_block,
+			block_count, 0, &rollback_err);
+		ext4_double_up_write_data_sem(source, donor);
 
-unlock_folios:
-	folio_unlock(folio[0]);
-	folio_put(folio[0]);
-	folio_unlock(folio[1]);
-	folio_put(folio[1]);
-stop_journal:
+		if (restored != block_count) {
+			ext4_error_inode_block(
+				source, source_block, EIO,
+				"extent relocation rollback incomplete");
+			*err = -EIO;
+		}
+		replaced = 0;
+	}
+
+unlock:
+	ext4_move_unlock_folios(folios);
+stop:
 	ext4_journal_stop(handle);
+
 	if (*err == -ENOSPC &&
 	    ext4_should_retry_alloc(sb, &retries))
-		goto again;
+		goto retry;
 
-
-	if (*err == -EBUSY && retries++ < 4 && EXT4_SB(sb)->s_journal &&
+	if (*err == -EBUSY && retries++ < 4 &&
+	    EXT4_SB(sb)->s_journal &&
 	    jbd2_journal_force_commit_nested(EXT4_SB(sb)->s_journal))
-		goto again;
-	return replaced_count;
+		goto retry;
 
-repair_branches:
-
-
-	ext4_double_down_write_data_sem(orig_inode, donor_inode);
-	replaced_count = ext4_swap_extents(handle, donor_inode, orig_inode,
-					       orig_blk_offset, donor_blk_offset,
-					   block_len_in_page, 0, &err2);
-	ext4_double_up_write_data_sem(orig_inode, donor_inode);
-	if (replaced_count != block_len_in_page) {
-		ext4_error_inode_block(orig_inode, (sector_t)(orig_blk_offset),
-				       EIO, "Unable to copy data block,"
-				       " data will be lost.");
-		*err = -EIO;
-	}
-	replaced_count = 0;
-	goto unlock_folios;
+	return replaced;
 }
 
-
-/**
- * mext_check_arguments - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int
-mext_check_arguments(struct inode *orig_inode,
-		     struct inode *donor_inode, __u64 orig_start,
-		     __u64 donor_start, __u64 *len)
+static int ext4_move_validate(struct inode *source, struct inode *donor,
+			      __u64 source_start, __u64 donor_start,
+			      __u64 *length)
 {
-	__u64 orig_eof, donor_eof;
-	unsigned int blkbits = orig_inode->i_blkbits;
-	unsigned int blocksize = 1 << blkbits;
+	const unsigned int block_bits = source->i_blkbits;
+	const unsigned int block_size = 1U << block_bits;
+	const __u64 source_eof =
+		(i_size_read(source) + block_size - 1) >> block_bits;
+	const __u64 donor_eof =
+		(i_size_read(donor) + block_size - 1) >> block_bits;
+	const __u64 page_block_mask = ~(PAGE_MASK >> block_bits);
 
-	orig_eof = (i_size_read(orig_inode) + blocksize - 1) >> blkbits;
-	donor_eof = (i_size_read(donor_inode) + blocksize - 1) >> blkbits;
-
-
-	if (donor_inode->i_mode & (S_ISUID|S_ISGID)) {
-		ext4_debug("ext4 move extent: suid or sgid is set"
-			   " to donor file [ino:orig %lu, donor %lu]\n",
-			   orig_inode->i_ino, donor_inode->i_ino);
+	if (donor->i_mode & (S_ISUID | S_ISGID))
 		return -EINVAL;
-	}
-
-	if (IS_IMMUTABLE(donor_inode) || IS_APPEND(donor_inode))
+	if (IS_IMMUTABLE(donor) || IS_APPEND(donor))
 		return -EPERM;
-
-
-	if (IS_SWAPFILE(orig_inode) || IS_SWAPFILE(donor_inode)) {
-		ext4_debug("ext4 move extent: The argument files should not be swap files [ino:orig %lu, donor %lu]\n",
-			orig_inode->i_ino, donor_inode->i_ino);
+	if (IS_SWAPFILE(source) || IS_SWAPFILE(donor))
 		return -ETXTBSY;
-	}
-
-	if (ext4_is_quota_file(orig_inode) || ext4_is_quota_file(donor_inode)) {
-		ext4_debug("ext4 move extent: The argument files should not be quota files [ino:orig %lu, donor %lu]\n",
-			orig_inode->i_ino, donor_inode->i_ino);
+	if (ext4_is_quota_file(source) || ext4_is_quota_file(donor))
 		return -EOPNOTSUPP;
-	}
-
-
-	if (!(ext4_test_inode_flag(orig_inode, EXT4_INODE_EXTENTS))) {
-		ext4_debug("ext4 move extent: orig file is not extents "
-			"based file [ino:orig %lu]\n", orig_inode->i_ino);
+	if (!ext4_test_inode_flag(source, EXT4_INODE_EXTENTS) ||
+	    !ext4_test_inode_flag(donor, EXT4_INODE_EXTENTS))
 		return -EOPNOTSUPP;
-	} else if (!(ext4_test_inode_flag(donor_inode, EXT4_INODE_EXTENTS))) {
-		ext4_debug("ext4 move extent: donor file is not extents "
-			"based file [ino:donor %lu]\n", donor_inode->i_ino);
-		return -EOPNOTSUPP;
-	}
-
-	if ((!orig_inode->i_size) || (!donor_inode->i_size)) {
-		ext4_debug("ext4 move extent: File size is 0 byte\n");
+	if (!source->i_size || !donor->i_size)
 		return -EINVAL;
-	}
-
-
-	if ((orig_start & ~(PAGE_MASK >> orig_inode->i_blkbits)) !=
-	    (donor_start & ~(PAGE_MASK >> orig_inode->i_blkbits))) {
-		ext4_debug("ext4 move extent: orig and donor's start "
-			"offsets are not aligned [ino:orig %lu, donor %lu]\n",
-			orig_inode->i_ino, donor_inode->i_ino);
+	if ((source_start & page_block_mask) !=
+	    (donor_start & page_block_mask))
 		return -EINVAL;
-	}
 
-	if ((orig_start >= EXT_MAX_BLOCKS) ||
-	    (donor_start >= EXT_MAX_BLOCKS) ||
-	    (*len > EXT_MAX_BLOCKS) ||
-	    (donor_start + *len >= EXT_MAX_BLOCKS) ||
-	    (orig_start + *len >= EXT_MAX_BLOCKS))  {
-		ext4_debug("ext4 move extent: Can't handle over [%u] blocks "
-			"[ino:orig %lu, donor %lu]\n", EXT_MAX_BLOCKS,
-			orig_inode->i_ino, donor_inode->i_ino);
+	if (source_start >= EXT_MAX_BLOCKS ||
+	    donor_start >= EXT_MAX_BLOCKS ||
+	    *length > EXT_MAX_BLOCKS ||
+	    source_start > EXT_MAX_BLOCKS - *length ||
+	    donor_start > EXT_MAX_BLOCKS - *length)
 		return -EINVAL;
-	}
-	if (orig_eof <= orig_start)
-		*len = 0;
-	else if (orig_eof < orig_start + *len - 1)
-		*len = orig_eof - orig_start;
-	if (donor_eof <= donor_start)
-		*len = 0;
-	else if (donor_eof < donor_start + *len - 1)
-		*len = donor_eof - donor_start;
-	if (!*len) {
-		ext4_debug("ext4 move extent: len should not be 0 "
-			"[ino:orig %lu, donor %lu]\n", orig_inode->i_ino,
-			donor_inode->i_ino);
-		return -EINVAL;
-	}
 
-	return 0;
+	if (source_eof <= source_start || donor_eof <= donor_start)
+		return -EINVAL;
+	if (*length > source_eof - source_start)
+		*length = source_eof - source_start;
+	if (*length > donor_eof - donor_start)
+		*length = donor_eof - donor_start;
+
+	return *length ? 0 : -EINVAL;
 }
 
-
-/**
- * ext4_move_extents - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int
-ext4_move_extents(struct file *o_filp, struct file *d_filp, __u64 orig_blk,
-		  __u64 donor_blk, __u64 len, __u64 *moved_len)
+int ext4_move_extents(struct file *source_file, struct file *donor_file,
+		      __u64 source_block, __u64 donor_block,
+		      __u64 length, __u64 *moved)
 {
-	struct inode *orig_inode = file_inode(o_filp);
-	struct inode *donor_inode = file_inode(d_filp);
+	struct inode *source = file_inode(source_file);
+	struct inode *donor = file_inode(donor_file);
 	struct ext4_ext_path *path = NULL;
-	int blocks_per_page = PAGE_SIZE >> orig_inode->i_blkbits;
-	ext4_lblk_t o_end, o_start = orig_blk;
-	ext4_lblk_t d_start = donor_blk;
-	int ret;
+	const int blocks_per_page = PAGE_SIZE >> source->i_blkbits;
+	ext4_lblk_t source_cursor = source_block;
+	ext4_lblk_t donor_cursor = donor_block;
+	ext4_lblk_t source_end;
+	int err = 0;
 
-	if (orig_inode->i_sb != donor_inode->i_sb) {
-		ext4_debug("ext4 move extent: The argument files "
-			"should be in same FS [ino:orig %lu, donor %lu]\n",
-			orig_inode->i_ino, donor_inode->i_ino);
+	if (source->i_sb != donor->i_sb ||
+	    source == donor ||
+	    !S_ISREG(source->i_mode) ||
+	    !S_ISREG(donor->i_mode))
 		return -EINVAL;
-	}
-
-
-	if (orig_inode == donor_inode) {
-		ext4_debug("ext4 move extent: The argument files should not "
-			"be same inode [ino:orig %lu, donor %lu]\n",
-			orig_inode->i_ino, donor_inode->i_ino);
-		return -EINVAL;
-	}
-
-
-	if (!S_ISREG(orig_inode->i_mode) || !S_ISREG(donor_inode->i_mode)) {
-		ext4_debug("ext4 move extent: The argument files should be "
-			"regular file [ino:orig %lu, donor %lu]\n",
-			orig_inode->i_ino, donor_inode->i_ino);
-		return -EINVAL;
-	}
-
-
-	if (ext4_should_journal_data(orig_inode) ||
-	    ext4_should_journal_data(donor_inode)) {
-		ext4_msg(orig_inode->i_sb, KERN_ERR,
-			 "Online defrag not supported with data journaling");
+	if (ext4_should_journal_data(source) ||
+	    ext4_should_journal_data(donor))
 		return -EOPNOTSUPP;
-	}
-
-	if (IS_ENCRYPTED(orig_inode) || IS_ENCRYPTED(donor_inode)) {
-		ext4_msg(orig_inode->i_sb, KERN_ERR,
-			 "Online defrag not supported for encrypted files");
+	if (IS_ENCRYPTED(source) || IS_ENCRYPTED(donor))
 		return -EOPNOTSUPP;
-	}
 
+	lock_two_nondirectories(source, donor);
+	inode_dio_wait(source);
+	inode_dio_wait(donor);
+	ext4_double_down_write_data_sem(source, donor);
 
-	lock_two_nondirectories(orig_inode, donor_inode);
-
-
-	inode_dio_wait(orig_inode);
-	inode_dio_wait(donor_inode);
-
-
-	ext4_double_down_write_data_sem(orig_inode, donor_inode);
-
-	ret = mext_check_arguments(orig_inode, donor_inode, orig_blk,
-				    donor_blk, &len);
-	if (ret)
+	err = ext4_move_validate(
+		source, donor, source_block, donor_block, &length);
+	if (err)
 		goto out;
-	o_end = o_start + len;
 
-	*moved_len = 0;
-	while (o_start < o_end) {
-		struct ext4_extent *ex;
-		ext4_lblk_t cur_blk, next_blk;
-		pgoff_t orig_page_index, donor_page_index;
-		int offset_in_page;
-		int unwritten, cur_len;
+	source_end = source_cursor + length;
+	*moved = 0;
 
-		path = get_ext_path(orig_inode, o_start, path);
+	while (source_cursor < source_end) {
+		struct ext4_extent *extent;
+		ext4_lblk_t extent_start;
+		ext4_lblk_t next;
+		int extent_length;
+		int block_offset;
+		pgoff_t source_page;
+		pgoff_t donor_page;
+		bool unwritten;
+
+		path = ext4_move_find_path(source, source_cursor, path);
 		if (IS_ERR(path)) {
-			ret = PTR_ERR(path);
+			err = PTR_ERR(path);
+			path = NULL;
 			goto out;
 		}
-		ex = path[path->p_depth].p_ext;
-		cur_blk = le32_to_cpu(ex->ee_block);
-		cur_len = ext4_ext_get_actual_len(ex);
 
-		if (cur_blk + cur_len - 1 < o_start) {
-			next_blk = ext4_ext_next_allocated_block(path);
-			if (next_blk == EXT_MAX_BLOCKS) {
-				ret = -ENODATA;
+		extent = path[path->p_depth].p_ext;
+		extent_start = le32_to_cpu(extent->ee_block);
+		extent_length = ext4_ext_get_actual_len(extent);
+
+		if (extent_start + extent_length <= source_cursor) {
+			next = ext4_ext_next_allocated_block(path);
+			if (next == EXT_MAX_BLOCKS) {
+				err = -ENODATA;
 				goto out;
 			}
-			d_start += next_blk - o_start;
-			o_start = next_blk;
+			donor_cursor += next - source_cursor;
+			source_cursor = next;
 			continue;
-
-		} else if (cur_blk > o_start) {
-
-			d_start += cur_blk - o_start;
-			o_start = cur_blk;
-
-			if (cur_blk >= o_end)
-				goto out;
-		} else {
-			cur_len += cur_blk - o_start;
 		}
-		unwritten = ext4_ext_is_unwritten(ex);
-		if (o_end - o_start < cur_len)
-			cur_len = o_end - o_start;
 
-		orig_page_index = o_start >> (PAGE_SHIFT -
-					       orig_inode->i_blkbits);
-		donor_page_index = d_start >> (PAGE_SHIFT -
-					       donor_inode->i_blkbits);
-		offset_in_page = o_start % blocks_per_page;
-		if (cur_len > blocks_per_page - offset_in_page)
-			cur_len = blocks_per_page - offset_in_page;
+		if (extent_start > source_cursor) {
+			donor_cursor += extent_start - source_cursor;
+			source_cursor = extent_start;
+			if (source_cursor >= source_end)
+				break;
+		} else {
+			extent_length -= source_cursor - extent_start;
+		}
 
+		if (extent_length > source_end - source_cursor)
+			extent_length = source_end - source_cursor;
 
-		ext4_double_up_write_data_sem(orig_inode, donor_inode);
+		unwritten = ext4_ext_is_unwritten(extent);
+		source_page = source_cursor >>
+			(PAGE_SHIFT - source->i_blkbits);
+		donor_page = donor_cursor >>
+			(PAGE_SHIFT - donor->i_blkbits);
+		block_offset = source_cursor % blocks_per_page;
+		if (extent_length > blocks_per_page - block_offset)
+			extent_length = blocks_per_page - block_offset;
 
-		*moved_len += move_extent_per_page(o_filp, donor_inode,
-				     orig_page_index, donor_page_index,
-				     offset_in_page, cur_len,
-				     unwritten, &ret);
-		ext4_double_down_write_data_sem(orig_inode, donor_inode);
-		if (ret < 0)
+		ext4_double_up_write_data_sem(source, donor);
+		*moved += ext4_move_one_folio(
+			source_file, donor,
+			source_page, donor_page,
+			block_offset, extent_length,
+			unwritten, &err);
+		ext4_double_down_write_data_sem(source, donor);
+
+		if (err)
 			break;
-		o_start += cur_len;
-		d_start += cur_len;
+
+		source_cursor += extent_length;
+		donor_cursor += extent_length;
 	}
 
 out:
-	if (*moved_len) {
-		ext4_discard_preallocations(orig_inode);
-		ext4_discard_preallocations(donor_inode);
+	if (*moved) {
+		ext4_discard_preallocations(source);
+		ext4_discard_preallocations(donor);
 	}
 
 	ext4_free_ext_path(path);
-	ext4_double_up_write_data_sem(orig_inode, donor_inode);
-	unlock_two_nondirectories(orig_inode, donor_inode);
-
-	return ret;
+	ext4_double_up_write_data_sem(source, donor);
+	unlock_two_nondirectories(source, donor);
+	return err;
 }
