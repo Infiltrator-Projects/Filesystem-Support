@@ -1,3 +1,6 @@
+#ifndef INFILTRATOR_EXT3_LINUX_ADAPTER_H
+#define INFILTRATOR_EXT3_LINUX_ADAPTER_H
+
 /*
  * Written by Stephen C. Tweedie <sct@redhat.com>, 1999
  *
@@ -1809,3 +1812,5 @@ struct mb_cache_entry *mb_cache_entry_find_next(struct mb_cache_entry *,
 
 int infiltratr_ext3_mbcache_init(void);
 void infiltratr_ext3_mbcache_exit(void);
+
+#endif /* INFILTRATOR_EXT3_LINUX_ADAPTER_H */
