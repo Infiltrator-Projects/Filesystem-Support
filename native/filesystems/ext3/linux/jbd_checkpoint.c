@@ -1,503 +1,353 @@
 /*
- * linux/fs/jbd/checkpoint.c
+ * Filesystem Support EXT3 embedded journal checkpoint engine.
  *
- * Written by Stephen C. Tweedie <sct@redhat.com>, 1999
- *
- * Copyright 1999 Red Hat Software --- All Rights Reserved
- *
- * This file is part of the Linux kernel and is made available under
- * the terms of the GNU General Public License, version 2, or at your
- * option, any later version, incorporated herein by reference.
- *
- * Checkpoint routines for the generic filesystem journaling code.
- * Part of the ext2fs journaling system.
- *
- * Checkpointing is the process of ensuring that a section of the log is
- * committed fully to disk, so that that portion of the log can be
- * reused.
+ * Checkpointing writes committed metadata to its home location, waits for the
+ * writeback to finish, and only then retires the transaction from the JBD log.
+ * The two JBD checkpoint rings are treated as ownership lists: pending buffers
+ * live on t_checkpoint_list and submitted I/O lives on t_checkpoint_io_list.
  */
 
-/*
- * EXT3 — Journal checkpointing
- *
- * Purpose:
- *   Retires committed transaction buffers from the journal once their home-location writes are safe.
- *
- * Filesystem model:
- *   This file belongs to a standalone EXT3 VFS implementation with its historical JBD engine embedded in ext3.ko.
- *
- * Correctness focus:
- *   Checkpoint progress must never discard the only durable copy of metadata needed for crash recovery.
- *
- * Project rules:
- *   - EXT3 requires its journal semantics; it is not an EXT4 compatibility registration.
- *   - Preserve the journal, recovery, ordered/writeback/journal data modes and EXT3 on-disk limits.
- *   - JBD and the metadata cache are private implementation code, not separately deployed modules.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
-#include <linux/time.h>
-#include <linux/fs.h>
-#include "journal.h"
-#include <linux/errno.h>
-#include <linux/slab.h>
 #include <linux/blkdev.h>
+#include <linux/errno.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
+#include "journal.h"
 
+#define IFS_EXT3_CHECKPOINT_BATCH 64
 
-/**
- * __buffer_unlink_first - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline void __buffer_unlink_first(struct journal_head *jh)
+static void ifs_ext3_unlink_checkpoint_head(struct journal_head *jh)
 {
 	transaction_t *transaction = jh->b_cp_transaction;
+	struct journal_head *next = jh->b_cpnext;
+	struct journal_head *prev = jh->b_cpprev;
 
-	jh->b_cpnext->b_cpprev = jh->b_cpprev;
-	jh->b_cpprev->b_cpnext = jh->b_cpnext;
-	if (transaction->t_checkpoint_list == jh) {
-		transaction->t_checkpoint_list = jh->b_cpnext;
-		if (transaction->t_checkpoint_list == jh)
-			transaction->t_checkpoint_list = NULL;
-	}
+	prev->b_cpnext = next;
+	next->b_cpprev = prev;
+
+	if (transaction->t_checkpoint_list == jh)
+		transaction->t_checkpoint_list =
+			next == jh ? NULL : next;
+	if (transaction->t_checkpoint_io_list == jh)
+		transaction->t_checkpoint_io_list =
+			next == jh ? NULL : next;
 }
 
-
-/**
- * __buffer_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline void __buffer_unlink(struct journal_head *jh)
+static void ifs_ext3_move_checkpoint_to_io(struct journal_head *jh)
 {
 	transaction_t *transaction = jh->b_cp_transaction;
+	struct journal_head *head;
 
-	__buffer_unlink_first(jh);
-	if (transaction->t_checkpoint_io_list == jh) {
-		transaction->t_checkpoint_io_list = jh->b_cpnext;
-		if (transaction->t_checkpoint_io_list == jh)
-			transaction->t_checkpoint_io_list = NULL;
-	}
-}
+	ifs_ext3_unlink_checkpoint_head(jh);
 
-
-/**
- * __buffer_relink_io - Implements the buffer relink io operation within the journal checkpointing subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline void __buffer_relink_io(struct journal_head *jh)
-{
-	transaction_t *transaction = jh->b_cp_transaction;
-
-	__buffer_unlink_first(jh);
-
-	if (!transaction->t_checkpoint_io_list) {
-		jh->b_cpnext = jh->b_cpprev = jh;
+	head = transaction->t_checkpoint_io_list;
+	if (!head) {
+		jh->b_cpnext = jh;
+		jh->b_cpprev = jh;
 	} else {
-		jh->b_cpnext = transaction->t_checkpoint_io_list;
-		jh->b_cpprev = transaction->t_checkpoint_io_list->b_cpprev;
-		jh->b_cpprev->b_cpnext = jh;
-		jh->b_cpnext->b_cpprev = jh;
+		jh->b_cpnext = head;
+		jh->b_cpprev = head->b_cpprev;
+		head->b_cpprev->b_cpnext = jh;
+		head->b_cpprev = jh;
 	}
 	transaction->t_checkpoint_io_list = jh;
 }
 
-
-/**
- * __try_to_free_cp_buf - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int __try_to_free_cp_buf(struct journal_head *jh)
+static void ifs_ext3_flush_checkpoint_batch(
+	struct buffer_head **buffers, int *count)
 {
-	int ret = 0;
-	struct buffer_head *bh = jh2bh(jh);
+	struct blk_plug plug;
+	int index;
 
-	if (jh->b_jlist == BJ_None && !buffer_locked(bh) &&
-	    !buffer_dirty(bh) && !buffer_write_io_error(bh)) {
+	if (*count == 0)
+		return;
 
+	blk_start_plug(&plug);
+	for (index = 0; index < *count; ++index)
+		write_dirty_buffer(buffers[index], REQ_SYNC);
+	blk_finish_plug(&plug);
 
-		get_bh(bh);
-		JBUFFER_TRACE(jh, "remove from checkpoint list");
-		ret = __journal_remove_checkpoint(jh) + 1;
-		jbd_unlock_bh_state(bh);
-		BUFFER_TRACE(bh, "release");
-		__brelse(bh);
-	} else {
-		jbd_unlock_bh_state(bh);
+	for (index = 0; index < *count; ++index) {
+		clear_buffer_jwrite(buffers[index]);
+		__brelse(buffers[index]);
+		buffers[index] = NULL;
 	}
-	return ret;
+
+	*count = 0;
 }
 
-
-/**
- * __log_wait_for_space - Implements the log wait for space operation within the journal checkpointing subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 void __log_wait_for_space(journal_t *journal)
 {
-	int nblocks, space_left;
-	assert_spin_locked(&journal->j_state_lock);
+	int required;
 
-	nblocks = jbd_space_needed(journal);
-	while (__log_space_left(journal) < nblocks) {
+	assert_spin_locked(&journal->j_state_lock);
+	required = jbd_space_needed(journal);
+
+	while (__log_space_left(journal) < required) {
+		bool have_checkpoint;
+		tid_t commit_tid = 0;
+		int available;
+
 		if (journal->j_flags & JFS_ABORT)
 			return;
+
 		spin_unlock(&journal->j_state_lock);
 		mutex_lock(&journal->j_checkpoint_mutex);
-
-
 		spin_lock(&journal->j_state_lock);
 		spin_lock(&journal->j_list_lock);
-		nblocks = jbd_space_needed(journal);
-		space_left = __log_space_left(journal);
-		if (space_left < nblocks) {
-			int chkpt = journal->j_checkpoint_transactions != NULL;
-			tid_t tid = 0;
 
-			if (journal->j_committing_transaction)
-				tid = journal->j_committing_transaction->t_tid;
-			spin_unlock(&journal->j_list_lock);
-			spin_unlock(&journal->j_state_lock);
-			if (chkpt) {
-				log_do_checkpoint(journal);
-			} else if (cleanup_journal_tail(journal) == 0) {
+		required = jbd_space_needed(journal);
+		available = __log_space_left(journal);
+		have_checkpoint =
+			journal->j_checkpoint_transactions != NULL;
+		if (journal->j_committing_transaction)
+			commit_tid =
+				journal->j_committing_transaction->t_tid;
 
-				;
-			} else if (tid) {
-				log_wait_commit(journal, tid);
-			} else {
-				printk(KERN_ERR "%s: needed %d blocks and "
-				       "only had %d space available\n",
-				       __func__, nblocks, space_left);
-				printk(KERN_ERR "%s: no way to get more "
-				       "journal space\n", __func__);
-				WARN_ON(1);
-				journal_abort(journal, 0);
-			}
-			spin_lock(&journal->j_state_lock);
-		} else {
-			spin_unlock(&journal->j_list_lock);
+		spin_unlock(&journal->j_list_lock);
+
+		if (available >= required) {
+			mutex_unlock(&journal->j_checkpoint_mutex);
+			continue;
 		}
+
+		spin_unlock(&journal->j_state_lock);
+
+		if (have_checkpoint) {
+			log_do_checkpoint(journal);
+		} else if (cleanup_journal_tail(journal) != 0) {
+			if (commit_tid) {
+				log_wait_commit(journal, commit_tid);
+			} else {
+				pr_err(
+					"JBD: %s needs %d blocks but only %d remain\n",
+					journal->j_devname,
+					required, available);
+				journal_abort(journal, -ENOSPC);
+			}
+		}
+
+		spin_lock(&journal->j_state_lock);
 		mutex_unlock(&journal->j_checkpoint_mutex);
 	}
 }
 
-
-/**
- * __releases - Implements the releases operation within the journal checkpointing subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void jbd_sync_bh(journal_t *journal, struct buffer_head *bh)
-	__releases(journal->j_list_lock)
+static int ifs_ext3_wait_checkpoint_io(
+	journal_t *journal, transaction_t *transaction)
 {
-	get_bh(bh);
-	spin_unlock(&journal->j_list_lock);
-	jbd_lock_bh_state(bh);
-	jbd_unlock_bh_state(bh);
-	put_bh(bh);
-}
+	const tid_t tid = transaction->t_tid;
+	int result = 0;
 
+	for (;;) {
+		struct journal_head *jh;
+		struct buffer_head *bh;
 
-/**
- * __wait_cp_io - Implements the wait cp io operation within the journal checkpointing subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int __wait_cp_io(journal_t *journal, transaction_t *transaction)
-{
-	struct journal_head *jh;
-	struct buffer_head *bh;
-	tid_t this_tid;
-	int released = 0;
-	int ret = 0;
+		if (journal->j_checkpoint_transactions != transaction ||
+		    transaction->t_tid != tid)
+			return result;
 
-	this_tid = transaction->t_tid;
-restart:
-
-	if (journal->j_checkpoint_transactions != transaction ||
-			transaction->t_tid != this_tid)
-		return ret;
-	while (!released && transaction->t_checkpoint_io_list) {
 		jh = transaction->t_checkpoint_io_list;
+		if (!jh)
+			return result;
+
 		bh = jh2bh(jh);
 		if (!jbd_trylock_bh_state(bh)) {
-			jbd_sync_bh(journal, bh);
+			get_bh(bh);
+			spin_unlock(&journal->j_list_lock);
+			jbd_lock_bh_state(bh);
+			jbd_unlock_bh_state(bh);
+			__brelse(bh);
 			spin_lock(&journal->j_list_lock);
-			goto restart;
+			continue;
 		}
+
 		get_bh(bh);
 		if (buffer_locked(bh)) {
 			spin_unlock(&journal->j_list_lock);
 			jbd_unlock_bh_state(bh);
 			wait_on_buffer(bh);
-
-			BUFFER_TRACE(bh, "brelse");
 			__brelse(bh);
 			spin_lock(&journal->j_list_lock);
-			goto restart;
+			continue;
 		}
-		if (unlikely(buffer_write_io_error(bh)))
-			ret = -EIO;
 
+		if (buffer_write_io_error(bh) && !result)
+			result = -EIO;
 
-		released = __journal_remove_checkpoint(jh);
-		jbd_unlock_bh_state(bh);
-		__brelse(bh);
-	}
-
-	return ret;
-}
-
-#define NR_BATCH	64
-
-
-/**
- * __flush_batch - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void
-__flush_batch(journal_t *journal, struct buffer_head **bhs, int *batch_count)
-{
-	int i;
-	struct blk_plug plug;
-
-	blk_start_plug(&plug);
-	for (i = 0; i < *batch_count; i++)
-		write_dirty_buffer(bhs[i], REQ_SYNC);
-	blk_finish_plug(&plug);
-
-	for (i = 0; i < *batch_count; i++) {
-		struct buffer_head *bh = bhs[i];
-		clear_buffer_jwrite(bh);
-		BUFFER_TRACE(bh, "brelse");
-		__brelse(bh);
-	}
-	*batch_count = 0;
-}
-
-
-/**
- * __process_buffer - Implements the process buffer operation within the journal checkpointing subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int __process_buffer(journal_t *journal, struct journal_head *jh,
-			struct buffer_head **bhs, int *batch_count)
-{
-	struct buffer_head *bh = jh2bh(jh);
-	int ret = 0;
-
-	if (buffer_locked(bh)) {
-		get_bh(bh);
-		spin_unlock(&journal->j_list_lock);
-		jbd_unlock_bh_state(bh);
-		wait_on_buffer(bh);
-
-		BUFFER_TRACE(bh, "brelse");
-		__brelse(bh);
-		ret = 1;
-	} else if (jh->b_transaction != NULL) {
-		transaction_t *t = jh->b_transaction;
-		tid_t tid = t->t_tid;
-
-		spin_unlock(&journal->j_list_lock);
-		jbd_unlock_bh_state(bh);
-		log_start_commit(journal, tid);
-		log_wait_commit(journal, tid);
-		ret = 1;
-	} else if (!buffer_dirty(bh)) {
-		ret = 1;
-		if (unlikely(buffer_write_io_error(bh)))
-			ret = -EIO;
-		get_bh(bh);
-		J_ASSERT_JH(jh, !buffer_jbddirty(bh));
-		BUFFER_TRACE(bh, "remove from checkpoint");
 		__journal_remove_checkpoint(jh);
-		spin_unlock(&journal->j_list_lock);
 		jbd_unlock_bh_state(bh);
 		__brelse(bh);
-	} else {
-
-
-		BUFFER_TRACE(bh, "queue");
-		get_bh(bh);
-		J_ASSERT_BH(bh, !buffer_jwrite(bh));
-		set_buffer_jwrite(bh);
-		bhs[*batch_count] = bh;
-		__buffer_relink_io(jh);
-		jbd_unlock_bh_state(bh);
-		(*batch_count)++;
-		if (*batch_count == NR_BATCH) {
-			spin_unlock(&journal->j_list_lock);
-			__flush_batch(journal, bhs, batch_count);
-			ret = 1;
-		}
 	}
-	return ret;
 }
 
+static int ifs_ext3_checkpoint_pending(
+	journal_t *journal,
+	transaction_t *transaction)
+{
+	struct buffer_head *batch[IFS_EXT3_CHECKPOINT_BATCH];
+	const tid_t tid = transaction->t_tid;
+	int batch_count = 0;
+	int result = 0;
 
-/**
- * log_do_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
+	for (;;) {
+		struct journal_head *jh;
+		struct buffer_head *bh;
+
+		if (journal->j_checkpoint_transactions != transaction ||
+		    transaction->t_tid != tid)
+			break;
+
+		jh = transaction->t_checkpoint_list;
+		if (!jh)
+			break;
+
+		bh = jh2bh(jh);
+		if (!jbd_trylock_bh_state(bh)) {
+			get_bh(bh);
+			spin_unlock(&journal->j_list_lock);
+			ifs_ext3_flush_checkpoint_batch(
+				batch, &batch_count);
+			jbd_lock_bh_state(bh);
+			jbd_unlock_bh_state(bh);
+			__brelse(bh);
+			cond_resched();
+			spin_lock(&journal->j_list_lock);
+			continue;
+		}
+
+		if (buffer_locked(bh)) {
+			get_bh(bh);
+			spin_unlock(&journal->j_list_lock);
+			jbd_unlock_bh_state(bh);
+			ifs_ext3_flush_checkpoint_batch(
+				batch, &batch_count);
+			wait_on_buffer(bh);
+			__brelse(bh);
+			cond_resched();
+			spin_lock(&journal->j_list_lock);
+			continue;
+		}
+
+		if (jh->b_transaction) {
+			const tid_t wait_tid =
+				jh->b_transaction->t_tid;
+
+			spin_unlock(&journal->j_list_lock);
+			jbd_unlock_bh_state(bh);
+			ifs_ext3_flush_checkpoint_batch(
+				batch, &batch_count);
+			log_start_commit(journal, wait_tid);
+			log_wait_commit(journal, wait_tid);
+			cond_resched();
+			spin_lock(&journal->j_list_lock);
+			continue;
+		}
+
+		if (!buffer_dirty(bh)) {
+			if (buffer_write_io_error(bh) && !result)
+				result = -EIO;
+			get_bh(bh);
+			__journal_remove_checkpoint(jh);
+			jbd_unlock_bh_state(bh);
+			__brelse(bh);
+			continue;
+		}
+
+		get_bh(bh);
+		set_buffer_jwrite(bh);
+		batch[batch_count++] = bh;
+		ifs_ext3_move_checkpoint_to_io(jh);
+		jbd_unlock_bh_state(bh);
+
+		if (batch_count == IFS_EXT3_CHECKPOINT_BATCH ||
+		    need_resched() ||
+		    spin_needbreak(&journal->j_list_lock)) {
+			spin_unlock(&journal->j_list_lock);
+			ifs_ext3_flush_checkpoint_batch(
+				batch, &batch_count);
+			cond_resched();
+			spin_lock(&journal->j_list_lock);
+		}
+	}
+
+	if (batch_count) {
+		spin_unlock(&journal->j_list_lock);
+		ifs_ext3_flush_checkpoint_batch(batch, &batch_count);
+		spin_lock(&journal->j_list_lock);
+	}
+
+	return result;
+}
+
 int log_do_checkpoint(journal_t *journal)
 {
 	transaction_t *transaction;
-	tid_t this_tid;
 	int result;
-
-	jbd_debug(1, "Start checkpoint\n");
-
+	int wait_result;
 
 	result = cleanup_journal_tail(journal);
-	jbd_debug(1, "cleanup_journal_tail returned %d\n", result);
 	if (result <= 0)
 		return result;
 
-
-	result = 0;
 	spin_lock(&journal->j_list_lock);
-	if (!journal->j_checkpoint_transactions)
-		goto out;
 	transaction = journal->j_checkpoint_transactions;
-	this_tid = transaction->t_tid;
-restart:
-
-
-	if (journal->j_checkpoint_transactions == transaction &&
-			transaction->t_tid == this_tid) {
-		int batch_count = 0;
-		struct buffer_head *bhs[NR_BATCH];
-		struct journal_head *jh;
-		int retry = 0, err;
-
-		while (!retry && transaction->t_checkpoint_list) {
-			struct buffer_head *bh;
-
-			jh = transaction->t_checkpoint_list;
-			bh = jh2bh(jh);
-			if (!jbd_trylock_bh_state(bh)) {
-				jbd_sync_bh(journal, bh);
-				retry = 1;
-				break;
-			}
-			retry = __process_buffer(journal, jh, bhs,&batch_count);
-			if (retry < 0 && !result)
-				result = retry;
-			if (!retry && (need_resched() ||
-				spin_needbreak(&journal->j_list_lock))) {
-				spin_unlock(&journal->j_list_lock);
-				retry = 1;
-				break;
-			}
-		}
-
-		if (batch_count) {
-			if (!retry) {
-				spin_unlock(&journal->j_list_lock);
-				retry = 1;
-			}
-			__flush_batch(journal, bhs, &batch_count);
-		}
-
-		if (retry) {
-			spin_lock(&journal->j_list_lock);
-			goto restart;
-		}
-
-
-		err = __wait_cp_io(journal, transaction);
-		if (!result)
-			result = err;
+	if (!transaction) {
+		spin_unlock(&journal->j_list_lock);
+		return 0;
 	}
-out:
-	spin_unlock(&journal->j_list_lock);
-	if (result < 0)
-		journal_abort(journal, result);
-	else
-		result = cleanup_journal_tail(journal);
 
-	return (result < 0) ? result : 0;
+	result = ifs_ext3_checkpoint_pending(journal, transaction);
+	wait_result =
+		ifs_ext3_wait_checkpoint_io(journal, transaction);
+	if (!result)
+		result = wait_result;
+	spin_unlock(&journal->j_list_lock);
+
+	if (result < 0) {
+		journal_abort(journal, result);
+		return result;
+	}
+
+	result = cleanup_journal_tail(journal);
+	return result < 0 ? result : 0;
 }
 
-
-/**
- * cleanup_journal_tail - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int cleanup_journal_tail(journal_t *journal)
 {
-	transaction_t * transaction;
-	tid_t		first_tid;
-	unsigned int	blocknr, freed;
+	transaction_t *transaction;
+	tid_t first_tid;
+	unsigned int block;
+	unsigned int freed;
 
 	if (is_journal_aborted(journal))
 		return 1;
 
-
 	spin_lock(&journal->j_state_lock);
 	spin_lock(&journal->j_list_lock);
+
 	transaction = journal->j_checkpoint_transactions;
 	if (transaction) {
 		first_tid = transaction->t_tid;
-		blocknr = transaction->t_log_start;
-	} else if ((transaction = journal->j_committing_transaction) != NULL) {
+		block = transaction->t_log_start;
+	} else if (journal->j_committing_transaction) {
+		transaction = journal->j_committing_transaction;
 		first_tid = transaction->t_tid;
-		blocknr = transaction->t_log_start;
-	} else if ((transaction = journal->j_running_transaction) != NULL) {
+		block = transaction->t_log_start;
+	} else if (journal->j_running_transaction) {
+		transaction = journal->j_running_transaction;
 		first_tid = transaction->t_tid;
-		blocknr = journal->j_head;
+		block = journal->j_head;
 	} else {
 		first_tid = journal->j_transaction_sequence;
-		blocknr = journal->j_head;
+		block = journal->j_head;
 	}
-	spin_unlock(&journal->j_list_lock);
-	J_ASSERT(blocknr != 0);
 
+	spin_unlock(&journal->j_list_lock);
+
+	if (!block) {
+		spin_unlock(&journal->j_state_lock);
+		journal_abort(journal, -EFSCORRUPTED);
+		return -EFSCORRUPTED;
+	}
 
 	if (journal->j_tail_sequence == first_tid) {
 		spin_unlock(&journal->j_state_lock);
@@ -505,211 +355,177 @@ int cleanup_journal_tail(journal_t *journal)
 	}
 	spin_unlock(&journal->j_state_lock);
 
-
-	journal_update_sb_log_tail(journal, first_tid, blocknr,
-				   (REQ_PREFLUSH | REQ_FUA));
+	journal_update_sb_log_tail(
+		journal, first_tid, block,
+		REQ_PREFLUSH | REQ_FUA);
 
 	spin_lock(&journal->j_state_lock);
-
-
-	freed = blocknr - journal->j_tail;
-	if (blocknr < journal->j_tail)
-		freed = freed + journal->j_last - journal->j_first;
-	jbd_debug(1,
-		  "Cleaning journal tail from %d to %d (offset %u), "
-		  "freeing %u\n",
-		  journal->j_tail_sequence, first_tid, blocknr, freed);
+	freed = block - journal->j_tail;
+	if (block < journal->j_tail)
+		freed += journal->j_last - journal->j_first;
 
 	journal->j_free += freed;
 	journal->j_tail_sequence = first_tid;
-	journal->j_tail = blocknr;
+	journal->j_tail = block;
 	spin_unlock(&journal->j_state_lock);
 	return 0;
 }
 
-
-/**
- * journal_clean_one_cp_list - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int journal_clean_one_cp_list(struct journal_head *jh, int *released)
+static int ifs_ext3_try_remove_checkpoint(struct journal_head *jh)
 {
-	struct journal_head *last_jh;
-	struct journal_head *next_jh = jh;
-	int ret, freed = 0;
+	struct buffer_head *bh = jh2bh(jh);
+	int released;
 
-	*released = 0;
-	if (!jh)
+	if (!jbd_trylock_bh_state(bh))
 		return 0;
 
-	last_jh = jh->b_cpprev;
-	do {
-		jh = next_jh;
-		next_jh = jh->b_cpnext;
+	if (jh->b_jlist != BJ_None ||
+	    buffer_locked(bh) ||
+	    buffer_dirty(bh) ||
+	    buffer_write_io_error(bh)) {
+		jbd_unlock_bh_state(bh);
+		return 0;
+	}
 
-		if (jbd_trylock_bh_state(jh2bh(jh))) {
-			ret = __try_to_free_cp_buf(jh);
-			if (ret) {
-				freed++;
-				if (ret == 2) {
-					*released = 1;
-					return freed;
-				}
+	get_bh(bh);
+	released = __journal_remove_checkpoint(jh);
+	jbd_unlock_bh_state(bh);
+	__brelse(bh);
+	return released ? 2 : 1;
+}
+
+static int ifs_ext3_clean_checkpoint_ring(
+	struct journal_head *first, int *transaction_released)
+{
+	struct journal_head *last;
+	struct journal_head *current;
+	int cleaned = 0;
+
+	*transaction_released = 0;
+	if (!first)
+		return 0;
+
+	last = first->b_cpprev;
+	current = first;
+	for (;;) {
+		struct journal_head *next = current->b_cpnext;
+		int result =
+			ifs_ext3_try_remove_checkpoint(current);
+
+		if (result) {
+			cleaned++;
+			if (result == 2) {
+				*transaction_released = 1;
+				break;
 			}
 		}
 
+		if (current == last || need_resched())
+			break;
+		current = next;
+	}
 
-		if (need_resched())
-			return freed;
-	} while (jh != last_jh);
-
-	return freed;
+	return cleaned;
 }
 
-
-/**
- * __journal_clean_checkpoint_list - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int __journal_clean_checkpoint_list(journal_t *journal)
 {
-	transaction_t *transaction, *last_transaction, *next_transaction;
-	int ret = 0;
-	int released;
+	transaction_t *transaction;
+	transaction_t *last;
+	int cleaned = 0;
 
 	transaction = journal->j_checkpoint_transactions;
 	if (!transaction)
-		goto out;
+		return 0;
 
-	last_transaction = transaction->t_cpprev;
-	next_transaction = transaction;
-	do {
-		transaction = next_transaction;
-		next_transaction = transaction->t_cpnext;
-		ret += journal_clean_one_cp_list(transaction->
-				t_checkpoint_list, &released);
+	last = transaction->t_cpprev;
+	for (;;) {
+		transaction_t *next = transaction->t_cpnext;
+		int released;
 
+		cleaned += ifs_ext3_clean_checkpoint_ring(
+			transaction->t_checkpoint_list, &released);
+		if (!released)
+			cleaned += ifs_ext3_clean_checkpoint_ring(
+				transaction->t_checkpoint_io_list,
+				&released);
 
-		if (need_resched())
-			goto out;
-		if (released)
-			continue;
+		if (need_resched() || transaction == last)
+			break;
+		transaction = next;
+	}
 
-
-		ret += journal_clean_one_cp_list(transaction->
-				t_checkpoint_io_list, &released);
-		if (need_resched())
-			goto out;
-	} while (transaction != last_transaction);
-out:
-	return ret;
+	return cleaned;
 }
 
-
-/**
- * __journal_remove_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int __journal_remove_checkpoint(struct journal_head *jh)
 {
-	transaction_t *transaction;
+	transaction_t *transaction = jh->b_cp_transaction;
 	journal_t *journal;
-	int ret = 0;
 
-	JBUFFER_TRACE(jh, "entry");
+	if (!transaction)
+		return 0;
 
-	if ((transaction = jh->b_cp_transaction) == NULL) {
-		JBUFFER_TRACE(jh, "not on transaction");
-		goto out;
-	}
 	journal = transaction->t_journal;
-
-	JBUFFER_TRACE(jh, "removing from transaction");
-	__buffer_unlink(jh);
+	ifs_ext3_unlink_checkpoint_head(jh);
 	jh->b_cp_transaction = NULL;
 	journal_put_journal_head(jh);
 
-	if (transaction->t_checkpoint_list != NULL ||
-	    transaction->t_checkpoint_io_list != NULL)
-		goto out;
-
-
-	if (transaction->t_state != T_FINISHED)
-		goto out;
-
+	if (transaction->t_checkpoint_list ||
+	    transaction->t_checkpoint_io_list ||
+	    transaction->t_state != T_FINISHED)
+		return 0;
 
 	__journal_drop_transaction(journal, transaction);
-
-
 	wake_up(&journal->j_wait_logspace);
-	ret = 1;
-out:
-	return ret;
+	return 1;
 }
 
-
-/**
- * __journal_insert_checkpoint - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void __journal_insert_checkpoint(struct journal_head *jh,
-			       transaction_t *transaction)
+void __journal_insert_checkpoint(
+	struct journal_head *jh, transaction_t *transaction)
 {
-	JBUFFER_TRACE(jh, "entry");
-	J_ASSERT_JH(jh, buffer_dirty(jh2bh(jh)) || buffer_jbddirty(jh2bh(jh)));
-	J_ASSERT_JH(jh, jh->b_cp_transaction == NULL);
+	struct journal_head *head;
 
+	J_ASSERT_JH(jh,
+		buffer_dirty(jh2bh(jh)) ||
+		buffer_jbddirty(jh2bh(jh)));
+	J_ASSERT_JH(jh, jh->b_cp_transaction == NULL);
 
 	journal_grab_journal_head(jh2bh(jh));
 	jh->b_cp_transaction = transaction;
 
-	if (!transaction->t_checkpoint_list) {
-		jh->b_cpnext = jh->b_cpprev = jh;
+	head = transaction->t_checkpoint_list;
+	if (!head) {
+		jh->b_cpnext = jh;
+		jh->b_cpprev = jh;
 	} else {
-		jh->b_cpnext = transaction->t_checkpoint_list;
-		jh->b_cpprev = transaction->t_checkpoint_list->b_cpprev;
-		jh->b_cpprev->b_cpnext = jh;
-		jh->b_cpnext->b_cpprev = jh;
+		jh->b_cpnext = head;
+		jh->b_cpprev = head->b_cpprev;
+		head->b_cpprev->b_cpnext = jh;
+		head->b_cpprev = jh;
 	}
 	transaction->t_checkpoint_list = jh;
 }
 
-
-/**
- * __journal_drop_transaction - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void __journal_drop_transaction(journal_t *journal, transaction_t *transaction)
+void __journal_drop_transaction(
+	journal_t *journal, transaction_t *transaction)
 {
 	assert_spin_locked(&journal->j_list_lock);
+
 	if (transaction->t_cpnext) {
-		transaction->t_cpnext->t_cpprev = transaction->t_cpprev;
-		transaction->t_cpprev->t_cpnext = transaction->t_cpnext;
-		if (journal->j_checkpoint_transactions == transaction)
+		transaction->t_cpnext->t_cpprev =
+			transaction->t_cpprev;
+		transaction->t_cpprev->t_cpnext =
+			transaction->t_cpnext;
+
+		if (journal->j_checkpoint_transactions ==
+		    transaction) {
 			journal->j_checkpoint_transactions =
 				transaction->t_cpnext;
-		if (journal->j_checkpoint_transactions == transaction)
-			journal->j_checkpoint_transactions = NULL;
+			if (journal->j_checkpoint_transactions ==
+			    transaction)
+				journal->j_checkpoint_transactions = NULL;
+		}
 	}
 
 	J_ASSERT(transaction->t_state == T_FINISHED);
@@ -724,6 +540,6 @@ void __journal_drop_transaction(journal_t *journal, transaction_t *transaction)
 	J_ASSERT(transaction->t_updates == 0);
 	J_ASSERT(journal->j_committing_transaction != transaction);
 	J_ASSERT(journal->j_running_transaction != transaction);
-	jbd_debug(1, "Dropping transaction %d, all done\n", transaction->t_tid);
+
 	kfree(transaction);
 }
