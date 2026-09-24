@@ -533,6 +533,7 @@ static void __exit sfs_exit(void)
 
 MODULE_DESCRIPTION("Infiltrator SFS filesystem support");
 MODULE_ALIAS_FS("sfs");
+MODULE_LICENSE("Proprietary");
 
 module_init(sfs_init);
 module_exit(sfs_exit);
