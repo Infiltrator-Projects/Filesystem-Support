@@ -155,7 +155,7 @@ jobs:
             ! grep -Eiq 'SPDX-License-Identifier|Copyright|Remy Card|Linus Torvalds|Stephen Tweedie|Darrick J\. Wong|GPL-2\.0' "$file"
           done
 
-      - name: Guard rewritten SFS and EXT3 inode allocation
+      - name: Guard project-authored SFS and EXT3 units
         shell: bash
         run: |
           set -euo pipefail
@@ -172,16 +172,43 @@ jobs:
             native/filesystems/sfs/linux/objects.c
             native/filesystems/sfs/linux/super.c
             native/filesystems/sfs/linux/symlink.c
+            native/filesystems/ext3/linux/balloc.c
+            native/filesystems/ext3/linux/dir.c
             native/filesystems/ext3/linux/file.c
             native/filesystems/ext3/linux/ialloc.c
             native/filesystems/ext3/linux/jbd_checkpoint.c
             native/filesystems/ext3/linux/jbd_commit.c
             native/filesystems/ext3/linux/jbd_recovery.c
+            native/filesystems/ext3/linux/jbd_revoke.c
             native/filesystems/ext3/linux/resize.c
           )
           for file in "${rewritten[@]}"; do
             test -s "$file"
-            ! grep -Eiq 'Copyright|Written by|Remy Card|Stephen Tweedie|Linus Torvalds|Marek Szyprowski|John Hendrikx|Ray Burr|Hans-Joachim Widmaier' "$file"
+            ! grep -Eiq 'Written by|Remy Card|Stephen Tweedie|Linus Torvalds|Marek Szyprowski|John Hendrikx|Ray Burr|Hans-Joachim Widmaier|Andreas Gruenbacher|James Morris|Red Hat corp' "$file"
+            if grep -Ein 'Copyright' "$file" | grep -Eiv 'Shannon Smith|Infiltrator Projects'; then
+              echo "Unexpected third-party copyright in project-authored file: $file" >&2
+              exit 1
+            fi
+          done
+
+      - name: Preserve provenance on inherited EXT3 units
+        shell: bash
+        run: |
+          set -euo pipefail
+          inherited=(
+            native/filesystems/ext3/linux/inode.c
+            native/filesystems/ext3/linux/namei.c
+            native/filesystems/ext3/linux/super.c
+            native/filesystems/ext3/linux/xattr.c
+            native/filesystems/ext3/linux/jbd_journal.c
+            native/filesystems/ext3/linux/jbd_transaction.c
+          )
+          for file in "${inherited[@]}"; do
+            test -s "$file"
+            grep -Eiq 'Copyright|MODULE_AUTHOR' "$file" || {
+              echo "Inherited EXT3 provenance was removed before implementation replacement: $file" >&2
+              exit 1
+            }
           done
 
       - name: Enforce single EXT2 engine on Windows
