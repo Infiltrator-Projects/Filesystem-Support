@@ -62,12 +62,16 @@ filesystem.
 
 ## Current ownership state
 
-OFS and FFS now own separate canonical cores, format primitives and Linux
-adapter implementations. Neither depends on a shared Amiga filesystem layer.
+OFS and FFS now own separate canonical cores and permanent responsibility-cut
+Linux adapters. Each Linux tree is reduced to `core_bridge.c`, `storage.c`,
+`namespace.c`, `lifecycle.c`, `linux_adapter.h` and `disk_layout.h`.
+Neither depends on a shared Amiga filesystem layer and neither retains the
+migration filenames `affs.h` or `amigaffs.h`.
 
-SFS has a canonical core but its Linux adapter is still being migrated to the
-same project-owned architecture. No migration-era unit is considered complete
-until its implementation body has been replaced and qualified.
+SFS now uses the same project layout principle: `core_bridge.c`,
+`allocation.c`, `mapping.c`, `io.c`, `namespace.c`, `lifecycle.c`,
+`linux_adapter.h` and `disk_layout.h`. The old ASFS file boundaries and
+historical Changes file are not active source.
 
 SFS2 and PFS3 currently expose project-owned canonical format cores. Their host
 adapters remain separate work and must bind directly to those cores rather than

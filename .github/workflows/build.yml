@@ -53,6 +53,28 @@ jobs:
           test ! -e tools/shape-ext4.sh
           test ! -e tools/harden-ext-ranges.py
 
+          # Active rewrite trees use Filesystem Support responsibility
+          # boundaries, not the imported Linux/AFFS/ASFS file layout.
+          for legacy in \
+            native/filesystems/ext2/linux/balloc.c \
+            native/filesystems/ext2/linux/dir.c \
+            native/filesystems/ext2/linux/file.c \
+            native/filesystems/ext2/linux/inode.c \
+            native/filesystems/ext2/linux/namei.c \
+            native/filesystems/ext2/linux/super.c \
+            native/filesystems/ext3/linux/balloc.c \
+            native/filesystems/ext3/linux/jbd_journal.c \
+            native/filesystems/ext3/linux/jbd_transaction.c \
+            native/filesystems/ext4/linux/balloc.c \
+            native/filesystems/ext4/linux/jbd2_journal.c \
+            native/filesystems/ext4/linux/jbd2_transaction.c \
+            native/filesystems/ofs/linux/affs.h \
+            native/filesystems/ffs/linux/affs.h \
+            native/filesystems/sfs/linux/asfs_fs.h \
+            native/filesystems/sfs/linux/Changes; do
+            test ! -e "$legacy"
+          done
+
           refresh=.github/workflows/import-linux-filesystems.yml
           if test -f "$refresh"; then
             ! grep -Eq 'fs/ext2([ /]|$)|fs/ext3([ /]|$)|fs/ext4([ /]|$)|fs/affs([ /]|$)|linux-ext3|shape-ext[234]|harden-ext-ranges|recomment-ext-family' "$refresh"

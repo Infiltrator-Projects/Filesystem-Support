@@ -83,104 +83,97 @@ implementation-ownership boundary.
 
 ## Project-authored EXT3 units
 
-EXT3 has crossed the ownership boundary for the following active units:
+EXT3's active Linux tree is now cut by Filesystem Support responsibility rather
+than the old EXT3/JBD translation-unit layout. The units that have crossed the
+implementation-ownership boundary are:
 
 - `native/filesystems/ext3/core/ext3_core.c`
 - `native/filesystems/ext3/core/ext3_core.h`
-- `native/filesystems/ext3/linux/canonical.c`
-- `native/filesystems/ext3/linux/balloc.c`
-- `native/filesystems/ext3/linux/dir.c`
-- `native/filesystems/ext3/linux/file.c`
-- `native/filesystems/ext3/linux/ialloc.c`
-- `native/filesystems/ext3/linux/resize.c`
-- `native/filesystems/ext3/linux/jbd_checkpoint.c`
-- `native/filesystems/ext3/linux/jbd_commit.c`
-- `native/filesystems/ext3/linux/jbd_recovery.c`
-- `native/filesystems/ext3/linux/jbd_revoke.c`
+- `native/filesystems/ext3/linux/core_bridge.c`
+- `native/filesystems/ext3/linux/allocation.c`
+- `native/filesystems/ext3/linux/directory_io.c`
+- `native/filesystems/ext3/linux/file_io.c`
+- `native/filesystems/ext3/linux/journal_durability.c`
 
-The checkpoint engine was replaced again in September 2026 around the project's
-own transaction-ring, batching, I/O-retirement and journal-tail invariants.  Its
-ownership classification is based on the replacement implementation, not on
-comment removal or symbol renaming.
-
-For the other units above, the forensic migration review found that their
-current implementations had already diverged substantially from the historical
-Linux EXT3/JBD bodies and no longer retained third-party author blocks.  They
-are therefore recorded here instead of being incorrectly described as
-migration-era source.
+`allocation.c` owns the project-authored block/inode allocation and online
+growth adapter. `journal_durability.c` owns the project-authored checkpoint,
+commit, recovery and revoke implementation. The recut does not itself change
+provenance classification; only replaced implementation bodies are promoted.
 
 ## EXT3 migration state
 
-The following active EXT3 Linux units still retain material inherited
-implementation and remain explicitly outside the project-authored set:
+The following recut EXT3 units still contain materially inherited implementation
+and therefore remain outside the project-authored set:
 
-- `native/filesystems/ext3/linux/inode.c`
-- `native/filesystems/ext3/linux/namei.c`
-- `native/filesystems/ext3/linux/super.c`
-- `native/filesystems/ext3/linux/xattr.c`
-- `native/filesystems/ext3/linux/jbd_journal.c`
-- `native/filesystems/ext3/linux/jbd_transaction.c`
+- `native/filesystems/ext3/linux/inode_adapter.c`
+- `native/filesystems/ext3/linux/namespace_mutation.c`
+- `native/filesystems/ext3/linux/lifecycle.c`
+- `native/filesystems/ext3/linux/extended_metadata.c`
+- `native/filesystems/ext3/linux/journal_core.c`
+- `native/filesystems/ext3/linux/journal_transactions.c`
+- `native/filesystems/ext3/linux/linux_adapter.h`
+- `native/filesystems/ext3/linux/journal_internal.h`
 
-Their historical attribution must remain intact until each implementation body
-is actually replaced.  CI intentionally treats removal of that provenance
-before replacement as a failure.
-
-EXT3 remains a single `ext3.ko`.  The rewrite continues subsystem by subsystem,
-moving format semantics into the canonical core and keeping only Linux VFS,
-block-device and kernel-lifetime policy in the Linux adapter.
+Historical attribution remains intact in those units until the implementation
+body itself is replaced. EXT3 remains one `ext3.ko`; old filenames such as
+`inode.c`, `namei.c`, `super.c`, `xattr.c`, `jbd_journal.c` and
+`jbd_transaction.c` are no longer active source boundaries.
 
 ## Project-authored EXT4 units
 
-EXT4 has already crossed the ownership boundary for its canonical core and for
-a substantial set of Linux-facing feature units.  CI treats the following as
-project-authored and rejects reintroduction of the historical EXT/Linux author
-blocks:
+EXT4 has also been recut around Filesystem Support responsibilities. The
+project-authored active units are:
 
 - `native/filesystems/ext4/core/ext4_core.c`
 - `native/filesystems/ext4/core/ext4_core.h`
-- `native/filesystems/ext4/linux/canonical.c`
+- `native/filesystems/ext4/linux/core_bridge.c`
+- `native/filesystems/ext4/linux/storage_guard.c`
+- `native/filesystems/ext4/linux/directory_io.c`
+- `native/filesystems/ext4/linux/mapping_support.c`
+- `native/filesystems/ext4/linux/volume_admin.c`
+- `native/filesystems/ext4/linux/journal_durability.c`
+- `native/filesystems/ext4/linux/security_support.c`
 - `native/filesystems/ext4/linux/embedded_jbd2.h`
 - `native/filesystems/ext4/linux/truncate.h`
 - `native/filesystems/ext4/linux/fsmap.h`
 - `native/filesystems/ext4/linux/fast_commit.h`
-- `native/filesystems/ext4/linux/crypto.c`
-- `native/filesystems/ext4/linux/verity.c`
-- `native/filesystems/ext4/linux/block_validity.c`
-- `native/filesystems/ext4/linux/balloc.c`
-- `native/filesystems/ext4/linux/dir.c`
-- `native/filesystems/ext4/linux/mmp.c`
-- `native/filesystems/ext4/linux/ext4_jbd2.c`
-- `native/filesystems/ext4/linux/readpage.c`
-- `native/filesystems/ext4/linux/fsmap.c`
-- `native/filesystems/ext4/linux/migrate.c`
-- `native/filesystems/ext4/linux/move_extent.c`
-- `native/filesystems/ext4/linux/sysfs.c`
-- `native/filesystems/ext4/linux/indirect.c`
-- `native/filesystems/ext4/linux/jbd2_checkpoint.c`
-- `native/filesystems/ext4/linux/jbd2_commit.c`
-- `native/filesystems/ext4/linux/jbd2_recovery.c`
-- `native/filesystems/ext4/linux/jbd2_revoke.c`
 - `native/filesystems/ext4/linux/ext4_jbd2.h`
 - `native/filesystems/ext4/linux/mballoc.h`
 - `native/filesystems/ext4/linux/extents_status.h`
 - `native/filesystems/ext4/linux/ext4_extents.h`
 - `native/filesystems/ext4/linux/xattr.h`
 
-This list records the implementation ownership already enforced by the build
-workflow.  The previous ledger incorrectly described all Linux EXT4 source
-outside the canonical core as migration-era code.
+These names describe project responsibilities rather than mirroring the Linux
+EXT4 source tree. Merging or renaming is not used as evidence of authorship;
+the provenance boundary continues to follow the implementation body.
 
 ## EXT4 migration state
 
-The remaining large EXT4 implementation bodies are still being replaced
-feature by feature.  In particular the inode, namespace, mount, allocation,
-page-I/O, xattr and embedded-JBD2 transaction/journal bodies are not promoted
-merely because adjacent headers or helper units have been rewritten.
+The following responsibility-named EXT4 units remain migration implementation
+until their bodies are independently replaced and qualified:
 
-Historical attribution remains required wherever inherited implementation is
-still materially present.  EXT4 continues to build as one `ext4.ko`, and the
-rewrite must preserve EXT4-only registration plus the complete feature set
-advertised by the module.
+- `native/filesystems/ext4/linux/extent_tree.c`
+- `native/filesystems/ext4/linux/extent_cache.c`
+- `native/filesystems/ext4/linux/fast_commit_engine.c`
+- `native/filesystems/ext4/linux/file_io.c`
+- `native/filesystems/ext4/linux/inode_allocation.c`
+- `native/filesystems/ext4/linux/inline_data.c`
+- `native/filesystems/ext4/linux/inode_adapter.c`
+- `native/filesystems/ext4/linux/control.c`
+- `native/filesystems/ext4/linux/journal_core.c`
+- `native/filesystems/ext4/linux/journal_transactions.c`
+- `native/filesystems/ext4/linux/multiblock_allocation.c`
+- `native/filesystems/ext4/linux/namespace_mutation.c`
+- `native/filesystems/ext4/linux/orphan_recovery.c`
+- `native/filesystems/ext4/linux/writeback_io.c`
+- `native/filesystems/ext4/linux/online_resize.c`
+- `native/filesystems/ext4/linux/lifecycle.c`
+- `native/filesystems/ext4/linux/extended_metadata.c`
+- `native/filesystems/ext4/linux/ext4.h`
+- `native/filesystems/ext4/linux/include/linux/jbd2.h`
+
+EXT4 remains one `ext4.ko`. The permanent source layout is now ours even while
+the implementation-replacement ledger remains deliberately conservative.
 
 ## Retired EXT mechanisms
 

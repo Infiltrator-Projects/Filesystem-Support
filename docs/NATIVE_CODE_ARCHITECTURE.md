@@ -176,11 +176,13 @@ adapter glue only where the OS contract genuinely needs it.
 
 ## Migration layout is not the target layout
 
-The EXT rewrite may temporarily retain Linux-derived translation-unit names
-such as `linux/file.c`, `linux/inode.c`, `linux/super.c` and `linux/dir.c`.
-The old per-filesystem `kernel/` staging directories have been retired; these
-remaining file boundaries are migration scaffolding, not architectural
-requirements.
+The actively rewritten EXT2, EXT3, EXT4, OFS, FFS and SFS Linux trees no
+longer use their imported translation-unit layout as the production source
+shape. Their active source is cut around Filesystem Support responsibilities
+such as allocation, namespace, I/O, lifecycle, mapping, metadata and journal
+durability. The old per-filesystem `kernel/` staging directories and the
+migration filenames such as `file.c`, `inode.c`, `super.c`, `affs.h`
+and `asfs_fs.h` are not permanent interfaces.
 
 Keeping an inherited translation-unit boundary can be useful while replacing a
 subsystem because it limits the amount of behaviour changed at one time and
