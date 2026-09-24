@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /*
  * EXT2 — Filesystem implementation unit
