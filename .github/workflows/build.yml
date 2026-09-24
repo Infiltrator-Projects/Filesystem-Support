@@ -85,21 +85,19 @@ jobs:
           test ! -e native/filesystems/amiga_common
           test ! -e native/primitives/amiga_dos
           rewritten=(
-            native/filesystems/ofs/linux/amigaffs.c
-            native/filesystems/ofs/linux/bitmap.c
-            native/filesystems/ofs/linux/dir.c
-            native/filesystems/ofs/linux/inode.c
-            native/filesystems/ofs/linux/namei.c
-            native/filesystems/ofs/linux/super.c
-            native/filesystems/ofs/linux/symlink.c
+            native/filesystems/ofs/linux/core_bridge.c
+            native/filesystems/ofs/linux/storage.c
+            native/filesystems/ofs/linux/namespace.c
+            native/filesystems/ofs/linux/lifecycle.c
+            native/filesystems/ofs/linux/linux_adapter.h
+            native/filesystems/ofs/linux/disk_layout.h
             native/filesystems/ofs/core/ofs_primitives.c
-            native/filesystems/ffs/linux/amigaffs.c
-            native/filesystems/ffs/linux/bitmap.c
-            native/filesystems/ffs/linux/dir.c
-            native/filesystems/ffs/linux/inode.c
-            native/filesystems/ffs/linux/namei.c
-            native/filesystems/ffs/linux/super.c
-            native/filesystems/ffs/linux/symlink.c
+            native/filesystems/ffs/linux/core_bridge.c
+            native/filesystems/ffs/linux/storage.c
+            native/filesystems/ffs/linux/namespace.c
+            native/filesystems/ffs/linux/lifecycle.c
+            native/filesystems/ffs/linux/linux_adapter.h
+            native/filesystems/ffs/linux/disk_layout.h
             native/filesystems/ffs/core/ffs_primitives.c
           )
           for file in "${rewritten[@]}"; do
@@ -116,6 +114,16 @@ jobs:
           test ! -e native/filesystems/sfs/reference
           test ! -e native/filesystems/sfs2/reference
           test ! -e native/filesystems/pfs3/reference
+          for legacy in \
+            native/filesystems/ofs/linux/affs.h \
+            native/filesystems/ofs/linux/amigaffs.h \
+            native/filesystems/ffs/linux/affs.h \
+            native/filesystems/ffs/linux/amigaffs.h \
+            native/filesystems/sfs/linux/asfs_fs.h \
+            native/filesystems/sfs/linux/amigasfs.h \
+            native/filesystems/sfs/linux/bitfuncs.h; do
+            test ! -e "$legacy"
+          done
 
       - name: Guard rewritten EXT4 interface provenance
         shell: bash
@@ -149,18 +157,14 @@ jobs:
         run: |
           set -euo pipefail
           rewritten=(
-            native/filesystems/sfs/linux/adminspace.c
-            native/filesystems/sfs/linux/bitfuncs.c
-            native/filesystems/sfs/linux/bitfuncs.h
-            native/filesystems/sfs/linux/dir.c
-            native/filesystems/sfs/linux/extents.c
-            native/filesystems/sfs/linux/file.c
-            native/filesystems/sfs/linux/inode.c
-            native/filesystems/sfs/linux/namei.c
-            native/filesystems/sfs/linux/nodes.c
-            native/filesystems/sfs/linux/objects.c
-            native/filesystems/sfs/linux/super.c
-            native/filesystems/sfs/linux/symlink.c
+            native/filesystems/sfs/linux/core_bridge.c
+            native/filesystems/sfs/linux/allocation.c
+            native/filesystems/sfs/linux/mapping.c
+            native/filesystems/sfs/linux/io.c
+            native/filesystems/sfs/linux/namespace.c
+            native/filesystems/sfs/linux/lifecycle.c
+            native/filesystems/sfs/linux/linux_adapter.h
+            native/filesystems/sfs/linux/disk_layout.h
             native/filesystems/ext3/linux/allocation.c
             native/filesystems/ext3/linux/directory_io.c
             native/filesystems/ext3/linux/file_io.c
