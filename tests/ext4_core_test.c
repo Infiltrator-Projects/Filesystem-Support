@@ -179,5 +179,41 @@ int main(void)
             return fail("out-of-range indirect block was accepted");
     }
 
+
+    {
+        ifs_ext4_u32 group = 0U;
+        ifs_ext4_u32 offset = 0U;
+        ifs_ext4_u64 first = 0U;
+        ifs_ext4_u64 last = 0U;
+
+        if (ifs_ext4_block_group_position(
+                32769U, 1U, 32768U, 0U, 4U,
+                &group, &offset) != IFS_EXT4_BLOCK_GROUP_OK ||
+            group != 1U || offset != 0U)
+            return fail("EXT4 block-group mapping is wrong");
+
+        if (ifs_ext4_block_group_position(
+                32769U, 1U, 32768U, 2U, 4U,
+                &group, &offset) != IFS_EXT4_BLOCK_GROUP_OK ||
+            group != 1U || offset != 0U)
+            return fail("EXT4 cluster offset mapping is wrong");
+
+        if (ifs_ext4_group_bounds(
+                3U, 1U, 32768U, 100000U,
+                &first, &last) != IFS_EXT4_BLOCK_GROUP_OK ||
+            first != 98305U || last != 99999U)
+            return fail("EXT4 group bounds are wrong");
+
+        if (!ifs_ext4_sparse_super_group(0U) ||
+            !ifs_ext4_sparse_super_group(1U) ||
+            !ifs_ext4_sparse_super_group(9U) ||
+            !ifs_ext4_sparse_super_group(25U) ||
+            !ifs_ext4_sparse_super_group(49U) ||
+            ifs_ext4_sparse_super_group(2U) ||
+            ifs_ext4_group_has_super(1, 2U) ||
+            !ifs_ext4_group_has_super(0, 2U))
+            return fail("EXT4 sparse-super policy is wrong");
+    }
+
     return 0;
 }
