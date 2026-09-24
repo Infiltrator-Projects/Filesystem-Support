@@ -41,7 +41,7 @@
 
 #include <linux/time.h>
 #include <linux/fs.h>
-#include "journal.h"
+#include "journal_internal.h"
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/timer.h>

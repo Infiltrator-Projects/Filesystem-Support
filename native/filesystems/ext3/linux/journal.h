@@ -1,4 +1,0 @@
-#ifndef INFILTRATOR_EXT3_JOURNAL_COMPAT_HEADER
-#define INFILTRATOR_EXT3_JOURNAL_COMPAT_HEADER
-#include "journal_internal.h"
-#endif

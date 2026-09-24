@@ -27,7 +27,7 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 
-#include "journal.h"
+#include "journal_internal.h"
 
 #define IFS_EXT3_CP_BATCH_LIMIT 64U
 
@@ -641,7 +641,7 @@ void __journal_drop_transaction(
 #include <linux/pagemap.h>
 #include <linux/time.h>
 
-#include "journal.h"
+#include "journal_internal.h"
 
 struct ifs_ext3_log_batch {
 	struct journal_head *descriptor;
@@ -1538,7 +1538,7 @@ void journal_commit_transaction(journal_t *journal)
 #include <linux/blkdev.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
-#include "journal.h"
+#include "journal_internal.h"
 #endif
 
 struct ifs_ext3_recovery_info {
@@ -1948,7 +1948,7 @@ int journal_skip_recovery(journal_t *journal)
 #include <linux/log2.h>
 #include <linux/slab.h>
 
-#include "journal.h"
+#include "journal_internal.h"
 
 struct ifs_ext3_revoke_record {
 	struct list_head link;
