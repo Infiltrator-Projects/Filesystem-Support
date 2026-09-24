@@ -83,7 +83,7 @@ static bool ifs_ext3_range_hits_system_zone(
 	const unsigned long table_blocks = EXT3_SB(sb)->s_itb_per_group;
 	ext3_fsblk_t last;
 
-	if (count == 0U || count > (unsigned long)(~0UL) ||
+	if (count == 0U ||
 	    start > (ext3_fsblk_t)(~0UL) - (count - 1U))
 		return true;
 
@@ -503,6 +503,12 @@ void ext3_free_blocks_sb(
 			brelse(bitmap);
 			break;
 		}
+		error = ext3_journal_get_write_access(
+			handle, desc_bh);
+		if (error) {
+			brelse(bitmap);
+			break;
+		}
 
 		jh = bh2jh(bitmap);
 		jbd_lock_bh_state(bitmap);
@@ -596,6 +602,10 @@ static int ifs_ext3_allocate_from_group(
 
 	error = ext3_journal_get_undo_access(
 		handle, bitmap);
+	if (error)
+		goto out;
+	error = ext3_journal_get_write_access(
+		handle, desc_bh);
 	if (error)
 		goto out;
 
