@@ -22,6 +22,8 @@ typedef uint32_t ifs_ext4_u32;
 typedef uint64_t ifs_ext4_u64;
 
 
+#endif
+
 typedef enum IfsExt4BlockGroupStatus {
     IFS_EXT4_BLOCK_GROUP_OK = 0,
     IFS_EXT4_BLOCK_GROUP_INVALID_ARGUMENT,
@@ -55,8 +57,6 @@ int ifs_ext4_group_has_super_ex(
     ifs_ext4_u32 backup_group0,
     ifs_ext4_u32 backup_group1,
     ifs_ext4_u32 group);
-
-#endif
 
 #define IFS_EXT4_FEATURE_INCOMPAT_FILETYPE    0x0002U
 #define IFS_EXT4_FEATURE_INCOMPAT_RECOVER     0x0004U
