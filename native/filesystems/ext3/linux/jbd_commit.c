@@ -1,61 +1,39 @@
 /*
- * linux/fs/jbd/commit.c
+ * Filesystem Support EXT3 embedded journal commit engine.
  *
- * Written by Stephen C. Tweedie <sct@redhat.com>, 1998
+ * A commit has four durable ordering boundaries:
+ *   1. stop new handles and drain users of the running transaction;
+ *   2. finish ordered-data writeback before metadata can be committed;
+ *   3. write descriptor, revoke and metadata log records and wait for them;
+ *   4. publish the commit record before checkpoint ownership is exposed.
  *
- * Copyright 1998 Red Hat corp --- All Rights Reserved
- *
- * This file is part of the Linux kernel and is made available under
- * the terms of the GNU General Public License, version 2, or at your
- * option, any later version, incorporated herein by reference.
- *
- * Journal commit routines for the generic filesystem journaling code;
- * part of the ext2fs journaling system.
+ * The implementation is private to ext3.ko.  Its list manipulation follows
+ * the ownership rules declared in journal.h; no separately deployed journal
+ * module is required.
  */
 
-/*
- * EXT3 — Journal commit engine
- *
- * Purpose:
- *   Drives a transaction through ordered data handling, descriptor/log writes, commit record publication and post-commit state transition.
- *
- * Filesystem model:
- *   This file belongs to a standalone EXT3 VFS implementation with its historical JBD engine embedded in ext3.ko.
- *
- * Correctness focus:
- *   The commit record is an ordering boundary: metadata cannot be considered durably committed before the required log writes and barriers complete.
- *
- * Project rules:
- *   - EXT3 requires its journal semantics; it is not an EXT4 compatibility registration.
- *   - Preserve the journal, recovery, ordered/writeback/journal data modes and EXT3 on-disk limits.
- *   - JBD and the metadata cache are private implementation code, not separately deployed modules.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
-#include <linux/time.h>
-#include <linux/fs.h>
-#include "journal.h"
-#include <linux/errno.h>
-#include <linux/mm.h>
-#include <linux/pagemap.h>
 #include <linux/bio.h>
 #include <linux/blkdev.h>
+#include <linux/errno.h>
+#include <linux/fs.h>
+#include <linux/mm.h>
+#include <linux/pagemap.h>
+#include <linux/time.h>
 
+#include "journal.h"
 
-/**
- * journal_end_buffer_io_sync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
+struct ifs_ext3_log_batch {
+	struct journal_head *descriptor;
+	journal_block_tag_t *last_tag;
+	char *cursor;
+	int bytes_left;
+	int count;
+	bool first_tag;
+};
+
+static void ifs_ext3_log_end_io(
+	struct buffer_head *bh, int uptodate)
 {
-	BUFFER_TRACE(bh, "");
 	if (uptodate)
 		set_buffer_uptodate(bh);
 	else
@@ -63,714 +41,664 @@ static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 	unlock_buffer(bh);
 }
 
-
-/**
- * release_buffer_page - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void release_buffer_page(struct buffer_head *bh)
+static void ifs_ext3_release_detached_page(
+	struct buffer_head *bh)
 {
 	struct folio *folio;
 
-	if (buffer_dirty(bh))
-		goto nope;
-	if (atomic_read(&bh->b_count) != 1)
-		goto nope;
+	if (buffer_dirty(bh) ||
+	    atomic_read(&bh->b_count) != 1) {
+		__brelse(bh);
+		return;
+	}
+
 	folio = bh->b_folio;
-	if (folio->mapping)
-		goto nope;
-	if (!folio_trylock(folio))
-		goto nope;
+	if (folio->mapping || !folio_trylock(folio)) {
+		__brelse(bh);
+		return;
+	}
 
 	folio_get(folio);
 	__brelse(bh);
 	try_to_free_buffers(folio);
 	folio_unlock(folio);
 	folio_put(folio);
-	return;
-
-nope:
-	__brelse(bh);
 }
 
-
-/**
- * release_data_buffer - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void release_data_buffer(struct buffer_head *bh)
+static void ifs_ext3_release_data_ref(
+	struct buffer_head *bh)
 {
-	if (buffer_freed(bh)) {
-		WARN_ON_ONCE(buffer_dirty(bh));
-		clear_buffer_freed(bh);
-		clear_buffer_mapped(bh);
-		clear_buffer_new(bh);
-		clear_buffer_req(bh);
-		bh->b_bdev = NULL;
-		release_buffer_page(bh);
-	} else
+	if (!buffer_freed(bh)) {
 		put_bh(bh);
-}
-
-
-/**
- * inverted_lock - Implements the inverted lock operation within the journal commit engine subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int inverted_lock(journal_t *journal, struct buffer_head *bh)
-{
-	if (!jbd_trylock_bh_state(bh)) {
-		spin_unlock(&journal->j_list_lock);
-		schedule();
-		return 0;
+		return;
 	}
-	return 1;
+
+	WARN_ON_ONCE(buffer_dirty(bh));
+	clear_buffer_freed(bh);
+	clear_buffer_mapped(bh);
+	clear_buffer_new(bh);
+	clear_buffer_req(bh);
+	bh->b_bdev = NULL;
+	ifs_ext3_release_detached_page(bh);
 }
 
-
-/**
- * journal_write_commit_record - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
+/*
+ * j_list_lock is deliberately dropped while waiting for the per-buffer state
+ * bit.  Taking those locks in the opposite order would deadlock transaction
+ * list walkers against buffer users.
  */
-static int journal_write_commit_record(journal_t *journal,
-					transaction_t *commit_transaction)
+static bool ifs_ext3_try_state_from_list(
+	journal_t *journal, struct buffer_head *bh)
 {
-	struct journal_head *descriptor;
+	if (jbd_trylock_bh_state(bh))
+		return true;
+
+	spin_unlock(&journal->j_list_lock);
+	cond_resched();
+	return false;
+}
+
+static int ifs_ext3_write_commit_block(
+	journal_t *journal, transaction_t *transaction)
+{
+	struct journal_head *jh;
 	struct buffer_head *bh;
 	journal_header_t *header;
-	int ret;
+	int error;
 
 	if (is_journal_aborted(journal))
 		return 0;
 
-	descriptor = journal_get_descriptor_buffer(journal);
-	if (!descriptor)
-		return 1;
+	jh = journal_get_descriptor_buffer(journal);
+	if (!jh)
+		return -EIO;
 
-	bh = jh2bh(descriptor);
-
-	header = (journal_header_t *)(bh->b_data);
+	bh = jh2bh(jh);
+	header = (journal_header_t *)bh->b_data;
 	header->h_magic = cpu_to_be32(JFS_MAGIC_NUMBER);
 	header->h_blocktype = cpu_to_be32(JFS_COMMIT_BLOCK);
-	header->h_sequence = cpu_to_be32(commit_transaction->t_tid);
-
-	JBUFFER_TRACE(descriptor, "write commit block");
+	header->h_sequence = cpu_to_be32(transaction->t_tid);
 	set_buffer_dirty(bh);
 
 	if (journal->j_flags & JFS_BARRIER)
-		ret = __sync_dirty_buffer(bh, REQ_SYNC | REQ_PREFLUSH | REQ_FUA);
+		error = __sync_dirty_buffer(
+			bh, REQ_SYNC | REQ_PREFLUSH | REQ_FUA);
 	else
-		ret = sync_dirty_buffer(bh);
+		error = sync_dirty_buffer(bh);
 
 	put_bh(bh);
-	journal_put_journal_head(descriptor);
-
-	return (ret == -EIO);
+	journal_put_journal_head(jh);
+	return error;
 }
 
-
-/**
- * journal_do_submit_data - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void journal_do_submit_data(struct buffer_head **wbuf, int bufs,
-				   blk_opf_t write_flags)
+static void ifs_ext3_submit_data_batch(
+	struct buffer_head **buffers,
+	int count,
+	blk_opf_t write_flags)
 {
-	int i;
+	int index;
 
-	for (i = 0; i < bufs; i++) {
-		wbuf[i]->b_end_io = end_buffer_write_sync;
-
-
-		submit_bh(REQ_OP_WRITE | write_flags, wbuf[i]);
+	for (index = 0; index < count; ++index) {
+		buffers[index]->b_end_io =
+			end_buffer_write_sync;
+		submit_bh(
+			REQ_OP_WRITE | write_flags,
+			buffers[index]);
 	}
 }
 
-
-/**
- * journal_submit_data_buffers - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int journal_submit_data_buffers(journal_t *journal,
-				       transaction_t *commit_transaction,
-				       blk_opf_t write_flags)
+static int ifs_ext3_flush_ordered_data(
+	journal_t *journal,
+	transaction_t *transaction,
+	blk_opf_t write_flags)
 {
-	struct journal_head *jh;
-	struct buffer_head *bh;
-	int locked;
-	int bufs = 0;
-	struct buffer_head **wbuf = journal->j_wbuf;
-	int err = 0;
+	struct buffer_head **batch = journal->j_wbuf;
+	int batch_count = 0;
+	int result = 0;
 
+	for (;;) {
+		struct journal_head *jh;
+		struct buffer_head *bh;
+		bool locked_here = false;
 
-write_out_data:
-	cond_resched();
-	spin_lock(&journal->j_list_lock);
+		cond_resched();
+		spin_lock(&journal->j_list_lock);
 
-	while (commit_transaction->t_sync_datalist) {
-		jh = commit_transaction->t_sync_datalist;
+		jh = transaction->t_sync_datalist;
+		if (!jh) {
+			spin_unlock(&journal->j_list_lock);
+			break;
+		}
+
 		bh = jh2bh(jh);
-		locked = 0;
-
-
 		get_bh(bh);
-
 
 		if (buffer_dirty(bh)) {
 			if (!trylock_buffer(bh)) {
-				BUFFER_TRACE(bh, "needs blocking lock");
 				spin_unlock(&journal->j_list_lock);
-
-				journal_do_submit_data(wbuf, bufs, write_flags);
-				bufs = 0;
+				ifs_ext3_submit_data_batch(
+					batch, batch_count,
+					write_flags);
+				batch_count = 0;
 				lock_buffer(bh);
 				spin_lock(&journal->j_list_lock);
 			}
-			locked = 1;
+			locked_here = true;
 		}
 
-		if (!inverted_lock(journal, bh)) {
+		if (!ifs_ext3_try_state_from_list(
+			    journal, bh)) {
 			jbd_lock_bh_state(bh);
 			spin_lock(&journal->j_list_lock);
 		}
 
-		if (!buffer_jbd(bh) || bh2jh(bh) != jh
-			|| jh->b_transaction != commit_transaction
-			|| jh->b_jlist != BJ_SyncData) {
+		if (!buffer_jbd(bh) ||
+		    bh2jh(bh) != jh ||
+		    jh->b_transaction != transaction ||
+		    jh->b_jlist != BJ_SyncData) {
 			jbd_unlock_bh_state(bh);
-			if (locked)
+			spin_unlock(&journal->j_list_lock);
+			if (locked_here)
 				unlock_buffer(bh);
-			BUFFER_TRACE(bh, "already cleaned up");
-			release_data_buffer(bh);
+			ifs_ext3_release_data_ref(bh);
 			continue;
 		}
-		if (locked && test_clear_buffer_dirty(bh)) {
-			BUFFER_TRACE(bh, "needs writeout, adding to array");
-			wbuf[bufs++] = bh;
-			__journal_file_buffer(jh, commit_transaction,
-						BJ_Locked);
-			jbd_unlock_bh_state(bh);
-			if (bufs == journal->j_wbufsize) {
-				spin_unlock(&journal->j_list_lock);
-				journal_do_submit_data(wbuf, bufs, write_flags);
-				bufs = 0;
-				goto write_out_data;
-			}
-		} else if (!locked && buffer_locked(bh)) {
-			__journal_file_buffer(jh, commit_transaction,
-						BJ_Locked);
-			jbd_unlock_bh_state(bh);
-			put_bh(bh);
-		} else {
-			BUFFER_TRACE(bh, "writeout complete: unfile");
-			if (unlikely(!buffer_uptodate(bh)))
-				err = -EIO;
-			__journal_unfile_buffer(jh);
-			jbd_unlock_bh_state(bh);
-			if (locked)
-				unlock_buffer(bh);
-			release_data_buffer(bh);
-		}
 
-		if (need_resched() || spin_needbreak(&journal->j_list_lock)) {
+		if (locked_here &&
+		    test_clear_buffer_dirty(bh)) {
+			batch[batch_count++] = bh;
+			__journal_file_buffer(
+				jh, transaction, BJ_Locked);
+			jbd_unlock_bh_state(bh);
 			spin_unlock(&journal->j_list_lock);
-			goto write_out_data;
-		}
-	}
-	spin_unlock(&journal->j_list_lock);
-	journal_do_submit_data(wbuf, bufs, write_flags);
 
-	return err;
+			if (batch_count ==
+			    journal->j_wbufsize) {
+				ifs_ext3_submit_data_batch(
+					batch, batch_count,
+					write_flags);
+				batch_count = 0;
+			}
+			continue;
+		}
+
+		if (!locked_here && buffer_locked(bh)) {
+			__journal_file_buffer(
+				jh, transaction, BJ_Locked);
+			jbd_unlock_bh_state(bh);
+			spin_unlock(&journal->j_list_lock);
+			put_bh(bh);
+			continue;
+		}
+
+		if (unlikely(!buffer_uptodate(bh)))
+			result = -EIO;
+		__journal_unfile_buffer(jh);
+		jbd_unlock_bh_state(bh);
+		spin_unlock(&journal->j_list_lock);
+
+		if (locked_here)
+			unlock_buffer(bh);
+		ifs_ext3_release_data_ref(bh);
+	}
+
+	ifs_ext3_submit_data_batch(
+		batch, batch_count, write_flags);
+	return result;
 }
 
-
-/**
- * journal_commit_transaction - Advances journalled state toward a durable transaction or checkpoint boundary.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void journal_commit_transaction(journal_t *journal)
+static int ifs_ext3_wait_ordered_data(
+	journal_t *journal, transaction_t *transaction)
 {
-	transaction_t *commit_transaction;
-	struct journal_head *jh, *new_jh, *descriptor;
-	struct buffer_head **wbuf = journal->j_wbuf;
-	int bufs;
-	int flags;
-	int err;
-	unsigned int blocknr;
-	ktime_t start_time;
-	u64 commit_time;
-	char *tagp = NULL;
-	journal_header_t *header;
-	journal_block_tag_t *tag = NULL;
-	int space_left = 0;
-	int first_tag = 0;
-	int tag_flag;
-	int i;
-	struct blk_plug plug;
-	blk_opf_t write_flags = 0;
+	int result = 0;
 
+	for (;;) {
+		struct journal_head *jh;
+		struct buffer_head *bh;
 
-	if (journal->j_flags & JFS_FLUSHED) {
-		jbd_debug(3, "super block updated\n");
-		mutex_lock(&journal->j_checkpoint_mutex);
+		spin_lock(&journal->j_list_lock);
+		jh = transaction->t_locked_list;
+		if (!jh) {
+			spin_unlock(&journal->j_list_lock);
+			break;
+		}
 
+		jh = jh->b_tprev;
+		bh = jh2bh(jh);
+		get_bh(bh);
 
-		journal_update_sb_log_tail(journal, journal->j_tail_sequence,
-					   journal->j_tail, REQ_SYNC);
-		mutex_unlock(&journal->j_checkpoint_mutex);
-	} else {
-		jbd_debug(3, "superblock not updated\n");
+		if (buffer_locked(bh)) {
+			spin_unlock(&journal->j_list_lock);
+			wait_on_buffer(bh);
+			put_bh(bh);
+			continue;
+		}
+
+		if (unlikely(!buffer_uptodate(bh))) {
+			struct folio *folio = bh->b_folio;
+
+			if (!folio_trylock(folio)) {
+				spin_unlock(
+					&journal->j_list_lock);
+				folio_lock(folio);
+				spin_lock(
+					&journal->j_list_lock);
+			}
+			if (folio->mapping)
+				mapping_set_error(
+					folio->mapping, -EIO);
+			folio_unlock(folio);
+			result = -EIO;
+		}
+
+		if (!ifs_ext3_try_state_from_list(
+			    journal, bh)) {
+			put_bh(bh);
+			continue;
+		}
+
+		if (buffer_jbd(bh) &&
+		    bh2jh(bh) == jh &&
+		    jh->b_transaction == transaction &&
+		    jh->b_jlist == BJ_Locked)
+			__journal_unfile_buffer(jh);
+
+		jbd_unlock_bh_state(bh);
+		spin_unlock(&journal->j_list_lock);
+		ifs_ext3_release_data_ref(bh);
+		cond_resched();
 	}
 
+	return result;
+}
+
+static transaction_t *ifs_ext3_lock_running_transaction(
+	journal_t *journal, ktime_t *started)
+{
+	transaction_t *transaction;
+
+	if (journal->j_flags & JFS_FLUSHED) {
+		mutex_lock(&journal->j_checkpoint_mutex);
+		journal_update_sb_log_tail(
+			journal,
+			journal->j_tail_sequence,
+			journal->j_tail,
+			REQ_SYNC);
+		mutex_unlock(&journal->j_checkpoint_mutex);
+	}
+
+	spin_lock(&journal->j_state_lock);
 	J_ASSERT(journal->j_running_transaction != NULL);
 	J_ASSERT(journal->j_committing_transaction == NULL);
 
-	commit_transaction = journal->j_running_transaction;
-	jbd_debug(1, "JBD: starting commit of transaction %d\n",
-			commit_transaction->t_tid);
+	transaction = journal->j_running_transaction;
+	J_ASSERT(transaction->t_state == T_RUNNING);
+	transaction->t_state = T_LOCKED;
 
-	spin_lock(&journal->j_state_lock);
-	J_ASSERT(commit_transaction->t_state == T_RUNNING);
-	commit_transaction->t_state = T_LOCKED;
-	spin_lock(&commit_transaction->t_handle_lock);
-	while (commit_transaction->t_updates) {
+	for (;;) {
 		DEFINE_WAIT(wait);
 
-		prepare_to_wait(&journal->j_wait_updates, &wait,
-					TASK_UNINTERRUPTIBLE);
-		if (commit_transaction->t_updates) {
-			spin_unlock(&commit_transaction->t_handle_lock);
-			spin_unlock(&journal->j_state_lock);
-			schedule();
-			spin_lock(&journal->j_state_lock);
-			spin_lock(&commit_transaction->t_handle_lock);
+		spin_lock(&transaction->t_handle_lock);
+		if (!transaction->t_updates) {
+			spin_unlock(
+				&transaction->t_handle_lock);
+			break;
 		}
+
+		prepare_to_wait(
+			&journal->j_wait_updates, &wait,
+			TASK_UNINTERRUPTIBLE);
+		spin_unlock(&transaction->t_handle_lock);
+		spin_unlock(&journal->j_state_lock);
+		schedule();
 		finish_wait(&journal->j_wait_updates, &wait);
+		spin_lock(&journal->j_state_lock);
 	}
-	spin_unlock(&commit_transaction->t_handle_lock);
 
-	J_ASSERT (commit_transaction->t_outstanding_credits <=
-			journal->j_max_transaction_buffers);
+	J_ASSERT(
+		transaction->t_outstanding_credits <=
+		journal->j_max_transaction_buffers);
 
-
-	while (commit_transaction->t_reserved_list) {
-		jh = commit_transaction->t_reserved_list;
-		JBUFFER_TRACE(jh, "reserved, unused: refile");
-
+	while (transaction->t_reserved_list) {
+		struct journal_head *jh =
+			transaction->t_reserved_list;
 
 		if (jh->b_committed_data) {
 			struct buffer_head *bh = jh2bh(jh);
 
 			jbd_lock_bh_state(bh);
-			jbd_free(jh->b_committed_data, bh->b_size);
+			jbd_free(
+				jh->b_committed_data,
+				bh->b_size);
 			jh->b_committed_data = NULL;
 			jbd_unlock_bh_state(bh);
 		}
 		journal_refile_buffer(journal, jh);
 	}
 
-
 	spin_lock(&journal->j_list_lock);
 	__journal_clean_checkpoint_list(journal);
 	spin_unlock(&journal->j_list_lock);
 
-	jbd_debug (3, "JBD: commit phase 1\n");
-
-
 	journal_clear_buffer_revoked_flags(journal);
-
-
 	journal_switch_revoke_table(journal);
-	commit_transaction->t_state = T_FLUSH;
-	journal->j_committing_transaction = commit_transaction;
+
+	transaction->t_state = T_FLUSH;
+	journal->j_committing_transaction = transaction;
 	journal->j_running_transaction = NULL;
-	start_time = ktime_get();
-	commit_transaction->t_log_start = journal->j_head;
+	transaction->t_log_start = journal->j_head;
+	*started = ktime_get();
+
 	wake_up(&journal->j_wait_transaction_locked);
 	spin_unlock(&journal->j_state_lock);
+	return transaction;
+}
 
-	jbd_debug (3, "JBD: commit phase 2\n");
+static int ifs_ext3_open_descriptor(
+	journal_t *journal,
+	transaction_t *transaction,
+	struct ifs_ext3_log_batch *batch)
+{
+	struct buffer_head *bh;
+	journal_header_t *header;
 
-	if (tid_geq(journal->j_commit_waited, commit_transaction->t_tid))
-		write_flags = REQ_SYNC;
+	batch->descriptor =
+		journal_get_descriptor_buffer(journal);
+	if (!batch->descriptor)
+		return -EIO;
 
+	bh = jh2bh(batch->descriptor);
+	header = (journal_header_t *)bh->b_data;
+	header->h_magic = cpu_to_be32(JFS_MAGIC_NUMBER);
+	header->h_blocktype =
+		cpu_to_be32(JFS_DESCRIPTOR_BLOCK);
+	header->h_sequence =
+		cpu_to_be32(transaction->t_tid);
 
-	blk_start_plug(&plug);
-	err = journal_submit_data_buffers(journal, commit_transaction,
-					  write_flags);
-	blk_finish_plug(&plug);
+	batch->cursor =
+		bh->b_data + sizeof(journal_header_t);
+	batch->bytes_left =
+		bh->b_size - sizeof(journal_header_t);
+	batch->first_tag = true;
+	batch->last_tag = NULL;
 
+	set_buffer_jwrite(bh);
+	set_buffer_dirty(bh);
+	journal->j_wbuf[batch->count++] = bh;
+	journal_file_buffer(
+		batch->descriptor,
+		transaction,
+		BJ_LogCtl);
+	return 0;
+}
 
-	spin_lock(&journal->j_list_lock);
-	while (commit_transaction->t_locked_list) {
-		struct buffer_head *bh;
+static int ifs_ext3_append_metadata(
+	journal_t *journal,
+	transaction_t *transaction,
+	struct ifs_ext3_log_batch *batch)
+{
+	struct journal_head *source =
+		transaction->t_buffers;
+	struct journal_head *logged;
+	struct buffer_head *source_bh;
+	unsigned int log_block;
+	unsigned int tag_flags = 0U;
+	int transform;
+	int error;
 
-		jh = commit_transaction->t_locked_list->b_tprev;
-		bh = jh2bh(jh);
-		get_bh(bh);
-		if (buffer_locked(bh)) {
-			spin_unlock(&journal->j_list_lock);
-			wait_on_buffer(bh);
-			spin_lock(&journal->j_list_lock);
-		}
-		if (unlikely(!buffer_uptodate(bh))) {
-			if (!trylock_page(bh->b_page)) {
-				spin_unlock(&journal->j_list_lock);
-				lock_page(bh->b_page);
-				spin_lock(&journal->j_list_lock);
-			}
-			if (bh->b_folio->mapping)
-				mapping_set_error(bh->b_folio->mapping, -EIO);
-
-			unlock_page(bh->b_page);
-			err = -EIO;
-		}
-		if (!inverted_lock(journal, bh)) {
-			put_bh(bh);
-			spin_lock(&journal->j_list_lock);
-			continue;
-		}
-		if (buffer_jbd(bh) && bh2jh(bh) == jh &&
-		    jh->b_transaction == commit_transaction &&
-		    jh->b_jlist == BJ_Locked)
-			__journal_unfile_buffer(jh);
-		jbd_unlock_bh_state(bh);
-		release_data_buffer(bh);
-		cond_resched_lock(&journal->j_list_lock);
+	if (!batch->descriptor) {
+		error = ifs_ext3_open_descriptor(
+			journal, transaction, batch);
+		if (error)
+			return error;
 	}
-	spin_unlock(&journal->j_list_lock);
 
-	if (err) {
-		printk(KERN_WARNING
-			"JBD: Detected IO errors while flushing file data "
-			"on %pg\n", journal->j_fs_dev);
-		if (journal->j_flags & JFS_ABORT_ON_SYNCDATA_ERR)
-			journal_abort(journal, err);
-		err = 0;
+	error = journal_next_log_block(
+		journal, &log_block);
+	if (error)
+		return error;
+
+	transaction->t_outstanding_credits--;
+	source_bh = jh2bh(source);
+	get_bh(source_bh);
+	set_buffer_jwrite(source_bh);
+
+	transform = journal_write_metadata_buffer(
+		transaction, source, &logged, log_block);
+	set_buffer_jwrite(jh2bh(logged));
+	journal->j_wbuf[batch->count++] =
+		jh2bh(logged);
+
+	if (transform & 1)
+		tag_flags |= JFS_FLAG_ESCAPE;
+	if (!batch->first_tag)
+		tag_flags |= JFS_FLAG_SAME_UUID;
+
+	batch->last_tag =
+		(journal_block_tag_t *)batch->cursor;
+	batch->last_tag->t_blocknr =
+		cpu_to_be32(source_bh->b_blocknr);
+	batch->last_tag->t_flags =
+		cpu_to_be32(tag_flags);
+	batch->cursor += sizeof(journal_block_tag_t);
+	batch->bytes_left -=
+		sizeof(journal_block_tag_t);
+
+	if (batch->first_tag) {
+		memcpy(batch->cursor, journal->j_uuid, 16);
+		batch->cursor += 16;
+		batch->bytes_left -= 16;
+		batch->first_tag = false;
 	}
 
-	blk_start_plug(&plug);
+	return 0;
+}
 
-	journal_write_revoke_records(journal, commit_transaction, write_flags);
+static void ifs_ext3_submit_log_batch(
+	journal_t *journal,
+	struct ifs_ext3_log_batch *batch,
+	blk_opf_t write_flags)
+{
+	int index;
 
+	if (!batch->count)
+		return;
 
-	J_ASSERT (commit_transaction->t_sync_datalist == NULL);
+	if (batch->last_tag)
+		batch->last_tag->t_flags |=
+			cpu_to_be32(JFS_FLAG_LAST_TAG);
 
-	jbd_debug (3, "JBD: commit phase 3\n");
+	for (index = 0; index < batch->count; ++index) {
+		struct buffer_head *bh =
+			journal->j_wbuf[index];
 
+		lock_buffer(bh);
+		clear_buffer_dirty(bh);
+		set_buffer_uptodate(bh);
+		bh->b_end_io = ifs_ext3_log_end_io;
+		submit_bh(
+			REQ_OP_WRITE | write_flags, bh);
+	}
 
-	spin_lock(&journal->j_state_lock);
-	commit_transaction->t_state = T_COMMIT;
-	spin_unlock(&journal->j_state_lock);
-	J_ASSERT(commit_transaction->t_nr_buffers <=
-		 commit_transaction->t_outstanding_credits);
+	batch->descriptor = NULL;
+	batch->last_tag = NULL;
+	batch->cursor = NULL;
+	batch->bytes_left = 0;
+	batch->count = 0;
+	batch->first_tag = true;
+	cond_resched();
+}
 
-	descriptor = NULL;
-	bufs = 0;
-	while (commit_transaction->t_buffers) {
+static int ifs_ext3_write_metadata_log(
+	journal_t *journal,
+	transaction_t *transaction,
+	blk_opf_t write_flags)
+{
+	struct ifs_ext3_log_batch batch = { 0 };
+	int result = 0;
 
-
-		jh = commit_transaction->t_buffers;
-
+	while (transaction->t_buffers) {
+		int error;
 
 		if (is_journal_aborted(journal)) {
+			struct journal_head *jh =
+				transaction->t_buffers;
+
 			clear_buffer_jbddirty(jh2bh(jh));
-			JBUFFER_TRACE(jh, "journal is aborting: refile");
 			journal_refile_buffer(journal, jh);
-
-
-			if (!commit_transaction->t_buffers)
-				goto start_journal_io;
 			continue;
 		}
 
-
-		if (!descriptor) {
-			struct buffer_head *bh;
-
-			J_ASSERT (bufs == 0);
-
-			jbd_debug(4, "JBD: get descriptor\n");
-
-			descriptor = journal_get_descriptor_buffer(journal);
-			if (!descriptor) {
-				journal_abort(journal, -EIO);
-				continue;
-			}
-
-			bh = jh2bh(descriptor);
-			jbd_debug(4, "JBD: got buffer %llu (%p)\n",
-				(unsigned long long)bh->b_blocknr, bh->b_data);
-			header = (journal_header_t *)&bh->b_data[0];
-			header->h_magic     = cpu_to_be32(JFS_MAGIC_NUMBER);
-			header->h_blocktype = cpu_to_be32(JFS_DESCRIPTOR_BLOCK);
-			header->h_sequence  = cpu_to_be32(commit_transaction->t_tid);
-
-			tagp = &bh->b_data[sizeof(journal_header_t)];
-			space_left = bh->b_size - sizeof(journal_header_t);
-			first_tag = 1;
-			set_buffer_jwrite(bh);
-			set_buffer_dirty(bh);
-			wbuf[bufs++] = bh;
-
-
-			BUFFER_TRACE(bh, "ph3: file as descriptor");
-			journal_file_buffer(descriptor, commit_transaction,
-					BJ_LogCtl);
-		}
-
-
-		err = journal_next_log_block(journal, &blocknr);
-
-
-		if (err) {
-			journal_abort(journal, err);
+		error = ifs_ext3_append_metadata(
+			journal, transaction, &batch);
+		if (error) {
+			journal_abort(journal, error);
+			result = error;
 			continue;
 		}
 
-
-		commit_transaction->t_outstanding_credits--;
-
-
-		get_bh(jh2bh(jh));
-
-
-		set_buffer_jwrite(jh2bh(jh));
-
-
-		JBUFFER_TRACE(jh, "ph3: write metadata");
-		flags = journal_write_metadata_buffer(commit_transaction,
-						      jh, &new_jh, blocknr);
-		set_buffer_jwrite(jh2bh(new_jh));
-		wbuf[bufs++] = jh2bh(new_jh);
-
-
-		tag_flag = 0;
-		if (flags & 1)
-			tag_flag |= JFS_FLAG_ESCAPE;
-		if (!first_tag)
-			tag_flag |= JFS_FLAG_SAME_UUID;
-
-		tag = (journal_block_tag_t *) tagp;
-		tag->t_blocknr = cpu_to_be32(jh2bh(jh)->b_blocknr);
-		tag->t_flags = cpu_to_be32(tag_flag);
-		tagp += sizeof(journal_block_tag_t);
-		space_left -= sizeof(journal_block_tag_t);
-
-		if (first_tag) {
-			memcpy (tagp, journal->j_uuid, 16);
-			tagp += 16;
-			space_left -= 16;
-			first_tag = 0;
-		}
-
-
-		if (bufs == journal->j_wbufsize ||
-		    commit_transaction->t_buffers == NULL ||
-		    space_left < sizeof(journal_block_tag_t) + 16) {
-
-			jbd_debug(4, "JBD: Submit %d IOs\n", bufs);
-
-
-			tag->t_flags |= cpu_to_be32(JFS_FLAG_LAST_TAG);
-
-start_journal_io:
-			for (i = 0; i < bufs; i++) {
-				struct buffer_head *bh = wbuf[i];
-				lock_buffer(bh);
-				clear_buffer_dirty(bh);
-				set_buffer_uptodate(bh);
-				bh->b_end_io = journal_end_buffer_io_sync;
-
-
-				submit_bh(REQ_OP_WRITE | write_flags, bh);
-			}
-			cond_resched();
-
-
-			descriptor = NULL;
-			bufs = 0;
-		}
+		if (batch.count == journal->j_wbufsize ||
+		    !transaction->t_buffers ||
+		    batch.bytes_left <
+			(int)(sizeof(journal_block_tag_t) + 16))
+			ifs_ext3_submit_log_batch(
+				journal, &batch, write_flags);
 	}
 
-	blk_finish_plug(&plug);
+	ifs_ext3_submit_log_batch(
+		journal, &batch, write_flags);
+	return result;
+}
 
+static int ifs_ext3_wait_metadata_io(
+	journal_t *journal, transaction_t *transaction)
+{
+	int result = 0;
 
-	jbd_debug(3, "JBD: commit phase 4\n");
+	while (transaction->t_iobuf_list) {
+		struct journal_head *logged =
+			transaction->t_iobuf_list->b_tprev;
+		struct buffer_head *logged_bh =
+			jh2bh(logged);
+		struct journal_head *shadow;
+		struct buffer_head *shadow_bh;
 
-
-wait_for_iobuf:
-	while (commit_transaction->t_iobuf_list != NULL) {
-		struct buffer_head *bh;
-
-		jh = commit_transaction->t_iobuf_list->b_tprev;
-		bh = jh2bh(jh);
-		if (buffer_locked(bh)) {
-			wait_on_buffer(bh);
-			goto wait_for_iobuf;
+		if (buffer_locked(logged_bh)) {
+			wait_on_buffer(logged_bh);
+			continue;
 		}
 		if (cond_resched())
-			goto wait_for_iobuf;
+			continue;
 
-		if (unlikely(!buffer_uptodate(bh)))
-			err = -EIO;
+		if (unlikely(!buffer_uptodate(logged_bh)))
+			result = -EIO;
 
-		clear_buffer_jwrite(bh);
+		clear_buffer_jwrite(logged_bh);
+		journal_unfile_buffer(journal, logged);
+		journal_put_journal_head(logged);
+		__brelse(logged_bh);
+		J_ASSERT_BH(
+			logged_bh,
+			atomic_read(&logged_bh->b_count) == 0);
+		free_buffer_head(logged_bh);
 
-		JBUFFER_TRACE(jh, "ph4: unfile after journal write");
-		journal_unfile_buffer(journal, jh);
+		shadow = transaction->t_shadow_list;
+		J_ASSERT(shadow != NULL);
+		shadow = shadow->b_tprev;
+		shadow_bh = jh2bh(shadow);
+		clear_buffer_jwrite(shadow_bh);
+		J_ASSERT_BH(
+			shadow_bh,
+			buffer_jbddirty(shadow_bh));
 
-
-		BUFFER_TRACE(bh, "dumping temporary bh");
-		journal_put_journal_head(jh);
-		__brelse(bh);
-		J_ASSERT_BH(bh, atomic_read(&bh->b_count) == 0);
-		free_buffer_head(bh);
-
-
-		jh = commit_transaction->t_shadow_list->b_tprev;
-		bh = jh2bh(jh);
-		clear_buffer_jwrite(bh);
-		J_ASSERT_BH(bh, buffer_jbddirty(bh));
-
-
-		JBUFFER_TRACE(jh, "file as BJ_Forget");
-		journal_file_buffer(jh, commit_transaction, BJ_Forget);
-
-
+		journal_file_buffer(
+			shadow, transaction, BJ_Forget);
 		smp_mb();
-		wake_up_bit(&bh->b_state, BH_Unshadow);
-		JBUFFER_TRACE(jh, "brelse shadowed buffer");
-		__brelse(bh);
+		wake_up_bit(
+			&shadow_bh->b_state, BH_Unshadow);
+		__brelse(shadow_bh);
 	}
 
-	J_ASSERT (commit_transaction->t_shadow_list == NULL);
+	J_ASSERT(transaction->t_shadow_list == NULL);
+	return result;
+}
 
-	jbd_debug(3, "JBD: commit phase 5\n");
+static int ifs_ext3_wait_control_io(
+	journal_t *journal, transaction_t *transaction)
+{
+	int result = 0;
 
+	while (transaction->t_log_list) {
+		struct journal_head *jh =
+			transaction->t_log_list->b_tprev;
+		struct buffer_head *bh = jh2bh(jh);
 
- wait_for_ctlbuf:
-	while (commit_transaction->t_log_list != NULL) {
-		struct buffer_head *bh;
-
-		jh = commit_transaction->t_log_list->b_tprev;
-		bh = jh2bh(jh);
 		if (buffer_locked(bh)) {
 			wait_on_buffer(bh);
-			goto wait_for_ctlbuf;
+			continue;
 		}
 		if (cond_resched())
-			goto wait_for_ctlbuf;
+			continue;
 
 		if (unlikely(!buffer_uptodate(bh)))
-			err = -EIO;
+			result = -EIO;
 
-		BUFFER_TRACE(bh, "ph5: control buffer writeout done: unfile");
 		clear_buffer_jwrite(bh);
 		journal_unfile_buffer(journal, jh);
 		journal_put_journal_head(jh);
 		__brelse(bh);
-
 	}
 
-	if (err)
-		journal_abort(journal, err);
+	return result;
+}
 
-	jbd_debug(3, "JBD: commit phase 6\n");
-
-
-	spin_lock(&journal->j_state_lock);
-	J_ASSERT(commit_transaction->t_state == T_COMMIT);
-	commit_transaction->t_state = T_COMMIT_RECORD;
-	spin_unlock(&journal->j_state_lock);
-
-	if (journal_write_commit_record(journal, commit_transaction))
-		err = -EIO;
-
-	if (err)
-		journal_abort(journal, err);
-
-
-	jbd_debug(3, "JBD: commit phase 7\n");
-
-	J_ASSERT(commit_transaction->t_sync_datalist == NULL);
-	J_ASSERT(commit_transaction->t_buffers == NULL);
-	J_ASSERT(commit_transaction->t_checkpoint_list == NULL);
-	J_ASSERT(commit_transaction->t_iobuf_list == NULL);
-	J_ASSERT(commit_transaction->t_shadow_list == NULL);
-	J_ASSERT(commit_transaction->t_log_list == NULL);
-
-restart_loop:
-
-
-	spin_lock(&journal->j_list_lock);
-	while (commit_transaction->t_forget) {
-		transaction_t *cp_transaction;
+static void ifs_ext3_retire_forget_list(
+	journal_t *journal, transaction_t *transaction)
+{
+	for (;;) {
+		struct journal_head *jh;
 		struct buffer_head *bh;
-		int try_to_free = 0;
+		bool release_page = false;
 
-		jh = commit_transaction->t_forget;
+		spin_lock(&journal->j_list_lock);
+		jh = transaction->t_forget;
 		spin_unlock(&journal->j_list_lock);
+		if (!jh)
+			return;
+
 		bh = jh2bh(jh);
-
-
 		get_bh(bh);
 		jbd_lock_bh_state(bh);
-		J_ASSERT_JH(jh,	jh->b_transaction == commit_transaction ||
-			jh->b_transaction == journal->j_running_transaction);
 
+		J_ASSERT_JH(
+			jh,
+			jh->b_transaction == transaction ||
+			jh->b_transaction ==
+				journal->j_running_transaction);
 
 		if (jh->b_committed_data) {
-			jbd_free(jh->b_committed_data, bh->b_size);
+			jbd_free(
+				jh->b_committed_data,
+				bh->b_size);
 			jh->b_committed_data = NULL;
 			if (jh->b_frozen_data) {
-				jh->b_committed_data = jh->b_frozen_data;
+				jh->b_committed_data =
+					jh->b_frozen_data;
 				jh->b_frozen_data = NULL;
 			}
 		} else if (jh->b_frozen_data) {
-			jbd_free(jh->b_frozen_data, bh->b_size);
+			jbd_free(
+				jh->b_frozen_data,
+				bh->b_size);
 			jh->b_frozen_data = NULL;
 		}
 
 		spin_lock(&journal->j_list_lock);
-		cp_transaction = jh->b_cp_transaction;
-		if (cp_transaction) {
-			JBUFFER_TRACE(jh, "remove from old cp transaction");
-			__journal_remove_checkpoint(jh);
-		}
 
+		if (jh->b_cp_transaction)
+			__journal_remove_checkpoint(jh);
 
 		if (buffer_freed(bh)) {
-
-
 			jh->b_modified = 0;
 			if (!jh->b_next_transaction) {
 				clear_buffer_freed(bh);
@@ -783,81 +711,191 @@ restart_loop:
 		}
 
 		if (buffer_jbddirty(bh)) {
-			JBUFFER_TRACE(jh, "add to new checkpointing trans");
-			__journal_insert_checkpoint(jh, commit_transaction);
+			__journal_insert_checkpoint(
+				jh, transaction);
 			if (is_journal_aborted(journal))
 				clear_buffer_jbddirty(bh);
 		} else {
 			J_ASSERT_BH(bh, !buffer_dirty(bh));
-
-
-			if (!jh->b_next_transaction)
-				try_to_free = 1;
+			release_page =
+				!jh->b_next_transaction;
 		}
-		JBUFFER_TRACE(jh, "refile or unfile freed buffer");
+
 		__journal_refile_buffer(jh);
+		spin_unlock(&journal->j_list_lock);
 		jbd_unlock_bh_state(bh);
-		if (try_to_free)
-			release_buffer_page(bh);
+
+		if (release_page)
+			ifs_ext3_release_detached_page(bh);
 		else
 			__brelse(bh);
-		cond_resched_lock(&journal->j_list_lock);
+		cond_resched();
 	}
-	spin_unlock(&journal->j_list_lock);
+}
 
-
-	spin_lock(&journal->j_state_lock);
-	spin_lock(&journal->j_list_lock);
-
-
-	if (commit_transaction->t_forget) {
-		spin_unlock(&journal->j_list_lock);
-		spin_unlock(&journal->j_state_lock);
-		goto restart_loop;
+static void ifs_ext3_link_checkpoint_transaction(
+	journal_t *journal, transaction_t *transaction)
+{
+	if (!transaction->t_checkpoint_list &&
+	    !transaction->t_checkpoint_io_list) {
+		__journal_drop_transaction(
+			journal, transaction);
+		return;
 	}
 
+	if (!journal->j_checkpoint_transactions) {
+		journal->j_checkpoint_transactions =
+			transaction;
+		transaction->t_cpnext = transaction;
+		transaction->t_cpprev = transaction;
+		return;
+	}
 
-	jbd_debug(3, "JBD: commit phase 8\n");
+	transaction->t_cpnext =
+		journal->j_checkpoint_transactions;
+	transaction->t_cpprev =
+		transaction->t_cpnext->t_cpprev;
+	transaction->t_cpnext->t_cpprev =
+		transaction;
+	transaction->t_cpprev->t_cpnext =
+		transaction;
+}
 
-	J_ASSERT(commit_transaction->t_state == T_COMMIT_RECORD);
+static void ifs_ext3_publish_finished_transaction(
+	journal_t *journal,
+	transaction_t *transaction,
+	ktime_t started)
+{
+	u64 elapsed;
 
-	commit_transaction->t_state = T_FINISHED;
-	J_ASSERT(commit_transaction == journal->j_committing_transaction);
-	journal->j_commit_sequence = commit_transaction->t_tid;
+	for (;;) {
+		ifs_ext3_retire_forget_list(
+			journal, transaction);
+
+		spin_lock(&journal->j_state_lock);
+		spin_lock(&journal->j_list_lock);
+		if (transaction->t_forget) {
+			spin_unlock(&journal->j_list_lock);
+			spin_unlock(&journal->j_state_lock);
+			continue;
+		}
+		break;
+	}
+
+	J_ASSERT(
+		transaction->t_state == T_COMMIT_RECORD);
+	transaction->t_state = T_FINISHED;
+	J_ASSERT(
+		transaction ==
+		journal->j_committing_transaction);
+
+	journal->j_commit_sequence = transaction->t_tid;
 	journal->j_committing_transaction = NULL;
-	commit_time = ktime_to_ns(ktime_sub(ktime_get(), start_time));
 
-
+	elapsed = ktime_to_ns(
+		ktime_sub(ktime_get(), started));
 	if (likely(journal->j_average_commit_time))
-		journal->j_average_commit_time = (commit_time*3 +
-				journal->j_average_commit_time) / 4;
+		journal->j_average_commit_time =
+			(elapsed * 3 +
+			 journal->j_average_commit_time) / 4;
 	else
-		journal->j_average_commit_time = commit_time;
+		journal->j_average_commit_time = elapsed;
 
 	spin_unlock(&journal->j_state_lock);
-
-	if (commit_transaction->t_checkpoint_list == NULL &&
-	    commit_transaction->t_checkpoint_io_list == NULL) {
-		__journal_drop_transaction(journal, commit_transaction);
-	} else {
-		if (journal->j_checkpoint_transactions == NULL) {
-			journal->j_checkpoint_transactions = commit_transaction;
-			commit_transaction->t_cpnext = commit_transaction;
-			commit_transaction->t_cpprev = commit_transaction;
-		} else {
-			commit_transaction->t_cpnext =
-				journal->j_checkpoint_transactions;
-			commit_transaction->t_cpprev =
-				commit_transaction->t_cpnext->t_cpprev;
-			commit_transaction->t_cpnext->t_cpprev =
-				commit_transaction;
-			commit_transaction->t_cpprev->t_cpnext =
-				commit_transaction;
-		}
-	}
+	ifs_ext3_link_checkpoint_transaction(
+		journal, transaction);
 	spin_unlock(&journal->j_list_lock);
-	jbd_debug(1, "JBD: commit %d complete, head %d\n",
-		  journal->j_commit_sequence, journal->j_tail_sequence);
 
 	wake_up(&journal->j_wait_done_commit);
+}
+
+void journal_commit_transaction(journal_t *journal)
+{
+	transaction_t *transaction;
+	ktime_t started;
+	blk_opf_t write_flags = 0;
+	struct blk_plug plug;
+	int error;
+	int secondary;
+
+	transaction = ifs_ext3_lock_running_transaction(
+		journal, &started);
+
+	if (tid_geq(
+		    journal->j_commit_waited,
+		    transaction->t_tid))
+		write_flags = REQ_SYNC;
+
+	blk_start_plug(&plug);
+	error = ifs_ext3_flush_ordered_data(
+		journal, transaction, write_flags);
+	blk_finish_plug(&plug);
+
+	secondary = ifs_ext3_wait_ordered_data(
+		journal, transaction);
+	if (!error)
+		error = secondary;
+
+	if (error) {
+		pr_warn(
+			"EXT3: ordered data writeback failed on %pg\n",
+			journal->j_fs_dev);
+		if (journal->j_flags &
+		    JFS_ABORT_ON_SYNCDATA_ERR)
+			journal_abort(journal, error);
+		error = 0;
+	}
+
+	blk_start_plug(&plug);
+	journal_write_revoke_records(
+		journal, transaction, write_flags);
+
+	J_ASSERT(transaction->t_sync_datalist == NULL);
+
+	spin_lock(&journal->j_state_lock);
+	transaction->t_state = T_COMMIT;
+	spin_unlock(&journal->j_state_lock);
+
+	J_ASSERT(
+		transaction->t_nr_buffers <=
+		transaction->t_outstanding_credits);
+
+	secondary = ifs_ext3_write_metadata_log(
+		journal, transaction, write_flags);
+	if (!error)
+		error = secondary;
+	blk_finish_plug(&plug);
+
+	secondary = ifs_ext3_wait_metadata_io(
+		journal, transaction);
+	if (!error)
+		error = secondary;
+
+	secondary = ifs_ext3_wait_control_io(
+		journal, transaction);
+	if (!error)
+		error = secondary;
+
+	if (error)
+		journal_abort(journal, error);
+
+	spin_lock(&journal->j_state_lock);
+	J_ASSERT(transaction->t_state == T_COMMIT);
+	transaction->t_state = T_COMMIT_RECORD;
+	spin_unlock(&journal->j_state_lock);
+
+	secondary = ifs_ext3_write_commit_block(
+		journal, transaction);
+	if (secondary)
+		journal_abort(journal, secondary);
+
+	J_ASSERT(transaction->t_sync_datalist == NULL);
+	J_ASSERT(transaction->t_buffers == NULL);
+	J_ASSERT(transaction->t_checkpoint_list == NULL);
+	J_ASSERT(transaction->t_iobuf_list == NULL);
+	J_ASSERT(transaction->t_shadow_list == NULL);
+	J_ASSERT(transaction->t_log_list == NULL);
+
+	ifs_ext3_publish_finished_transaction(
+		journal, transaction, started);
 }
