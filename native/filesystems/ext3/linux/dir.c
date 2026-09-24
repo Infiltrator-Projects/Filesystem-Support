@@ -1,694 +1,572 @@
 /*
- *  linux/fs/ext3/dir.c
+ * Filesystem Support EXT3 Linux directory adapter.
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  from
- *
- *  linux/fs/minix/dir.c
- *
- *  Copyright (C) 1991, 1992  Linus Torvalds
- *
- *  ext3 directory handling functions
- *
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
- *
- * Hash Tree Directory indexing (c) 2001  Daniel Phillips
- *
- */
-
-/*
- * EXT3 — Directory representation
- *
- * Purpose:
- *   Parses, validates and iterates directory records and implements directory lookup-side mechanics, including indexed-directory hashing where applicable.
- *
- * Filesystem model:
- *   This file belongs to a standalone EXT3 VFS implementation with its historical JBD engine embedded in ext3.ko.
- *
- * Correctness focus:
- *   Directory record lengths, alignment and bounds are untrusted on-disk input and must be validated before pointer arithmetic or publication to VFS.
- *
- * Project rules:
- *   - EXT3 requires its journal semantics; it is not an EXT4 compatibility registration.
- *   - Preserve the journal, recovery, ordered/writeback/journal data modes and EXT3 on-disk limits.
- *   - JBD and the metadata cache are private implementation code, not separately deployed modules.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
+ * The canonical EXT3 core owns directory-record geometry and HTree hashing.
+ * This file owns Linux VFS enumeration, position encoding and the temporary
+ * HTree result cache used while a directory is open.
  */
 
 #include <linux/compat.h>
 #include <linux/iversion.h>
+#include <linux/rbtree.h>
+#include <linux/slab.h>
+
 #include "ext3.h"
 
-static unsigned char ext3_filetype_table[] = {
-	DT_UNKNOWN, DT_REG, DT_DIR, DT_CHR, DT_BLK, DT_FIFO, DT_SOCK, DT_LNK
+static const unsigned char ifs_ext3_file_types[] = {
+	DT_UNKNOWN, DT_REG, DT_DIR, DT_CHR,
+	DT_BLK, DT_FIFO, DT_SOCK, DT_LNK
 };
 
-static int ext3_dx_readdir(struct file *, struct dir_context *);
+struct fname {
+	u32 hash;
+	u32 minor_hash;
+	struct rb_node node;
+	struct fname *collision;
+	u32 inode;
+	u8 name_len;
+	u8 file_type;
+	char name[];
+};
 
-
-/**
- * get_dtype - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned char get_dtype(struct super_block *sb, int filetype)
+static unsigned char ifs_ext3_dtype(
+	const struct super_block *sb, const unsigned int file_type)
 {
-	if (!EXT3_HAS_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_FILETYPE) ||
-	    (filetype >= EXT3_FT_MAX))
+	if (!EXT3_HAS_INCOMPAT_FEATURE(
+		    sb, EXT3_FEATURE_INCOMPAT_FILETYPE) ||
+	    file_type >= ARRAY_SIZE(ifs_ext3_file_types))
 		return DT_UNKNOWN;
 
-	return (ext3_filetype_table[filetype]);
+	return ifs_ext3_file_types[file_type];
 }
 
-
-/**
- * is_dx_dir - Implements the is dx dir operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int is_dx_dir(struct inode *inode)
+static bool ifs_ext3_indexed_directory(const struct inode *inode)
 {
-	struct super_block *sb = inode->i_sb;
+	const struct super_block *sb = inode->i_sb;
 
-	if (EXT3_HAS_COMPAT_FEATURE(inode->i_sb,
-		     EXT3_FEATURE_COMPAT_DIR_INDEX) &&
-	    ((EXT3_I(inode)->i_flags & EXT3_INDEX_FL) ||
-	     ((inode->i_size >> sb->s_blocksize_bits) == 1)))
+	if (!EXT3_HAS_COMPAT_FEATURE(
+		    sb, EXT3_FEATURE_COMPAT_DIR_INDEX))
+		return false;
+
+	return (EXT3_I(inode)->i_flags & EXT3_INDEX_FL) != 0U ||
+	       (inode->i_size >> sb->s_blocksize_bits) == 1;
+}
+
+int ext3_check_dir_entry(
+	const char *function,
+	struct inode *dir,
+	struct ext3_dir_entry_2 *entry,
+	struct buffer_head *bh,
+	unsigned long offset)
+{
+	const unsigned int record_length =
+		ext3_rec_len_from_disk(entry->rec_len);
+	const IfsExt3DirectoryRecordStatus status =
+		ifs_ext3_validate_directory_record(
+			(ifs_ext3_u32)((char *)entry - bh->b_data),
+			(ifs_ext3_u32)record_length,
+			(ifs_ext3_u32)entry->name_len,
+			le32_to_cpu(entry->inode),
+			(ifs_ext3_u32)dir->i_sb->s_blocksize,
+			le32_to_cpu(EXT3_SB(dir->i_sb)->s_es->s_inodes_count));
+
+	if (likely(status == IFS_EXT3_DIRECTORY_RECORD_OK))
 		return 1;
 
+	ext3_error(
+		dir->i_sb, function,
+		"bad entry in directory #%lu: %s - "
+		"offset=%lu, inode=%lu, rec_len=%u, name_len=%u",
+		dir->i_ino,
+		ifs_ext3_directory_record_status_string(status),
+		offset,
+		(unsigned long)le32_to_cpu(entry->inode),
+		record_length,
+		entry->name_len);
 	return 0;
 }
 
-
-/**
- * ext3_check_dir_entry - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext3_check_dir_entry (const char * function, struct inode * dir,
-			  struct ext3_dir_entry_2 * de,
-			  struct buffer_head * bh,
-			  unsigned long offset)
+static unsigned int ifs_ext3_resynchronise_offset(
+	const struct buffer_head *bh,
+	unsigned int requested,
+	unsigned int block_size)
 {
-	const int rlen = ext3_rec_len_from_disk(de->rec_len);
-	const IfsExt3DirectoryRecordStatus record_status =
-		ifs_ext3_validate_directory_record(
-			(ifs_ext3_u32)((char *)de - bh->b_data),
-			(ifs_ext3_u32)rlen,
-			de->name_len,
-			le32_to_cpu(de->inode),
-			dir->i_sb->s_blocksize,
-			le32_to_cpu(EXT3_SB(dir->i_sb)->s_es->s_inodes_count));
-	const char *error_msg =
-		record_status == IFS_EXT3_DIRECTORY_RECORD_OK ? NULL :
-		ifs_ext3_directory_record_status_string(record_status);
+	unsigned int offset = 0U;
 
-	if (unlikely(error_msg != NULL))
-		ext3_error (dir->i_sb, function,
-			"bad entry in directory #%lu: %s - "
-			"offset=%lu, inode=%lu, rec_len=%d, name_len=%d",
-			dir->i_ino, error_msg, offset,
-			(unsigned long) le32_to_cpu(de->inode),
-			rlen, de->name_len);
+	while (offset < requested &&
+	       offset + EXT3_DIR_REC_LEN(1) <= block_size) {
+		const struct ext3_dir_entry_2 *entry =
+			(const struct ext3_dir_entry_2 *)(bh->b_data + offset);
+		const unsigned int length =
+			ext3_rec_len_from_disk(entry->rec_len);
 
-	return error_msg == NULL ? 1 : 0;
+		if (length < EXT3_DIR_REC_LEN(1) ||
+		    (length & 3U) != 0U ||
+		    length > block_size - offset)
+			break;
+		offset += length;
+	}
+
+	return offset;
 }
 
-
-/**
- * ext3_readdir - Implements the readdir operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext3_readdir(struct file *file, struct dir_context *ctx)
+static int ifs_ext3_linear_readdir(
+	struct file *file, struct dir_context *ctx)
 {
-	unsigned long offset;
-	int i;
-	struct ext3_dir_entry_2 *de;
-	int err;
 	struct inode *inode = file_inode(file);
-	struct dir_private_info *info = file->private_data;
 	struct super_block *sb = inode->i_sb;
-	int dir_has_error = 0;
-
-	if (is_dx_dir(inode)) {
-		err = ext3_dx_readdir(file, ctx);
-		if (err != ERR_BAD_DX_DIR)
-			return err;
-
-
-		EXT3_I(inode)->i_flags &= ~EXT3_INDEX_FL;
-	}
-	offset = ctx->pos & (sb->s_blocksize - 1);
+	struct dir_private_info *info = file->private_data;
+	unsigned int offset = (unsigned int)(ctx->pos & (sb->s_blocksize - 1U));
+	bool reported_hole = false;
 
 	while (ctx->pos < inode->i_size) {
-		unsigned long blk = ctx->pos >> EXT3_BLOCK_SIZE_BITS(sb);
-		struct buffer_head map_bh;
+		const unsigned long logical =
+			(unsigned long)(ctx->pos >> sb->s_blocksize_bits);
+		struct buffer_head map = { 0 };
 		struct buffer_head *bh = NULL;
+		int error;
 
-		map_bh.b_state = 0;
-		err = ext3_get_blocks_handle(NULL, inode, blk, 1, &map_bh, 0);
-		if (err > 0) {
-			pgoff_t index = map_bh.b_blocknr >>
-					(PAGE_SHIFT - inode->i_blkbits);
+		error = ext3_get_blocks_handle(
+			NULL, inode, logical, 1, &map, 0);
+		if (error > 0) {
+			const pgoff_t index =
+				map.b_blocknr >>
+				(PAGE_SHIFT - inode->i_blkbits);
+
 			if (!ra_has_index(&file->f_ra, index))
 				page_cache_sync_readahead(
 					sb->s_bdev->bd_mapping,
-					&file->f_ra, file,
-					index, 1);
+					&file->f_ra, file, index, 1);
 			file->f_ra.prev_pos = (loff_t)index << PAGE_SHIFT;
-			bh = ext3_bread(NULL, inode, blk, 0, &err);
+			bh = ext3_bread(
+				NULL, inode, logical, 0, &error);
 		}
 
-
 		if (!bh) {
-			if (!dir_has_error) {
-				ext3_error(sb, __func__, "directory #%lu "
-					"contains a hole at offset %lld",
+			if (!reported_hole) {
+				ext3_error(
+					sb, __func__,
+					"directory #%lu contains a hole at offset %lld",
 					inode->i_ino, ctx->pos);
-				dir_has_error = 1;
+				reported_hole = true;
 			}
-
-			if (ctx->pos > inode->i_blocks << 9)
+			if (ctx->pos > (loff_t)inode->i_blocks << 9)
 				break;
 			ctx->pos += sb->s_blocksize - offset;
+			offset = 0U;
 			continue;
 		}
 
-
-		if (offset && info && !inode_eq_iversion(inode, info->cookie)) {
-			for (i = 0; i < sb->s_blocksize && i < offset; ) {
-				de = (struct ext3_dir_entry_2 *)
-					(bh->b_data + i);
-
-
-				if (ext3_rec_len_from_disk(de->rec_len) <
-						EXT3_DIR_REC_LEN(1))
-					break;
-				i += ext3_rec_len_from_disk(de->rec_len);
-			}
-			offset = i;
-			ctx->pos = (ctx->pos & ~(sb->s_blocksize - 1))
-				| offset;
+		if (offset != 0U && info &&
+		    !inode_eq_iversion(inode, info->cookie)) {
+			offset = ifs_ext3_resynchronise_offset(
+				bh, offset, sb->s_blocksize);
+			ctx->pos =
+				(ctx->pos & ~(loff_t)(sb->s_blocksize - 1U)) |
+				offset;
 			info->cookie = inode_query_iversion(inode);
 		}
 
-		while (ctx->pos < inode->i_size
-		       && offset < sb->s_blocksize) {
-			de = (struct ext3_dir_entry_2 *) (bh->b_data + offset);
-			if (!ext3_check_dir_entry ("ext3_readdir", inode, de,
-						   bh, offset)) {
+		while (ctx->pos < inode->i_size &&
+		       offset < sb->s_blocksize) {
+			struct ext3_dir_entry_2 *entry =
+				(struct ext3_dir_entry_2 *)(bh->b_data + offset);
+			unsigned int length;
 
-
-				ctx->pos = (ctx->pos |
-						(sb->s_blocksize - 1)) + 1;
+			if (!ext3_check_dir_entry(
+				    __func__, inode, entry, bh, offset)) {
+				ctx->pos =
+					(ctx->pos | (sb->s_blocksize - 1U)) + 1U;
 				break;
 			}
-			offset += ext3_rec_len_from_disk(de->rec_len);
-			if (le32_to_cpu(de->inode)) {
-				if (!dir_emit(ctx, de->name, de->name_len,
-					      le32_to_cpu(de->inode),
-					      get_dtype(sb, de->file_type))) {
-					brelse(bh);
-					return 0;
-				}
-			}
-			ctx->pos += ext3_rec_len_from_disk(de->rec_len);
-		}
-		offset = 0;
-		brelse (bh);
-		if (ctx->pos < inode->i_size)
-			if (!dir_relax(inode))
+
+			length = ext3_rec_len_from_disk(entry->rec_len);
+			if (entry->inode != 0U &&
+			    !dir_emit(
+				    ctx, entry->name, entry->name_len,
+				    le32_to_cpu(entry->inode),
+				    ifs_ext3_dtype(sb, entry->file_type))) {
+				brelse(bh);
 				return 0;
+			}
+
+			offset += length;
+			ctx->pos += length;
+		}
+
+		brelse(bh);
+		offset = 0U;
+		if (ctx->pos < inode->i_size && !dir_relax(inode))
+			return 0;
 	}
+
 	return 0;
 }
 
-
-/**
- * is_32bit_api - Implements the is 32bit api operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int is_32bit_api(void)
+static bool ifs_ext3_hash_api_is_32bit(const struct file *file)
 {
 #ifdef CONFIG_COMPAT
+	if (file->f_mode & FMODE_32BITHASH)
+		return true;
+	if (file->f_mode & FMODE_64BITHASH)
+		return false;
 	return in_compat_syscall();
 #else
-	return (BITS_PER_LONG == 32);
+	if (file->f_mode & FMODE_32BITHASH)
+		return true;
+	if (file->f_mode & FMODE_64BITHASH)
+		return false;
+	return BITS_PER_LONG == 32;
 #endif
 }
 
-
-/**
- * hash2pos - Implements the hash2pos operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline loff_t hash2pos(struct file *filp, __u32 major, __u32 minor)
+static loff_t ifs_ext3_hash_position(
+	const struct file *file, u32 major, u32 minor)
 {
-	if ((filp->f_mode & FMODE_32BITHASH) ||
-	    (!(filp->f_mode & FMODE_64BITHASH) && is_32bit_api()))
-		return major >> 1;
-	else
-		return ((__u64)(major >> 1) << 32) | (__u64)minor;
+	if (ifs_ext3_hash_api_is_32bit(file))
+		return (loff_t)(major >> 1);
+
+	return (loff_t)(((u64)(major >> 1) << 32) | minor);
 }
 
-
-/**
- * pos2maj_hash - Implements the pos2maj hash operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline __u32 pos2maj_hash(struct file *filp, loff_t pos)
+static u32 ifs_ext3_position_major(
+	const struct file *file, loff_t position)
 {
-	if ((filp->f_mode & FMODE_32BITHASH) ||
-	    (!(filp->f_mode & FMODE_64BITHASH) && is_32bit_api()))
-		return (pos << 1) & 0xffffffff;
-	else
-		return ((pos >> 32) << 1) & 0xffffffff;
+	if (ifs_ext3_hash_api_is_32bit(file))
+		return (u32)position << 1;
+
+	return (u32)((u64)position >> 32) << 1;
 }
 
-
-/**
- * pos2min_hash - Implements the pos2min hash operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline __u32 pos2min_hash(struct file *filp, loff_t pos)
+static u32 ifs_ext3_position_minor(
+	const struct file *file, loff_t position)
 {
-	if ((filp->f_mode & FMODE_32BITHASH) ||
-	    (!(filp->f_mode & FMODE_64BITHASH) && is_32bit_api()))
-		return 0;
-	else
-		return pos & 0xffffffff;
+	return ifs_ext3_hash_api_is_32bit(file) ?
+		0U : (u32)position;
 }
 
-
-/**
- * ext3_get_htree_eof - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline loff_t ext3_get_htree_eof(struct file *filp)
+static loff_t ifs_ext3_hash_eof(const struct file *file)
 {
-	if ((filp->f_mode & FMODE_32BITHASH) ||
-	    (!(filp->f_mode & FMODE_64BITHASH) && is_32bit_api()))
-		return EXT3_HTREE_EOF_32BIT;
-	else
-		return EXT3_HTREE_EOF_64BIT;
+	return ifs_ext3_hash_api_is_32bit(file) ?
+		EXT3_HTREE_EOF_32BIT : EXT3_HTREE_EOF_64BIT;
 }
 
-
-/**
- * ext3_dir_llseek - Implements the dir llseek operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static loff_t ext3_dir_llseek(struct file *file, loff_t offset, int whence)
+static loff_t ifs_ext3_dir_llseek(
+	struct file *file, loff_t offset, int whence)
 {
-	struct inode *inode = file->f_mapping->host;
-	int dx_dir = is_dx_dir(inode);
-	loff_t htree_max = ext3_get_htree_eof(file);
+	if (ifs_ext3_indexed_directory(file_inode(file))) {
+		const loff_t limit = ifs_ext3_hash_eof(file);
 
-	if (likely(dx_dir))
-		return generic_file_llseek_size(file, offset, whence,
-					        htree_max, htree_max);
-	else
-		return generic_file_llseek(file, offset, whence);
+		return generic_file_llseek_size(
+			file, offset, whence, limit, limit);
+	}
+
+	return generic_file_llseek(file, offset, whence);
 }
 
-
-/**
- * struct fname - Private EXT3 state/data structure used by directory representation.
- *
- * Treat fields that mirror persistent media or cross subsystem boundaries
- * as interface contracts rather than incidental layout.
- */
-struct fname {
-	__u32		hash;
-	__u32		minor_hash;
-	struct rb_node	rb_hash;
-	struct fname	*next;
-	__u32		inode;
-	__u8		name_len;
-	__u8		file_type;
-	char		name[0];
-};
-
-
-/**
- * free_rb_tree_fname - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void free_rb_tree_fname(struct rb_root *root)
+static void ifs_ext3_free_fname_tree(struct rb_root *root)
 {
-	struct fname *fname, *next;
+	struct fname *entry;
+	struct fname *next;
 
-	rbtree_postorder_for_each_entry_safe(fname, next, root, rb_hash)
-		do {
-			struct fname *old = fname;
-			fname = fname->next;
+	rbtree_postorder_for_each_entry_safe(
+		entry, next, root, node) {
+		while (entry) {
+			struct fname *old = entry;
+			entry = entry->collision;
 			kfree(old);
-		} while (fname);
+		}
+	}
 
 	*root = RB_ROOT;
 }
 
-
-/**
- * ext3_htree_create_dir_info - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static struct dir_private_info *ext3_htree_create_dir_info(struct file *filp,
-							   loff_t pos)
+static struct dir_private_info *ifs_ext3_dir_state_create(
+	struct file *file, loff_t position)
 {
-	struct dir_private_info *p;
+	struct dir_private_info *state =
+		kzalloc(sizeof(*state), GFP_KERNEL);
 
-	p = kzalloc(sizeof(struct dir_private_info), GFP_KERNEL);
-	if (!p)
+	if (!state)
 		return NULL;
-	p->curr_hash = pos2maj_hash(filp, pos);
-	p->curr_minor_hash = pos2min_hash(filp, pos);
-	p->cookie = inode_query_iversion(file_inode(filp));
-	return p;
+
+	state->root = RB_ROOT;
+	state->curr_hash =
+		ifs_ext3_position_major(file, position);
+	state->curr_minor_hash =
+		ifs_ext3_position_minor(file, position);
+	state->cookie = inode_query_iversion(file_inode(file));
+	state->last_pos = position;
+	return state;
 }
 
-
-/**
- * ext3_htree_free_dir_info - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext3_htree_free_dir_info(struct dir_private_info *p)
+void ext3_htree_free_dir_info(struct dir_private_info *state)
 {
-	free_rb_tree_fname(&p->root);
-	kfree(p);
+	if (!state)
+		return;
+
+	ifs_ext3_free_fname_tree(&state->root);
+	kfree(state);
 }
 
-
-/**
- * ext3_htree_store_dirent - Implements the htree store dirent operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext3_htree_store_dirent(struct file *dir_file, __u32 hash,
-			     __u32 minor_hash,
-			     struct ext3_dir_entry_2 *dirent)
+int ext3_htree_store_dirent(
+	struct file *file,
+	u32 hash,
+	u32 minor_hash,
+	struct ext3_dir_entry_2 *dirent)
 {
-	struct rb_node **p, *parent = NULL;
-	struct fname * fname, *new_fn;
-	struct dir_private_info *info;
-	int len;
+	struct dir_private_info *state = file->private_data;
+	struct rb_node **link;
+	struct rb_node *parent = NULL;
+	struct fname *entry;
+	size_t allocation;
 
-	info = (struct dir_private_info *) dir_file->private_data;
-	p = &info->root.rb_node;
+	if (!state || !dirent)
+		return -EINVAL;
 
-
-	len = sizeof(struct fname) + dirent->name_len + 1;
-	new_fn = kzalloc(len, GFP_KERNEL);
-	if (!new_fn)
+	allocation = sizeof(*entry) + dirent->name_len + 1U;
+	entry = kzalloc(allocation, GFP_KERNEL);
+	if (!entry)
 		return -ENOMEM;
-	new_fn->hash = hash;
-	new_fn->minor_hash = minor_hash;
-	new_fn->inode = le32_to_cpu(dirent->inode);
-	new_fn->name_len = dirent->name_len;
-	new_fn->file_type = dirent->file_type;
-	memcpy(new_fn->name, dirent->name, dirent->name_len);
-	new_fn->name[dirent->name_len] = 0;
 
-	while (*p) {
-		parent = *p;
-		fname = rb_entry(parent, struct fname, rb_hash);
+	entry->hash = hash;
+	entry->minor_hash = minor_hash;
+	entry->inode = le32_to_cpu(dirent->inode);
+	entry->name_len = dirent->name_len;
+	entry->file_type = dirent->file_type;
+	memcpy(entry->name, dirent->name, dirent->name_len);
+	entry->name[dirent->name_len] = '\0';
 
+	link = &state->root.rb_node;
+	while (*link) {
+		struct fname *current;
 
-		if ((new_fn->hash == fname->hash) &&
-		    (new_fn->minor_hash == fname->minor_hash)) {
-			new_fn->next = fname->next;
-			fname->next = new_fn;
+		parent = *link;
+		current = rb_entry(parent, struct fname, node);
+
+		if (hash == current->hash &&
+		    minor_hash == current->minor_hash) {
+			entry->collision = current->collision;
+			current->collision = entry;
 			return 0;
 		}
 
-		if (new_fn->hash < fname->hash)
-			p = &(*p)->rb_left;
-		else if (new_fn->hash > fname->hash)
-			p = &(*p)->rb_right;
-		else if (new_fn->minor_hash < fname->minor_hash)
-			p = &(*p)->rb_left;
+		if (hash < current->hash ||
+		    (hash == current->hash &&
+		     minor_hash < current->minor_hash))
+			link = &parent->rb_left;
 		else
-			p = &(*p)->rb_right;
+			link = &parent->rb_right;
 	}
 
-	rb_link_node(&new_fn->rb_hash, parent, p);
-	rb_insert_color(&new_fn->rb_hash, &info->root);
+	rb_link_node(&entry->node, parent, link);
+	rb_insert_color(&entry->node, &state->root);
 	return 0;
 }
 
-
-/**
- * call_filldir - Implements the call filldir operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static bool call_filldir(struct file *file, struct dir_context *ctx,
-			struct fname *fname)
+static bool ifs_ext3_emit_fname_chain(
+	struct file *file,
+	struct dir_context *ctx,
+	struct fname *entry)
 {
-	struct dir_private_info *info = file->private_data;
-	struct inode *inode = file_inode(file);
-	struct super_block *sb = inode->i_sb;
+	struct dir_private_info *state = file->private_data;
+	const struct super_block *sb = file_inode(file)->i_sb;
 
-	if (!fname) {
-		printk("call_filldir: called with null fname?!?\n");
-		return true;
-	}
-	ctx->pos = hash2pos(file, fname->hash, fname->minor_hash);
-	while (fname) {
-		if (!dir_emit(ctx, fname->name, fname->name_len,
-				fname->inode,
-				get_dtype(sb, fname->file_type))) {
-			info->extra_fname = fname;
+	ctx->pos =
+		ifs_ext3_hash_position(file, entry->hash, entry->minor_hash);
+
+	while (entry) {
+		if (!dir_emit(
+			    ctx, entry->name, entry->name_len,
+			    entry->inode,
+			    ifs_ext3_dtype(sb, entry->file_type))) {
+			state->extra_fname = entry;
 			return false;
 		}
-		fname = fname->next;
+		entry = entry->collision;
 	}
+
+	state->extra_fname = NULL;
 	return true;
 }
 
-
-/**
- * ext3_dx_readdir - Implements the dx readdir operation within the directory representation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext3_dx_readdir(struct file *file, struct dir_context *ctx)
+static void ifs_ext3_reset_htree_state(
+	struct file *file,
+	struct dir_private_info *state,
+	loff_t position)
 {
-	struct dir_private_info *info = file->private_data;
-	struct inode *inode = file_inode(file);
-	struct fname *fname;
-	int	ret;
+	ifs_ext3_free_fname_tree(&state->root);
+	state->curr_node = NULL;
+	state->extra_fname = NULL;
+	state->curr_hash =
+		ifs_ext3_position_major(file, position);
+	state->curr_minor_hash =
+		ifs_ext3_position_minor(file, position);
+	state->last_pos = position;
+}
 
-	if (!info) {
-		info = ext3_htree_create_dir_info(file, ctx->pos);
-		if (!info)
+static int ifs_ext3_dx_readdir(
+	struct file *file, struct dir_context *ctx)
+{
+	struct inode *inode = file_inode(file);
+	struct dir_private_info *state = file->private_data;
+
+	if (!state) {
+		state = ifs_ext3_dir_state_create(file, ctx->pos);
+		if (!state)
 			return -ENOMEM;
-		file->private_data = info;
+		file->private_data = state;
 	}
 
-	if (ctx->pos == ext3_get_htree_eof(file))
+	if (ctx->pos == ifs_ext3_hash_eof(file))
 		return 0;
 
+	if (state->last_pos != ctx->pos)
+		ifs_ext3_reset_htree_state(file, state, ctx->pos);
 
-	if (info->last_pos != ctx->pos) {
-		free_rb_tree_fname(&info->root);
-		info->curr_node = NULL;
-		info->extra_fname = NULL;
-		info->curr_hash = pos2maj_hash(file, ctx->pos);
-		info->curr_minor_hash = pos2min_hash(file, ctx->pos);
+	if (state->extra_fname) {
+		if (!ifs_ext3_emit_fname_chain(
+			    file, ctx, state->extra_fname))
+			goto out;
+		state->extra_fname = NULL;
+		if (state->curr_node)
+			state->curr_node = rb_next(state->curr_node);
 	}
 
+	for (;;) {
+		struct fname *entry;
+		int result;
 
-	if (info->extra_fname) {
-		if (!call_filldir(file, ctx, info->extra_fname))
-			goto finished;
-		info->extra_fname = NULL;
-		goto next_node;
-	} else if (!info->curr_node)
-		info->curr_node = rb_first(&info->root);
+		if (!state->curr_node ||
+		    !inode_eq_iversion(inode, state->cookie)) {
+			ifs_ext3_free_fname_tree(&state->root);
+			state->curr_node = NULL;
+			state->cookie = inode_query_iversion(inode);
 
-	while (1) {
-
-
-		if ((!info->curr_node) ||
-		    !inode_eq_iversion(inode, info->cookie)) {
-			info->curr_node = NULL;
-			free_rb_tree_fname(&info->root);
-			info->cookie = inode_query_iversion(inode);
-			ret = ext3_htree_fill_tree(file, info->curr_hash,
-						   info->curr_minor_hash,
-						   &info->next_hash);
-			if (ret < 0)
-				return ret;
-			if (ret == 0) {
-				ctx->pos = ext3_get_htree_eof(file);
+			result = ext3_htree_fill_tree(
+				file,
+				state->curr_hash,
+				state->curr_minor_hash,
+				&state->next_hash);
+			if (result < 0)
+				return result;
+			if (result == 0) {
+				ctx->pos = ifs_ext3_hash_eof(file);
 				break;
 			}
-			info->curr_node = rb_first(&info->root);
+
+			state->curr_node = rb_first(&state->root);
+			if (!state->curr_node) {
+				ctx->pos = ifs_ext3_hash_eof(file);
+				break;
+			}
 		}
 
-		fname = rb_entry(info->curr_node, struct fname, rb_hash);
-		info->curr_hash = fname->hash;
-		info->curr_minor_hash = fname->minor_hash;
-		if (!call_filldir(file, ctx, fname))
+		entry = rb_entry(state->curr_node, struct fname, node);
+		state->curr_hash = entry->hash;
+		state->curr_minor_hash = entry->minor_hash;
+
+		if (!ifs_ext3_emit_fname_chain(file, ctx, entry))
 			break;
-	next_node:
-		info->curr_node = rb_next(info->curr_node);
-		if (info->curr_node) {
-			fname = rb_entry(info->curr_node, struct fname,
-					 rb_hash);
-			info->curr_hash = fname->hash;
-			info->curr_minor_hash = fname->minor_hash;
-		} else {
-			if (info->next_hash == ~0) {
-				ctx->pos = ext3_get_htree_eof(file);
-				break;
-			}
-			info->curr_hash = info->next_hash;
-			info->curr_minor_hash = 0;
+
+		state->curr_node = rb_next(state->curr_node);
+		if (state->curr_node) {
+			entry = rb_entry(
+				state->curr_node, struct fname, node);
+			state->curr_hash = entry->hash;
+			state->curr_minor_hash = entry->minor_hash;
+			continue;
 		}
+
+		if (state->next_hash == ~0U) {
+			ctx->pos = ifs_ext3_hash_eof(file);
+			break;
+		}
+
+		state->curr_hash = state->next_hash;
+		state->curr_minor_hash = 0U;
 	}
-finished:
-	info->last_pos = ctx->pos;
+
+out:
+	state->last_pos = ctx->pos;
 	return 0;
 }
 
-
-/**
- * ext3_dir_open - Allocates per-open directory iteration state.
- *
- * Linux no longer stores filesystem directory-version state in struct file.
- * Keep the cache cookie private to this wrapper and derive it from the inode
- * i_version so both linear and indexed iteration detect namespace changes.
- */
-static int ext3_dir_open(struct inode *inode, struct file *file)
+static int ifs_ext3_readdir(
+	struct file *file, struct dir_context *ctx)
 {
-	struct dir_private_info *info;
+	struct inode *inode = file_inode(file);
+	int result;
 
-	info = ext3_htree_create_dir_info(file, 0);
-	if (!info)
+	if (ifs_ext3_indexed_directory(inode)) {
+		result = ifs_ext3_dx_readdir(file, ctx);
+		if (result != ERR_BAD_DX_DIR)
+			return result;
+
+		EXT3_I(inode)->i_flags &= ~EXT3_INDEX_FL;
+	}
+
+	return ifs_ext3_linear_readdir(file, ctx);
+}
+
+static int ifs_ext3_dir_open(
+	struct inode *inode, struct file *file)
+{
+	struct dir_private_info *state =
+		ifs_ext3_dir_state_create(file, 0);
+
+	if (!state)
 		return -ENOMEM;
-	info->cookie = inode_query_iversion(inode);
-	file->private_data = info;
+
+	state->cookie = inode_query_iversion(inode);
+	file->private_data = state;
 	return 0;
 }
 
-
-/**
- * ext3_release_dir - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext3_release_dir (struct inode * inode, struct file * filp)
+static int ifs_ext3_dir_release(
+	struct inode *inode, struct file *file)
 {
-       if (filp->private_data)
-		ext3_htree_free_dir_info(filp->private_data);
-
+	(void)inode;
+	ext3_htree_free_dir_info(file->private_data);
+	file->private_data = NULL;
 	return 0;
 }
 
 const struct file_operations ext3_dir_operations = {
-	.open		= ext3_dir_open,
-	.llseek		= ext3_dir_llseek,
-	.read		= generic_read_dir,
-	.iterate_shared	= ext3_readdir,
+	.open = ifs_ext3_dir_open,
+	.llseek = ifs_ext3_dir_llseek,
+	.read = generic_read_dir,
+	.iterate_shared = ifs_ext3_readdir,
 	.unlocked_ioctl = ext3_ioctl,
 #ifdef CONFIG_COMPAT
-	.compat_ioctl	= ext3_compat_ioctl,
+	.compat_ioctl = ext3_compat_ioctl,
 #endif
-	.fsync		= ext3_sync_file,
-	.release	= ext3_release_dir,
+	.fsync = ext3_sync_file,
+	.release = ifs_ext3_dir_release,
 };
 
-
-int ext3fs_dirhash(const char *name, int len, struct dx_hash_info *hinfo)
+int ext3fs_dirhash(
+	const char *name, int length, struct dx_hash_info *info)
 {
 	ifs_ext3_u32 major = 0U;
 	ifs_ext3_u32 minor = 0U;
-	int result;
 
-	if (!hinfo || len < 0)
+	if (!info || length < 0)
 		return -1;
 
-	result = ifs_ext3_directory_hash(
-		(const ifs_ext3_u8 *)name, (ifs_ext3_u32)len,
-		hinfo->hash_version, hinfo->seed, &major, &minor);
-	if (result != 0) {
-		hinfo->hash = 0U;
-		hinfo->minor_hash = 0U;
+	if (ifs_ext3_directory_hash(
+		    (const ifs_ext3_u8 *)name,
+		    (ifs_ext3_u32)length,
+		    info->hash_version,
+		    info->seed,
+		    &major,
+		    &minor) != 0) {
+		info->hash = 0U;
+		info->minor_hash = 0U;
 		return -1;
 	}
 
-	hinfo->hash = major;
-	hinfo->minor_hash = minor;
+	info->hash = major;
+	info->minor_hash = minor;
 	return 0;
 }
