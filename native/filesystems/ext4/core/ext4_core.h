@@ -210,6 +210,26 @@ IfsExt4DirectoryRecordStatus ifs_ext4_validate_directory_record(
 const char *ifs_ext4_directory_record_status_string(
     IfsExt4DirectoryRecordStatus status);
 
+#define IFS_EXT4_HASH_LEGACY           0U
+#define IFS_EXT4_HASH_HALF_MD4         1U
+#define IFS_EXT4_HASH_TEA              2U
+#define IFS_EXT4_HASH_LEGACY_UNSIGNED  3U
+#define IFS_EXT4_HASH_HALF_MD4_UNSIGNED 4U
+#define IFS_EXT4_HASH_TEA_UNSIGNED     5U
+
+/*
+ * Calculate an EXT directory-index hash from the on-disk hash version.
+ * Version 6 (SipHash) is intentionally platform-owned because it depends on
+ * the filesystem encryption key rather than format-only state.
+ */
+int ifs_ext4_directory_hash(
+    const unsigned char *name,
+    ifs_ext4_u32 name_length,
+    ifs_ext4_u32 hash_version,
+    const ifs_ext4_u32 seed[4],
+    ifs_ext4_u32 *major_hash,
+    ifs_ext4_u32 *minor_hash);
+
 #define IFS_EXT4_NDIR_BLOCKS 12U
 #define IFS_EXT4_IND_BLOCK   12U
 #define IFS_EXT4_DIND_BLOCK  13U
