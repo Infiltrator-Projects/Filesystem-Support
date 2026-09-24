@@ -49,16 +49,18 @@ struct ext3_group_desc *ext3_get_group_desc(
 static ext3_fsblk_t ifs_ext3_group_last_block(
 	struct super_block *sb, unsigned int group)
 {
-	const ext3_fsblk_t first =
-		ext3_group_first_block_no(sb, group);
-	const ext3_fsblk_t blocks =
-		le32_to_cpu(EXT3_SB(sb)->s_es->s_blocks_count);
-	ext3_fsblk_t last =
-		first + EXT3_BLOCKS_PER_GROUP(sb) - 1U;
+	ifs_ext3_u64 first = 0U;
+	ifs_ext3_u64 last = 0U;
 
-	if (last >= blocks)
-		last = blocks - 1U;
-	return last;
+	if (ifs_ext3_group_bounds(
+		    group,
+		    le32_to_cpu(EXT3_SB(sb)->s_es->s_first_data_block),
+		    EXT3_BLOCKS_PER_GROUP(sb),
+		    le32_to_cpu(EXT3_SB(sb)->s_es->s_blocks_count),
+		    &first, &last) != IFS_EXT3_BLOCK_GROUP_OK)
+		return ext3_group_first_block_no(sb, group);
+
+	return (ext3_fsblk_t)last;
 }
 
 static bool ifs_ext3_data_range_valid(
@@ -702,14 +704,23 @@ ext3_fsblk_t ext3_new_blocks(
 	    goal >= le32_to_cpu(es->s_blocks_count))
 		goal = le32_to_cpu(es->s_first_data_block);
 
-	start_group =
-		(unsigned int)((goal -
-		le32_to_cpu(es->s_first_data_block)) /
-		EXT3_BLOCKS_PER_GROUP(sb));
-	start_offset =
-		(unsigned int)((goal -
-		le32_to_cpu(es->s_first_data_block)) %
-		EXT3_BLOCKS_PER_GROUP(sb));
+	{
+		ifs_ext3_u32 mapped_group = 0U;
+		ifs_ext3_u32 mapped_offset = 0U;
+
+		if (ifs_ext3_block_group_position(
+			    goal,
+			    le32_to_cpu(es->s_first_data_block),
+			    EXT3_BLOCKS_PER_GROUP(sb),
+			    sbi->s_groups_count,
+			    &mapped_group,
+			    &mapped_offset) != IFS_EXT3_BLOCK_GROUP_OK) {
+			error = -EUCLEAN;
+			goto fail_quota;
+		}
+		start_group = mapped_group;
+		start_offset = mapped_offset;
+	}
 
 	for (pass = 0U; pass < sbi->s_groups_count; ++pass) {
 		const unsigned int group =
@@ -777,52 +788,14 @@ ext3_fsblk_t ext3_count_free_blocks(struct super_block *sb)
 	return count;
 }
 
-static bool ifs_ext3_power_of(
-	unsigned int value, unsigned int base)
-{
-	if (value < 1U || base < 2U)
-		return false;
-	while (value > 1U && value % base == 0U)
-		value /= base;
-	return value == 1U;
-}
-
-static bool ifs_ext3_sparse_group(unsigned int group)
-{
-	if (group <= 1U)
-		return true;
-	if ((group & 1U) == 0U)
-		return false;
-	return ifs_ext3_power_of(group, 3U) ||
-	       ifs_ext3_power_of(group, 5U) ||
-	       ifs_ext3_power_of(group, 7U);
-}
-
 int ext3_bg_has_super(struct super_block *sb, int group)
 {
 	if (group < 0)
 		return 0;
-	if (!EXT3_HAS_RO_COMPAT_FEATURE(
-		    sb, EXT3_FEATURE_RO_COMPAT_SPARSE_SUPER))
-		return 1;
-	return ifs_ext3_sparse_group((unsigned int)group);
-}
-
-static unsigned long ifs_ext3_meta_gdb_count(
-	struct super_block *sb, unsigned int group)
-{
-	const unsigned long per_block =
-		EXT3_DESC_PER_BLOCK(sb);
-	const unsigned long meta_group =
-		group / per_block;
-	const unsigned long first =
-		meta_group * per_block;
-	const unsigned long last =
-		first + per_block - 1U;
-
-	return group == first ||
-	       group == first + 1U ||
-	       group == last ? 1U : 0U;
+	return ifs_ext3_group_has_super(
+		EXT3_HAS_RO_COMPAT_FEATURE(
+			sb, EXT3_FEATURE_RO_COMPAT_SPARSE_SUPER),
+		(unsigned int)group);
 }
 
 unsigned long ext3_bg_num_gdb(
@@ -845,7 +818,8 @@ unsigned long ext3_bg_num_gdb(
 			EXT3_SB(sb)->s_gdb_count : 0U;
 
 	return ifs_ext3_meta_gdb_count(
-		sb, (unsigned int)group);
+		(unsigned int)group,
+		EXT3_DESC_PER_BLOCK(sb));
 }
 
 static int ifs_ext3_trim_group(
