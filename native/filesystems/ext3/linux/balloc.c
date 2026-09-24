@@ -1,1898 +1,1064 @@
 /*
- *  linux/fs/ext3/balloc.c
+ * Filesystem Support EXT3 block allocation.
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
+ * EXT3 block allocation is journal-owned metadata.  A block is reusable only
+ * when it is clear in both the live bitmap and the journal's committed bitmap
+ * snapshot.  Freeing performs the inverse publication: the committed snapshot
+ * is marked allocated before the live bit is cleared, preventing premature
+ * reuse before the freeing transaction commits.
  *
- *  Enhanced block allocation by Stephen Tweedie (sct@redhat.com), 1993
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
+ * Reservation-window ioctls remain supported as per-inode allocation hints,
+ * but allocation correctness does not depend on a shared reservation RB-tree.
  */
 
-/*
- * EXT3 — Block allocation
- *
- * Purpose:
- *   Implements free-block accounting, block-group bitmap handling and block allocation/release policy.
- *
- * Filesystem model:
- *   This file belongs to a standalone EXT3 VFS implementation with its historical JBD engine embedded in ext3.ko.
- *
- * Correctness focus:
- *   Allocation code must keep bitmap state, group descriptors, global counters and journal state mutually consistent across success and rollback paths.
- *
- * Project rules:
- *   - EXT3 requires its journal semantics; it is not an EXT4 compatibility registration.
- *   - Preserve the journal, recovery, ordered/writeback/journal data modes and EXT3 on-disk limits.
- *   - JBD and the metadata cache are private implementation code, not separately deployed modules.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
+#include <linux/buffer_head.h>
+#include <linux/capability.h>
+#include <linux/cred.h>
 #include <linux/quotaops.h>
-#include <linux/blkdev.h>
+#include <linux/slab.h>
+
 #include "ext3.h"
-#include <linux/overflow.h>
 
-
-
-/**
- * ext3_get_group_no_and_offset - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void ext3_get_group_no_and_offset(struct super_block *sb,
-	ext3_fsblk_t blocknr, unsigned long *blockgrpp, ext3_grpblk_t *offsetp)
+struct ext3_group_desc *ext3_get_group_desc(
+	struct super_block *sb, unsigned int group,
+	struct buffer_head **bh_out)
 {
-	struct ext3_super_block *es = EXT3_SB(sb)->s_es;
-
-	blocknr = blocknr - le32_to_cpu(es->s_first_data_block);
-	if (offsetp)
-		*offsetp = blocknr % EXT3_BLOCKS_PER_GROUP(sb);
-	if (blockgrpp)
-		*blockgrpp = blocknr / EXT3_BLOCKS_PER_GROUP(sb);
-}
-
-
-/**
- * ext3_get_group_desc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-struct ext3_group_desc * ext3_get_group_desc(struct super_block * sb,
-					     unsigned int block_group,
-					     struct buffer_head ** bh)
-{
-	unsigned long group_desc;
-	unsigned long offset;
-	struct ext3_group_desc * desc;
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
+	unsigned long descriptor_block;
+	unsigned long descriptor_index;
+	struct ext3_group_desc *base;
 
-	if (block_group >= sbi->s_groups_count) {
-		ext3_error (sb, "ext3_get_group_desc",
-			    "block_group >= groups_count - "
-			    "block_group = %d, groups_count = %lu",
-			    block_group, sbi->s_groups_count);
-
+	if (group >= sbi->s_groups_count)
 		return NULL;
-	}
-	smp_rmb();
 
-	group_desc = block_group >> EXT3_DESC_PER_BLOCK_BITS(sb);
-	offset = block_group & (EXT3_DESC_PER_BLOCK(sb) - 1);
-	if (!sbi->s_group_desc[group_desc]) {
-		ext3_error (sb, "ext3_get_group_desc",
-			    "Group descriptor not loaded - "
-			    "block_group = %d, group_desc = %lu, desc = %lu",
-			     block_group, group_desc, offset);
+	descriptor_block = group >> EXT3_DESC_PER_BLOCK_BITS(sb);
+	descriptor_index = group & (EXT3_DESC_PER_BLOCK(sb) - 1U);
+	if (!sbi->s_group_desc ||
+	    !sbi->s_group_desc[descriptor_block])
 		return NULL;
-	}
 
-	desc = (struct ext3_group_desc *) sbi->s_group_desc[group_desc]->b_data;
-	if (bh)
-		*bh = sbi->s_group_desc[group_desc];
-	return desc + offset;
+	if (bh_out)
+		*bh_out = sbi->s_group_desc[descriptor_block];
+
+	base = (struct ext3_group_desc *)
+		sbi->s_group_desc[descriptor_block]->b_data;
+	return base + descriptor_index;
 }
 
-
-/**
- * ext3_valid_block_bitmap - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext3_valid_block_bitmap(struct super_block *sb,
-					struct ext3_group_desc *desc,
-					unsigned int block_group,
-					struct buffer_head *bh)
+static ext3_fsblk_t ifs_ext3_group_last_block(
+	struct super_block *sb, unsigned int group)
 {
-	ext3_grpblk_t offset;
-	ext3_grpblk_t next_zero_bit;
-	ext3_fsblk_t bitmap_blk;
-	ext3_fsblk_t group_first_block;
+	const ext3_fsblk_t first =
+		ext3_group_first_block_no(sb, group);
+	const ext3_fsblk_t blocks =
+		le32_to_cpu(EXT3_SB(sb)->s_es->s_blocks_count);
+	ext3_fsblk_t last =
+		first + EXT3_BLOCKS_PER_GROUP(sb) - 1U;
 
-	group_first_block = ext3_group_first_block_no(sb, block_group);
+	if (last >= blocks)
+		last = blocks - 1U;
+	return last;
+}
 
+static bool ifs_ext3_data_range_valid(
+	struct super_block *sb, ext3_fsblk_t start,
+	unsigned long count)
+{
+	const struct ext3_super_block *es = EXT3_SB(sb)->s_es;
+	const ext3_fsblk_t first =
+		le32_to_cpu(es->s_first_data_block);
+	const ext3_fsblk_t blocks =
+		le32_to_cpu(es->s_blocks_count);
 
-	bitmap_blk = le32_to_cpu(desc->bg_block_bitmap);
-	offset = bitmap_blk - group_first_block;
-	if (!ext3_test_bit(offset, bh->b_data))
+	if (count == 0U || start < first || start >= blocks)
+		return false;
+	return count <= blocks - start;
+}
 
-		goto err_out;
+static bool ifs_ext3_range_hits_system_zone(
+	struct super_block *sb,
+	const struct ext3_group_desc *desc,
+	ext3_fsblk_t start, unsigned long count)
+{
+	const unsigned long table_blocks = EXT3_SB(sb)->s_itb_per_group;
+	ext3_fsblk_t last;
 
+	if (count == 0U || count > (unsigned long)(~0UL) ||
+	    start > (ext3_fsblk_t)(~0UL) - (count - 1U))
+		return true;
 
-	bitmap_blk = le32_to_cpu(desc->bg_inode_bitmap);
-	offset = bitmap_blk - group_first_block;
-	if (!ext3_test_bit(offset, bh->b_data))
+	last = start + count - 1U;
+	if (in_range(le32_to_cpu(desc->bg_block_bitmap), start, count) ||
+	    in_range(le32_to_cpu(desc->bg_inode_bitmap), start, count) ||
+	    in_range(start, le32_to_cpu(desc->bg_inode_table), table_blocks) ||
+	    in_range(last, le32_to_cpu(desc->bg_inode_table), table_blocks))
+		return true;
 
-		goto err_out;
+	return false;
+}
 
+static bool ifs_ext3_bitmap_metadata_reserved(
+	struct super_block *sb, unsigned int group,
+	const struct ext3_group_desc *desc,
+	struct buffer_head *bitmap)
+{
+	const ext3_fsblk_t first =
+		ext3_group_first_block_no(sb, group);
+	const ext3_fsblk_t last =
+		ifs_ext3_group_last_block(sb, group);
+	const unsigned long table_blocks = EXT3_SB(sb)->s_itb_per_group;
+	ext3_fsblk_t block;
+	unsigned long bit;
+	unsigned long table_end;
 
-	bitmap_blk = le32_to_cpu(desc->bg_inode_table);
-	offset = bitmap_blk - group_first_block;
-	next_zero_bit = ext3_find_next_zero_bit(bh->b_data,
-				offset + EXT3_SB(sb)->s_itb_per_group,
-				offset);
-	if (next_zero_bit >= offset + EXT3_SB(sb)->s_itb_per_group)
+	block = le32_to_cpu(desc->bg_block_bitmap);
+	if (block < first || block > last)
+		goto corrupt;
+	bit = block - first;
+	if (!ext3_test_bit(bit, bitmap->b_data))
+		goto corrupt;
 
-		return 1;
+	block = le32_to_cpu(desc->bg_inode_bitmap);
+	if (block < first || block > last)
+		goto corrupt;
+	bit = block - first;
+	if (!ext3_test_bit(bit, bitmap->b_data))
+		goto corrupt;
 
-err_out:
+	block = le32_to_cpu(desc->bg_inode_table);
+	if (block < first || block > last || table_blocks == 0U)
+		goto corrupt;
+	bit = block - first;
+	if (bit > (unsigned long)(last - first) ||
+	    table_blocks > (unsigned long)(last - first + 1U) - bit)
+		goto corrupt;
+	table_end = bit + table_blocks;
+	if (ext3_find_next_zero_bit(
+		    bitmap->b_data, table_end, bit) < table_end)
+		goto corrupt;
+
+	return true;
+
+corrupt:
 	ext3_error(sb, __func__,
-			"Invalid block bitmap - "
-			"block_group = %d, block = %lu",
-			block_group, bitmap_blk);
-	return 0;
+		   "group %u has corrupt metadata allocation map", group);
+	return false;
 }
 
-
-/**
- * read_block_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static struct buffer_head *
-read_block_bitmap(struct super_block *sb, unsigned int block_group)
+static struct buffer_head *ifs_ext3_read_block_bitmap(
+	struct super_block *sb, unsigned int group)
 {
-	struct ext3_group_desc * desc;
-	struct buffer_head * bh = NULL;
-	ext3_fsblk_t bitmap_blk;
+	struct ext3_group_desc *desc;
+	struct buffer_head *bh;
+	u32 block;
+	int status;
 
-	desc = ext3_get_group_desc(sb, block_group, NULL);
+	desc = ext3_get_group_desc(sb, group, NULL);
 	if (!desc)
 		return NULL;
 
-	bitmap_blk = le32_to_cpu(desc->bg_block_bitmap);
-	bh = sb_getblk(sb, bitmap_blk);
-	if (unlikely(!bh)) {
-		ext3_error(sb, __func__,
-			    "Cannot read block bitmap - "
-			    "block_group = %d, block_bitmap = %u",
-			    block_group, le32_to_cpu(desc->bg_block_bitmap));
+	block = le32_to_cpu(desc->bg_block_bitmap);
+	bh = sb_getblk(sb, block);
+	if (!bh)
 		return NULL;
-	}
-	if (bh_read(bh, 0) < 0) {
+
+	status = bh_read(bh, 0);
+	if (status < 0) {
 		brelse(bh);
 		ext3_error(sb, __func__,
-			    "Cannot read block bitmap - "
-			    "block_group = %d, block_bitmap = %u",
-			    block_group, le32_to_cpu(desc->bg_block_bitmap));
+			   "cannot read block bitmap %u for group %u",
+			   block, group);
 		return NULL;
 	}
-	ext3_valid_block_bitmap(sb, desc, block_group, bh);
 
+	if (!ifs_ext3_bitmap_metadata_reserved(
+		    sb, group, desc, bh)) {
+		brelse(bh);
+		return NULL;
+	}
 
 	return bh;
 }
 
-
-#if 1
-
-
-/**
- * __rsv_window_dump - Implements the rsv window dump operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void __rsv_window_dump(struct rb_root *root, int verbose,
-			      const char *fn)
+static bool ifs_ext3_bit_allocatable(
+	struct buffer_head *bitmap, unsigned long bit)
 {
-	struct rb_node *n;
-	struct ext3_reserve_window_node *rsv, *prev;
-	int bad;
+	struct journal_head *jh = bh2jh(bitmap);
+	bool available;
 
-restart:
-	n = rb_first(root);
-	bad = 0;
-	prev = NULL;
+	if (ext3_test_bit(bit, bitmap->b_data))
+		return false;
 
-	printk("Block Allocation Reservation Windows Map (%s):\n", fn);
-	while (n) {
-		rsv = rb_entry(n, struct ext3_reserve_window_node, rsv_node);
-		if (verbose)
-			printk("reservation window 0x%p "
-			       "start:  %lu, end:  %lu\n",
-			       rsv, rsv->rsv_start, rsv->rsv_end);
-		if (rsv->rsv_start && rsv->rsv_start >= rsv->rsv_end) {
-			printk("Bad reservation %p (start >= end)\n",
-			       rsv);
-			bad = 1;
-		}
-		if (prev && prev->rsv_end >= rsv->rsv_start) {
-			printk("Bad reservation %p (prev->end >= start)\n",
-			       rsv);
-			bad = 1;
-		}
-		if (bad) {
-			if (!verbose) {
-				printk("Restarting reservation walk in verbose mode\n");
-				verbose = 1;
-				goto restart;
-			}
-		}
-		n = rb_next(n);
-		prev = rsv;
-	}
-	printk("Window map complete.\n");
-	BUG_ON(bad);
+	jbd_lock_bh_state(bitmap);
+	available = !jh->b_committed_data ||
+		!ext3_test_bit(bit, jh->b_committed_data);
+	jbd_unlock_bh_state(bitmap);
+	return available;
 }
-#define rsv_window_dump(root, verbose) \
-	__rsv_window_dump((root), (verbose), __func__)
-#else
-#define rsv_window_dump(root, verbose) do {} while (0)
-#endif
 
-
-/**
- * goal_in_my_reservation - Implements the goal in my reservation operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int
-goal_in_my_reservation(struct ext3_reserve_window *rsv, ext3_grpblk_t grp_goal,
-			unsigned int group, struct super_block * sb)
+static int ifs_ext3_claim_bit(
+	struct super_block *sb, unsigned int group,
+	struct buffer_head *bitmap, unsigned long bit)
 {
-	ext3_fsblk_t group_first_block, group_last_block;
+	struct journal_head *jh = bh2jh(bitmap);
+	spinlock_t *lock = sb_bgl_lock(EXT3_SB(sb), group);
+	bool committed_busy = false;
 
-	group_first_block = ext3_group_first_block_no(sb, group);
-	group_last_block = group_first_block + (EXT3_BLOCKS_PER_GROUP(sb) - 1);
+	if (ext3_set_bit_atomic(lock, bit, bitmap->b_data))
+		return 0;
 
-	if ((rsv->_rsv_start > group_last_block) ||
-	    (rsv->_rsv_end < group_first_block))
+	jbd_lock_bh_state(bitmap);
+	if (jh->b_committed_data &&
+	    ext3_test_bit(bit, jh->b_committed_data))
+		committed_busy = true;
+	jbd_unlock_bh_state(bitmap);
+
+	if (committed_busy) {
+		ext3_clear_bit_atomic(lock, bit, bitmap->b_data);
 		return 0;
-	if ((grp_goal >= 0) && ((grp_goal + group_first_block < rsv->_rsv_start)
-		|| (grp_goal + group_first_block > rsv->_rsv_end)))
-		return 0;
+	}
+
 	return 1;
 }
 
-
-/**
- * search_reserve_window - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static struct ext3_reserve_window_node *
-search_reserve_window(struct rb_root *root, ext3_fsblk_t goal)
+static ext3_grpblk_t ifs_ext3_find_candidate(
+	struct buffer_head *bitmap,
+	ext3_grpblk_t start,
+	ext3_grpblk_t end)
 {
-	struct rb_node *n = root->rb_node;
-	struct ext3_reserve_window_node *rsv;
-
-	if (!n)
-		return NULL;
-
-	do {
-		rsv = rb_entry(n, struct ext3_reserve_window_node, rsv_node);
-
-		if (goal < rsv->rsv_start)
-			n = n->rb_left;
-		else if (goal > rsv->rsv_end)
-			n = n->rb_right;
-		else
-			return rsv;
-	} while (n);
-
-
-	if (rsv->rsv_start > goal) {
-		n = rb_prev(&rsv->rsv_node);
-		rsv = rb_entry(n, struct ext3_reserve_window_node, rsv_node);
-	}
-	return rsv;
-}
-
-
-/**
- * ext3_rsv_window_add - Implements the rsv window add operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext3_rsv_window_add(struct super_block *sb,
-		    struct ext3_reserve_window_node *rsv)
-{
-	struct rb_root *root = &EXT3_SB(sb)->s_rsv_window_root;
-	struct rb_node *node = &rsv->rsv_node;
-	ext3_fsblk_t start = rsv->rsv_start;
-
-	struct rb_node ** p = &root->rb_node;
-	struct rb_node * parent = NULL;
-	struct ext3_reserve_window_node *this;
-
-
-	while (*p)
-	{
-		parent = *p;
-		this = rb_entry(parent, struct ext3_reserve_window_node, rsv_node);
-
-		if (start < this->rsv_start)
-			p = &(*p)->rb_left;
-		else if (start > this->rsv_end)
-			p = &(*p)->rb_right;
-		else {
-			rsv_window_dump(root, 1);
-			BUG();
-		}
-	}
-
-	rb_link_node(node, parent, p);
-	rb_insert_color(node, root);
-}
-
-
-/**
- * rsv_window_remove - Implements the rsv window remove operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void rsv_window_remove(struct super_block *sb,
-			      struct ext3_reserve_window_node *rsv)
-{
-	rsv->rsv_start = EXT3_RESERVE_WINDOW_NOT_ALLOCATED;
-	rsv->rsv_end = EXT3_RESERVE_WINDOW_NOT_ALLOCATED;
-	rsv->rsv_alloc_hit = 0;
-	rb_erase(&rsv->rsv_node, &EXT3_SB(sb)->s_rsv_window_root);
-}
-
-
-/**
- * rsv_is_empty - Implements the rsv is empty operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int rsv_is_empty(struct ext3_reserve_window *rsv)
-{
-
-	return rsv->_rsv_end == EXT3_RESERVE_WINDOW_NOT_ALLOCATED;
-}
-
-
-/**
- * ext3_init_block_alloc_info - Initialises subsystem state and establishes the resources required by later operations.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext3_init_block_alloc_info(struct inode *inode)
-{
-	struct ext3_inode_info *ei = EXT3_I(inode);
-	struct ext3_block_alloc_info *block_i;
-	struct super_block *sb = inode->i_sb;
-
-	block_i = kmalloc(sizeof(*block_i), GFP_NOFS);
-	if (block_i) {
-		struct ext3_reserve_window_node *rsv = &block_i->rsv_window_node;
-
-		rsv->rsv_start = EXT3_RESERVE_WINDOW_NOT_ALLOCATED;
-		rsv->rsv_end = EXT3_RESERVE_WINDOW_NOT_ALLOCATED;
-
-
-		if (!test_opt(sb, RESERVATION))
-			rsv->rsv_goal_size = 0;
-		else
-			rsv->rsv_goal_size = EXT3_DEFAULT_RESERVE_BLOCKS;
-		rsv->rsv_alloc_hit = 0;
-		block_i->last_alloc_logical_block = 0;
-		block_i->last_alloc_physical_block = 0;
-	}
-	ei->i_block_alloc_info = block_i;
-}
-
-
-/**
- * ext3_discard_reservation - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext3_discard_reservation(struct inode *inode)
-{
-	struct ext3_inode_info *ei = EXT3_I(inode);
-	struct ext3_block_alloc_info *block_i = ei->i_block_alloc_info;
-	struct ext3_reserve_window_node *rsv;
-	spinlock_t *rsv_lock = &EXT3_SB(inode->i_sb)->s_rsv_window_lock;
-
-	if (!block_i)
-		return;
-
-	rsv = &block_i->rsv_window_node;
-	if (!rsv_is_empty(&rsv->rsv_window)) {
-		spin_lock(rsv_lock);
-		if (!rsv_is_empty(&rsv->rsv_window)) {
-
-			rsv_window_remove(inode->i_sb, rsv);
-		}
-		spin_unlock(rsv_lock);
-	}
-}
-
-
-/**
- * ext3_free_blocks_sb - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext3_free_blocks_sb(handle_t *handle, struct super_block *sb,
-			 ext3_fsblk_t block, unsigned long count,
-			 unsigned long *pdquot_freed_blocks)
-{
-	struct buffer_head *bitmap_bh = NULL;
-	struct buffer_head *gd_bh;
-	unsigned long block_group;
 	ext3_grpblk_t bit;
-	unsigned long i;
-	unsigned long overflow;
-	struct ext3_group_desc * desc;
-	struct ext3_super_block * es;
-	struct ext3_sb_info *sbi;
-	int err = 0, ret;
-	ext3_grpblk_t group_freed;
 
-	*pdquot_freed_blocks = 0;
-	sbi = EXT3_SB(sb);
-	es = sbi->s_es;
-	if (count == 0 ||
-	    block < le32_to_cpu(es->s_first_data_block) ||
-	    block >= le32_to_cpu(es->s_blocks_count) ||
-	    count > le32_to_cpu(es->s_blocks_count) - block) {
-		ext3_error (sb, "ext3_free_blocks",
-			    "Freeing blocks not in datazone - "
-			    "block = "E3FSBLK", count = %lu", block, count);
-		goto error_return;
-	}
-
-	ext3_debug ("freeing block(s) %lu-%lu\n", block, block + count - 1);
-
-do_more:
-	overflow = 0;
-	block_group = (block - le32_to_cpu(es->s_first_data_block)) /
-		      EXT3_BLOCKS_PER_GROUP(sb);
-	bit = (block - le32_to_cpu(es->s_first_data_block)) %
-		      EXT3_BLOCKS_PER_GROUP(sb);
-
-
-	if (bit + count > EXT3_BLOCKS_PER_GROUP(sb)) {
-		overflow = bit + count - EXT3_BLOCKS_PER_GROUP(sb);
-		count -= overflow;
-	}
-	brelse(bitmap_bh);
-	bitmap_bh = read_block_bitmap(sb, block_group);
-	if (!bitmap_bh)
-		goto error_return;
-	desc = ext3_get_group_desc (sb, block_group, &gd_bh);
-	if (!desc)
-		goto error_return;
-
-	if (in_range (le32_to_cpu(desc->bg_block_bitmap), block, count) ||
-	    in_range (le32_to_cpu(desc->bg_inode_bitmap), block, count) ||
-	    in_range (block, le32_to_cpu(desc->bg_inode_table),
-		      sbi->s_itb_per_group) ||
-	    in_range (block + count - 1, le32_to_cpu(desc->bg_inode_table),
-		      sbi->s_itb_per_group)) {
-		ext3_error (sb, "ext3_free_blocks",
-			    "Freeing blocks in system zones - "
-			    "Block = "E3FSBLK", count = %lu",
-			    block, count);
-		goto error_return;
-	}
-
-
-	BUFFER_TRACE(bitmap_bh, "getting undo access");
-	err = ext3_journal_get_undo_access(handle, bitmap_bh);
-	if (err)
-		goto error_return;
-
-
-	BUFFER_TRACE(gd_bh, "get_write_access");
-	err = ext3_journal_get_write_access(handle, gd_bh);
-	if (err)
-		goto error_return;
-
-	jbd_lock_bh_state(bitmap_bh);
-
-	for (i = 0, group_freed = 0; i < count; i++) {
-
-
-#ifdef CONFIG_JBD_DEBUG
-		jbd_unlock_bh_state(bitmap_bh);
-		{
-			struct buffer_head *debug_bh;
-			debug_bh = sb_find_get_block(sb, block + i);
-			if (debug_bh) {
-				BUFFER_TRACE(debug_bh, "Deleted!");
-				if (!bh2jh(bitmap_bh)->b_committed_data)
-					BUFFER_TRACE(debug_bh,
-						"No committed data in bitmap");
-				BUFFER_TRACE2(debug_bh, bitmap_bh, "bitmap");
-				__brelse(debug_bh);
-			}
-		}
-		jbd_lock_bh_state(bitmap_bh);
-#endif
-		if (need_resched()) {
-			jbd_unlock_bh_state(bitmap_bh);
-			cond_resched();
-			jbd_lock_bh_state(bitmap_bh);
-		}
-
-
-		BUFFER_TRACE(bitmap_bh, "set in b_committed_data");
-		J_ASSERT_BH(bitmap_bh,
-				bh2jh(bitmap_bh)->b_committed_data != NULL);
-		ext3_set_bit_atomic(sb_bgl_lock(sbi, block_group), bit + i,
-				bh2jh(bitmap_bh)->b_committed_data);
-
-
-		BUFFER_TRACE(bitmap_bh, "clear bit");
-		if (!ext3_clear_bit_atomic(sb_bgl_lock(sbi, block_group),
-						bit + i, bitmap_bh->b_data)) {
-			jbd_unlock_bh_state(bitmap_bh);
-			ext3_error(sb, __func__,
-				"bit already cleared for block "E3FSBLK,
-				 block + i);
-			jbd_lock_bh_state(bitmap_bh);
-			BUFFER_TRACE(bitmap_bh, "bit already cleared");
-		} else {
-			group_freed++;
-		}
-	}
-	jbd_unlock_bh_state(bitmap_bh);
-
-	spin_lock(sb_bgl_lock(sbi, block_group));
-	le16_add_cpu(&desc->bg_free_blocks_count, group_freed);
-	spin_unlock(sb_bgl_lock(sbi, block_group));
-	percpu_counter_add(&sbi->s_freeblocks_counter, count);
-
-
-	BUFFER_TRACE(bitmap_bh, "dirtied bitmap block");
-	err = ext3_journal_dirty_metadata(handle, bitmap_bh);
-
-
-	BUFFER_TRACE(gd_bh, "dirtied group descriptor block");
-	ret = ext3_journal_dirty_metadata(handle, gd_bh);
-	if (!err) err = ret;
-	*pdquot_freed_blocks += group_freed;
-
-	if (overflow && !err) {
-		block += count;
-		count = overflow;
-		goto do_more;
-	}
-
-error_return:
-	brelse(bitmap_bh);
-	ext3_std_error(sb, err);
-	return;
-}
-
-
-/**
- * ext3_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext3_free_blocks(handle_t *handle, struct inode *inode,
-			ext3_fsblk_t block, unsigned long count)
-{
-	struct super_block *sb = inode->i_sb;
-	unsigned long dquot_freed_blocks;
-
-
-	ext3_free_blocks_sb(handle, sb, block, count, &dquot_freed_blocks);
-	if (dquot_freed_blocks)
-		dquot_free_block(inode, dquot_freed_blocks);
-	return;
-}
-
-
-/**
- * ext3_test_allocatable - Implements the test allocatable operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext3_test_allocatable(ext3_grpblk_t nr, struct buffer_head *bh)
-{
-	int ret;
-	struct journal_head *jh = bh2jh(bh);
-
-	if (ext3_test_bit(nr, bh->b_data))
-		return 0;
-
-	jbd_lock_bh_state(bh);
-	if (!jh->b_committed_data)
-		ret = 1;
-	else
-		ret = !ext3_test_bit(nr, jh->b_committed_data);
-	jbd_unlock_bh_state(bh);
-	return ret;
-}
-
-
-/**
- * bitmap_search_next_usable_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext3_grpblk_t
-bitmap_search_next_usable_block(ext3_grpblk_t start, struct buffer_head *bh,
-					ext3_grpblk_t maxblocks)
-{
-	ext3_grpblk_t next;
-	struct journal_head *jh = bh2jh(bh);
-
-	while (start < maxblocks) {
-		next = ext3_find_next_zero_bit(bh->b_data, maxblocks, start);
-		if (next >= maxblocks)
+	if (start < 0)
+		start = 0;
+	while (start < end) {
+		bit = ext3_find_next_zero_bit(
+			bitmap->b_data, end, start);
+		if (bit >= end)
 			return -1;
-		if (ext3_test_allocatable(next, bh))
-			return next;
-		jbd_lock_bh_state(bh);
-		if (jh->b_committed_data)
-			start = ext3_find_next_zero_bit(jh->b_committed_data,
-							maxblocks, next);
-		jbd_unlock_bh_state(bh);
+		if (ifs_ext3_bit_allocatable(bitmap, bit))
+			return bit;
+		start = bit + 1;
 	}
+
 	return -1;
 }
 
-
-/**
- * find_next_usable_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext3_grpblk_t
-find_next_usable_block(ext3_grpblk_t start, struct buffer_head *bh,
-			ext3_grpblk_t maxblocks)
+static ext3_grpblk_t ifs_ext3_claim_run(
+	struct super_block *sb, unsigned int group,
+	struct buffer_head *bitmap,
+	ext3_grpblk_t goal,
+	unsigned long *count)
 {
-	ext3_grpblk_t here, next;
-	char *p, *r;
+	const ext3_grpblk_t end =
+		(ext3_grpblk_t)(ifs_ext3_group_last_block(sb, group) -
+		ext3_group_first_block_no(sb, group) + 1U);
+	ext3_grpblk_t first;
+	ext3_grpblk_t bit;
+	unsigned long claimed = 0U;
 
-	if (start > 0) {
-
-
-		ext3_grpblk_t end_goal = (start + 63) & ~63;
-		if (end_goal > maxblocks)
-			end_goal = maxblocks;
-		here = ext3_find_next_zero_bit(bh->b_data, end_goal, start);
-		if (here < end_goal && ext3_test_allocatable(here, bh))
-			return here;
-		ext3_debug("Bit not found near goal\n");
-	}
-
-	here = start;
-	if (here < 0)
-		here = 0;
-
-	p = bh->b_data + (here >> 3);
-	r = memscan(p, 0, ((maxblocks + 7) >> 3) - (here >> 3));
-	next = (r - bh->b_data) << 3;
-
-	if (next < maxblocks && next >= start && ext3_test_allocatable(next, bh))
-		return next;
-
-
-	here = bitmap_search_next_usable_block(here, bh, maxblocks);
-	return here;
-}
-
-
-/**
- * claim_block - Implements the claim block operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int
-claim_block(spinlock_t *lock, ext3_grpblk_t block, struct buffer_head *bh)
-{
-	struct journal_head *jh = bh2jh(bh);
-	int ret;
-
-	if (ext3_set_bit_atomic(lock, block, bh->b_data))
-		return 0;
-	jbd_lock_bh_state(bh);
-	if (jh->b_committed_data && ext3_test_bit(block,jh->b_committed_data)) {
-		ext3_clear_bit_atomic(lock, block, bh->b_data);
-		ret = 0;
-	} else {
-		ret = 1;
-	}
-	jbd_unlock_bh_state(bh);
-	return ret;
-}
-
-
-/**
- * ext3_try_to_allocate - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext3_grpblk_t
-ext3_try_to_allocate(struct super_block *sb, handle_t *handle, int group,
-			struct buffer_head *bitmap_bh, ext3_grpblk_t grp_goal,
-			unsigned long *count, struct ext3_reserve_window *my_rsv)
-{
-	ext3_fsblk_t group_first_block;
-	ext3_grpblk_t start, end;
-	unsigned long num = 0;
-
-
-	if (my_rsv) {
-		group_first_block = ext3_group_first_block_no(sb, group);
-		if (my_rsv->_rsv_start >= group_first_block)
-			start = my_rsv->_rsv_start - group_first_block;
-		else
-
-			start = 0;
-		end = my_rsv->_rsv_end - group_first_block + 1;
-		if (end > EXT3_BLOCKS_PER_GROUP(sb))
-
-			end = EXT3_BLOCKS_PER_GROUP(sb);
-		if ((start <= grp_goal) && (grp_goal < end))
-			start = grp_goal;
-		else
-			grp_goal = -1;
-	} else {
-		if (grp_goal > 0)
-			start = grp_goal;
-		else
-			start = 0;
-		end = EXT3_BLOCKS_PER_GROUP(sb);
-	}
-
-	BUG_ON(start > EXT3_BLOCKS_PER_GROUP(sb));
-
-repeat:
-	if (grp_goal < 0 || !ext3_test_allocatable(grp_goal, bitmap_bh)) {
-		grp_goal = find_next_usable_block(start, bitmap_bh, end);
-		if (grp_goal < 0)
-			goto fail_access;
-		if (!my_rsv) {
-			int i;
-
-			for (i = 0; i < 7 && grp_goal > start &&
-					ext3_test_allocatable(grp_goal - 1,
-								bitmap_bh);
-					i++, grp_goal--)
-				;
-		}
-	}
-	start = grp_goal;
-
-	if (!claim_block(sb_bgl_lock(EXT3_SB(sb), group),
-		grp_goal, bitmap_bh)) {
-
-
-		start++;
-		grp_goal++;
-		if (start >= end)
-			goto fail_access;
-		goto repeat;
-	}
-	num++;
-	grp_goal++;
-	while (num < *count && grp_goal < end
-		&& ext3_test_allocatable(grp_goal, bitmap_bh)
-		&& claim_block(sb_bgl_lock(EXT3_SB(sb), group),
-				grp_goal, bitmap_bh)) {
-		num++;
-		grp_goal++;
-	}
-	*count = num;
-	return grp_goal - num;
-fail_access:
-	*count = num;
-	return -1;
-}
-
-
-/**
- * find_next_reservable_window - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int find_next_reservable_window(
-				struct ext3_reserve_window_node *search_head,
-				struct ext3_reserve_window_node *my_rsv,
-				struct super_block * sb,
-				ext3_fsblk_t start_block,
-				ext3_fsblk_t last_block)
-{
-	struct rb_node *next;
-	struct ext3_reserve_window_node *rsv, *prev;
-	ext3_fsblk_t cur, end;
-	unsigned int size = my_rsv->rsv_goal_size;
-
-
-	cur = start_block;
-	rsv = search_head;
-	if (!rsv)
+	if (!count || *count == 0U)
 		return -1;
 
-	while (1) {
-		if (cur <= rsv->rsv_end) {
-			if (check_add_overflow(rsv->rsv_end, (ext3_fsblk_t)1,
-				       &cur))
-				return -1;
-		}
+	first = ifs_ext3_find_candidate(
+		bitmap,
+		goal >= 0 && goal < end ? goal : 0,
+		end);
+	if (first < 0 && goal > 0)
+		first = ifs_ext3_find_candidate(bitmap, 0, goal);
+	if (first < 0)
+		return -1;
 
-
-		if (cur > last_block || size == 0 ||
-		    check_add_overflow(cur, (ext3_fsblk_t)(size - 1), &end))
-			return -1;
-
-		prev = rsv;
-		next = rb_next(&rsv->rsv_node);
-		rsv = rb_entry(next,struct ext3_reserve_window_node,rsv_node);
-
-
-		if (!next)
+	bit = first;
+	while (bit < end && claimed < *count) {
+		if (!ifs_ext3_bit_allocatable(bitmap, bit) ||
+		    !ifs_ext3_claim_bit(sb, group, bitmap, bit))
 			break;
-
-		if (end < rsv->rsv_start) {
-
-
-			break;
-		}
+		claimed++;
+		bit++;
 	}
 
+	if (claimed == 0U)
+		return -1;
 
-	if ((prev != my_rsv) && (!rsv_is_empty(&my_rsv->rsv_window)))
-		rsv_window_remove(sb, my_rsv);
+	*count = claimed;
+	return first;
+}
 
+static void ifs_ext3_unclaim_run(
+	struct super_block *sb, unsigned int group,
+	struct buffer_head *bitmap,
+	ext3_grpblk_t first, unsigned long count)
+{
+	unsigned long index;
 
-	my_rsv->rsv_start = cur;
-	my_rsv->rsv_end = end;
-	my_rsv->rsv_alloc_hit = 0;
+	for (index = 0U; index < count; ++index)
+		ext3_clear_bit_atomic(
+			sb_bgl_lock(EXT3_SB(sb), group),
+			first + index, bitmap->b_data);
+}
 
-	if (prev != my_rsv)
-		ext3_rsv_window_add(sb, my_rsv);
+static int ifs_ext3_adjust_free_blocks(
+	handle_t *handle,
+	struct super_block *sb,
+	unsigned int group,
+	struct ext3_group_desc *desc,
+	struct buffer_head *desc_bh,
+	int delta)
+{
+	struct ext3_sb_info *sbi = EXT3_SB(sb);
+	unsigned int free_blocks;
+	int error;
+
+	error = ext3_journal_get_write_access(handle, desc_bh);
+	if (error)
+		return error;
+
+	spin_lock(sb_bgl_lock(sbi, group));
+	free_blocks = le16_to_cpu(desc->bg_free_blocks_count);
+	if (delta < 0 && free_blocks < (unsigned int)(-delta)) {
+		spin_unlock(sb_bgl_lock(sbi, group));
+		return -EUCLEAN;
+	}
+	if (delta > 0 &&
+	    free_blocks > 0xffffU - (unsigned int)delta) {
+		spin_unlock(sb_bgl_lock(sbi, group));
+		return -EUCLEAN;
+	}
+	desc->bg_free_blocks_count =
+		cpu_to_le16((unsigned int)((int)free_blocks + delta));
+	spin_unlock(sb_bgl_lock(sbi, group));
+
+	error = ext3_journal_dirty_metadata(handle, desc_bh);
+	if (error)
+		return error;
+
+	if (delta < 0)
+		percpu_counter_sub(
+			&sbi->s_freeblocks_counter,
+			(unsigned int)(-delta));
+	else if (delta > 0)
+		percpu_counter_add(
+			&sbi->s_freeblocks_counter,
+			(unsigned int)delta);
 
 	return 0;
 }
 
-
-/**
- * alloc_new_reservation - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int alloc_new_reservation(struct ext3_reserve_window_node *my_rsv,
-		ext3_grpblk_t grp_goal, struct super_block *sb,
-		unsigned int group, struct buffer_head *bitmap_bh)
+void ext3_rsv_window_add(
+	struct super_block *sb,
+	struct ext3_reserve_window_node *reservation)
 {
-	struct ext3_reserve_window_node *search_head;
-	ext3_fsblk_t group_first_block, group_end_block, start_block;
-	ext3_grpblk_t first_free_block;
-	struct rb_root *fs_rsv_root = &EXT3_SB(sb)->s_rsv_window_root;
-	unsigned long size;
-	int ret;
-	spinlock_t *rsv_lock = &EXT3_SB(sb)->s_rsv_window_lock;
-
-	group_first_block = ext3_group_first_block_no(sb, group);
-	group_end_block = group_first_block + (EXT3_BLOCKS_PER_GROUP(sb) - 1);
-
-	if (grp_goal < 0)
-		start_block = group_first_block;
-	else
-		start_block = grp_goal + group_first_block;
-
-
-	size = my_rsv->rsv_goal_size;
-
-	if (!rsv_is_empty(&my_rsv->rsv_window)) {
-
-
-		if ((my_rsv->rsv_start <= group_end_block) &&
-				(my_rsv->rsv_end > group_end_block) &&
-				(start_block >= my_rsv->rsv_start))
-			return -1;
-
-		if ((my_rsv->rsv_alloc_hit >
-		     (my_rsv->rsv_end - my_rsv->rsv_start + 1) / 2)) {
-
-
-			size = size * 2;
-			if (size > EXT3_MAX_RESERVE_BLOCKS)
-				size = EXT3_MAX_RESERVE_BLOCKS;
-			my_rsv->rsv_goal_size= size;
-		}
-	}
-
-	spin_lock(rsv_lock);
-
-
-	search_head = search_reserve_window(fs_rsv_root, start_block);
-
-
-retry:
-	ret = find_next_reservable_window(search_head, my_rsv, sb,
-						start_block, group_end_block);
-
-	if (ret == -1) {
-		if (!rsv_is_empty(&my_rsv->rsv_window))
-			rsv_window_remove(sb, my_rsv);
-		spin_unlock(rsv_lock);
-		return -1;
-	}
-
-
-	spin_unlock(rsv_lock);
-	first_free_block = bitmap_search_next_usable_block(
-			my_rsv->rsv_start - group_first_block,
-			bitmap_bh, group_end_block - group_first_block + 1);
-
-	if (first_free_block < 0) {
-
-
-		spin_lock(rsv_lock);
-		if (!rsv_is_empty(&my_rsv->rsv_window))
-			rsv_window_remove(sb, my_rsv);
-		spin_unlock(rsv_lock);
-		return -1;
-	}
-
-	start_block = first_free_block + group_first_block;
-
-
-	if (start_block >= my_rsv->rsv_start &&
-	    start_block <= my_rsv->rsv_end) {
-
-		return 0;
-	}
-
-
-	search_head = my_rsv;
-	spin_lock(rsv_lock);
-	goto retry;
+	/*
+	 * Retained for the mount-time ABI. Allocation no longer depends on a
+	 * filesystem-wide reservation tree; per-inode rsv_goal_size remains a
+	 * locality hint exposed through the existing ioctl.
+	 */
+	(void)sb;
+	if (!reservation)
+		return;
+	RB_CLEAR_NODE(&reservation->rsv_node);
 }
 
-
-/**
- * try_to_extend_reservation - Implements the try to extend reservation operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void try_to_extend_reservation(struct ext3_reserve_window_node *my_rsv,
-			struct super_block *sb, int size)
+void ext3_init_block_alloc_info(struct inode *inode)
 {
-	struct ext3_reserve_window_node *next_rsv;
-	struct rb_node *next;
-	spinlock_t *rsv_lock = &EXT3_SB(sb)->s_rsv_window_lock;
+	struct ext3_block_alloc_info *info;
 
-	if (!spin_trylock(rsv_lock))
+	if (EXT3_I(inode)->i_block_alloc_info)
 		return;
 
-	next = rb_next(&my_rsv->rsv_node);
+	info = kzalloc(sizeof(*info), GFP_NOFS);
+	if (!info)
+		return;
 
-	if (!next)
-		my_rsv->rsv_end += size;
-	else {
-		next_rsv = rb_entry(next, struct ext3_reserve_window_node, rsv_node);
-
-		if ((next_rsv->rsv_start - my_rsv->rsv_end - 1) >= size)
-			my_rsv->rsv_end += size;
-		else
-			my_rsv->rsv_end = next_rsv->rsv_start - 1;
-	}
-	spin_unlock(rsv_lock);
+	info->rsv_window_node.rsv_start =
+		EXT3_RESERVE_WINDOW_NOT_ALLOCATED;
+	info->rsv_window_node.rsv_end =
+		EXT3_RESERVE_WINDOW_NOT_ALLOCATED;
+	info->rsv_window_node.rsv_goal_size =
+		test_opt(inode->i_sb, RESERVATION) ?
+		EXT3_DEFAULT_RESERVE_BLOCKS : 0U;
+	info->rsv_window_node.rsv_alloc_hit = 0U;
+	info->last_alloc_logical_block = 0U;
+	info->last_alloc_physical_block = 0U;
+	EXT3_I(inode)->i_block_alloc_info = info;
 }
 
-
-/**
- * ext3_try_to_allocate_with_rsv - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext3_grpblk_t
-ext3_try_to_allocate_with_rsv(struct super_block *sb, handle_t *handle,
-			unsigned int group, struct buffer_head *bitmap_bh,
-			ext3_grpblk_t grp_goal,
-			struct ext3_reserve_window_node * my_rsv,
-			unsigned long *count, int *errp)
+void ext3_discard_reservation(struct inode *inode)
 {
-	ext3_fsblk_t group_first_block, group_last_block;
-	ext3_grpblk_t ret = 0;
-	int fatal;
-	unsigned long num = *count;
+	struct ext3_block_alloc_info *info =
+		EXT3_I(inode)->i_block_alloc_info;
 
-	*errp = 0;
+	if (!info)
+		return;
 
-
-	BUFFER_TRACE(bitmap_bh, "get undo access for new block");
-	fatal = ext3_journal_get_undo_access(handle, bitmap_bh);
-	if (fatal) {
-		*errp = fatal;
-		return -1;
-	}
-
-
-	if (my_rsv == NULL ) {
-		ret = ext3_try_to_allocate(sb, handle, group, bitmap_bh,
-						grp_goal, count, NULL);
-		goto out;
-	}
-
-
-	group_first_block = ext3_group_first_block_no(sb, group);
-	group_last_block = group_first_block + (EXT3_BLOCKS_PER_GROUP(sb) - 1);
-
-
-	while (1) {
-		if (rsv_is_empty(&my_rsv->rsv_window) || (ret < 0) ||
-			!goal_in_my_reservation(&my_rsv->rsv_window,
-						grp_goal, group, sb)) {
-			if (my_rsv->rsv_goal_size < *count)
-				my_rsv->rsv_goal_size = *count;
-			ret = alloc_new_reservation(my_rsv, grp_goal, sb,
-							group, bitmap_bh);
-			if (ret < 0)
-				break;
-
-			if (!goal_in_my_reservation(&my_rsv->rsv_window,
-							grp_goal, group, sb))
-				grp_goal = -1;
-		} else if (grp_goal >= 0) {
-			int curr = my_rsv->rsv_end -
-					(grp_goal + group_first_block) + 1;
-
-			if (curr < *count)
-				try_to_extend_reservation(my_rsv, sb,
-							*count - curr);
-		}
-
-		if ((my_rsv->rsv_start > group_last_block) ||
-				(my_rsv->rsv_end < group_first_block)) {
-			rsv_window_dump(&EXT3_SB(sb)->s_rsv_window_root, 1);
-			BUG();
-		}
-		ret = ext3_try_to_allocate(sb, handle, group, bitmap_bh,
-					   grp_goal, &num, &my_rsv->rsv_window);
-		if (ret >= 0) {
-			my_rsv->rsv_alloc_hit += num;
-			*count = num;
-			break;
-		}
-		num = *count;
-	}
-out:
-	if (ret >= 0) {
-		BUFFER_TRACE(bitmap_bh, "journal_dirty_metadata for "
-					"bitmap block");
-		fatal = ext3_journal_dirty_metadata(handle, bitmap_bh);
-		if (fatal) {
-			*errp = fatal;
-			return -1;
-		}
-		return ret;
-	}
-
-	BUFFER_TRACE(bitmap_bh, "journal_release_buffer");
-	ext3_journal_release_buffer(handle, bitmap_bh);
-	return ret;
+	info->rsv_window_node.rsv_start =
+		EXT3_RESERVE_WINDOW_NOT_ALLOCATED;
+	info->rsv_window_node.rsv_end =
+		EXT3_RESERVE_WINDOW_NOT_ALLOCATED;
+	info->rsv_window_node.rsv_alloc_hit = 0U;
 }
 
-
-/**
- * ext3_has_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext3_has_free_blocks(struct ext3_sb_info *sbi, int use_reservation)
+static bool ifs_ext3_caller_may_use_reserved(
+	struct ext3_sb_info *sbi)
 {
-	ext3_fsblk_t free_blocks, root_blocks;
-
-	free_blocks = percpu_counter_read_positive(&sbi->s_freeblocks_counter);
-	root_blocks = le32_to_cpu(sbi->s_es->s_r_blocks_count);
-	if (free_blocks < root_blocks + 1 && !capable(CAP_SYS_RESOURCE) &&
-		!use_reservation && !uid_eq(sbi->s_resuid, current_fsuid()) &&
-		(gid_eq(sbi->s_resgid, GLOBAL_ROOT_GID) ||
-		 !in_group_p (sbi->s_resgid))) {
-		return 0;
-	}
-	return 1;
+	if (capable(CAP_SYS_RESOURCE))
+		return true;
+	if (uid_eq(sbi->s_resuid, current_fsuid()))
+		return true;
+	if (!gid_eq(sbi->s_resgid, GLOBAL_ROOT_GID) &&
+	    in_group_p(sbi->s_resgid))
+		return true;
+	return false;
 }
 
+static bool ifs_ext3_has_allocatable_blocks(
+	struct ext3_sb_info *sbi, bool noquota)
+{
+	const ext3_fsblk_t free_blocks =
+		percpu_counter_read_positive(&sbi->s_freeblocks_counter);
+	const ext3_fsblk_t reserved =
+		le32_to_cpu(sbi->s_es->s_r_blocks_count);
 
-/**
- * ext3_should_retry_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
+	if (free_blocks > reserved)
+		return true;
+	if (free_blocks == 0U)
+		return false;
+	return noquota || ifs_ext3_caller_may_use_reserved(sbi);
+}
+
 int ext3_should_retry_alloc(struct super_block *sb, int *retries)
 {
-	if (!ext3_has_free_blocks(EXT3_SB(sb), 0) || (*retries)++ > 3)
+	if (!retries ||
+	    !ifs_ext3_has_allocatable_blocks(EXT3_SB(sb), false) ||
+	    (*retries)++ > 3)
 		return 0;
-
-	jbd_debug(1, "%s: retrying operation after ENOSPC\n", sb->s_id);
 
 	return journal_force_commit_nested(EXT3_SB(sb)->s_journal);
 }
 
-
-/**
- * ext3_new_blocks - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-ext3_fsblk_t ext3_new_blocks(handle_t *handle, struct inode *inode,
-			ext3_fsblk_t goal, unsigned long *count, int *errp)
+void ext3_free_blocks_sb(
+	handle_t *handle,
+	struct super_block *sb,
+	ext3_fsblk_t block,
+	unsigned long count,
+	unsigned long *quota_freed)
 {
-	struct buffer_head *bitmap_bh = NULL;
-	struct buffer_head *gdp_bh;
-	int group_no;
-	int goal_group;
-	ext3_grpblk_t grp_target_blk;
-	ext3_grpblk_t grp_alloc_blk;
-	ext3_fsblk_t ret_block;
-	int bgi;
-	int fatal = 0, err;
-	int performed_allocation = 0;
-	ext3_grpblk_t free_blocks;
-	struct super_block *sb;
-	struct ext3_group_desc *gdp;
-	struct ext3_super_block *es;
-	struct ext3_sb_info *sbi;
-	struct ext3_reserve_window_node *my_rsv = NULL;
-	struct ext3_block_alloc_info *block_i;
-	unsigned short windowsz = 0;
-#ifdef EXT3FS_DEBUG
-	static int goal_hits, goal_attempts;
-#endif
-	unsigned long ngroups;
-	unsigned long num = *count;
+	struct ext3_sb_info *sbi = EXT3_SB(sb);
+	unsigned long total_freed = 0U;
+	int error = 0;
 
-	*errp = -ENOSPC;
-	sb = inode->i_sb;
-
-
-	err = dquot_alloc_block(inode, num);
-	if (err) {
-		*errp = err;
-		return 0;
+	if (quota_freed)
+		*quota_freed = 0U;
+	if (!handle ||
+	    !ifs_ext3_data_range_valid(sb, block, count)) {
+		ext3_error(
+			sb, __func__,
+			"invalid free range " E3FSBLK "+%lu",
+			block, count);
+		return;
 	}
 
+	while (count != 0U) {
+		const ext3_fsblk_t first_data =
+			le32_to_cpu(sbi->s_es->s_first_data_block);
+		const unsigned int group =
+			(unsigned int)((block - first_data) /
+			EXT3_BLOCKS_PER_GROUP(sb));
+		const unsigned long bit =
+			(unsigned long)((block - first_data) %
+			EXT3_BLOCKS_PER_GROUP(sb));
+		const unsigned long part =
+			min_t(unsigned long, count,
+			      EXT3_BLOCKS_PER_GROUP(sb) - bit);
+		struct ext3_group_desc *desc;
+		struct buffer_head *desc_bh;
+		struct buffer_head *bitmap;
+		struct journal_head *jh;
+		unsigned long index;
+		unsigned long freed = 0U;
 
+		desc = ext3_get_group_desc(sb, group, &desc_bh);
+		if (!desc) {
+			error = -EIO;
+			break;
+		}
+		if (ifs_ext3_range_hits_system_zone(
+			    sb, desc, block, part)) {
+			ext3_error(
+				sb, __func__,
+				"attempt to free EXT3 metadata blocks");
+			error = -EUCLEAN;
+			break;
+		}
 
-	sbi = EXT3_SB(sb);
-	es = sbi->s_es;
-	ext3_debug("goal=%lu.\n", goal);
+		bitmap = ifs_ext3_read_block_bitmap(sb, group);
+		if (!bitmap) {
+			error = -EIO;
+			break;
+		}
 
+		error = ext3_journal_get_undo_access(
+			handle, bitmap);
+		if (error) {
+			brelse(bitmap);
+			break;
+		}
 
-	block_i = EXT3_I(inode)->i_block_alloc_info;
-	if (block_i && ((windowsz = block_i->rsv_window_node.rsv_goal_size) > 0))
-		my_rsv = &block_i->rsv_window_node;
+		jh = bh2jh(bitmap);
+		jbd_lock_bh_state(bitmap);
+		if (!jh->b_committed_data) {
+			jbd_unlock_bh_state(bitmap);
+			brelse(bitmap);
+			error = -EIO;
+			break;
+		}
 
-	if (!ext3_has_free_blocks(sbi, IS_NOQUOTA(inode))) {
-		*errp = -ENOSPC;
+		for (index = 0U; index < part; ++index) {
+			ext3_set_bit_atomic(
+				sb_bgl_lock(sbi, group),
+				bit + index, jh->b_committed_data);
+			if (ext3_clear_bit_atomic(
+				    sb_bgl_lock(sbi, group),
+				    bit + index, bitmap->b_data))
+				freed++;
+			else
+				ext3_error(
+					sb, __func__,
+					"block " E3FSBLK " already free",
+					block + index);
+		}
+		jbd_unlock_bh_state(bitmap);
+
+		if (freed != 0U) {
+			error = ifs_ext3_adjust_free_blocks(
+				handle, sb, group, desc,
+				desc_bh, (int)freed);
+			if (!error)
+				error = ext3_journal_dirty_metadata(
+					handle, bitmap);
+			total_freed += freed;
+		}
+
+		brelse(bitmap);
+		if (error)
+			break;
+
+		block += part;
+		count -= part;
+		cond_resched();
+	}
+
+	if (quota_freed)
+		*quota_freed = total_freed;
+	ext3_std_error(sb, error);
+}
+
+void ext3_free_blocks(
+	handle_t *handle,
+	struct inode *inode,
+	ext3_fsblk_t block,
+	unsigned long count)
+{
+	unsigned long freed = 0U;
+
+	ext3_free_blocks_sb(
+		handle, inode->i_sb, block, count, &freed);
+	if (freed != 0U)
+		dquot_free_block(inode, freed);
+}
+
+static int ifs_ext3_allocate_from_group(
+	handle_t *handle,
+	struct inode *inode,
+	unsigned int group,
+	ext3_grpblk_t goal,
+	unsigned long *count,
+	ext3_fsblk_t *block_out)
+{
+	struct super_block *sb = inode->i_sb;
+	struct ext3_group_desc *desc;
+	struct buffer_head *desc_bh;
+	struct buffer_head *bitmap;
+	ext3_grpblk_t first;
+	ext3_fsblk_t absolute;
+	unsigned long wanted = *count;
+	int error;
+
+	desc = ext3_get_group_desc(sb, group, &desc_bh);
+	if (!desc)
+		return -EIO;
+	if (le16_to_cpu(desc->bg_free_blocks_count) == 0U)
+		return -ENOSPC;
+
+	bitmap = ifs_ext3_read_block_bitmap(sb, group);
+	if (!bitmap)
+		return -EIO;
+
+	error = ext3_journal_get_undo_access(
+		handle, bitmap);
+	if (error)
+		goto out;
+
+	first = ifs_ext3_claim_run(
+		sb, group, bitmap, goal, count);
+	if (first < 0) {
+		*count = wanted;
+		error = -ENOSPC;
 		goto out;
 	}
 
+	absolute =
+		ext3_group_first_block_no(sb, group) + first;
+	if (!ifs_ext3_data_range_valid(sb, absolute, *count) ||
+	    ifs_ext3_range_hits_system_zone(
+		    sb, desc, absolute, *count)) {
+		ifs_ext3_unclaim_run(
+			sb, group, bitmap, first, *count);
+		*count = wanted;
+		error = -EUCLEAN;
+		goto out;
+	}
+
+	error = ifs_ext3_adjust_free_blocks(
+		handle, sb, group, desc,
+		desc_bh, -(int)*count);
+	if (error) {
+		ifs_ext3_unclaim_run(
+			sb, group, bitmap, first, *count);
+		*count = wanted;
+		goto out;
+	}
+
+	error = ext3_journal_dirty_metadata(handle, bitmap);
+	if (error) {
+		/*
+		 * The journal owns failure recovery after descriptor publication.
+		 * Report the error rather than locally undoing half a transaction.
+		 */
+		ext3_std_error(sb, error);
+		goto out;
+	}
+
+	*block_out = absolute;
+	error = 0;
+
+out:
+	brelse(bitmap);
+	return error;
+}
+
+ext3_fsblk_t ext3_new_blocks(
+	handle_t *handle,
+	struct inode *inode,
+	ext3_fsblk_t goal,
+	unsigned long *count,
+	int *errp)
+{
+	struct super_block *sb = inode->i_sb;
+	struct ext3_sb_info *sbi = EXT3_SB(sb);
+	struct ext3_super_block *es = sbi->s_es;
+	const unsigned long requested =
+		count ? *count : 0U;
+	ext3_fsblk_t block = 0U;
+	unsigned int start_group;
+	unsigned int start_offset;
+	unsigned int pass;
+	int error;
+
+	if (!handle || !count || !errp || requested == 0U) {
+		if (errp)
+			*errp = -EINVAL;
+		return 0U;
+	}
+
+	*errp = -ENOSPC;
+	error = dquot_alloc_block(inode, requested);
+	if (error) {
+		*errp = error;
+		return 0U;
+	}
+
+	if (!ifs_ext3_has_allocatable_blocks(
+		    sbi, IS_NOQUOTA(inode))) {
+		error = -ENOSPC;
+		goto fail_quota;
+	}
 
 	if (goal < le32_to_cpu(es->s_first_data_block) ||
 	    goal >= le32_to_cpu(es->s_blocks_count))
 		goal = le32_to_cpu(es->s_first_data_block);
-	group_no = (goal - le32_to_cpu(es->s_first_data_block)) /
-			EXT3_BLOCKS_PER_GROUP(sb);
-	goal_group = group_no;
-retry_alloc:
-	gdp = ext3_get_group_desc(sb, group_no, &gdp_bh);
-	if (!gdp)
-		goto io_error;
 
-	free_blocks = le16_to_cpu(gdp->bg_free_blocks_count);
+	start_group =
+		(unsigned int)((goal -
+		le32_to_cpu(es->s_first_data_block)) /
+		EXT3_BLOCKS_PER_GROUP(sb));
+	start_offset =
+		(unsigned int)((goal -
+		le32_to_cpu(es->s_first_data_block)) %
+		EXT3_BLOCKS_PER_GROUP(sb));
 
+	for (pass = 0U; pass < sbi->s_groups_count; ++pass) {
+		const unsigned int group =
+			(start_group + pass) % sbi->s_groups_count;
+		const ext3_grpblk_t group_goal =
+			pass == 0U ?
+			(ext3_grpblk_t)start_offset : -1;
+		unsigned long wanted = requested;
 
-	if (my_rsv && (free_blocks < windowsz)
-		&& (free_blocks > 0)
-		&& (rsv_is_empty(&my_rsv->rsv_window)))
-		my_rsv = NULL;
-
-	if (free_blocks > 0) {
-		grp_target_blk = ((goal - le32_to_cpu(es->s_first_data_block)) %
-				EXT3_BLOCKS_PER_GROUP(sb));
-		bitmap_bh = read_block_bitmap(sb, group_no);
-		if (!bitmap_bh)
-			goto io_error;
-		grp_alloc_blk = ext3_try_to_allocate_with_rsv(sb, handle,
-					group_no, bitmap_bh, grp_target_blk,
-					my_rsv,	&num, &fatal);
-		if (fatal)
-			goto out;
-		if (grp_alloc_blk >= 0)
-			goto allocated;
-	}
-
-	ngroups = EXT3_SB(sb)->s_groups_count;
-	smp_rmb();
-
-
-	for (bgi = 0; bgi < ngroups; bgi++) {
-		group_no++;
-		if (group_no >= ngroups)
-			group_no = 0;
-		gdp = ext3_get_group_desc(sb, group_no, &gdp_bh);
-		if (!gdp)
-			goto io_error;
-		free_blocks = le16_to_cpu(gdp->bg_free_blocks_count);
-
-
-		if (!free_blocks)
+		error = ifs_ext3_allocate_from_group(
+			handle, inode, group,
+			group_goal, &wanted, &block);
+		if (error == -ENOSPC)
 			continue;
+		if (error)
+			goto fail_quota;
 
-
-		if (my_rsv && (free_blocks <= (windowsz/2)))
-			continue;
-
-		brelse(bitmap_bh);
-		bitmap_bh = read_block_bitmap(sb, group_no);
-		if (!bitmap_bh)
-			goto io_error;
-
-
-		grp_alloc_blk = ext3_try_to_allocate_with_rsv(sb, handle,
-					group_no, bitmap_bh, -1, my_rsv,
-					&num, &fatal);
-		if (fatal)
-			goto out;
-		if (grp_alloc_blk >= 0)
-			goto allocated;
+		*count = wanted;
+		if (wanted < requested)
+			dquot_free_block(
+				inode, requested - wanted);
+		*errp = 0;
+		return block;
 	}
 
+	error = -ENOSPC;
 
-	if (my_rsv) {
-		my_rsv = NULL;
-		windowsz = 0;
-		group_no = goal_group;
-		goto retry_alloc;
-	}
-
-	*errp = -ENOSPC;
-	goto out;
-
-allocated:
-
-	ext3_debug("using block group %d(%d)\n",
-			group_no, gdp->bg_free_blocks_count);
-
-	BUFFER_TRACE(gdp_bh, "get_write_access");
-	fatal = ext3_journal_get_write_access(handle, gdp_bh);
-	if (fatal)
-		goto out;
-
-	ret_block = grp_alloc_blk + ext3_group_first_block_no(sb, group_no);
-
-	if (in_range(le32_to_cpu(gdp->bg_block_bitmap), ret_block, num) ||
-	    in_range(le32_to_cpu(gdp->bg_inode_bitmap), ret_block, num) ||
-	    in_range(ret_block, le32_to_cpu(gdp->bg_inode_table),
-		      EXT3_SB(sb)->s_itb_per_group) ||
-	    in_range(ret_block + num - 1, le32_to_cpu(gdp->bg_inode_table),
-		      EXT3_SB(sb)->s_itb_per_group)) {
-		ext3_error(sb, "ext3_new_block",
-			    "Allocating block in system zone - "
-			    "blocks from "E3FSBLK", length %lu",
-			     ret_block, num);
-
-
-		goto retry_alloc;
-	}
-
-	performed_allocation = 1;
-
-#ifdef CONFIG_JBD_DEBUG
-	{
-		struct buffer_head *debug_bh;
-
-
-		debug_bh = sb_find_get_block(sb, ret_block);
-		if (debug_bh) {
-			BUFFER_TRACE(debug_bh, "state when allocated");
-			BUFFER_TRACE2(debug_bh, bitmap_bh, "bitmap state");
-			brelse(debug_bh);
-		}
-	}
-	jbd_lock_bh_state(bitmap_bh);
-	spin_lock(sb_bgl_lock(sbi, group_no));
-	if (buffer_jbd(bitmap_bh) && bh2jh(bitmap_bh)->b_committed_data) {
-		int i;
-
-		for (i = 0; i < num; i++) {
-			if (ext3_test_bit(grp_alloc_blk+i,
-					bh2jh(bitmap_bh)->b_committed_data)) {
-				printk("%s: block was unexpectedly set in "
-					"b_committed_data\n", __func__);
-			}
-		}
-	}
-	ext3_debug("found bit %d\n", grp_alloc_blk);
-	spin_unlock(sb_bgl_lock(sbi, group_no));
-	jbd_unlock_bh_state(bitmap_bh);
-#endif
-
-	if (ret_block + num - 1 >= le32_to_cpu(es->s_blocks_count)) {
-		ext3_error(sb, "ext3_new_block",
-			    "block("E3FSBLK") >= blocks count(%d) - "
-			    "block_group = %d, es == %p ", ret_block,
-			le32_to_cpu(es->s_blocks_count), group_no, es);
-		goto out;
-	}
-
-
-	ext3_debug("allocating block %lu. Goal hits %d of %d.\n",
-			ret_block, goal_hits, goal_attempts);
-
-	spin_lock(sb_bgl_lock(sbi, group_no));
-	le16_add_cpu(&gdp->bg_free_blocks_count, -num);
-	spin_unlock(sb_bgl_lock(sbi, group_no));
-	percpu_counter_sub(&sbi->s_freeblocks_counter, num);
-
-	BUFFER_TRACE(gdp_bh, "journal_dirty_metadata for group descriptor");
-	fatal = ext3_journal_dirty_metadata(handle, gdp_bh);
-	if (fatal)
-		goto out;
-
-	*errp = 0;
-	brelse(bitmap_bh);
-
-	if (num < *count) {
-		dquot_free_block(inode, *count-num);
-		*count = num;
-	}
-
-
-
-	return ret_block;
-
-io_error:
-	*errp = -EIO;
-out:
-	if (fatal) {
-		*errp = fatal;
-		ext3_std_error(sb, fatal);
-	}
-
-
-	if (!performed_allocation)
-		dquot_free_block(inode, *count);
-	brelse(bitmap_bh);
-	return 0;
+fail_quota:
+	dquot_free_block(inode, requested);
+	*errp = error;
+	if (error != -ENOSPC)
+		ext3_std_error(sb, error);
+	return 0U;
 }
 
-
-/**
- * ext3_new_block - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-ext3_fsblk_t ext3_new_block(handle_t *handle, struct inode *inode,
-			ext3_fsblk_t goal, int *errp)
+ext3_fsblk_t ext3_new_block(
+	handle_t *handle,
+	struct inode *inode,
+	ext3_fsblk_t goal,
+	int *errp)
 {
-	unsigned long count = 1;
+	unsigned long count = 1U;
 
-	return ext3_new_blocks(handle, inode, goal, &count, errp);
+	return ext3_new_blocks(
+		handle, inode, goal, &count, errp);
 }
 
-
-/**
- * ext3_count_free_blocks - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 ext3_fsblk_t ext3_count_free_blocks(struct super_block *sb)
 {
-	ext3_fsblk_t desc_count;
-	struct ext3_group_desc *gdp;
-	int i;
-	unsigned long ngroups = EXT3_SB(sb)->s_groups_count;
-#ifdef EXT3FS_DEBUG
-	struct ext3_super_block *es;
-	ext3_fsblk_t bitmap_count;
-	unsigned long x;
-	struct buffer_head *bitmap_bh = NULL;
+	ext3_fsblk_t count = 0U;
+	unsigned int group;
 
-	es = EXT3_SB(sb)->s_es;
-	desc_count = 0;
-	bitmap_count = 0;
-	gdp = NULL;
+	for (group = 0U;
+	     group < EXT3_SB(sb)->s_groups_count;
+	     ++group) {
+		struct ext3_group_desc *desc =
+			ext3_get_group_desc(sb, group, NULL);
 
-	smp_rmb();
-	for (i = 0; i < ngroups; i++) {
-		gdp = ext3_get_group_desc(sb, i, NULL);
-		if (!gdp)
-			continue;
-		desc_count += le16_to_cpu(gdp->bg_free_blocks_count);
-		brelse(bitmap_bh);
-		bitmap_bh = read_block_bitmap(sb, i);
-		if (bitmap_bh == NULL)
-			continue;
-
-		x = ext3_count_free(bitmap_bh, sb->s_blocksize);
-		printk("group %d: stored = %d, counted = %lu\n",
-			i, le16_to_cpu(gdp->bg_free_blocks_count), x);
-		bitmap_count += x;
-	}
-	brelse(bitmap_bh);
-	printk("ext3_count_free_blocks: stored = "E3FSBLK
-		", computed = "E3FSBLK", "E3FSBLK"\n",
-	       (ext3_fsblk_t)le32_to_cpu(es->s_free_blocks_count),
-		desc_count, bitmap_count);
-	return bitmap_count;
-#else
-	desc_count = 0;
-	smp_rmb();
-	for (i = 0; i < ngroups; i++) {
-		gdp = ext3_get_group_desc(sb, i, NULL);
-		if (!gdp)
-			continue;
-		desc_count += le16_to_cpu(gdp->bg_free_blocks_count);
+		if (desc)
+			count +=
+				le16_to_cpu(desc->bg_free_blocks_count);
+		cond_resched();
 	}
 
-	return desc_count;
-#endif
+	return count;
 }
 
-
-/**
- * test_root - Implements the test root operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int test_root(int a, int b)
+static bool ifs_ext3_power_of(
+	unsigned int value, unsigned int base)
 {
-	int num = b;
-
-	while (a > num)
-		num *= b;
-	return num == a;
+	if (value < 1U || base < 2U)
+		return false;
+	while (value > 1U && value % base == 0U)
+		value /= base;
+	return value == 1U;
 }
 
-
-/**
- * ext3_group_sparse - Implements the group sparse operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext3_group_sparse(int group)
+static bool ifs_ext3_sparse_group(unsigned int group)
 {
-	if (group <= 1)
-		return 1;
-	if (!(group & 1))
-		return 0;
-	return (test_root(group, 7) || test_root(group, 5) ||
-		test_root(group, 3));
+	if (group <= 1U)
+		return true;
+	if ((group & 1U) == 0U)
+		return false;
+	return ifs_ext3_power_of(group, 3U) ||
+	       ifs_ext3_power_of(group, 5U) ||
+	       ifs_ext3_power_of(group, 7U);
 }
 
-
-/**
- * ext3_bg_has_super - Implements the bg has super operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext3_bg_has_super(struct super_block *sb, int group)
 {
-	if (EXT3_HAS_RO_COMPAT_FEATURE(sb,
-				EXT3_FEATURE_RO_COMPAT_SPARSE_SUPER) &&
-			!ext3_group_sparse(group))
+	if (group < 0)
 		return 0;
-	return 1;
-}
-
-
-/**
- * ext3_bg_num_gdb_meta - Implements the bg num gdb meta operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned long ext3_bg_num_gdb_meta(struct super_block *sb, int group)
-{
-	unsigned long metagroup = group / EXT3_DESC_PER_BLOCK(sb);
-	unsigned long first = metagroup * EXT3_DESC_PER_BLOCK(sb);
-	unsigned long last = first + EXT3_DESC_PER_BLOCK(sb) - 1;
-
-	if (group == first || group == first + 1 || group == last)
+	if (!EXT3_HAS_RO_COMPAT_FEATURE(
+		    sb, EXT3_FEATURE_RO_COMPAT_SPARSE_SUPER))
 		return 1;
-	return 0;
+	return ifs_ext3_sparse_group((unsigned int)group);
 }
 
-
-/**
- * ext3_bg_num_gdb_nometa - Implements the bg num gdb nometa operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned long ext3_bg_num_gdb_nometa(struct super_block *sb, int group)
+static unsigned long ifs_ext3_meta_gdb_count(
+	struct super_block *sb, unsigned int group)
 {
-	return ext3_bg_has_super(sb, group) ? EXT3_SB(sb)->s_gdb_count : 0;
+	const unsigned long per_block =
+		EXT3_DESC_PER_BLOCK(sb);
+	const unsigned long meta_group =
+		group / per_block;
+	const unsigned long first =
+		meta_group * per_block;
+	const unsigned long last =
+		first + per_block - 1U;
+
+	return group == first ||
+	       group == first + 1U ||
+	       group == last ? 1U : 0U;
 }
 
-
-/**
- * ext3_bg_num_gdb - Implements the bg num gdb operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long ext3_bg_num_gdb(struct super_block *sb, int group)
+unsigned long ext3_bg_num_gdb(
+	struct super_block *sb, int group)
 {
-	unsigned long first_meta_bg =
-			le32_to_cpu(EXT3_SB(sb)->s_es->s_first_meta_bg);
-	unsigned long metagroup = group / EXT3_DESC_PER_BLOCK(sb);
+	const unsigned long first_meta =
+		le32_to_cpu(EXT3_SB(sb)->s_es->s_first_meta_bg);
+	unsigned long meta_group;
 
-	if (!EXT3_HAS_INCOMPAT_FEATURE(sb,EXT3_FEATURE_INCOMPAT_META_BG) ||
-			metagroup < first_meta_bg)
-		return ext3_bg_num_gdb_nometa(sb,group);
+	if (group < 0)
+		return 0U;
 
-	return ext3_bg_num_gdb_meta(sb,group);
+	meta_group =
+		(unsigned int)group /
+		EXT3_DESC_PER_BLOCK(sb);
+	if (!EXT3_HAS_INCOMPAT_FEATURE(
+		    sb, EXT3_FEATURE_INCOMPAT_META_BG) ||
+	    meta_group < first_meta)
+		return ext3_bg_has_super(sb, group) ?
+			EXT3_SB(sb)->s_gdb_count : 0U;
 
+	return ifs_ext3_meta_gdb_count(
+		sb, (unsigned int)group);
 }
 
-
-/**
- * ext3_trim_all_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext3_grpblk_t ext3_trim_all_free(struct super_block *sb,
-					unsigned int group,
-					ext3_grpblk_t start, ext3_grpblk_t max,
-					ext3_grpblk_t minblocks)
+static int ifs_ext3_trim_group(
+	struct super_block *sb,
+	unsigned int group,
+	ext3_grpblk_t first,
+	ext3_grpblk_t last,
+	ext3_grpblk_t minimum,
+	u64 *trimmed)
 {
 	handle_t *handle;
-	ext3_grpblk_t next, free_blocks, bit, freed, count = 0;
-	ext3_fsblk_t discard_block;
-	struct ext3_sb_info *sbi;
-	struct buffer_head *gdp_bh, *bitmap_bh = NULL;
-	struct ext3_group_desc *gdp;
-	int err = 0, ret = 0;
-
+	struct ext3_group_desc *desc;
+	struct buffer_head *desc_bh;
+	struct buffer_head *bitmap;
+	struct ext3_sb_info *sbi = EXT3_SB(sb);
+	int error = 0;
+	ext3_grpblk_t cursor;
 
 	handle = ext3_journal_start_sb(sb, 2);
 	if (IS_ERR(handle))
 		return PTR_ERR(handle);
 
-	bitmap_bh = read_block_bitmap(sb, group);
-	if (!bitmap_bh) {
-		err = -EIO;
-		goto err_out;
+	desc = ext3_get_group_desc(sb, group, &desc_bh);
+	if (!desc) {
+		error = -EIO;
+		goto out_stop;
 	}
 
-	BUFFER_TRACE(bitmap_bh, "getting undo access");
-	err = ext3_journal_get_undo_access(handle, bitmap_bh);
-	if (err)
-		goto err_out;
-
-	gdp = ext3_get_group_desc(sb, group, &gdp_bh);
-	if (!gdp) {
-		err = -EIO;
-		goto err_out;
+	bitmap = ifs_ext3_read_block_bitmap(sb, group);
+	if (!bitmap) {
+		error = -EIO;
+		goto out_stop;
 	}
 
-	BUFFER_TRACE(gdp_bh, "get_write_access");
-	err = ext3_journal_get_write_access(handle, gdp_bh);
-	if (err)
-		goto err_out;
+	error = ext3_journal_get_undo_access(
+		handle, bitmap);
+	if (error)
+		goto out_bitmap;
+	error = ext3_journal_get_write_access(
+		handle, desc_bh);
+	if (error)
+		goto out_bitmap;
 
-	free_blocks = le16_to_cpu(gdp->bg_free_blocks_count);
-	sbi = EXT3_SB(sb);
+	cursor = first;
+	while (cursor <= last) {
+		ext3_grpblk_t run_start;
+		ext3_grpblk_t run_end;
+		ext3_grpblk_t bit;
+		unsigned long run_length = 0U;
+		int discard_error;
 
-
-	while (start <= max) {
-		start = bitmap_search_next_usable_block(start, bitmap_bh, max);
-		if (start < 0)
+		run_start =
+			ifs_ext3_find_candidate(
+				bitmap, cursor, last + 1);
+		if (run_start < 0)
 			break;
-		next = start;
 
-
-		while (next <= max
-			&& claim_block(sb_bgl_lock(sbi, group),
-					next, bitmap_bh)) {
-			next++;
+		run_end = run_start;
+		while (run_end <= last &&
+		       ifs_ext3_bit_allocatable(
+			       bitmap, run_end) &&
+		       ifs_ext3_claim_bit(
+			       sb, group, bitmap, run_end)) {
+			run_end++;
+			run_length++;
 		}
 
-
-		if (next == start)
+		if (run_length == 0U) {
+			cursor = run_start + 1;
 			continue;
-
-		discard_block = (ext3_fsblk_t)start +
-				ext3_group_first_block_no(sb, group);
-
-
-		spin_lock(sb_bgl_lock(sbi, group));
-		le16_add_cpu(&gdp->bg_free_blocks_count, start - next);
-		spin_unlock(sb_bgl_lock(sbi, group));
-		percpu_counter_sub(&sbi->s_freeblocks_counter, next - start);
-
-		free_blocks -= next - start;
-
-		if ((next - start) < minblocks)
-			goto free_extent;
-
-
-
-		err = sb_issue_discard(sb, discard_block, next - start,
-				       GFP_NOFS, 0);
-		count += (next - start);
-free_extent:
-		freed = 0;
-
-
-		for (bit = start; bit < next; bit++) {
-			BUFFER_TRACE(bitmap_bh, "clear bit");
-			if (!ext3_clear_bit_atomic(sb_bgl_lock(sbi, group),
-						bit, bitmap_bh->b_data)) {
-				ext3_error(sb, __func__,
-					"bit already cleared for block "E3FSBLK,
-					 (unsigned long)bit);
-				BUFFER_TRACE(bitmap_bh, "bit already cleared");
-			} else {
-				freed++;
-			}
 		}
 
+		spin_lock(sb_bgl_lock(sbi, group));
+		le16_add_cpu(
+			&desc->bg_free_blocks_count,
+			-(int)run_length);
+		spin_unlock(sb_bgl_lock(sbi, group));
+		percpu_counter_sub(
+			&sbi->s_freeblocks_counter,
+			run_length);
+
+		discard_error = 0;
+		if (run_length >= (unsigned long)minimum) {
+			discard_error = sb_issue_discard(
+				sb,
+				ext3_group_first_block_no(
+					sb, group) + run_start,
+				run_length, GFP_NOFS, 0);
+			if (!discard_error)
+				*trimmed += run_length;
+		}
+
+		for (bit = run_start; bit < run_end; ++bit)
+			ext3_clear_bit_atomic(
+				sb_bgl_lock(sbi, group),
+				bit, bitmap->b_data);
 
 		spin_lock(sb_bgl_lock(sbi, group));
-		le16_add_cpu(&gdp->bg_free_blocks_count, freed);
+		le16_add_cpu(
+			&desc->bg_free_blocks_count,
+			(int)run_length);
 		spin_unlock(sb_bgl_lock(sbi, group));
-		percpu_counter_add(&sbi->s_freeblocks_counter, freed);
+		percpu_counter_add(
+			&sbi->s_freeblocks_counter,
+			run_length);
 
-		start = next;
-		if (err < 0) {
-			if (err != -EOPNOTSUPP)
-				ext3_warning(sb, __func__, "Discard command "
-					     "returned error %d\n", err);
+		if (discard_error &&
+		    discard_error != -EOPNOTSUPP) {
+			error = discard_error;
 			break;
 		}
-
 		if (fatal_signal_pending(current)) {
-			err = -ERESTARTSYS;
+			error = -ERESTARTSYS;
 			break;
 		}
 
+		cursor = run_end;
 		cond_resched();
-
-
-		if (free_blocks < minblocks)
-			break;
 	}
 
+	if (!error)
+		error = ext3_journal_dirty_metadata(
+			handle, bitmap);
+	if (!error)
+		error = ext3_journal_dirty_metadata(
+			handle, desc_bh);
 
-	BUFFER_TRACE(bitmap_bh, "dirtied bitmap block");
-	ret = ext3_journal_dirty_metadata(handle, bitmap_bh);
-	if (!err)
-		err = ret;
-
-
-	BUFFER_TRACE(gdp_bh, "dirtied group descriptor block");
-	ret = ext3_journal_dirty_metadata(handle, gdp_bh);
-	if (!err)
-		err = ret;
-
-	ext3_debug("trimmed %d blocks in the group %d\n",
-		count, group);
-
-err_out:
-	if (err)
-		count = err;
-	ext3_journal_stop(handle);
-	brelse(bitmap_bh);
-
-	return count;
+out_bitmap:
+	brelse(bitmap);
+out_stop:
+	{
+		const int stop_error =
+			ext3_journal_stop(handle);
+		if (!error)
+			error = stop_error;
+	}
+	return error;
 }
 
-
-/**
- * ext3_trim_fs - Implements the trim fs operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext3_trim_fs(struct super_block *sb, struct fstrim_range *range)
+int ext3_trim_fs(
+	struct super_block *sb,
+	struct fstrim_range *range)
 {
-	ext3_grpblk_t last_block, first_block;
-	unsigned long group, first_group, last_group;
-	struct ext3_group_desc *gdp;
-	struct ext3_super_block *es = EXT3_SB(sb)->s_es;
-	uint64_t start, minlen, end, trimmed = 0;
-	ext3_fsblk_t first_data_blk =
-			le32_to_cpu(EXT3_SB(sb)->s_es->s_first_data_block);
-	ext3_fsblk_t max_blks = le32_to_cpu(es->s_blocks_count);
-	int ret = 0;
+	const ext3_fsblk_t first_data =
+		le32_to_cpu(EXT3_SB(sb)->s_es->s_first_data_block);
+	const ext3_fsblk_t blocks =
+		le32_to_cpu(EXT3_SB(sb)->s_es->s_blocks_count);
+	u64 start;
+	u64 end;
+	u64 minimum;
+	u64 trimmed = 0U;
+	unsigned int first_group;
+	unsigned int last_group;
+	unsigned int group;
+	int error = 0;
+
+	if (!range || range->len < sb->s_blocksize)
+		return -EINVAL;
 
 	start = range->start >> sb->s_blocksize_bits;
-	end = start + (range->len >> sb->s_blocksize_bits) - 1;
-	minlen = range->minlen >> sb->s_blocksize_bits;
-
-	if (minlen > EXT3_BLOCKS_PER_GROUP(sb) ||
-	    start >= max_blks ||
-	    range->len < sb->s_blocksize)
+	minimum = range->minlen >> sb->s_blocksize_bits;
+	if (minimum > EXT3_BLOCKS_PER_GROUP(sb) ||
+	    start >= blocks)
 		return -EINVAL;
-	if (end >= max_blks)
-		end = max_blks - 1;
-	if (end <= first_data_blk)
-		goto out;
-	if (start < first_data_blk)
-		start = first_data_blk;
 
-	smp_rmb();
+	end = start + (range->len >> sb->s_blocksize_bits);
+	if (end == 0U)
+		return -EINVAL;
+	end--;
+	if (end >= blocks)
+		end = blocks - 1U;
+	if (end < first_data) {
+		range->len = 0U;
+		return 0;
+	}
+	if (start < first_data)
+		start = first_data;
 
+	first_group =
+		(unsigned int)((start - first_data) /
+		EXT3_BLOCKS_PER_GROUP(sb));
+	last_group =
+		(unsigned int)((end - first_data) /
+		EXT3_BLOCKS_PER_GROUP(sb));
 
-	ext3_get_group_no_and_offset(sb, (ext3_fsblk_t) start,
-				     &first_group, &first_block);
-	ext3_get_group_no_and_offset(sb, (ext3_fsblk_t) end,
-				     &last_group, &last_block);
+	for (group = first_group;
+	     group <= last_group;
+	     ++group) {
+		const ext3_fsblk_t group_first =
+			ext3_group_first_block_no(sb, group);
+		const ext3_grpblk_t local_first =
+			group == first_group ?
+			(ext3_grpblk_t)(start - group_first) : 0;
+		const ext3_grpblk_t local_last =
+			group == last_group ?
+			(ext3_grpblk_t)(end - group_first) :
+			(ext3_grpblk_t)(
+				ifs_ext3_group_last_block(sb, group) -
+				group_first);
+		struct ext3_group_desc *desc =
+			ext3_get_group_desc(sb, group, NULL);
 
-
-	end = EXT3_BLOCKS_PER_GROUP(sb) - 1;
-
-	for (group = first_group; group <= last_group; group++) {
-		gdp = ext3_get_group_desc(sb, group, NULL);
-		if (!gdp)
+		if (!desc) {
+			error = -EIO;
 			break;
-
-
-		if (group == last_group)
-			end = last_block;
-
-		if (le16_to_cpu(gdp->bg_free_blocks_count) >= minlen) {
-			ret = ext3_trim_all_free(sb, group, first_block,
-						 end, minlen);
-			if (ret < 0)
-				break;
-			trimmed += ret;
 		}
+		if (le16_to_cpu(
+			    desc->bg_free_blocks_count) < minimum)
+			continue;
 
-
-		first_block = 0;
+		error = ifs_ext3_trim_group(
+			sb, group, local_first, local_last,
+			(ext3_grpblk_t)minimum, &trimmed);
+		if (error)
+			break;
 	}
 
-	if (ret > 0)
-		ret = 0;
-
-out:
 	range->len = trimmed * sb->s_blocksize;
-	return ret;
+	return error;
 }
-
 
 #ifdef EXT3FS_DEBUG
-
-
-/**
- * ext3_count_free - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned long ext3_count_free (struct buffer_head * map, unsigned int numchars)
+unsigned long ext3_count_free(
+	struct buffer_head *map,
+	unsigned int bytes)
 {
-	return numchars * BITS_PER_BYTE - memweight(map->b_data, numchars);
+	return bytes * BITS_PER_BYTE -
+		memweight(map->b_data, bytes);
 }
-
 #endif
