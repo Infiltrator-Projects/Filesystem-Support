@@ -149,6 +149,31 @@ jobs:
             ! grep -Eiq 'SPDX-License-Identifier|Copyright|Remy Card|Linus Torvalds|Stephen Tweedie|Darrick J\. Wong|GPL-2\.0' "$file"
           done
 
+      - name: Guard rewritten SFS and EXT3 inode allocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rewritten=(
+            native/filesystems/sfs/linux/adminspace.c
+            native/filesystems/sfs/linux/bitfuncs.c
+            native/filesystems/sfs/linux/bitfuncs.h
+            native/filesystems/sfs/linux/dir.c
+            native/filesystems/sfs/linux/extents.c
+            native/filesystems/sfs/linux/file.c
+            native/filesystems/sfs/linux/inode.c
+            native/filesystems/sfs/linux/namei.c
+            native/filesystems/sfs/linux/nodes.c
+            native/filesystems/sfs/linux/objects.c
+            native/filesystems/sfs/linux/super.c
+            native/filesystems/sfs/linux/symlink.c
+            native/filesystems/ext3/linux/file.c
+            native/filesystems/ext3/linux/ialloc.c
+          )
+          for file in "${rewritten[@]}"; do
+            test -s "$file"
+            ! grep -Eiq 'Copyright|Written by|Remy Card|Stephen Tweedie|Linus Torvalds|Marek Szyprowski|John Hendrikx|Ray Burr|Hans-Joachim Widmaier' "$file"
+          done
+
       - name: Enforce single EXT2 engine on Windows
         shell: bash
         run: |
