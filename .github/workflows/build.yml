@@ -245,16 +245,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for command_name in cmake ctest ninja pkg-config; do
+          for command_name in cmake ctest pkg-config; do
             command -v "$command_name" >/dev/null 2>&1 || {
               echo "Self-hosted runner is missing $command_name." >&2
               exit 1
             }
           done
+          if ! command -v ninja >/dev/null 2>&1 &&
+             ! command -v make >/dev/null 2>&1; then
+            echo "Self-hosted runner needs either ninja or make." >&2
+            exit 1
+          fi
           pkg-config --exists gtk+-3.0
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v ninja >/dev/null 2>&1; then
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          else
+            cmake -S . -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+          fi
 
       - name: Build
         run: cmake --build build
