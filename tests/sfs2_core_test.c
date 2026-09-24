@@ -73,6 +73,18 @@ int main(void)
         if (!ifs_sfs2_validate_block_header(
                 block, sizeof(block), 5U, IFS_SFS2_ROOT_ID))
             return fail("valid SFS2 block header rejected");
+        {
+            ifs_sfs2_u32 whole = 0U;
+            unsigned int offset;
+            for (offset = 0U; offset < sizeof(block); offset += 4U) {
+                whole += ((ifs_sfs2_u32)block[offset] << 24) |
+                         ((ifs_sfs2_u32)block[offset + 1U] << 16) |
+                         ((ifs_sfs2_u32)block[offset + 2U] << 8) |
+                         (ifs_sfs2_u32)block[offset + 3U];
+            }
+            if (whole != 0xfffffffeU)
+                return fail("SFS2 checksum did not produce 0xFFFFFFFE sum");
+        }
     }
 
 

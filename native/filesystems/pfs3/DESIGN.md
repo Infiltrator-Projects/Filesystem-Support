@@ -333,6 +333,32 @@ The root's ordinary index area is interpreted differently when SUPERINDEX is act
 
 PFS3 supports rollover files with a fixed allocated capacity and a virtual live length/pointer that wraps through the allocated area. These semantics are encoded through directory-extension fields and are part of the format, not an ordinary sparse-file convention.
 
+### Later PFS3aio root-extension fields
+
+The current PFS3aio primary implementation extends the classic root-extension record with the complete following state:
+
+- `tobedone.operation_id` and three operation arguments for postponed recovery work;
+- `reserved_roving`;
+- `rovingbit`;
+- `curranseqnr`;
+- `deldirroving`;
+- `deldirsize`;
+- `fnsize`;
+- super-index block references;
+- delete-directory uid/gid/protection and creation timestamp;
+- up to 32 delete-directory block references;
+- a stored 17-longword DosEnvec snapshot used by stored-geometry/superfloppy support.
+
+Known postponed-operation IDs include free-block-chain variants and free-anode-chain recovery. A non-zero postponed operation is therefore executable recovery state, not a decorative version field.
+
+### Stored geometry and large-file identity
+
+Current PFS3aio formatting sets `MODE_STORED_GEOM` for layouts that must retain geometry independently of the surrounding RDB assumptions. The root extension's stored DosEnvec is the corresponding persisted geometry/environment snapshot.
+
+Large-file mode uses `MODE_LARGEFILE` and current PFS3aio changes the root disk identity to `PFS\\2` when the large-file/reserved-block extension requires it. A `PFS\\1` root carrying incompatible large-file state is rejected by the current implementation.
+
+The active mode bit set also includes `MODE_LONGFN`, `MODE_SUPERINDEX`, `MODE_SUPERDELDIR`, `MODE_EXTROVING` and `MODE_STORED_GEOM`; these modes change how bytes elsewhere in the root/extension/index namespace are interpreted and therefore must be validated before decoding dependent structures.
+
 ### PFS identifiers
 
 The original hard-disk structure guide describes the root/boot identity `PFS\1`. Modern PFS3aio code also recognises a `PFS\2` on-disk identity for large-file/reserved-block extensions, while the Amiga FileSystem.resource can register handler/RDB aliases including `PFS\1`, `PDS\1`, `PFS\3` and `PDS\3`.

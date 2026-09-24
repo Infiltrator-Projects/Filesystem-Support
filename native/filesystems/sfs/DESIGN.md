@@ -82,7 +82,7 @@ An SFS object represents a file, directory or special object. Its fixed fields i
 
 The canonical object record parser validates terminators, maximum name length and record-size arithmetic.
 
-The published SmartFileSystem 1.279 user-visible filename limit is 107 characters. The current Filesystem Support SFS core still uses `IFS_SFS_MAX_FILENAME = 105`; that is an implementation-specific limit to be reconciled, not the on-disk format limit.
+The published SmartFileSystem 1.279 filename limit is 107 characters. Filesystem Support now uses the same 107-byte limit in both the canonical core and Linux adapter and tests the exact 107/108 boundary.
 
 ## Object containers
 
@@ -226,7 +226,7 @@ The current SFS distribution documents the SFS\0 format with these user-visible 
 - a recycled/deleted-files directory;
 - no hard-link support in the distributed implementation.
 
-The current canonical constant `IFS_SFS_MAX_FILENAME` is 105. That is an implementation discrepancy against the SmartFilesystem 1.279 published/observed 107-character limit. Historical ports also imposed smaller configurable policy limits, so format capability, handler policy and the current project constant are recorded separately.
+`IFS_SFS_MAX_FILENAME` and the Linux adapter's `ASFS_MAXFN` are both 107. Qualification tests accept 107-byte names and reject 108-byte names. Historical ports that imposed smaller policy limits remain implementation policy rather than a format limit.
 
 ### Root placement and redundancy
 

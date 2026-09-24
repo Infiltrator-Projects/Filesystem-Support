@@ -57,7 +57,7 @@ int ifs_sfs_select_root_copy(
     int backup_valid,
     ifs_sfs_u32 backup_sequence);
 
-#define IFS_SFS_MAX_FILENAME 105U
+#define IFS_SFS_MAX_FILENAME 107U
 
 typedef enum IfsSfsNameStatus {
     IFS_SFS_NAME_OK = 0,

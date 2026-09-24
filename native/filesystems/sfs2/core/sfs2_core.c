@@ -224,7 +224,7 @@ ifs_sfs2_u32 ifs_sfs2_calculate_block_checksum(
     const unsigned char *const block,
     const ifs_sfs2_u32 block_size)
 {
-    ifs_sfs2_u32 checksum = 1U;
+    ifs_sfs2_u32 checksum = 2U;
     ifs_sfs2_u32 offset;
 
     if (block == 0 || block_size < IFS_SFS2_BLOCK_HEADER_SIZE ||

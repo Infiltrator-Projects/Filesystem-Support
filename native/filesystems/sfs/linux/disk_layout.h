@@ -20,7 +20,7 @@
 /* Amiga SFS defines and magic values */
 
 #define ASFS_MAGIC 0xa0ff
-#define ASFS_MAXFN (105u)
+#define ASFS_MAXFN (107u)
 #define ASFS_MAXFILESIZE 0x8FFFFFFE
 
 #define ASFS_STRUCTURE_VERISON (3)

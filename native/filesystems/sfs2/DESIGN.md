@@ -180,7 +180,7 @@ Both root copies are validated independently before sequence selection.
 
 The checksum field is zero during calculation and SFS words are interpreted in big-endian form. SmartFilesystem 1.279-compatible output uses a whole-block sum of `0xFFFFFFFE` for `SFS\2`, one less than the `0xFFFFFFFF` SFS0 convention.
 
-This is a material format distinction. Applying the SFS0 checksum rule unchanged to SFS2 metadata is not format-correct.
+This is a material format distinction. Filesystem Support's SFS2 checksum generator now targets a whole-block sum of `0xFFFFFFFE`, and the core test checks that exact invariant rather than merely testing self-consistency.
 
 ## Filesystem Support source design
 

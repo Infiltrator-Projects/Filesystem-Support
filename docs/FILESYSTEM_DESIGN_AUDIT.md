@@ -51,17 +51,29 @@ Compared against the PFS3 distribution's own hard-disk structure guide and the c
 - SFS2 still lacks a complete independently verified low-level writer specification for every metadata block class; the design document now states that limitation rather than claiming completeness.
 - PFS3 was the least complete document. It now covers boot/root placement, reserved/data areas, two bitmap domains, index blocks, anodes, directory blocks/entries/extensions, links, delete directory, root extension, super-index mode, rollover files and identifier namespace distinctions.
 
-## Remaining documentation gates
+## Documentation-gap closure
 
-The design documents are now substantially more complete, but two formats still have explicit forensic gates before the word "complete" can mean "complete writer specification":
+The two documentation gaps identified by the first forensic pass have now been closed against the available primary/public implementation surface.
 
 ### SFS2
 
-The current canonical core and public product documentation establish identity, root/root-info, file-size encoding, extents and limits, but the full low-level SFS2 forms of every object/container/tree/admin-space structure need independent confirmation against real SFS\2 media and the shipping handler.
+The SFS2 document now records the complete public low-level block family inherited from SFS, the exact SFS2 version-4 deltas, 27-byte object prefix, 16-byte extent leaf, 48-bit encoded file-size layout, empty-volume topology, transaction block family and the distinct `0xFFFFFFFE` whole-block checksum invariant.
+
+The checksum distinction exposed a real project bug: the SFS2 canonical checksum generator was still producing the SFS0 `0xFFFFFFFF` whole-block sum. That implementation has now been corrected and covered by an explicit checksum-sum test.
 
 ### PFS3 later extensions
 
-The original PFS3 disk-structure guide is detailed for the classic PFS3 hard-disk layout. Later PFS3aio large-file/stored-geometry extensions add fields/modes beyond that original guide. Those extensions should remain cross-checked against current PFS3aio fixtures before Filesystem Support writes them.
+The PFS3 document now includes the later PFS3aio root-extension fields and semantics that were outside the original disk-structure guide: postponed-operation recovery arguments, extended roving state, filename-size state, super-index references, expanded delete-directory metadata, stored DosEnvec geometry, `MODE_STORED_GEOM` and the large-file/`PFS\\2` identity relationship.
+
+### SFS filename limit
+
+The SFS audit also exposed a concrete implementation mismatch. The project used a 105-byte filename ceiling while SmartFileSystem 1.279's public format/handler surface is 107 characters. Both the canonical SFS core and Linux adapter now use 107 and qualification tests cover the exact boundary.
+
+## Completeness statement
+
+For EXT2, EXT3, EXT4, OFS, FFS, SFS, SFS2 and PFS3, each `DESIGN.md` now covers the filesystem structures and feature surface established by the authoritative/public primary documentation used by this project.
+
+This does **not** mean every documented feature is already implemented for reading and writing by Filesystem Support. Documentation completeness, implementation completeness and runtime qualification remain separately tracked engineering states.
 
 ## Rule for future documentation changes
 

@@ -54,7 +54,8 @@ int main(void)
         };
         static const unsigned char no_name_end[] = { 'b', 'a', 'd' };
         static const unsigned char no_comment_end[] = { 'o', 'k', 0, 'x' };
-        unsigned char long_name[108];
+        unsigned char maximum_name[109];
+        unsigned char long_name[110];
         ifs_sfs_u32 record_bytes = 0U;
         ifs_sfs_u32 name_bytes = 0U;
         unsigned int index;
@@ -77,10 +78,20 @@ int main(void)
             IFS_SFS_OBJECT_RECORD_COMMENT_UNTERMINATED)
             return fail("unterminated object comment was accepted");
 
-        for (index = 0U; index < 106U; index++)
+        for (index = 0U; index < 107U; index++)
+            maximum_name[index] = 'x';
+        maximum_name[107] = 0;
+        maximum_name[108] = 0;
+        if (ifs_sfs_object_record_layout(
+                maximum_name, sizeof(maximum_name), 25U,
+                &record_bytes, &name_bytes) != IFS_SFS_OBJECT_RECORD_OK ||
+            name_bytes != 107U)
+            return fail("maximum-length SFS object name was rejected");
+
+        for (index = 0U; index < 108U; index++)
             long_name[index] = 'x';
-        long_name[106] = 0;
-        long_name[107] = 0;
+        long_name[108] = 0;
+        long_name[109] = 0;
         if (ifs_sfs_object_record_layout(
                 long_name, sizeof(long_name), 25U,
                 &record_bytes, &name_bytes) !=
