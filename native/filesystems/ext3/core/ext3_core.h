@@ -101,6 +101,36 @@ IfsExt3LayoutStatus ifs_ext3_compute_group_count(
     ifs_ext3_u32 blocks_per_group,
     ifs_ext3_u32 *group_count);
 
+typedef enum IfsExt3BlockGroupStatus {
+    IFS_EXT3_BLOCK_GROUP_OK = 0,
+    IFS_EXT3_BLOCK_GROUP_INVALID_ARGUMENT,
+    IFS_EXT3_BLOCK_GROUP_INVALID_GEOMETRY,
+    IFS_EXT3_BLOCK_GROUP_OUT_OF_RANGE
+} IfsExt3BlockGroupStatus;
+
+IfsExt3BlockGroupStatus ifs_ext3_block_group_position(
+    ifs_ext3_u64 block,
+    ifs_ext3_u32 first_data_block,
+    ifs_ext3_u32 blocks_per_group,
+    ifs_ext3_u32 group_count,
+    ifs_ext3_u32 *group,
+    ifs_ext3_u32 *block_offset);
+
+IfsExt3BlockGroupStatus ifs_ext3_group_bounds(
+    ifs_ext3_u32 group,
+    ifs_ext3_u32 first_data_block,
+    ifs_ext3_u32 blocks_per_group,
+    ifs_ext3_u64 blocks_count,
+    ifs_ext3_u64 *first_block,
+    ifs_ext3_u64 *last_block);
+
+int ifs_ext3_sparse_super_group(ifs_ext3_u32 group);
+int ifs_ext3_group_has_super(int sparse_super_enabled, ifs_ext3_u32 group);
+
+ifs_ext3_u32 ifs_ext3_meta_gdb_count(
+    ifs_ext3_u32 group,
+    ifs_ext3_u32 descriptors_per_block);
+
 #define IFS_EXT3_MAX_DIRECTORY_RECORD_LENGTH 65536U
 
 typedef enum IfsExt3DirectoryRecordStatus {
