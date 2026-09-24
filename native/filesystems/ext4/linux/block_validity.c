@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * Infiltrator Filesystem Support — EXT4 protected-block index.
  *
