@@ -153,24 +153,86 @@ std::vector<std::string> parse_removals(const std::string& output)
     return packages;
 }
 
+std::string diagnostic_output(const gchar* stdout_text,
+                              const gchar* stderr_text)
+{
+    std::string output;
+
+    if (stderr_text != nullptr && *stderr_text != '\0') {
+        output = stderr_text;
+    }
+    if (stdout_text != nullptr && *stdout_text != '\0') {
+        if (!output.empty()) {
+            output += '\n';
+        }
+        output += stdout_text;
+    }
+
+    /*
+     * Compiler output can be large.  Keep the end of the diagnostic because
+     * make/modprobe/signing errors and the helper's rollback reason are
+     * emitted last.
+     */
+    constexpr std::size_t kMaximumDiagnosticBytes = 12000U;
+    if (output.size() > kMaximumDiagnosticBytes) {
+        output =
+            "[Earlier build output omitted]\n...\n" +
+            output.substr(output.size() - kMaximumDiagnosticBytes);
+    }
+
+    return output;
+}
+
 void async_finished(GObject* source_object,
                     GAsyncResult* result,
                     gpointer user_data)
 {
     std::unique_ptr<AsyncJob> job(static_cast<AsyncJob*>(user_data));
+    auto* process = G_SUBPROCESS(source_object);
+    gchar* stdout_text = nullptr;
+    gchar* stderr_text = nullptr;
     GError* error = nullptr;
-    const gboolean succeeded = g_subprocess_wait_check_finish(
-        G_SUBPROCESS(source_object), result, &error);
 
-    const std::string message = succeeded
-        ? job->success_message
-        : (error != nullptr ? error->message : "The requested operation failed.");
+    const gboolean communicated = g_subprocess_communicate_utf8_finish(
+        process,
+        result,
+        &stdout_text,
+        &stderr_text,
+        &error);
+
+    const gboolean succeeded =
+        communicated && g_subprocess_get_successful(process);
+
+    std::string message;
+    if (succeeded) {
+        message = job->success_message;
+    } else {
+        message = diagnostic_output(stdout_text, stderr_text);
+        if (message.empty() && error != nullptr) {
+            message = error->message;
+        }
+        if (message.empty()) {
+            if (g_subprocess_get_if_exited(process)) {
+                message =
+                    "Privileged helper exited with code " +
+                    std::to_string(g_subprocess_get_exit_status(process)) + ".";
+            } else if (g_subprocess_get_if_signaled(process)) {
+                message =
+                    "Privileged helper was terminated by signal " +
+                    std::to_string(g_subprocess_get_term_sig(process)) + ".";
+            } else {
+                message = "The requested operation failed.";
+            }
+        }
+    }
 
     if (job->completion) {
         job->completion(succeeded, message);
     }
 
     g_clear_error(&error);
+    g_free(stdout_text);
+    g_free(stderr_text);
     g_clear_object(&job->process);
 }
 
@@ -220,7 +282,10 @@ void run_privileged_async(const std::vector<std::string>& arguments,
 
     GError* error = nullptr;
     GSubprocessLauncher* launcher =
-        g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_NONE);
+        g_subprocess_launcher_new(
+            static_cast<GSubprocessFlags>(
+                G_SUBPROCESS_FLAGS_STDOUT_PIPE |
+                G_SUBPROCESS_FLAGS_STDERR_PIPE));
     g_subprocess_launcher_setenv(launcher, "LC_ALL", "C", TRUE);
 
     GSubprocess* process = g_subprocess_launcher_spawnv(
@@ -240,7 +305,12 @@ void run_privileged_async(const std::vector<std::string>& arguments,
     job->completion = std::move(completion);
     job->success_message = std::move(success_message);
 
-    g_subprocess_wait_check_async(process, nullptr, async_finished, job);
+    g_subprocess_communicate_utf8_async(
+        process,
+        nullptr,
+        nullptr,
+        async_finished,
+        job);
 }
 
 bool packages_are_catalogued(const std::vector<std::string>& packages,
