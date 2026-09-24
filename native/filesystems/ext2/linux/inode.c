@@ -28,26 +28,6 @@ struct ifs_ext2_link {
 	ext2_fsblk_t block;
 };
 
-static unsigned long ifs_ext2_sectors_per_block(const struct inode *inode)
-{
-	return inode->i_sb->s_blocksize >> 9;
-}
-
-static void ifs_ext2_account_alloc(struct inode *inode)
-{
-	inode->i_blocks += ifs_ext2_sectors_per_block(inode);
-}
-
-static void ifs_ext2_account_free(struct inode *inode)
-{
-	const unsigned long sectors = ifs_ext2_sectors_per_block(inode);
-
-	if (inode->i_blocks >= sectors)
-		inode->i_blocks -= sectors;
-	else
-		inode->i_blocks = 0;
-}
-
 static bool ifs_ext2_fast_symlink(struct inode *inode)
 {
 	const unsigned long ea_sectors = EXT2_I(inode)->i_file_acl ?
@@ -74,7 +54,6 @@ static int ifs_ext2_allocate_block(
 	}
 
 	*block = allocated;
-	ifs_ext2_account_alloc(inode);
 	return 0;
 }
 
@@ -84,7 +63,6 @@ static void ifs_ext2_release_block(struct inode *inode, ext2_fsblk_t block)
 		return;
 
 	ext2_free_blocks(inode, block, 1);
-	ifs_ext2_account_free(inode);
 }
 
 static int ifs_ext2_zero_metadata_block(
