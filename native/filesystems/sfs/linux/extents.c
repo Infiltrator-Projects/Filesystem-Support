@@ -844,7 +844,7 @@ static int sfs_remove_empty_container(
             if (parent_count == 0U) {
                 parent->isleaf = TRUE;
                 parent->nodesize =
-                    sizeof(struct fsExtentBNode);
+                    IFS_SFS_BTREE_EXTENT_NODE_MIN_SIZE;
                 asfs_bstore(sb, parent_bh);
                 asfs_brelse(parent_bh);
                 return 0;
