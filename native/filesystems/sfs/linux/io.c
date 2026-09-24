@@ -198,7 +198,7 @@ out_unlock:
 
 int asfs_read_folio(struct file *file, struct folio *folio)
 {
-    (void)IFS_SFS_AOPS_WRITE_CONTEXT_ARG;
+    (void)file;
     return mpage_read_folio(folio, sfs_map_block);
 }
 
@@ -229,7 +229,7 @@ int asfs_write_begin(
     struct folio **folio,
     void **fsdata)
 {
-    (void)file;
+    (void)IFS_SFS_AOPS_WRITE_CONTEXT_ARG;
     (void)fsdata;
     return block_write_begin(
         mapping, position, length, folio, sfs_map_block);
@@ -348,7 +348,7 @@ static int sfs_create(
     struct dentry *dentry,
     umode_t mode,
     bool exclusive);
-static int sfs_mkdir(
+static IFS_SFS_MKDIR_RETURN sfs_mkdir(
     struct mnt_idmap *idmap,
     struct inode *dir,
     struct dentry *dentry,
@@ -711,15 +711,20 @@ static int sfs_create(
         dir, dentry, mode, SFS_NEW_FILE, NULL);
 }
 
-static int sfs_mkdir(
+static IFS_SFS_MKDIR_RETURN sfs_mkdir(
     struct mnt_idmap *idmap,
     struct inode *dir,
     struct dentry *dentry,
     umode_t mode)
 {
+    int result;
+
     (void)idmap;
-    return sfs_create_object(
+    result = sfs_create_object(
         dir, dentry, mode, SFS_NEW_DIRECTORY, NULL);
+    if (result != 0)
+        return IFS_SFS_MKDIR_FAILURE(result);
+    return IFS_SFS_MKDIR_SUCCESS;
 }
 
 static int sfs_symlink(

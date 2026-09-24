@@ -19,6 +19,10 @@
 #include <linux/parser.h>
 #include <linux/nls.h>
 #include <linux/string.h>
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+#include <linux/fs_context.h>
+#endif
 
 #include "linux_adapter.h"
 #include "../core/sfs_core.h"
@@ -424,14 +428,14 @@ static const struct super_operations sfs_super_operations = {
 	.free_inode = sfs_free_inode,
 	.put_super = sfs_put_super,
 	.statfs = sfs_statfs,
-#ifdef CONFIG_ASFS_RW
+#if defined(CONFIG_ASFS_RW) && LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
 	.remount_fs = sfs_remount,
 #endif
 };
 
 extern const struct dentry_operations asfs_dentry_operations;
 
-static int sfs_fill_super(struct super_block *sb, void *data, int silent)
+static int sfs_fill_super_data(struct super_block *sb, void *data, int silent)
 {
 	struct asfs_sb_info *sbi;
 	struct inode *root_inode;
@@ -497,17 +501,118 @@ fail:
 	return result;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
 static struct dentry *sfs_mount(
 	struct file_system_type *type, int flags,
 	const char *device, void *data)
 {
-	return mount_bdev(type, flags, device, data, sfs_fill_super);
+	return mount_bdev(type, flags, device, data, sfs_fill_super_data);
 }
+#else
+struct ifs_sfs_fs_context {
+	char *options;
+};
+
+static int sfs_parse_monolithic(struct fs_context *fc, void *data)
+{
+	struct ifs_sfs_fs_context *context = fc->fs_private;
+	char *copy = NULL;
+
+	if (data) {
+		copy = kstrdup(data, GFP_KERNEL);
+		if (!copy)
+			return -ENOMEM;
+	}
+	kfree(context->options);
+	context->options = copy;
+	return 0;
+}
+
+static int sfs_fill_super(struct super_block *sb, struct fs_context *fc)
+{
+	struct ifs_sfs_fs_context *context = fc->fs_private;
+	char *options = NULL;
+	int result;
+
+	if (context->options) {
+		options = kstrdup(context->options, GFP_KERNEL);
+		if (!options)
+			return -ENOMEM;
+	}
+	result = sfs_fill_super_data(
+		sb, options, (fc->sb_flags & SB_SILENT) != 0);
+	kfree(options);
+	return result;
+}
+
+static int sfs_get_tree(struct fs_context *fc)
+{
+	return get_tree_bdev(fc, sfs_fill_super);
+}
+
+#ifdef CONFIG_ASFS_RW
+static int sfs_reconfigure(struct fs_context *fc)
+{
+	struct ifs_sfs_fs_context *context = fc->fs_private;
+	struct super_block *sb = fc->root->d_sb;
+	char *options = NULL;
+	int flags = fc->sb_flags;
+	int result;
+
+	if (context->options) {
+		options = kstrdup(context->options, GFP_KERNEL);
+		if (!options)
+			return -ENOMEM;
+	}
+	result = sfs_remount(sb, &flags, options);
+	kfree(options);
+	if (result == 0)
+		fc->sb_flags = flags;
+	return result;
+}
+#endif
+
+static void sfs_free_fs_context(struct fs_context *fc)
+{
+	struct ifs_sfs_fs_context *context = fc->fs_private;
+
+	if (!context)
+		return;
+	kfree(context->options);
+	kfree(context);
+	fc->fs_private = NULL;
+}
+
+static const struct fs_context_operations sfs_context_operations = {
+	.parse_monolithic = sfs_parse_monolithic,
+	.get_tree = sfs_get_tree,
+#ifdef CONFIG_ASFS_RW
+	.reconfigure = sfs_reconfigure,
+#endif
+	.free = sfs_free_fs_context,
+};
+
+static int sfs_init_fs_context(struct fs_context *fc)
+{
+	struct ifs_sfs_fs_context *context;
+
+	context = kzalloc(sizeof(*context), GFP_KERNEL);
+	if (!context)
+		return -ENOMEM;
+	fc->ops = &sfs_context_operations;
+	fc->fs_private = context;
+	return 0;
+}
+#endif
 
 static struct file_system_type sfs_type = {
 	.owner = THIS_MODULE,
 	.name = "sfs",
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+	.init_fs_context = sfs_init_fs_context,
+#else
 	.mount = sfs_mount,
+#endif
 	.kill_sb = kill_block_super,
 	.fs_flags = FS_REQUIRES_DEV,
 };

@@ -15,10 +15,16 @@
 #define IFS_SFS_AOPS_WRITE_CONTEXT_ARG iocb
 #define IFS_SFS_INODE_IS_NEW(inode) \
     ((inode_state_read_once(inode) & I_NEW) != 0)
+#define IFS_SFS_MKDIR_RETURN struct dentry *
+#define IFS_SFS_MKDIR_FAILURE(error) ERR_PTR(error)
+#define IFS_SFS_MKDIR_SUCCESS NULL
 #else
 #define IFS_SFS_AOPS_WRITE_CONTEXT struct file *file
 #define IFS_SFS_AOPS_WRITE_CONTEXT_ARG file
 #define IFS_SFS_INODE_IS_NEW(inode) (((inode)->i_state & I_NEW) != 0)
+#define IFS_SFS_MKDIR_RETURN int
+#define IFS_SFS_MKDIR_FAILURE(error) (error)
+#define IFS_SFS_MKDIR_SUCCESS 0
 #endif
 
 #define asfs_debug(fmt,arg...) /* no debug at all */
@@ -197,7 +203,7 @@ void asfs_readahead(struct readahead_control *rac);
 sector_t asfs_bmap(struct address_space *mapping, sector_t block);
 int asfs_writepages(struct address_space *mapping,
                     struct writeback_control *wbc);
-int asfs_write_begin(struct file *file, struct address_space *mapping,
+int asfs_write_begin(IFS_SFS_AOPS_WRITE_CONTEXT, struct address_space *mapping,
                      loff_t pos, unsigned len, struct folio **foliop,
                      void **fsdata);
 int asfs_truncate(struct inode *inode);
