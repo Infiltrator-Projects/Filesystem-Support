@@ -1,8 +1,6 @@
-/* Infiltrator Filesystem Support — EXT4 Linux integrity and secrecy adapters.
- * fscrypt and fs-verity integration are Linux security-framework adapters,
- * not separate filesystem implementations.
- */
+/* Infiltrator Filesystem Support — EXT4 Linux integrity and secrecy adapters. */
 
+#ifdef CONFIG_FS_ENCRYPTION
 #include <linux/quotaops.h>
 #include <linux/uuid.h>
 
@@ -219,7 +217,9 @@ const struct fscrypt_operations ext4_cryptops = {
 };
 
 
-/* ===== fs-verity integration ===== */
+#endif /* CONFIG_FS_ENCRYPTION */
+
+#ifdef CONFIG_FS_VERITY
 #include <linux/quotaops.h>
 
 #include "ext4.h"
@@ -535,3 +535,5 @@ const struct fsverity_operations ext4_verityops = {
 	.write_merkle_tree_block = ext4_verity_write_tree_block,
 };
 
+
+#endif /* CONFIG_FS_VERITY */
