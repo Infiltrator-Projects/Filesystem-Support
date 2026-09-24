@@ -15,6 +15,7 @@
 #include <linux/random.h>
 #include <linux/buffer_head.h>
 #include <linux/exportfs.h>
+#include <linux/vfs.h>
 #include <linux/seq_file.h>
 #include <linux/mount.h>
 #include <linux/log2.h>
