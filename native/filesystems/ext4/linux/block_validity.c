@@ -1,488 +1,335 @@
-// SPDX-License-Identifier: GPL-2.0
-/*
- *  linux/fs/ext4/block_validity.c
- *
- * Copyright (C) 2009
- * Theodore Ts'o (tytso@mit.edu)
- *
- * Track which blocks in the filesystem are metadata blocks that
- * should never be used as data blocks by files or directories.
- */
-
-/*
- * EXT4 — Metadata block validation
- *
- * Purpose:
- *   Tracks ranges reserved for filesystem metadata and rejects mappings that would alias protected metadata blocks.
- *
- * Filesystem model:
- *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
- *
- * Correctness focus:
- *   This code is a corruption boundary: integer overflow or incomplete range checks can turn a malformed inode into metadata overwrite.
- *
- * Project rules:
- *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
- *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
-#include <linux/time.h>
 #include <linux/fs.h>
-#include <linux/namei.h>
-#include <linux/quotaops.h>
-#include <linux/buffer_head.h>
-#include <linux/swap.h>
-#include <linux/pagemap.h>
-#include <linux/blkdev.h>
 #include <linux/slab.h>
+
 #include "ext4.h"
 
-
-/**
- * struct ext4_system_zone - Private EXT4 state/data structure used by metadata block validation.
- *
- * Treat fields that mirror persistent media or cross subsystem boundaries
- * as interface contracts rather than incidental layout.
- */
 struct ext4_system_zone {
-	struct rb_node	node;
-	ext4_fsblk_t	start_blk;
-	unsigned int	count;
-	u32		ino;
+	struct rb_node node;
+	ext4_fsblk_t start;
+	unsigned int length;
+	u32 owner_ino;
 };
 
-static struct kmem_cache *ext4_system_zone_cachep;
+static struct kmem_cache *ext4_system_zone_cache;
 
-
-/**
- * ext4_init_system_zone - Initialises subsystem state and establishes the resources required by later operations.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int __init ext4_init_system_zone(void)
 {
-	ext4_system_zone_cachep = KMEM_CACHE(ext4_system_zone, 0);
-	if (ext4_system_zone_cachep == NULL)
-		return -ENOMEM;
-	return 0;
+	ext4_system_zone_cache = KMEM_CACHE(ext4_system_zone, 0);
+	return ext4_system_zone_cache ? 0 : -ENOMEM;
 }
 
-
-/**
- * ext4_exit_system_zone - Tears down subsystem state after users have been quiesced.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 void ext4_exit_system_zone(void)
 {
 	rcu_barrier();
-	kmem_cache_destroy(ext4_system_zone_cachep);
+	kmem_cache_destroy(ext4_system_zone_cache);
 }
 
-
-/**
- * can_merge - Implements the can merge operation within the metadata block validation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int can_merge(struct ext4_system_zone *entry1,
-		     struct ext4_system_zone *entry2)
+static void ext4_system_zones_free(struct ext4_system_blocks *zones)
 {
-	if (entry2->start_blk >= entry1->start_blk &&
-	    entry2->start_blk - entry1->start_blk == entry1->count &&
-	    entry1->ino == entry2->ino)
-		return 1;
-	return 0;
+	struct ext4_system_zone *zone;
+	struct ext4_system_zone *next;
+
+	rbtree_postorder_for_each_entry_safe(zone, next, &zones->root, node)
+		kmem_cache_free(ext4_system_zone_cache, zone);
 }
 
-
-/**
- * release_system_zone - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void release_system_zone(struct ext4_system_blocks *system_blks)
+static bool ext4_system_zone_adjacent(const struct ext4_system_zone *left,
+				      const struct ext4_system_zone *right)
 {
-	struct ext4_system_zone	*entry, *n;
-
-	rbtree_postorder_for_each_entry_safe(entry, n,
-				&system_blks->root, node)
-		kmem_cache_free(ext4_system_zone_cachep, entry);
+	return left->owner_ino == right->owner_ino &&
+	       right->start >= left->start &&
+	       right->start - left->start == left->length;
 }
 
-
-/**
- * add_system_zone - Implements the add system zone operation within the metadata block validation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int add_system_zone(struct ext4_system_blocks *system_blks,
-			   ext4_fsblk_t start_blk,
-			   unsigned int count, u32 ino)
+static int ext4_system_zone_add(struct ext4_system_blocks *zones,
+				ext4_fsblk_t start,
+				unsigned int length,
+				u32 owner_ino)
 {
-	struct ext4_system_zone *new_entry, *entry;
-	struct rb_node **n = &system_blks->root.rb_node, *node;
-	struct rb_node *parent = NULL, *new_node;
+	struct rb_node **link = &zones->root.rb_node;
+	struct rb_node *parent = NULL;
+	struct ext4_system_zone *zone;
+	struct ext4_system_zone *created;
+	struct rb_node *previous_node;
+	struct rb_node *next_node;
+	unsigned int merged_length;
+	ext4_fsblk_t merged_start;
 
-	while (*n) {
-		parent = *n;
-		entry = rb_entry(parent, struct ext4_system_zone, node);
-		if (start_blk < entry->start_blk)
-			n = &(*n)->rb_left;
-		else if (start_blk >= entry->start_blk &&
-			 start_blk - entry->start_blk >= entry->count)
-			n = &(*n)->rb_right;
-		else
+	if (length == 0)
+		return -EFSCORRUPTED;
+
+	while (*link) {
+		parent = *link;
+		zone = rb_entry(parent, struct ext4_system_zone, node);
+
+		if (start < zone->start) {
+			link = &parent->rb_left;
+		} else if (start - zone->start >= zone->length) {
+			link = &parent->rb_right;
+		} else {
 			return -EFSCORRUPTED;
+		}
 	}
 
-	new_entry = kmem_cache_alloc(ext4_system_zone_cachep,
-				     GFP_KERNEL);
-	if (!new_entry)
+	created = kmem_cache_alloc(ext4_system_zone_cache, GFP_KERNEL);
+	if (!created)
 		return -ENOMEM;
-	new_entry->start_blk = start_blk;
-	new_entry->count = count;
-	new_entry->ino = ino;
-	new_node = &new_entry->node;
 
-	rb_link_node(new_node, parent, n);
-	rb_insert_color(new_node, &system_blks->root);
+	created->start = start;
+	created->length = length;
+	created->owner_ino = owner_ino;
+	rb_link_node(&created->node, parent, link);
+	rb_insert_color(&created->node, &zones->root);
 
+	previous_node = rb_prev(&created->node);
+	if (previous_node) {
+		zone = rb_entry(previous_node, struct ext4_system_zone, node);
+		if (ext4_system_zone_adjacent(zone, created)) {
+			if (zone->length > UINT_MAX - created->length)
+				goto overflow;
 
-	node = rb_prev(new_node);
-	if (node) {
-		entry = rb_entry(node, struct ext4_system_zone, node);
-		if (can_merge(entry, new_entry)) {
-			if (entry->count > UINT_MAX - new_entry->count)
-				return -EFSCORRUPTED;
-			new_entry->start_blk = entry->start_blk;
-			new_entry->count += entry->count;
-			rb_erase(node, &system_blks->root);
-			kmem_cache_free(ext4_system_zone_cachep, entry);
+			merged_start = zone->start;
+			merged_length = zone->length + created->length;
+			rb_erase(previous_node, &zones->root);
+			kmem_cache_free(ext4_system_zone_cache, zone);
+			created->start = merged_start;
+			created->length = merged_length;
 		}
 	}
 
+	next_node = rb_next(&created->node);
+	if (next_node) {
+		zone = rb_entry(next_node, struct ext4_system_zone, node);
+		if (ext4_system_zone_adjacent(created, zone)) {
+			if (zone->length > UINT_MAX - created->length)
+				goto overflow;
 
-	node = rb_next(new_node);
-	if (node) {
-		entry = rb_entry(node, struct ext4_system_zone, node);
-		if (can_merge(new_entry, entry)) {
-			if (entry->count > UINT_MAX - new_entry->count)
-				return -EFSCORRUPTED;
-			new_entry->count += entry->count;
-			rb_erase(node, &system_blks->root);
-			kmem_cache_free(ext4_system_zone_cachep, entry);
+			created->length += zone->length;
+			rb_erase(next_node, &zones->root);
+			kmem_cache_free(ext4_system_zone_cache, zone);
 		}
 	}
+
 	return 0;
+
+overflow:
+	/*
+	 * The tree must not retain a partially accepted range on an arithmetic
+	 * failure. Remove the just-created node before reporting corruption.
+	 */
+	rb_erase(&created->node, &zones->root);
+	kmem_cache_free(ext4_system_zone_cache, created);
+	return -EFSCORRUPTED;
 }
 
-
-/**
- * debug_print_tree - Implements the debug print tree operation within the metadata block validation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void debug_print_tree(struct ext4_sb_info *sbi)
-{
-	struct rb_node *node;
-	struct ext4_system_zone *entry;
-	struct ext4_system_blocks *system_blks;
-	int first = 1;
-
-	printk(KERN_INFO "System zones: ");
-	rcu_read_lock();
-	system_blks = rcu_dereference(sbi->s_system_blks);
-	node = rb_first(&system_blks->root);
-	while (node) {
-		entry = rb_entry(node, struct ext4_system_zone, node);
-		printk(KERN_CONT "%s%llu-%llu", first ? "" : ", ",
-		       entry->start_blk, entry->start_blk + entry->count - 1);
-		first = 0;
-		node = rb_next(node);
-	}
-	rcu_read_unlock();
-	printk(KERN_CONT "\n");
-}
-
-
-/**
- * ext4_protect_reserved_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext4_protect_reserved_inode(struct super_block *sb,
-				       struct ext4_system_blocks *system_blks,
-				       u32 ino)
+static int ext4_protect_special_inode(struct super_block *sb,
+				      struct ext4_system_blocks *zones,
+				      u32 ino)
 {
 	struct inode *inode;
-	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ext4_map_blocks map;
-	u32 i = 0, num;
-	int err = 0, n;
+	u32 logical = 0;
+	u32 block_count;
+	int mapped;
+	int err = 0;
 
-	if ((ino < EXT4_ROOT_INO) ||
-	    (ino > le32_to_cpu(sbi->s_es->s_inodes_count)))
+	if (ino < EXT4_ROOT_INO ||
+	    ino > le32_to_cpu(EXT4_SB(sb)->s_es->s_inodes_count))
 		return -EINVAL;
+
 	inode = ext4_iget(sb, ino, EXT4_IGET_SPECIAL);
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
-	num = (inode->i_size + sb->s_blocksize - 1) >> sb->s_blocksize_bits;
-	while (i < num) {
+
+	block_count = (inode->i_size + sb->s_blocksize - 1) >>
+		      sb->s_blocksize_bits;
+
+	while (logical < block_count) {
 		cond_resched();
-		map.m_lblk = i;
-		map.m_len = num - i;
-		n = ext4_map_blocks(NULL, inode, &map, 0);
-		if (n < 0) {
-			err = n;
+		map.m_lblk = logical;
+		map.m_len = block_count - logical;
+
+		mapped = ext4_map_blocks(NULL, inode, &map, 0);
+		if (mapped < 0) {
+			err = mapped;
 			break;
 		}
-		if (n == 0) {
-			i++;
-		} else {
-			err = add_system_zone(system_blks, map.m_pblk, n, ino);
-			if (err < 0) {
-				if (err == -EFSCORRUPTED) {
-					EXT4_ERROR_INODE_ERR(inode, -err,
-						"blocks %llu-%llu from inode overlap system zone",
-						map.m_pblk,
-						map.m_pblk + map.m_len - 1);
-				}
-				break;
-			}
-			i += n;
+		if (mapped == 0) {
+			logical++;
+			continue;
 		}
+
+		err = ext4_system_zone_add(
+			zones, map.m_pblk, mapped, ino);
+		if (err)
+			break;
+		logical += mapped;
 	}
+
 	iput(inode);
 	return err;
 }
 
-
-/**
- * ext4_destroy_system_zone - Tears down subsystem state after users have been quiesced.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static void ext4_destroy_system_zone(struct rcu_head *rcu)
+static void ext4_system_zone_rcu_free(struct rcu_head *rcu)
 {
-	struct ext4_system_blocks *system_blks;
+	struct ext4_system_blocks *zones =
+		container_of(rcu, struct ext4_system_blocks, rcu);
 
-	system_blks = container_of(rcu, struct ext4_system_blocks, rcu);
-	release_system_zone(system_blks);
-	kfree(system_blks);
+	ext4_system_zones_free(zones);
+	kfree(zones);
 }
 
-
-/**
- * ext4_setup_system_zone - Initialises subsystem state and establishes the resources required by later operations.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext4_setup_system_zone(struct super_block *sb)
 {
-	ext4_group_t ngroups = ext4_get_groups_count(sb);
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	struct ext4_system_blocks *system_blks;
-	struct ext4_group_desc *gdp;
-	ext4_group_t i;
-	int ret;
+	struct ext4_system_blocks *zones;
+	const ext4_group_t groups = ext4_get_groups_count(sb);
+	ext4_group_t group;
+	int err;
 
-	system_blks = kzalloc(sizeof(*system_blks), GFP_KERNEL);
-	if (!system_blks)
+	zones = kzalloc(sizeof(*zones), GFP_KERNEL);
+	if (!zones)
 		return -ENOMEM;
 
-	for (i=0; i < ngroups; i++) {
-		unsigned int meta_blks = ext4_num_base_meta_blocks(sb, i);
+	for (group = 0; group < groups; ++group) {
+		struct ext4_group_desc *desc;
+		unsigned int base_metadata;
 
 		cond_resched();
-		if (meta_blks != 0) {
-			ret = add_system_zone(system_blks,
-					ext4_group_first_block_no(sb, i),
-					meta_blks, 0);
-			if (ret)
-				goto err;
+		base_metadata = ext4_num_base_meta_blocks(sb, group);
+		if (base_metadata) {
+			err = ext4_system_zone_add(
+				zones, ext4_group_first_block_no(sb, group),
+				base_metadata, 0);
+			if (err)
+				goto fail;
 		}
-		gdp = ext4_get_group_desc(sb, i, NULL);
-		ret = add_system_zone(system_blks,
-				ext4_block_bitmap(sb, gdp), 1, 0);
-		if (ret)
-			goto err;
-		ret = add_system_zone(system_blks,
-				ext4_inode_bitmap(sb, gdp), 1, 0);
-		if (ret)
-			goto err;
-		ret = add_system_zone(system_blks,
-				ext4_inode_table(sb, gdp),
-				sbi->s_itb_per_group, 0);
-		if (ret)
-			goto err;
+
+		desc = ext4_get_group_desc(sb, group, NULL);
+		if (!desc) {
+			err = -EFSCORRUPTED;
+			goto fail;
+		}
+
+		err = ext4_system_zone_add(
+			zones, ext4_block_bitmap(sb, desc), 1, 0);
+		if (err)
+			goto fail;
+
+		err = ext4_system_zone_add(
+			zones, ext4_inode_bitmap(sb, desc), 1, 0);
+		if (err)
+			goto fail;
+
+		err = ext4_system_zone_add(
+			zones, ext4_inode_table(sb, desc),
+			sbi->s_itb_per_group, 0);
+		if (err)
+			goto fail;
 	}
+
 	if (ext4_has_feature_journal(sb) && sbi->s_es->s_journal_inum) {
-		ret = ext4_protect_reserved_inode(sb, system_blks,
-				le32_to_cpu(sbi->s_es->s_journal_inum));
-		if (ret)
-			goto err;
+		err = ext4_protect_special_inode(
+			sb, zones, le32_to_cpu(sbi->s_es->s_journal_inum));
+		if (err)
+			goto fail;
 	}
 
-
-	rcu_assign_pointer(sbi->s_system_blks, system_blks);
-
-	if (test_opt(sb, DEBUG))
-		debug_print_tree(sbi);
+	rcu_assign_pointer(sbi->s_system_blks, zones);
 	return 0;
-err:
-	release_system_zone(system_blks);
-	kfree(system_blks);
-	return ret;
+
+fail:
+	ext4_system_zones_free(zones);
+	kfree(zones);
+	return err;
 }
 
-
-/**
- * ext4_release_system_zone - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 void ext4_release_system_zone(struct super_block *sb)
 {
-	struct ext4_system_blocks *system_blks;
+	struct ext4_system_blocks *zones;
 
-	system_blks = rcu_dereference_protected(EXT4_SB(sb)->s_system_blks,
-					lockdep_is_held(&sb->s_umount));
+	zones = rcu_dereference_protected(
+		EXT4_SB(sb)->s_system_blks,
+		lockdep_is_held(&sb->s_umount));
 	rcu_assign_pointer(EXT4_SB(sb)->s_system_blks, NULL);
 
-	if (system_blks)
-		call_rcu(&system_blks->rcu, ext4_destroy_system_zone);
+	if (zones)
+		call_rcu(&zones->rcu, ext4_system_zone_rcu_free);
 }
 
-
-/**
- * ext4_sb_block_valid - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext4_sb_block_valid(struct super_block *sb, struct inode *inode,
-				ext4_fsblk_t start_blk, unsigned int count)
+			ext4_fsblk_t start, unsigned int count)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	struct ext4_system_blocks *system_blks;
-	struct ext4_system_zone *entry;
-	struct rb_node *n;
-	ext4_fsblk_t blocks_count = ext4_blocks_count(sbi->s_es);
-	ext4_fsblk_t last_blk;
-	int ret = 1;
+	const ext4_fsblk_t total = ext4_blocks_count(sbi->s_es);
+	struct ext4_system_blocks *zones;
+	struct rb_node *node;
+	ext4_fsblk_t last;
+	int valid = 1;
 
 	if (count == 0 ||
-	    start_blk <= le32_to_cpu(sbi->s_es->s_first_data_block) ||
-	    start_blk >= blocks_count ||
-	    count > blocks_count - start_blk)
+	    start <= le32_to_cpu(sbi->s_es->s_first_data_block) ||
+	    start >= total ||
+	    count > total - start)
 		return 0;
 
-	last_blk = start_blk + count - 1;
+	last = start + count - 1;
 	rcu_read_lock();
-	system_blks = rcu_dereference(sbi->s_system_blks);
-	if (system_blks == NULL)
-		goto out_rcu;
+	zones = rcu_dereference(sbi->s_system_blks);
+	if (!zones)
+		goto out;
 
-	n = system_blks->root.rb_node;
-	while (n) {
-		entry = rb_entry(n, struct ext4_system_zone, node);
-		if (last_blk < entry->start_blk)
-			n = n->rb_left;
-		else if (start_blk >= entry->start_blk &&
-			 start_blk - entry->start_blk >= entry->count)
-			n = n->rb_right;
-		else {
-			ret = 0;
-			if (inode)
-				ret = (entry->ino == inode->i_ino);
+	node = zones->root.rb_node;
+	while (node) {
+		struct ext4_system_zone *zone =
+			rb_entry(node, struct ext4_system_zone, node);
+
+		if (last < zone->start) {
+			node = node->rb_left;
+		} else if (start >= zone->start &&
+			   start - zone->start >= zone->length) {
+			node = node->rb_right;
+		} else {
+			valid = inode && zone->owner_ino == inode->i_ino;
 			break;
 		}
 	}
-out_rcu:
+
+out:
 	rcu_read_unlock();
-	return ret;
+	return valid;
 }
 
-
-/**
- * ext4_inode_block_valid - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext4_inode_block_valid(struct inode *inode, ext4_fsblk_t start_blk,
-			  unsigned int count)
+int ext4_inode_block_valid(struct inode *inode, ext4_fsblk_t start,
+			   unsigned int count)
 {
-	return ext4_sb_block_valid(inode->i_sb, inode, start_blk, count);
+	return ext4_sb_block_valid(inode->i_sb, inode, start, count);
 }
 
-
-/**
- * ext4_check_blockref - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext4_check_blockref(const char *function, unsigned int line,
-			struct inode *inode, __le32 *p, unsigned int max)
+			struct inode *inode, __le32 *refs,
+			unsigned int count)
 {
-	__le32 *bref = p;
-	unsigned int blk;
 	journal_t *journal = EXT4_SB(inode->i_sb)->s_journal;
+	unsigned int i;
 
 	if (journal && inode == journal->j_inode)
 		return 0;
 
-	while (bref < p+max) {
-		blk = le32_to_cpu(*bref++);
-		if (blk &&
-		    unlikely(!ext4_inode_block_valid(inode, blk, 1))) {
-			ext4_error_inode(inode, function, line, blk,
-					 "invalid block");
+	for (i = 0; i < count; ++i) {
+		const ext4_fsblk_t block = le32_to_cpu(refs[i]);
+
+		if (block && !ext4_inode_block_valid(inode, block, 1)) {
+			ext4_error_inode(
+				inode, function, line, block,
+				"invalid block");
 			return -EFSCORRUPTED;
 		}
 	}
+
 	return 0;
 }
+
+void __dump_mmp_msg(struct super_block *sb, struct mmp_struct *mmp,
+		    const char *function, unsigned int line,
+		    const char *msg);
