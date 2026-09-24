@@ -20,7 +20,7 @@ typedef unsigned long long ifs_ext3_u64;
 typedef uint16_t ifs_ext3_u16;
 typedef uint32_t ifs_ext3_u32;
 typedef uint64_t ifs_ext3_u64;
-
+#endif
 
 #define IFS_EXT3_JOURNAL_MAGIC 0xc03b3998U
 #define IFS_EXT3_JOURNAL_DESCRIPTOR_BLOCK 1U
@@ -51,9 +51,6 @@ IfsExt3JournalStatus ifs_ext3_validate_journal_superblock(
     ifs_ext3_u32 first_block,
     ifs_ext3_u32 start_block,
     ifs_ext3_u32 incompat_features);
-
-
-#endif
 
 #define IFS_EXT3_FEATURE_INCOMPAT_FILETYPE 0x0002U
 #define IFS_EXT3_FEATURE_INCOMPAT_RECOVER  0x0004U
