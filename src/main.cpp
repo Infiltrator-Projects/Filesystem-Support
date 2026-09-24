@@ -577,6 +577,39 @@ GtkWidget* create_row(AppState* state,
     return list_row;
 }
 
+void apply_publisher_typography()
+{
+    const InfiltratrTypography* typography = infiltratr_typography();
+    GdkScreen* screen = gdk_screen_get_default();
+    if (typography == nullptr || screen == nullptr ||
+        typography->ui_family == nullptr ||
+        typography->brand_family == nullptr) {
+        return;
+    }
+
+    const std::string css =
+        "* { font-family: \"" + std::string(typography->ui_family) +
+        "\"; font-weight: " +
+        std::to_string(
+            static_cast<unsigned int>(typography->ui_regular_weight)) +
+        "; }"
+        "headerbar .title { font-family: \"" +
+        std::string(typography->brand_family) +
+        "\"; font-weight: " +
+        std::to_string(
+            static_cast<unsigned int>(typography->brand_weight)) +
+        "; }";
+
+    GtkCssProvider* provider = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(
+        provider, css.c_str(), static_cast<gssize>(css.size()), nullptr);
+    gtk_style_context_add_provider_for_screen(
+        screen,
+        GTK_STYLE_PROVIDER(provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 50U);
+    g_object_unref(provider);
+}
+
 void activate(GtkApplication* application, gpointer user_data)
 {
     auto* state = static_cast<AppState*>(user_data);
@@ -584,6 +617,8 @@ void activate(GtkApplication* application, gpointer user_data)
         gtk_window_present(GTK_WINDOW(state->window));
         return;
     }
+
+    apply_publisher_typography();
 
     const InfiltratrDesignMetrics* metrics = infiltratr_design_metrics();
     const gint padding =
