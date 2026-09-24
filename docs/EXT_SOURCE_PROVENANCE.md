@@ -76,17 +76,53 @@ The directory, allocator, inode lifecycle/mapping, mount/superblock, extended
 metadata and Linux private-model replacements have now crossed the
 implementation-ownership boundary.
 
-## EXT3 migration state
+## Project-authored EXT3 units
 
-EXT3 now has a project-authored canonical core for feature compatibility policy:
+EXT3 has crossed the ownership boundary for the following active units:
 
 - `native/filesystems/ext3/core/ext3_core.c`
 - `native/filesystems/ext3/core/ext3_core.h`
+- `native/filesystems/ext3/linux/canonical.c`
+- `native/filesystems/ext3/linux/balloc.c`
+- `native/filesystems/ext3/linux/dir.c`
+- `native/filesystems/ext3/linux/file.c`
+- `native/filesystems/ext3/linux/ialloc.c`
+- `native/filesystems/ext3/linux/resize.c`
+- `native/filesystems/ext3/linux/jbd_checkpoint.c`
+- `native/filesystems/ext3/linux/jbd_commit.c`
+- `native/filesystems/ext3/linux/jbd_recovery.c`
+- `native/filesystems/ext3/linux/jbd_revoke.c`
 
-The Linux wrapper links that exact core through `linux/canonical.c`. The rest of
-the active EXT3 `linux/` tree remains migration-era implementation and must be
-replaced subsystem by subsystem while preserving the one-`ext3.ko` architecture
-and EXT3-only semantics.
+The checkpoint engine was replaced again in September 2026 around the project's
+own transaction-ring, batching, I/O-retirement and journal-tail invariants.  Its
+ownership classification is based on the replacement implementation, not on
+comment removal or symbol renaming.
+
+For the other units above, the forensic migration review found that their
+current implementations had already diverged substantially from the historical
+Linux EXT3/JBD bodies and no longer retained third-party author blocks.  They
+are therefore recorded here instead of being incorrectly described as
+migration-era source.
+
+## EXT3 migration state
+
+The following active EXT3 Linux units still retain material inherited
+implementation and remain explicitly outside the project-authored set:
+
+- `native/filesystems/ext3/linux/inode.c`
+- `native/filesystems/ext3/linux/namei.c`
+- `native/filesystems/ext3/linux/super.c`
+- `native/filesystems/ext3/linux/xattr.c`
+- `native/filesystems/ext3/linux/jbd_journal.c`
+- `native/filesystems/ext3/linux/jbd_transaction.c`
+
+Their historical attribution must remain intact until each implementation body
+is actually replaced.  CI intentionally treats removal of that provenance
+before replacement as a failure.
+
+EXT3 remains a single `ext3.ko`.  The rewrite continues subsystem by subsystem,
+moving format semantics into the canonical core and keeping only Linux VFS,
+block-device and kernel-lifetime policy in the Linux adapter.
 
 ## EXT4 migration state
 
