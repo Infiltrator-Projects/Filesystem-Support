@@ -787,7 +787,6 @@ static void __exit ifs_ofs_exit_fs(void)
 }
 
 MODULE_DESCRIPTION(IFS_OFS_MODULE_DESCRIPTION);
-MODULE_LICENSE("GPL");
 
 module_init(ifs_ofs_init_fs)
 module_exit(ifs_ofs_exit_fs)
