@@ -30,7 +30,7 @@ struct fname {
 };
 
 static unsigned char ifs_ext3_dtype(
-	const struct super_block *sb, const unsigned int file_type)
+	struct super_block *sb, const unsigned int file_type)
 {
 	if (!EXT3_HAS_INCOMPAT_FEATURE(
 		    sb, EXT3_FEATURE_INCOMPAT_FILETYPE) ||
@@ -40,9 +40,9 @@ static unsigned char ifs_ext3_dtype(
 	return ifs_ext3_file_types[file_type];
 }
 
-static bool ifs_ext3_indexed_directory(const struct inode *inode)
+static bool ifs_ext3_indexed_directory(struct inode *inode)
 {
-	const struct super_block *sb = inode->i_sb;
+	struct super_block *sb = inode->i_sb;
 
 	if (!EXT3_HAS_COMPAT_FEATURE(
 		    sb, EXT3_FEATURE_COMPAT_DIR_INDEX))
@@ -339,21 +339,21 @@ int ext3_htree_store_dirent(
 
 	link = &state->root.rb_node;
 	while (*link) {
-		struct fname *current;
+		struct fname *cursor;
 
 		parent = *link;
-		current = rb_entry(parent, struct fname, node);
+		cursor = rb_entry(parent, struct fname, node);
 
-		if (hash == current->hash &&
-		    minor_hash == current->minor_hash) {
-			entry->collision = current->collision;
-			current->collision = entry;
+		if (hash == cursor->hash &&
+		    minor_hash == cursor->minor_hash) {
+			entry->collision = cursor->collision;
+			cursor->collision = entry;
 			return 0;
 		}
 
-		if (hash < current->hash ||
-		    (hash == current->hash &&
-		     minor_hash < current->minor_hash))
+		if (hash < cursor->hash ||
+		    (hash == cursor->hash &&
+		     minor_hash < cursor->minor_hash))
 			link = &parent->rb_left;
 		else
 			link = &parent->rb_right;
