@@ -1,5 +1,5 @@
 #include <linux/types.h>
-#include <linux/byteorder/generic.h>
+#include <asm/byteorder.h>
 #include "bitfuncs.h"
 
 static int sfs_bitmap_find(
