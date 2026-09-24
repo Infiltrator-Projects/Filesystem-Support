@@ -1129,12 +1129,22 @@ int asfs_renameobject(
     size_t old_name_length;
     int result;
 
-    old_name_length =
-        strnlen(
-            (const char *)source->name,
-            ASFS_MAXFN + 1U);
-    if (old_name_length > ASFS_MAXFN)
-        return -EUCLEAN;
+    {
+        const u8 *const block_start = (const u8 *)source_bh->b_data;
+        const u8 *const block_end = block_start + sb->s_blocksize;
+        const u8 *const name_start = (const u8 *)source->name;
+        size_t available;
+        size_t limit;
+
+        if (name_start < block_start || name_start >= block_end)
+            return -EUCLEAN;
+
+        available = (size_t)(block_end - name_start);
+        limit = min_t(size_t, available, ASFS_MAXFN + 1U);
+        old_name_length = strnlen((const char *)name_start, limit);
+        if (old_name_length == limit || old_name_length > ASFS_MAXFN)
+            return -EUCLEAN;
+    }
 
     memcpy(
         old_name, source->name,
