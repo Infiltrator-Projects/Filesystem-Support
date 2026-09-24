@@ -95,7 +95,6 @@ static void ext2_account_inode_release(
 void ext2_free_inode(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
-	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	struct buffer_head *bitmap_bh;
 	unsigned int group;
 	unsigned int bit;
@@ -406,7 +405,6 @@ static int ext2_claim_inode_bit(
 static void ext2_unclaim_inode_bit(
 	struct super_block *sb, unsigned int group, unsigned int bit)
 {
-	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	struct buffer_head *bitmap_bh =
 		ext2_read_inode_bitmap(sb, group);
 
