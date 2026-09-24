@@ -141,6 +141,8 @@ jobs:
             native/filesystems/ext4/linux/ext4_jbd2.h
             native/filesystems/ext4/linux/mballoc.h
             native/filesystems/ext4/linux/extents_status.h
+            native/filesystems/ext4/linux/ext4_extents.h
+            native/filesystems/ext4/linux/xattr.h
           )
           for file in "${rewritten[@]}"; do
             test -s "$file"
