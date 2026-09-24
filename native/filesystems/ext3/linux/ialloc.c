@@ -66,7 +66,7 @@ static int ifs_ext3_group_is_usable(
 }
 
 static int ifs_ext3_choose_directory_group(
-	struct super_block *sb, const struct inode *parent)
+	struct super_block *sb, struct inode *parent)
 {
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
 	const unsigned int groups = sbi->s_groups_count;
@@ -125,7 +125,7 @@ static int ifs_ext3_choose_directory_group(
 }
 
 static int ifs_ext3_choose_file_group(
-	struct super_block *sb, const struct inode *parent)
+	struct super_block *sb, struct inode *parent)
 {
 	const unsigned int groups = EXT3_SB(sb)->s_groups_count;
 	const unsigned int parent_group = EXT3_I(parent)->i_block_group;
@@ -199,7 +199,6 @@ static int ifs_ext3_change_inode_bit(
 	handle_t *handle, struct super_block *sb,
 	unsigned int group, unsigned int bit, bool allocate)
 {
-	struct ext3_sb_info *sbi = EXT3_SB(sb);
 	struct buffer_head *bitmap;
 	int changed;
 	int error;
@@ -214,10 +213,10 @@ static int ifs_ext3_change_inode_bit(
 
 	if (allocate)
 		changed = !ext3_set_bit_atomic(
-			sb_bgl_lock(sbi, group), bit, bitmap->b_data);
+			sb_bgl_lock(EXT3_SB(sb), group), bit, bitmap->b_data);
 	else
 		changed = ext3_clear_bit_atomic(
-			sb_bgl_lock(sbi, group), bit, bitmap->b_data);
+			sb_bgl_lock(EXT3_SB(sb), group), bit, bitmap->b_data);
 
 	if (!changed) {
 		error = allocate ? -EAGAIN : -EUCLEAN;
