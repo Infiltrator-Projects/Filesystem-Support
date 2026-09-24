@@ -273,7 +273,7 @@ static void ifs_ext3_pack_hash_words(
 
     for (word_index = 0U; word_index < limit; ++word_index) {
         const unsigned int target = word_index / 4U;
-        const int byte_value = signed_bytes != 0 && name[word_index] >= 0x80U
+        const int byte_value = signed_bytes != 0 && (int)name[word_index] >= 0x80
             ? (int)name[word_index] - 256
             : (int)name[word_index];
 
@@ -294,7 +294,7 @@ static ifs_ext3_u32 ifs_ext3_legacy_hash(
     ifs_ext3_u32 index;
 
     for (index = 0U; index < length; ++index) {
-        const int byte_value = signed_bytes != 0 && name[index] >= 0x80U
+        const int byte_value = signed_bytes != 0 && (int)name[index] >= 0x80
             ? (int)name[index] - 256
             : (int)name[index];
         ifs_ext3_u32 next =
