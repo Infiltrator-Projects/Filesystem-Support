@@ -119,8 +119,8 @@ void __log_wait_for_space(journal_t *journal)
 				log_wait_commit(journal, commit_tid);
 			} else {
 				pr_err(
-					"JBD: %s needs %d blocks but only %d remain\n",
-					journal->j_devname,
+					"JBD: %pg needs %d blocks but only %d remain\n",
+					journal->j_dev,
 					required, available);
 				journal_abort(journal, -ENOSPC);
 			}
@@ -345,8 +345,8 @@ int cleanup_journal_tail(journal_t *journal)
 
 	if (!block) {
 		spin_unlock(&journal->j_state_lock);
-		journal_abort(journal, -EFSCORRUPTED);
-		return -EFSCORRUPTED;
+		journal_abort(journal, -EUCLEAN);
+		return -EUCLEAN;
 	}
 
 	if (journal->j_tail_sequence == first_tid) {
@@ -398,7 +398,7 @@ static int ifs_ext3_clean_checkpoint_ring(
 	struct journal_head *first, int *transaction_released)
 {
 	struct journal_head *last;
-	struct journal_head *current;
+	struct journal_head *cursor;
 	int cleaned = 0;
 
 	*transaction_released = 0;
@@ -406,11 +406,11 @@ static int ifs_ext3_clean_checkpoint_ring(
 		return 0;
 
 	last = first->b_cpprev;
-	current = first;
+	cursor = first;
 	for (;;) {
-		struct journal_head *next = current->b_cpnext;
+		struct journal_head *next = cursor->b_cpnext;
 		int result =
-			ifs_ext3_try_remove_checkpoint(current);
+			ifs_ext3_try_remove_checkpoint(cursor);
 
 		if (result) {
 			cleaned++;
@@ -420,9 +420,9 @@ static int ifs_ext3_clean_checkpoint_ring(
 			}
 		}
 
-		if (current == last || need_resched())
+		if (cursor == last || need_resched())
 			break;
-		current = next;
+		cursor = next;
 	}
 
 	return cleaned;
