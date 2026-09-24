@@ -48,7 +48,7 @@ static void ifs_ext2_account_free(struct inode *inode)
 		inode->i_blocks = 0;
 }
 
-static bool ifs_ext2_fast_symlink(const struct inode *inode)
+static bool ifs_ext2_fast_symlink(struct inode *inode)
 {
 	const unsigned long ea_sectors = EXT2_I(inode)->i_file_acl ?
 		ifs_ext2_sectors_per_block(inode) : 0;
@@ -134,7 +134,7 @@ static int ifs_ext2_map_one(
 	unsigned int new_count = 0;
 	__le32 *slot;
 	struct buffer_head *slot_owner = NULL;
-	ext2_fsblk_t current = 0;
+	ext2_fsblk_t mapped_block = 0;
 	ext2_fsblk_t goal;
 	unsigned int level;
 	int error = 0;
@@ -158,33 +158,33 @@ static int ifs_ext2_map_one(
 	for (level = 0; level < path.depth; ++level) {
 		const bool leaf = level + 1U == path.depth;
 
-		current = le32_to_cpu(*slot);
-		if (current == 0) {
+		mapped_block = le32_to_cpu(*slot);
+		if (mapped_block == 0) {
 			struct buffer_head *new_meta = NULL;
 
 			if (!create)
 				goto out;
 
-			error = ifs_ext2_allocate_block(inode, goal, &current);
+			error = ifs_ext2_allocate_block(inode, goal, &mapped_block);
 			if (error)
 				goto rollback;
-			goal = current + 1;
+			goal = mapped_block + 1;
 
 			if (!leaf) {
 				error = ifs_ext2_zero_metadata_block(
-					inode, current, &new_meta);
+					inode, mapped_block, &new_meta);
 				if (error) {
-					ifs_ext2_release_block(inode, current);
+					ifs_ext2_release_block(inode, mapped_block);
 					goto rollback;
 				}
 			}
 
-			*slot = cpu_to_le32(current);
+			*slot = cpu_to_le32(mapped_block);
 			ifs_ext2_mark_pointer_owner(inode, slot_owner);
 
 			new_links[new_count].slot = slot;
 			new_links[new_count].owner = slot_owner;
-			new_links[new_count].block = current;
+			new_links[new_count].block = mapped_block;
 			new_count++;
 
 			if (leaf) {
@@ -193,20 +193,20 @@ static int ifs_ext2_map_one(
 				levels[level] = new_meta;
 			}
 		} else {
-			if (!ext2_data_block_valid(EXT2_SB(inode->i_sb), current, 1)) {
+			if (!ext2_data_block_valid(EXT2_SB(inode->i_sb), mapped_block, 1)) {
 				error = -EFSCORRUPTED;
 				goto rollback;
 			}
-			goal = current + 1;
+			goal = mapped_block + 1;
 		}
 
 		if (leaf) {
-			*physical = current;
+			*physical = mapped_block;
 			goto out;
 		}
 
 		if (!levels[level]) {
-			levels[level] = sb_bread(inode->i_sb, current);
+			levels[level] = sb_bread(inode->i_sb, mapped_block);
 			if (!levels[level]) {
 				error = -EIO;
 				goto rollback;
