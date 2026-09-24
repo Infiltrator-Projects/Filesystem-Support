@@ -141,6 +141,56 @@ windows/
 
 There is no shared `amiga_common` implementation layer. OFS owns its own format semantics even when an FFS rule happens to be numerically identical.
 
+## Forensic completion notes against AmigaOS filesystem documentation
+
+### Boot blocks and partition environment
+
+Classic AmigaDOS volumes reserve initial blocks for boot information. The first boot block carries the DOS type identifying the filesystem variant and, when bootable, boot code/checksum state.
+
+For hard-disk partitions the RDB partition environment supplies geometry and filesystem selection. `DOS\0` identifies classic OFS, with related DOS types selecting international and directory-cache variants.
+
+### Root-block structure
+
+For the classic 512-byte layout the root block is a TYPE_SHORT metadata block whose checksum is chosen so the sum of all 32-bit words in the block is zero. Important fields include:
+
+- own key and sequence fields, zero for the root;
+- hash-table size;
+- checksum;
+- directory hash table (72 entries in the 512-byte classic layout);
+- bitmap-valid flag;
+- 25 direct bitmap-block keys;
+- bitmap-extension pointer;
+- directory/root modification timestamp;
+- volume name stored as a BCPL string, with the classic volume-name limit of 30 characters;
+- disk modification and creation timestamps;
+- secondary type `ST_ROOT`.
+
+A zero bitmap-valid flag means the allocation bitmap cannot be trusted and validation/rebuild is required before normal writable use.
+
+### User-directory and file header blocks
+
+A directory/file header is also a TYPE_SHORT checksummed block. Directory metadata includes owner/group identity, protection bits, comment, timestamp, BCPL name, hash-chain link, parent and secondary type.
+
+Classic comments use a length-prefixed field with an effective AmigaDOS comment limit of 79 characters.
+
+### Hash chains
+
+A classic 512-byte directory/root has 72 hash buckets. Each bucket points to the first object block and collisions continue through each object's hash-chain field. The object block itself is authoritative; directory-cache variants add a compact cache but do not replace the object/header chain.
+
+### Bitmap validity and extensions
+
+The root directly names a limited set of bitmap blocks. Larger volumes continue that list through bitmap-extension blocks. The bitmap and its validity flag are filesystem consistency state, not merely a cache.
+
+Historical OFS implementations also have size limitations tied to old handling of root fields; Filesystem Support should model the on-disk fields correctly and treat historical implementation limits separately from format decoding.
+
+### Directory-cache OFS
+
+The DOS\4 directory-cache variant adds directory-list blocks linked from root/user-directory metadata. These blocks contain compact directory-entry summaries and their own checksums. They must remain consistent with the authoritative object blocks; if not, validation/rebuild is required.
+
+### OFS data-block distinction
+
+The structured OFS data block described earlier is the defining OFS/FFS split: OFS stores type, owner key, sequence, payload size, next pointer and checksum in every file data block. A valid OFS reader can therefore cross-check file ownership/sequence through the data chain instead of treating the entire block as payload.
+
 ## Design rules used by Filesystem Support
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.

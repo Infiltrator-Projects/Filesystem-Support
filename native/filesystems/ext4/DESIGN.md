@@ -203,6 +203,131 @@ Headers in the Linux adapter define the EXT4/JBD2 private contracts, but the lon
 
 The permanent translation-unit layout is project-owned. Some large EXT4 implementation bodies remain in migration/rewrite state and retain their historical provenance until independently replaced. Source recutting does not by itself change that classification.
 
+## Forensic completion notes against the kernel EXT4 on-disk documentation
+
+### Byte order
+
+EXT4 filesystem structures are little-endian. JBD2 journal structures are big-endian. Checksums are computed over the byte representation defined by the format, not host-native structure values.
+
+### Compatible feature classes omitted by a simple incompat list
+
+A full feature audit must consider all three superblock feature words.
+
+Important compatible features include historical/preallocation flags, HAS_JOURNAL, EXT_ATTR, RESIZE_INODE, DIR_INDEX, SPARSE_SUPER2, FAST_COMMIT and ORPHAN_FILE.
+
+Important incompatible states also include JOURNAL_DEV and legacy/unsupported feature identifiers in addition to FILETYPE, RECOVER, META_BG, EXTENTS, 64BIT, MMP, FLEX_BG, EA_INODE, CSUM_SEED, LARGEDIR, INLINE_DATA, ENCRYPT and CASEFOLD.
+
+Read-only-compatible state includes the fields already described plus flags such as filesystem-wide read-only images and historical snapshot/replica identifiers. Unknown incompatible features prohibit mounting; unknown read-only-compatible features prohibit a writable mount.
+
+### Block-group descriptor contents
+
+Depending on descriptor size and 64-bit mode, a group descriptor can contain:
+
+- block/cluster bitmap address;
+- inode bitmap address;
+- inode table address;
+- free block/cluster count;
+- free inode count;
+- used-directory count;
+- descriptor flags;
+- exclude-bitmap reference;
+- block-bitmap checksum;
+- inode-bitmap checksum;
+- count of unused inode-table entries;
+- group descriptor checksum;
+- high halves of addresses/counts/checksums when 64BIT is active.
+
+Lazy-initialisation state is carried by group flags such as block-bitmap uninitialised, inode-bitmap uninitialised and inode-table zeroed. Those flags alter whether bitmap/table contents are immediately authoritative and must be handled before trusting uninitialised metadata.
+
+### Special inodes
+
+The traditional reserved inode map includes:
+
+- inode 1 — bad blocks;
+- inode 2 — root;
+- inode 3 — user quota;
+- inode 4 — group quota;
+- inode 5 — boot loader;
+- inode 6 — undelete;
+- inode 7 — resize/reserved group descriptors;
+- inode 8 — journal;
+- inode 11 — traditional first ordinary inode.
+
+Modern superblock fields can additionally point to lost+found, project-quota and orphan-file inodes.
+
+### Extended inode fields
+
+When inode size exceeds the original 128-byte EXT inode, the extended area can include:
+
+- extra inode-size field;
+- high checksum bits;
+- nanosecond/epoch-extension bits for ctime, mtime and atime;
+- creation time and sub-second creation time;
+- high version bits;
+- project ID.
+
+The inode checksum covers filesystem checksum identity/seed, inode number, generation and inode bytes according to the active checksum scheme.
+
+### Directory block integrity
+
+Classic directory entries use inode, record length, name length, file type and name. Encrypted+casefolded directories can append hash/minor-hash data to the entry.
+
+With metadata checksums, a linear directory leaf ends with a synthetic directory-entry tail carrying the block checksum. HTree index blocks use their own checksum tail. Both checksum forms incorporate filesystem checksum identity plus directory inode/generation and the appropriate block contents.
+
+### HTree structure
+
+An indexed directory has a root index followed by index nodes and leaf directory blocks. Index entries map a name hash to a logical directory block. Hash ordering, entry count/limit and child block references are structural invariants; the tree is not a generic filesystem-block B-tree.
+
+### Metadata checksum coverage
+
+EXT4 checksums protect multiple metadata classes, including:
+
+- superblock;
+- group descriptors;
+- block/cluster and inode bitmaps;
+- inodes;
+- extent blocks;
+- directory leaves and HTree nodes;
+- xattr blocks;
+- MMP block.
+
+The checksum ingredients differ per structure; a single generic "checksum this block" rule is insufficient.
+
+### JBD2 details
+
+The JBD2 journal common header is 12 bytes and uses magic `0xC03B3998`, block type and transaction sequence. The journal superblock records block size, journal length, first log block, sequence, log start, error state, feature words, UUID and checksum-related state.
+
+JBD2 supports external journals. With an external journal the filesystem superblock identifies it by UUID/device rather than journal inode alone.
+
+Descriptor tag layouts vary with 64BIT and checksum-v2/v3 features. Revoke block-number width likewise depends on 64BIT. Commit blocks can carry checksum type/value and commit time.
+
+### Fast-commit record model
+
+Fast-commit space is a TLV log. Important tag classes include:
+
+- HEAD;
+- ADD_RANGE;
+- DEL_RANGE;
+- CREAT;
+- LINK;
+- UNLINK;
+- PAD;
+- TAIL.
+
+Replay is designed around idempotent resulting state rather than blindly repeating the original high-level operation. A traditional full JBD2 commit invalidates earlier fast commits.
+
+### Orphan file
+
+Traditional EXT orphan tracking uses a linked list. With ORPHAN_FILE, the superblock references a dedicated inode whose blocks contain arrays of orphan inode numbers followed by a tail magic and checksum. While valid entries may exist, ORPHAN_PRESENT is set so mount recovery knows it must process the orphan file.
+
+### Atomic block writes
+
+Modern Linux EXT4 also supports hardware-backed untorn direct-I/O writes when the device supplies atomic-write capability. Single-filesystem-block atomic writes require an appropriate filesystem block size; multi-block atomic writes use BIGALLOC cluster alignment. This is a host capability layered on EXT4 extent allocation, not a software copy-on-write transaction feature.
+
+### Format versus current Filesystem Support implementation
+
+This document now describes the format surface more broadly than the code currently implements. Feature recognition in `ext4_core.h` must therefore be audited separately from feature completeness. A bit being known to the format documentation must not cause the driver to advertise safe read-write support until the corresponding validation, mutation and recovery paths have been qualified.
+
 ## Design rules used by Filesystem Support
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.

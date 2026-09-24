@@ -105,6 +105,51 @@ windows/
 
 The canonical core is already independent from SFS. Future adapters must compile and call this core rather than creating a second SFS2 implementation.
 
+## Forensic completion notes against current SFS2 product documentation
+
+### SFS2 is not simply "SFS with a larger integer"
+
+The current SFS distribution and AmigaOS documentation identify SFS\2 (`0x53465302`) as the large-file/large-volume format. It is not compatible with an SFS\0 volume merely by toggling a mount option.
+
+The user-visible compatibility baseline is:
+
+- filename limit: 107 characters;
+- recommended block size: 512 bytes, although other block sizes are supported by the handler;
+- nominal partition limit: 1 TiB at 512-byte blocks, scaling with block size in the distributed handler (documentation gives up to 64 TiB at 32 KiB blocks);
+- official AmigaOS table file-size limit: 1 TiB;
+- bootable support in the AmigaOS SFS handler;
+- no recovery tools in the AmigaOS table for SFS2.
+
+### Encoded width versus supported limit
+
+The current Filesystem Support core models the SFS2 file-size field as 48 bits (`high_32 + low_16`) and therefore has a much larger numerical encoding ceiling than 1 TiB.
+
+That 48-bit encoding ceiling is not the same thing as the officially supported SFS2 file-size limit. The design document must preserve both facts:
+
+1. the field representation decoded by the core;
+2. the supported/qualified filesystem limit.
+
+The writer must not advertise the full 48-bit numerical range until authoritative format evidence and cross-implementation tests show that values above the published limit are valid.
+
+### Root and root-info structures
+
+The canonical root/root-info records already documented are the minimum low-level structures known to the current core. A complete SFS2 implementation must additionally document the SFS2 versions of:
+
+- object containers and object records;
+- hash tables;
+- node containers/object-node mapping;
+- extent B-tree nodes;
+- bitmap blocks;
+- admin-space containers;
+- soft-link representation;
+- transaction/recovery publication rules.
+
+Until those structures are independently validated against real SFS\2 media and the shipping handler, this document is complete as an audit of the current canonical model but not yet a complete writer specification.
+
+### Compatibility warning
+
+Historical "SFS2" implementations existed before the large-file SFS\2 format used by later SFS releases. Contemporary SFS release notes explicitly warned that the newer SFS\2 format was not compatible with older SFS2 variants. Qualification fixtures must therefore record the producing implementation/version and not assume every volume labelled "SFS2" shares one disk format.
+
 ## Design rules used by Filesystem Support
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.

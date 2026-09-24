@@ -163,6 +163,64 @@ windows/
 
 The former ASFS file boundaries are not permanent project interfaces.
 
+## Forensic completion notes against the current Smart File System distribution
+
+### Published SFS0 limits
+
+The current SFS distribution documents the SFS\0 format with these user-visible limits/capabilities:
+
+- filesystem block sizes from 512 through 32768 bytes, with 512 recommended for performance;
+- file and directory names up to 107 characters;
+- volume names up to 30 characters;
+- comments up to 79 characters;
+- file size approximately 4 GiB (official AmigaOS tables state 4 GiB minus 2 bytes);
+- SFS\0 partition size up to 128 GiB;
+- 64-bit device access through NSD/TD64 for partitions that cross the classic 4 GiB device boundary;
+- soft links;
+- configurable case-sensitive or case-insensitive naming;
+- transparent online defragmentation/optimisation;
+- a recycled/deleted-files directory;
+- no hard-link support in the distributed implementation.
+
+The current canonical constant `IFS_SFS_MAX_FILENAME` is 105. That is an implementation discrepancy against the distributed format documentation's 107-character limit and must not be presented as the filesystem's true limit.
+
+### Root placement and redundancy
+
+The format has two root copies, one near the start and one near the end of the filesystem. They carry equivalent structural information and are selected by validity plus sequence number. The root records partition byte bounds as 64-bit high/low halves, which allows the implementation to detect moved/resized partition boundaries independently of block count.
+
+### Root option bits
+
+Important root behaviour bits include case sensitivity, read-only state and volume-name case behaviour in addition to structural version/sequence data. These bits affect namespace semantics and must be preserved across rewrites.
+
+### Metadata block classes
+
+A complete SFS structure inventory includes the block classes already named in this document plus:
+
+- hash-table blocks for directory lookup;
+- soft-link blocks;
+- transaction-failure blocks;
+- root-information state associated with allocation/deletion counters.
+
+Each structured metadata block carries ID, checksum and self block number.
+
+### Object types
+
+Object bits distinguish at least directory, link/hardlink-related state and hidden objects. The distributed filesystem currently advertises soft links while hard-link operations are not implemented; on-disk type values must therefore be parsed independently from whether mutation support is exposed.
+
+### Safe-write behaviour
+
+The distributed filesystem explicitly claims crash-safe metadata modification: after reset/crash/power loss the volume should not require the long validation process associated with classic FFS, and at worst the newest modifications may be lost.
+
+That behavioural guarantee means the transaction/cache write ordering is part of SFS format correctness. The presence of a transaction-failure block ID alone is not a complete recovery model; Filesystem Support must document and qualify the exact commit/publication protocol as the canonical writer is implemented.
+
+### Recycled/deleted files
+
+Current SFS distribution documentation describes a special directory containing up to 350 recently deleted files. This is format-visible behaviour and belongs in the complete filesystem feature description even if the current Linux migration code does not yet expose all management operations.
+
+### Read-ahead and optimiser
+
+Read-ahead caching and transparent defragmentation are implementation features rather than fundamental on-disk structures, but they are part of the expected SFS feature surface and should be tracked in feature-completeness tests.
+
 ## Design rules used by Filesystem Support
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.

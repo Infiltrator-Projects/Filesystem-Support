@@ -161,6 +161,71 @@ windows/
 
 The same canonical engine is intended to serve both operating systems.
 
+## Forensic completion notes against the kernel EXT2 specification
+
+### Byte order and block-size distinction
+
+EXT2 metadata is little-endian on disk.
+
+The historical Linux EXT2 documentation describes normal filesystem block sizes of 1024, 2048 and 4096 bytes, with 8192-byte support on Alpha systems. The current Filesystem Support canonical validator accepts geometry up to 65536 bytes because the EXT-family structures can be represented at that size, but that implementation acceptance range must not be confused with the historical Linux EXT2 compatibility guarantee. Media above the documented historical range requires explicit interoperability qualification before it is advertised as EXT2-compatible.
+
+Each block bitmap occupies one filesystem block and therefore describes at most `block_size * 8` blocks. The same one-block rule applies to the inode bitmap, which bounds the number of inodes represented by one group.
+
+### Superblock state beyond basic geometry
+
+A complete EXT2 superblock description also includes:
+
+- mount time and last write time;
+- current mount count and maximum mount count;
+- filesystem state flags (clean/error state);
+- error-handling policy;
+- revision level;
+- creator operating-system field;
+- UUID and volume label;
+- last mounted path;
+- reserved-block policy and default uid/gid;
+- feature masks and algorithm/usage fields added by dynamic revision.
+
+Revision 0 uses the original fixed inode geometry. Dynamic revision adds variable inode size, first non-reserved inode and feature negotiation.
+
+### Backup superblocks
+
+Without sparse-super, backup superblocks and group descriptor copies occur in every block group. With sparse-super they occur in groups 0 and 1 and groups whose numbers are powers of 3, 5 or 7.
+
+### Reserved and special inodes
+
+The traditional reserved range begins with inode 1. Important conventional inode numbers include:
+
+- 1 — bad-block inode;
+- 2 — root directory;
+- 5 — boot-loader inode;
+- 6 — undelete directory;
+- 11 — traditional first non-reserved inode for revision 0.
+
+Dynamic revision can store a different `s_first_ino`.
+
+### Inode details and format-reserved capabilities
+
+The inode format includes mode/type, uid/gid, low/high file size fields, atime/ctime/mtime/dtime, link count, 512-byte-sector count, flags, generation, xattr/ACL location and the 15-entry block map.
+
+The format also reserves or historically defined fields/flags for fragments, secure deletion, undelete, compression, synchronous updates, immutable/append-only files, no-atime, directory indexing and per-inode journalling hints. A format field existing does not mean Filesystem Support implements the corresponding behaviour.
+
+The 60-byte `i_block` area can also contain a short ("fast") symbolic-link payload instead of block pointers when the symlink is small enough.
+
+### Directory entry details
+
+Classic directory entries contain inode, record length, name length and name. When FILETYPE is enabled the high byte formerly used by the 16-bit name length is reused as a file-type code. Standard codes cover unknown, regular file, directory, character device, block device, FIFO, socket and symbolic link.
+
+The format name limit is 255 bytes. Empty space inside a directory block is represented by record-length slack or entries whose inode number is zero; records must still remain correctly aligned and contained inside one filesystem block.
+
+### Allocation locality and free-space invariants
+
+The format groups inode table, inode bitmap and block bitmap with nearby data to improve locality. A valid group descriptor must not place these metadata structures outside the group, and bitmap bits for the metadata itself must be allocated. Superblock/global free counts are cached summaries and must agree with the bitmaps after a clean check.
+
+### What EXT2 deliberately does not provide
+
+EXT2 itself has no journal and therefore has no committed-transaction replay mechanism. Space exists in the broader format evolution for features such as journalling, compression, ACLs and other extensions, but a strict EXT2 mount must reject incompatible journal/recovery state rather than treating it as plain EXT2.
+
 ## Design rules used by Filesystem Support
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.
