@@ -107,20 +107,13 @@ void ext4_fc_init_inode(struct inode *inode)
 static void ext4_fc_wait_committing_inode(struct inode *inode)
 __releases(&EXT4_SB(inode->i_sb)->s_fc_lock)
 {
+	unsigned long *wait_word = ext4_inode_state_wait_word(inode);
+	const int wait_bit =
+		ext4_inode_state_wait_bit(EXT4_STATE_FC_COMMITTING);
 	wait_queue_head_t *wq;
-	struct ext4_inode_info *ei = EXT4_I(inode);
+	DEFINE_WAIT_BIT(wait, wait_word, wait_bit);
 
-#if (BITS_PER_LONG < 64)
-	DEFINE_WAIT_BIT(wait, &ei->i_state_flags,
-			EXT4_STATE_FC_COMMITTING);
-	wq = bit_waitqueue(&ei->i_state_flags,
-				EXT4_STATE_FC_COMMITTING);
-#else
-	DEFINE_WAIT_BIT(wait, &ei->i_flags,
-			EXT4_STATE_FC_COMMITTING);
-	wq = bit_waitqueue(&ei->i_flags,
-				EXT4_STATE_FC_COMMITTING);
-#endif
+	wq = bit_waitqueue(wait_word, wait_bit);
 	lockdep_assert_held(&EXT4_SB(inode->i_sb)->s_fc_lock);
 	prepare_to_wait(wq, &wait.wq_entry, TASK_UNINTERRUPTIBLE);
 	spin_unlock(&EXT4_SB(inode->i_sb)->s_fc_lock);
@@ -1376,11 +1369,9 @@ static void ext4_fc_cleanup(journal_t *journal, int full, tid_t tid)
 		}
 
 		smp_mb();
-#if (BITS_PER_LONG < 64)
-		wake_up_bit(&iter->i_state_flags, EXT4_STATE_FC_COMMITTING);
-#else
-		wake_up_bit(&iter->i_flags, EXT4_STATE_FC_COMMITTING);
-#endif
+		wake_up_bit(
+			ext4_inode_state_wait_word(&iter->vfs_inode),
+			ext4_inode_state_wait_bit(EXT4_STATE_FC_COMMITTING));
 	}
 
 	while (!list_empty(&sbi->s_fc_dentry_q[FC_Q_MAIN])) {
