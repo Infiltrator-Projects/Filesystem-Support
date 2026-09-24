@@ -96,37 +96,37 @@ bool ext4_es_scan_clu(
 	int (*matching_fn)(struct extent_status *),
 	ext4_lblk_t lblk);
 
-static inline unsigned int ext4_es_status(const struct extent_status *es)
+static inline unsigned int ext4_es_status(struct extent_status *es)
 {
 	return es->es_pblk >> ES_SHIFT;
 }
 
-static inline unsigned int ext4_es_type(const struct extent_status *es)
+static inline unsigned int ext4_es_type(struct extent_status *es)
 {
 	return ext4_es_status(es) & ES_TYPE_MASK;
 }
 
-static inline bool ext4_es_is_written(const struct extent_status *es)
+static inline int ext4_es_is_written(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_WRITTEN) != 0;
 }
 
-static inline bool ext4_es_is_unwritten(const struct extent_status *es)
+static inline int ext4_es_is_unwritten(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_UNWRITTEN) != 0;
 }
 
-static inline bool ext4_es_is_delayed(const struct extent_status *es)
+static inline int ext4_es_is_delayed(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_DELAYED) != 0;
 }
 
-static inline bool ext4_es_is_hole(const struct extent_status *es)
+static inline int ext4_es_is_hole(struct extent_status *es)
 {
 	return (ext4_es_type(es) & EXTENT_STATUS_HOLE) != 0;
 }
 
-static inline bool ext4_es_is_mapped(const struct extent_status *es)
+static inline int ext4_es_is_mapped(struct extent_status *es)
 {
 	return ext4_es_is_written(es) || ext4_es_is_unwritten(es);
 }
@@ -143,7 +143,7 @@ static inline void ext4_es_clear_referenced(struct extent_status *es)
 		~(((ext4_fsblk_t)EXTENT_STATUS_REFERENCED) << ES_SHIFT);
 }
 
-static inline bool ext4_es_is_referenced(const struct extent_status *es)
+static inline int ext4_es_is_referenced(struct extent_status *es)
 {
 	return (ext4_es_status(es) & EXTENT_STATUS_REFERENCED) != 0;
 }
@@ -154,7 +154,7 @@ static inline ext4_fsblk_t ext4_es_pblock(const struct extent_status *es)
 }
 
 static inline ext4_fsblk_t
-ext4_es_show_pblock(const struct extent_status *es)
+ext4_es_show_pblock(struct extent_status *es)
 {
 	const ext4_fsblk_t pblock = ext4_es_pblock(es);
 	return pblock == ~ES_MASK ? 0 : pblock;
