@@ -406,7 +406,7 @@ static int sfs_dehash_object(
     u32 hash_block;
     u16 hash;
     u16 chain;
-    u32 current;
+    u32 cursor_node;
     u32 replacement;
     u32 budget = ASFS_SB(sb)->totalblocks;
     int result;
@@ -444,13 +444,13 @@ static int sfs_dehash_object(
         (ASFS_SB(sb)->flags &
          ASFS_ROOTBITS_CASESENSITIVE) != 0);
     chain = HASHCHAIN(hash);
-    current =
+    cursor_node =
         be32_to_cpu(
             table->hashentry[chain]);
     replacement =
         be32_to_cpu(target->next);
 
-    if (current == object_node) {
+    if (cursor_node == object_node) {
         table->hashentry[chain] =
             cpu_to_be32(replacement);
         asfs_bstore(sb, hash_bh);
@@ -462,7 +462,7 @@ static int sfs_dehash_object(
     asfs_brelse(target_bh);
     target_bh = NULL;
 
-    while (current != 0U) {
+    while (cursor_node != 0U) {
         struct buffer_head *node_bh = NULL;
         struct fsObjectNode *node = NULL;
         u32 next;
@@ -473,7 +473,7 @@ static int sfs_dehash_object(
         }
 
         result = asfs_getnode(
-            sb, current,
+            sb, cursor_node,
             &node_bh, &node);
         if (result != 0)
             goto out;
@@ -489,7 +489,7 @@ static int sfs_dehash_object(
         }
 
         asfs_brelse(node_bh);
-        current = next;
+        cursor_node = next;
     }
 
     result = -EUCLEAN;
