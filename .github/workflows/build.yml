@@ -136,6 +136,7 @@ jobs:
             native/filesystems/ext4/linux/fsmap.c
             native/filesystems/ext4/linux/migrate.c
             native/filesystems/ext4/linux/move_extent.c
+            native/filesystems/ext4/linux/sysfs.c
           )
           for file in "${rewritten[@]}"; do
             test -s "$file"
