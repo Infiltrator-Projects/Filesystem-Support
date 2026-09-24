@@ -84,17 +84,30 @@ ext4_group_t ext4_get_group_number(struct super_block *sb,
 void ext4_get_group_no_and_offset(struct super_block *sb, ext4_fsblk_t blocknr,
 		ext4_group_t *blockgrpp, ext4_grpblk_t *offsetp)
 {
-	struct ext4_super_block *es = EXT4_SB(sb)->s_es;
-	ext4_grpblk_t offset;
+	const struct ext4_super_block *es = EXT4_SB(sb)->s_es;
+	ifs_ext4_u32 group = 0U;
+	ifs_ext4_u32 offset = 0U;
+	IfsExt4BlockGroupStatus status;
 
-	blocknr = blocknr - le32_to_cpu(es->s_first_data_block);
-	offset = do_div(blocknr, EXT4_BLOCKS_PER_GROUP(sb)) >>
-		EXT4_SB(sb)->s_cluster_bits;
+	status = ifs_ext4_block_group_position(
+		(ifs_ext4_u64)blocknr,
+		le32_to_cpu(es->s_first_data_block),
+		EXT4_BLOCKS_PER_GROUP(sb),
+		EXT4_SB(sb)->s_cluster_bits,
+		ext4_get_groups_count(sb),
+		&group, &offset);
+	if (WARN_ON_ONCE(status != IFS_EXT4_BLOCK_GROUP_OK)) {
+		if (blockgrpp)
+			*blockgrpp = 0;
+		if (offsetp)
+			*offsetp = 0;
+		return;
+	}
+
 	if (offsetp)
-		*offsetp = offset;
+		*offsetp = (ext4_grpblk_t)offset;
 	if (blockgrpp)
-		*blockgrpp = blocknr;
-
+		*blockgrpp = (ext4_group_t)group;
 }
 
 
