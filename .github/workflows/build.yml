@@ -444,6 +444,34 @@ jobs:
 
 
 
+  linux-amiga-v7-module-api:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Linux 7.0 build API
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
+          git clone --depth 1 --branch v7.0 https://github.com/torvalds/linux.git /tmp/linux-7.0
+          make -C /tmp/linux-7.0 defconfig
+          make -C /tmp/linux-7.0 modules_prepare
+
+      - name: Build Amiga native modules against Linux 7.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          for fs in ofs ffs sfs; do
+            make -C /tmp/linux-7.0 \
+              M="$PWD/native/filesystems/$fs/linux" \
+              KBUILD_MODPOST_WARN=1 modules 2>&1 | tee "/tmp/$fs-v7-build.log"
+            test -s "native/filesystems/$fs/linux/$fs.ko"
+            ! grep -Fq 'section mismatch' "/tmp/$fs-v7-build.log"
+          done
+
   linux-sfs-module:
     runs-on: ubuntu-24.04
     steps:
