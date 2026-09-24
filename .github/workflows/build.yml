@@ -60,6 +60,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -s native/filesystems/ext2/linux/inode.c
+          ! grep -Eiq 'SPDX-License-Identifier|Remy Card|Linus Torvalds|Stephen Tweedie|Al Viro|Jakub Jelinek' native/filesystems/ext2/linux/inode.c
           file=native/filesystems/ext2/linux/file.c
           grep -Fq 'Copyright (C) 2026 Shannon Smith' "$file"
           ! grep -Eiq 'linux/fs/ext2|Remy Card|Linus Torvalds|Stephen Tweedie|Red Hat' "$file"
