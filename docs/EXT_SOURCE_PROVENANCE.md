@@ -40,6 +40,8 @@ The following active EXT2 units are maintained as project-authored source:
 - `native/filesystems/ext2/linux/namei.c`
 - `native/filesystems/ext2/linux/ialloc.c`
 - `native/filesystems/ext2/linux/inode.c`
+- `native/filesystems/ext2/linux/xattr.c`
+- `native/filesystems/ext2/linux/super.c`
 - `native/filesystems/ext2/linux/Makefile`
 
 The regular-file, namespace, inode-allocation, directory, block-allocation and
@@ -47,13 +49,11 @@ Linux private-model units have been replaced with project-owned implementations.
 Their Linux code uses kernel interfaces as platform APIs but does not retain the
 previous implementation bodies or third-party author blocks.
 
-## EXT2 migration units still to replace
+## EXT2 migration state
 
-These active Linux-side units remain migration work and must retain any existing
-legal provenance until their implementation is genuinely replaced:
-
-- `super.c`
-- `xattr.c`
+The active EXT2 Linux implementation has crossed the project-ownership boundary.
+No active EXT2 Linux implementation unit remains classified as inherited
+migration source.
 
 Migration is tracked by implementation ownership rather than by file count.
 Several format rules formerly embedded in the inherited Linux units are already
@@ -72,9 +72,9 @@ Current EXT2 semantic extractions include:
 - absolute block to block-group/offset mapping used by allocator paths; and
 - sparse-superblock group placement and feature policy.
 
-The directory, allocator, inode lifecycle/mapping and Linux private-model replacements have now crossed
-the implementation-ownership boundary. The remaining EXT2 migration work is
-limited to mount/superblock handling and xattrs.
+The directory, allocator, inode lifecycle/mapping, mount/superblock, extended
+metadata and Linux private-model replacements have now crossed the
+implementation-ownership boundary.
 
 ## EXT3 migration state
 
