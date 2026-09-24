@@ -83,13 +83,13 @@ static ssize_t ext4_show_session_writes(struct ext4_sb_info *sbi, char *buf)
 static ssize_t ext4_show_lifetime_writes(struct ext4_sb_info *sbi, char *buf)
 {
 	struct super_block *sb = sbi->s_buddy_cache->i_sb;
-	const u64 current =
+	const u64 session_kbytes =
 		(part_stat_read(sb->s_bdev, sectors[STAT_WRITE]) -
 		 sbi->s_sectors_written_start) >> 1;
 
 	return sysfs_emit(
 		buf, "%llu\n",
-		(unsigned long long)(sbi->s_kbytes_written + current));
+		(unsigned long long)(sbi->s_kbytes_written + session_kbytes));
 }
 
 static ssize_t ext4_store_inode_readahead(struct ext4_sb_info *sbi,
@@ -146,38 +146,38 @@ static ssize_t ext4_show_journal_task(struct ext4_sb_info *sbi, char *buf)
 	return sysfs_emit(buf, "%d\n", task_pid_vnr(sbi->s_journal->j_task));
 }
 
-#define EXT4_ATTRIBUTE(name, mode, kind_value) \
-static struct ext4_attr ext4_attr_##name = { \
-	.attr = { .name = __stringify(name), .mode = mode }, \
+#define EXT4_ATTRIBUTE(attr_name, attr_mode, kind_value) \
+static struct ext4_attr ext4_attr_##attr_name = { \
+	.attr = { .name = __stringify(attr_name), .mode = attr_mode }, \
 	.kind = EXT4_ATTR_##kind_value, \
 }
 
-#define EXT4_ATTRIBUTE_OFFSET(name, mode, kind_value, source_value, type, member) \
-static struct ext4_attr ext4_attr_##name = { \
-	.attr = { .name = __stringify(name), .mode = mode }, \
+#define EXT4_ATTRIBUTE_OFFSET(attr_name, attr_mode, kind_value, source_value, type_name, member_name) \
+static struct ext4_attr ext4_attr_##attr_name = { \
+	.attr = { .name = __stringify(attr_name), .mode = attr_mode }, \
 	.kind = EXT4_ATTR_##kind_value, \
 	.source = EXT4_ATTR_##source_value, \
-	.target.offset = offsetof(struct type, member), \
+	.target.offset = offsetof(struct type_name, member_name), \
 }
 
-#define EXT4_ATTRIBUTE_STRING(name, mode, width, source_value, type, member) \
-static struct ext4_attr ext4_attr_##name = { \
-	.attr = { .name = __stringify(name), .mode = mode }, \
+#define EXT4_ATTRIBUTE_STRING(attr_name, attr_mode, width_value, source_value, type_name, member_name) \
+static struct ext4_attr ext4_attr_##attr_name = { \
+	.attr = { .name = __stringify(attr_name), .mode = attr_mode }, \
 	.kind = EXT4_ATTR_STRING, \
 	.source = EXT4_ATTR_##source_value, \
-	.size = width, \
-	.target.offset = offsetof(struct type, member), \
+	.size = width_value, \
+	.target.offset = offsetof(struct type_name, member_name), \
 }
 
-#define EXT4_ATTRIBUTE_PTR(name, mode, kind_value, pointer) \
-static struct ext4_attr ext4_attr_##name = { \
-	.attr = { .name = __stringify(name), .mode = mode }, \
+#define EXT4_ATTRIBUTE_PTR(attr_name, attr_mode, kind_value, pointer_value) \
+static struct ext4_attr ext4_attr_##attr_name = { \
+	.attr = { .name = __stringify(attr_name), .mode = attr_mode }, \
 	.kind = EXT4_ATTR_##kind_value, \
 	.source = EXT4_ATTR_EXPLICIT, \
-	.target.ptr = pointer, \
+	.target.ptr = pointer_value, \
 }
 
-#define EXT4_ATTR_ENTRY(name) (&ext4_attr_##name.attr)
+#define EXT4_ATTR_ENTRY(attr_name) (&ext4_attr_##attr_name.attr)
 
 EXT4_ATTRIBUTE(delayed_allocation_blocks, 0444, DIRTY_BLOCKS);
 EXT4_ATTRIBUTE(session_write_kbytes, 0444, SESSION_WRITES);
