@@ -599,7 +599,7 @@ void activate(GtkApplication* application, gpointer user_data)
     gtk_window_set_title(
         GTK_WINDOW(state->window), kProjectInfo.program_name);
     gtk_window_set_default_size(
-        GTK_WINDOW(state->window), 980, 720);
+        GTK_WINDOW(state->window), 1220, 780);
     gtk_window_set_icon_name(
         GTK_WINDOW(state->window), kProjectInfo.icon_name);
 
