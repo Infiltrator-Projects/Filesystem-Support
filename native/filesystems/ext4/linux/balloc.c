@@ -891,57 +891,16 @@ ext4_fsblk_t ext4_count_free_clusters(struct super_block *sb)
 }
 
 
-/**
- * test_root - Implements the test root operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int test_root(ext4_group_t a, int b)
-{
-	while (1) {
-		if (a < b)
-			return 0;
-		if (a == b)
-			return 1;
-		if ((a % b) != 0)
-			return 0;
-		a = a / b;
-	}
-}
-
-
-/**
- * ext4_bg_has_super - Implements the bg has super operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext4_bg_has_super(struct super_block *sb, ext4_group_t group)
 {
-	struct ext4_super_block *es = EXT4_SB(sb)->s_es;
+	const struct ext4_super_block *es = EXT4_SB(sb)->s_es;
 
-	if (group == 0)
-		return 1;
-	if (ext4_has_feature_sparse_super2(sb)) {
-		if (group == le32_to_cpu(es->s_backup_bgs[0]) ||
-		    group == le32_to_cpu(es->s_backup_bgs[1]))
-			return 1;
-		return 0;
-	}
-	if ((group <= 1) || !ext4_has_feature_sparse_super(sb))
-		return 1;
-	if (!(group & 1))
-		return 0;
-	if (test_root(group, 3) || (test_root(group, 5)) ||
-	    test_root(group, 7))
-		return 1;
-
-	return 0;
+	return ifs_ext4_group_has_super_ex(
+		ext4_has_feature_sparse_super(sb) ? 1 : 0,
+		ext4_has_feature_sparse_super2(sb) ? 1 : 0,
+		le32_to_cpu(es->s_backup_bgs[0]),
+		le32_to_cpu(es->s_backup_bgs[1]),
+		(ifs_ext4_u32)group);
 }
 
 
