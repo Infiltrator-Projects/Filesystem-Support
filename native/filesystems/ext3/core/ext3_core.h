@@ -8,15 +8,18 @@
 
 #if defined(__KERNEL__)
 #include <linux/types.h>
+typedef u8 ifs_ext3_u8;
 typedef u16 ifs_ext3_u16;
 typedef u32 ifs_ext3_u32;
 typedef u64 ifs_ext3_u64;
 #elif defined(IFS_EXT3_WINDOWS_KERNEL)
+typedef unsigned char ifs_ext3_u8;
 typedef unsigned short ifs_ext3_u16;
 typedef unsigned int ifs_ext3_u32;
 typedef unsigned long long ifs_ext3_u64;
 #else
 #include <stdint.h>
+typedef uint8_t ifs_ext3_u8;
 typedef uint16_t ifs_ext3_u16;
 typedef uint32_t ifs_ext3_u32;
 typedef uint64_t ifs_ext3_u64;
