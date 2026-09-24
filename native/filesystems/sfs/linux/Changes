@@ -98,8 +98,7 @@ v0.6 (04.09.2003) - final read-only version
 v0.5 (19.07.2003)
 - added simple but effective extent cache - real speed-up 
   in reading large files
-- added read support for symlinks - based on AFFS symlinks
-
+- added read support for symlinks
 v0.4 (10.07.2003)
 - third code clean-up (thanks to Roman Zippel for advice)
 - now uses generic readpage and readinode routines
