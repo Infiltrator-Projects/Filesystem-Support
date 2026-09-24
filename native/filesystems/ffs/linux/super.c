@@ -6,9 +6,6 @@
 #define IFS_FFS_INODE_CACHE_NAME "ffs_inode_cache"
 #define IFS_FFS_MODULE_DESCRIPTION "Amiga FFS filesystem support for Linux"
 #define IFS_FFS_IS_OFS 0
-#define IFS_FFS_VARIANT_DIRCACHE IFS_FFS_VARIANT_DIRCACHE
-#define IFS_FFS_VARIANT_MUFS IFS_FFS_VARIANT_MUFS
-#define IFS_FFS_VARIANT_INTL IFS_FFS_VARIANT_INTL
 
 static int ifs_ffs_variant_classify(u32 dostype, u32 *flags)
 {
@@ -20,9 +17,8 @@ static int ifs_ffs_variant_classify(u32 dostype, u32 *flags)
 }
 
 /*
- * Shared project-authored Linux superblock/lifecycle adapter for AmigaDOS
- * OFS and FFS. The including filesystem supplies its format classifier,
- * filesystem name and OFS/FFS identity.
+ * Project-authored Linux superblock/lifecycle adapter for Amiga FFS.
+ * Filesystem semantics remain owned by the FFS core.
  */
 
 #include <linux/module.h>
