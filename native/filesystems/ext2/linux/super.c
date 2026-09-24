@@ -1379,6 +1379,7 @@ static void __exit ext2_exit(void)
 MODULE_AUTHOR("Shannon Smith");
 MODULE_DESCRIPTION("Infiltrator Filesystem Support EXT2 driver");
 MODULE_ALIAS_FS("ext2");
+MODULE_LICENSE("Proprietary");
 
 module_init(ext2_init)
 module_exit(ext2_exit)
