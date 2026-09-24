@@ -126,23 +126,13 @@ jobs:
             native/filesystems/ext4/linux/truncate.h
             native/filesystems/ext4/linux/fsmap.h
             native/filesystems/ext4/linux/fast_commit.h
-            native/filesystems/ext4/linux/crypto.c
-            native/filesystems/ext4/linux/verity.c
-            native/filesystems/ext4/linux/block_validity.c
-            native/filesystems/ext4/linux/balloc.c
-            native/filesystems/ext4/linux/dir.c
-            native/filesystems/ext4/linux/mmp.c
-            native/filesystems/ext4/linux/ext4_jbd2.c
-            native/filesystems/ext4/linux/readpage.c
-            native/filesystems/ext4/linux/fsmap.c
-            native/filesystems/ext4/linux/migrate.c
-            native/filesystems/ext4/linux/move_extent.c
-            native/filesystems/ext4/linux/sysfs.c
-            native/filesystems/ext4/linux/indirect.c
-            native/filesystems/ext4/linux/jbd2_checkpoint.c
-            native/filesystems/ext4/linux/jbd2_commit.c
-            native/filesystems/ext4/linux/jbd2_recovery.c
-            native/filesystems/ext4/linux/jbd2_revoke.c
+            native/filesystems/ext4/linux/security_support.c
+            native/filesystems/ext4/linux/storage_guard.c
+            native/filesystems/ext4/linux/directory_io.c
+            native/filesystems/ext4/linux/volume_admin.c
+            native/filesystems/ext4/linux/journal_durability.c
+            native/filesystems/ext4/linux/mapping_support.c
+            native/filesystems/ext4/linux/core_bridge.c
             native/filesystems/ext4/linux/ext4_jbd2.h
             native/filesystems/ext4/linux/mballoc.h
             native/filesystems/ext4/linux/extents_status.h
@@ -383,8 +373,8 @@ jobs:
             KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/ext4-build.log
           test -s native/filesystems/ext4/linux/ext4.ko
           ! grep -Fq 'section mismatch' /tmp/ext4-build.log
-          grep -Fq 'crypto.o' /tmp/ext4-build.log
-          grep -Fq 'verity.o' /tmp/ext4-build.log
+          grep -Fq 'security_support.o' /tmp/ext4-build.log
+          grep -Fq 'security_support.o' /tmp/ext4-build.log
 
   linux-amiga-ofs-ffs-modules:
     runs-on: ubuntu-24.04
