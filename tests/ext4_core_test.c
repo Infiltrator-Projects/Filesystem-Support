@@ -221,5 +221,42 @@ int main(void)
             return fail("EXT4 sparse-super2 policy is wrong");
     }
 
+    {
+        static const unsigned char ascii_name[] = "directory-name";
+        static const unsigned char high_bit_name[] = { 0xffU, 'a' };
+        ifs_ext4_u32 major = 0U;
+        ifs_ext4_u32 minor = 0U;
+
+        if (ifs_ext4_directory_hash(
+                ascii_name, 14U, IFS_EXT4_HASH_LEGACY, 0,
+                &major, &minor) != 0 ||
+            major != 0xd9ee80a6U || minor != 0U)
+            return fail("EXT4 legacy directory hash vector is wrong");
+
+        if (ifs_ext4_directory_hash(
+                ascii_name, 14U, IFS_EXT4_HASH_HALF_MD4, 0,
+                &major, &minor) != 0 ||
+            major != 0x1aade3ceU || minor != 0xa05dbfdeU)
+            return fail("EXT4 half-MD4 directory hash vector is wrong");
+
+        if (ifs_ext4_directory_hash(
+                ascii_name, 14U, IFS_EXT4_HASH_TEA, 0,
+                &major, &minor) != 0 ||
+            major != 0x1ce03716U || minor != 0xd0a413c7U)
+            return fail("EXT4 TEA directory hash vector is wrong");
+
+        if (ifs_ext4_directory_hash(
+                high_bit_name, 2U, IFS_EXT4_HASH_LEGACY, 0,
+                &major, &minor) != 0 ||
+            major != 0x405661eeU)
+            return fail("EXT4 signed legacy hash semantics are wrong");
+
+        if (ifs_ext4_directory_hash(
+                high_bit_name, 2U, IFS_EXT4_HASH_LEGACY_UNSIGNED, 0,
+                &major, &minor) != 0 ||
+            major != 0x5e785444U)
+            return fail("EXT4 unsigned legacy hash semantics are wrong");
+    }
+
     return 0;
 }
