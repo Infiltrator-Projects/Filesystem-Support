@@ -427,3 +427,20 @@ int ifs_ext4_group_has_super(
     return sparse_super_enabled == 0 ||
            ifs_ext4_sparse_super_group(group);
 }
+
+
+int ifs_ext4_group_has_super_ex(
+    const int sparse_super_enabled,
+    const int sparse_super2_enabled,
+    const ifs_ext4_u32 backup_group0,
+    const ifs_ext4_u32 backup_group1,
+    const ifs_ext4_u32 group)
+{
+    if (group == 0U)
+        return 1;
+
+    if (sparse_super2_enabled != 0)
+        return group == backup_group0 || group == backup_group1;
+
+    return ifs_ext4_group_has_super(sparse_super_enabled, group);
+}
