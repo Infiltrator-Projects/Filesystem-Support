@@ -130,6 +130,7 @@ jobs:
             native/filesystems/ext4/linux/crypto.c
             native/filesystems/ext4/linux/verity.c
             native/filesystems/ext4/linux/block_validity.c
+            native/filesystems/ext4/linux/balloc.c
             native/filesystems/ext4/linux/mmp.c
             native/filesystems/ext4/linux/ext4_jbd2.c
             native/filesystems/ext4/linux/readpage.c
