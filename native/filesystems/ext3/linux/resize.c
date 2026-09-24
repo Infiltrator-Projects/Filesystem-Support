@@ -609,7 +609,7 @@ static int ifs_ext3_reserve_future_backups(
 		if (!loaded)
 			backup_count = count;
 		else if (count != backup_count) {
-			error = -EFSCORRUPTED;
+			error = -EUCLEAN;
 			goto out;
 		}
 
