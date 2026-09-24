@@ -1,8 +1,9 @@
 # EXT3 — Linux adapter build contract
 obj-m += ext3.o
 
-ext3-y := canonical.o allocation.o dir.o file.o inode.o namei.o super.o xattr.o \
-          journal_durability.o jbd_journal.o jbd_transaction.o
+ext3-y := core_bridge.o allocation.o directory_io.o file_io.o inode_adapter.o \
+          namespace_mutation.o lifecycle.o extended_metadata.o \
+          journal_durability.o journal_core.o journal_transactions.o
 
 ccflags-y += -I$(src)
 ccflags-y += -DCONFIG_EXT3_FS_XATTR=1
