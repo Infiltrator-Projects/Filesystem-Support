@@ -787,6 +787,7 @@ static void __exit ifs_ffs_exit_fs(void)
 }
 
 MODULE_DESCRIPTION(IFS_FFS_MODULE_DESCRIPTION);
+MODULE_LICENSE("Proprietary");
 
 module_init(ifs_ffs_init_fs)
 module_exit(ifs_ffs_exit_fs)
