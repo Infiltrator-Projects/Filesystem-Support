@@ -210,3 +210,56 @@ int ifs_ext3_indirect_block_path(
     }
     return depth;
 }
+
+
+IfsExt3JournalStatus ifs_ext3_validate_journal_header(
+    const ifs_ext3_u32 magic,
+    const ifs_ext3_u32 block_type,
+    const ifs_ext3_u32 sequence)
+{
+    if (magic != IFS_EXT3_JOURNAL_MAGIC)
+        return IFS_EXT3_JOURNAL_BAD_MAGIC;
+
+    switch (block_type) {
+    case IFS_EXT3_JOURNAL_DESCRIPTOR_BLOCK:
+    case IFS_EXT3_JOURNAL_COMMIT_BLOCK:
+    case IFS_EXT3_JOURNAL_SUPERBLOCK_V1:
+    case IFS_EXT3_JOURNAL_SUPERBLOCK_V2:
+    case IFS_EXT3_JOURNAL_REVOKE_BLOCK:
+        break;
+    default:
+        return IFS_EXT3_JOURNAL_BAD_TYPE;
+    }
+
+    if (sequence == 0U &&
+        block_type != IFS_EXT3_JOURNAL_SUPERBLOCK_V1 &&
+        block_type != IFS_EXT3_JOURNAL_SUPERBLOCK_V2)
+        return IFS_EXT3_JOURNAL_BAD_ARGUMENT;
+
+    return IFS_EXT3_JOURNAL_OK;
+}
+
+IfsExt3JournalStatus ifs_ext3_validate_journal_superblock(
+    const ifs_ext3_u32 block_size,
+    const ifs_ext3_u32 max_length,
+    const ifs_ext3_u32 first_block,
+    const ifs_ext3_u32 start_block,
+    const ifs_ext3_u32 incompat_features)
+{
+    if (block_size < 1024U || block_size > 65536U ||
+        (block_size & (block_size - 1U)) != 0U)
+        return IFS_EXT3_JOURNAL_BAD_BLOCK_SIZE;
+
+    if (max_length < 2U || first_block == 0U ||
+        first_block >= max_length ||
+        (start_block != 0U &&
+         (start_block < first_block || start_block >= max_length)))
+        return IFS_EXT3_JOURNAL_BAD_GEOMETRY;
+
+    if ((incompat_features &
+         ~IFS_EXT3_JOURNAL_FEATURE_INCOMPAT_REVOKE) != 0U)
+        return IFS_EXT3_JOURNAL_UNSUPPORTED_FEATURE;
+
+    return IFS_EXT3_JOURNAL_OK;
+}
+
