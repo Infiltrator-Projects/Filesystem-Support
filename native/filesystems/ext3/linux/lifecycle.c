@@ -55,7 +55,7 @@
 
 #define CREATE_TRACE_POINTS
 
-#include "ext3.h"
+#include "linux_adapter.h"
 #include "../core/ext3_core.h"
 
 #ifdef CONFIG_EXT3_DEFAULTS_TO_ORDERED

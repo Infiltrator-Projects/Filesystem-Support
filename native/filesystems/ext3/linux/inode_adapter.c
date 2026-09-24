@@ -52,7 +52,7 @@
 #include <linux/highmem.h>
 #include <linux/namei.h>
 #include <linux/uio.h>
-#include "ext3.h"
+#include "linux_adapter.h"
 
 static int ext3_writepage_trans_blocks(struct inode *inode);
 static int ext3_block_truncate_page(struct inode *inode, loff_t from);

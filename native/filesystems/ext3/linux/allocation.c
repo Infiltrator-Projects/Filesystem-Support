@@ -23,7 +23,7 @@
 #include <linux/quotaops.h>
 #include <linux/slab.h>
 
-#include "ext3.h"
+#include "linux_adapter.h"
 
 struct ext3_group_desc *ext3_get_group_desc(
 	struct super_block *sb, unsigned int group,
@@ -1071,7 +1071,7 @@ unsigned long ext3_count_free(
 #include <linux/quotaops.h>
 #include <linux/random.h>
 
-#include "ext3.h"
+#include "linux_adapter.h"
 
 static struct buffer_head *ifs_ext3_read_inode_bitmap(
 	struct super_block *sb, unsigned int group)
@@ -1647,7 +1647,7 @@ unsigned long ext3_count_dirs(struct super_block *sb)
  * refresh a backup marks the filesystem unclean so the next fsck repairs it.
  */
 
-#include "ext3.h"
+#include "linux_adapter.h"
 
 #include <linux/overflow.h>
 

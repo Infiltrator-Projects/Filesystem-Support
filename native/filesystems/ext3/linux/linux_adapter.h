@@ -43,7 +43,7 @@
 
 #include <linux/fs.h>
 #include "../core/ext3_core.h"
-#include "journal.h"
+#include "journal_internal.h"
 #include <linux/magic.h>
 #include <linux/bug.h>
 #include <linux/blockgroup_lock.h>

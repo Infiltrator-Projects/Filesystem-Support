@@ -11,7 +11,7 @@
 #include <linux/rbtree.h>
 #include <linux/slab.h>
 
-#include "ext3.h"
+#include "linux_adapter.h"
 
 static const unsigned char ifs_ext3_file_types[] = {
 	DT_UNKNOWN, DT_REG, DT_DIR, DT_CHR,

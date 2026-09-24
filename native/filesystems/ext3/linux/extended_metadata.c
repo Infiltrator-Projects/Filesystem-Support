@@ -35,7 +35,7 @@
  *   non-obvious design intent. They deliberately avoid restating C syntax.
  */
 
-#include "ext3.h"
+#include "linux_adapter.h"
 #include <linux/security.h>
 #include <linux/shrinker.h>
 #include <linux/quotaops.h>

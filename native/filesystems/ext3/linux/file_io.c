@@ -9,7 +9,7 @@
 #include <linux/quotaops.h>
 #include <linux/uaccess.h>
 
-#include "ext3.h"
+#include "linux_adapter.h"
 
 static int ifs_ext3_release_file(struct inode *inode, struct file *file)
 {

@@ -48,7 +48,7 @@
 
 #include <linux/quotaops.h>
 #include <linux/iversion.h>
-#include "ext3.h"
+#include "linux_adapter.h"
 
 
 #define NAMEI_RA_CHUNKS  2
