@@ -1,564 +1,467 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
- *  linux/fs/ext4/balloc.c
+ * Infiltrator Filesystem Support — EXT4 block-group accounting.
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  Enhanced block allocation by Stephen Tweedie (sct@redhat.com), 1993
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
+ * The portable EXT4 core owns format geometry.  This unit binds that geometry
+ * to Linux buffer heads, per-cpu counters and the multiblock allocator.
  */
 
-/*
- * EXT4 — Block allocation
- *
- * Purpose:
- *   Implements free-block accounting, block-group bitmap handling and block allocation/release policy.
- *
- * Filesystem model:
- *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
- *
- * Correctness focus:
- *   Allocation code must keep bitmap state, group descriptors, global counters and journal state mutually consistent across success and rollback paths.
- *
- * Project rules:
- *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
- *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
-#include <linux/time.h>
+#include <linux/buffer_head.h>
 #include <linux/capability.h>
 #include <linux/fs.h>
 #include <linux/quotaops.h>
-#include <linux/buffer_head.h>
+
 #include "ext4.h"
 #include "ext4_jbd2.h"
 #include "mballoc.h"
 
-#include <trace/events/ext4.h>
 #include <kunit/static_stub.h>
+#include <trace/events/ext4.h>
 
-static unsigned ext4_num_base_meta_clusters(struct super_block *sb,
-					    ext4_group_t block_group);
+struct ifs_ext4_cluster_span {
+	unsigned int first;
+	unsigned int last;
+	bool present;
+};
 
+static unsigned int ifs_ext4_group_cluster_count(struct super_block *sb,
+						  ext4_group_t group)
+{
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	ext4_fsblk_t first;
+	ext4_fsblk_t total = ext4_blocks_count(sbi->s_es);
+	ext4_fsblk_t blocks;
 
-/**
- * ext4_get_group_number - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
+	first = ext4_group_first_block_no(sb, group);
+	if (first >= total)
+		return 0;
+
+	blocks = min_t(ext4_fsblk_t, EXT4_BLOCKS_PER_GROUP(sb),
+		       total - first);
+	return EXT4_NUM_B2C(sbi, blocks);
+}
+
 ext4_group_t ext4_get_group_number(struct super_block *sb,
 				   ext4_fsblk_t block)
 {
-	ext4_group_t group;
+	ext4_group_t group = 0;
 
-	if (test_opt2(sb, STD_GROUP_SIZE))
-		group = (block -
-			 le32_to_cpu(EXT4_SB(sb)->s_es->s_first_data_block)) >>
-			(EXT4_BLOCK_SIZE_BITS(sb) + EXT4_CLUSTER_BITS(sb) + 3);
-	else
-		ext4_get_group_no_and_offset(sb, block, &group, NULL);
+	ext4_get_group_no_and_offset(sb, block, &group, NULL);
 	return group;
 }
 
-
-/**
- * ext4_get_group_no_and_offset - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext4_get_group_no_and_offset(struct super_block *sb, ext4_fsblk_t blocknr,
-		ext4_group_t *blockgrpp, ext4_grpblk_t *offsetp)
+void ext4_get_group_no_and_offset(struct super_block *sb,
+				  ext4_fsblk_t block,
+				  ext4_group_t *group_out,
+				  ext4_grpblk_t *offset_out)
 {
-	const struct ext4_super_block *es = EXT4_SB(sb)->s_es;
-	ifs_ext4_u32 group = 0U;
-	ifs_ext4_u32 offset = 0U;
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	const struct ext4_super_block *es = sbi->s_es;
+	ifs_ext4_u32 group = 0;
+	ifs_ext4_u32 offset = 0;
 	IfsExt4BlockGroupStatus status;
 
 	status = ifs_ext4_block_group_position(
-		(ifs_ext4_u64)blocknr,
+		(ifs_ext4_u64)block,
 		le32_to_cpu(es->s_first_data_block),
 		EXT4_BLOCKS_PER_GROUP(sb),
-		EXT4_SB(sb)->s_cluster_bits,
+		sbi->s_cluster_bits,
 		ext4_get_groups_count(sb),
 		&group, &offset);
+
 	if (WARN_ON_ONCE(status != IFS_EXT4_BLOCK_GROUP_OK)) {
-		if (blockgrpp)
-			*blockgrpp = 0;
-		if (offsetp)
-			*offsetp = 0;
+		if (group_out)
+			*group_out = 0;
+		if (offset_out)
+			*offset_out = 0;
 		return;
 	}
 
-	if (offsetp)
-		*offsetp = (ext4_grpblk_t)offset;
-	if (blockgrpp)
-		*blockgrpp = (ext4_group_t)group;
+	if (group_out)
+		*group_out = (ext4_group_t)group;
+	if (offset_out)
+		*offset_out = (ext4_grpblk_t)offset;
 }
 
-
-/**
- * ext4_block_in_group - Implements the block in group operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static inline int ext4_block_in_group(struct super_block *sb,
-				      ext4_fsblk_t block,
-				      ext4_group_t block_group)
+static bool ifs_ext4_block_belongs_to_group(struct super_block *sb,
+					     ext4_fsblk_t block,
+					     ext4_group_t group)
 {
-	ext4_group_t actual_group;
+	ext4_group_t actual;
 
-	actual_group = ext4_get_group_number(sb, block);
-	return (actual_group == block_group) ? 1 : 0;
+	ext4_get_group_no_and_offset(sb, block, &actual, NULL);
+	return actual == group;
 }
 
-
-/**
- * ext4_num_overhead_clusters - Implements the num overhead clusters operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned ext4_num_overhead_clusters(struct super_block *sb,
-					   ext4_group_t block_group,
-					   struct ext4_group_desc *gdp)
+static bool ifs_ext4_local_cluster(struct super_block *sb,
+				    ext4_group_t group,
+				    ext4_fsblk_t block,
+				    unsigned int *cluster)
 {
-	unsigned base_clusters, num_clusters;
-	int block_cluster = -1, inode_cluster;
-	int itbl_cluster_start = -1, itbl_cluster_end = -1;
-	ext4_fsblk_t start = ext4_group_first_block_no(sb, block_group);
-	ext4_fsblk_t end = start + EXT4_BLOCKS_PER_GROUP(sb) - 1;
-	ext4_fsblk_t itbl_blk_start, itbl_blk_end;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	ext4_fsblk_t first = ext4_group_first_block_no(sb, group);
 
+	if (!ifs_ext4_block_belongs_to_group(sb, block, group))
+		return false;
 
-	base_clusters = ext4_num_base_meta_clusters(sb, block_group);
-	num_clusters = base_clusters;
-
-
-	itbl_blk_start = ext4_inode_table(sb, gdp);
-	itbl_blk_end = itbl_blk_start + sbi->s_itb_per_group - 1;
-	if (itbl_blk_start <= end && itbl_blk_end >= start) {
-		itbl_blk_start = max(itbl_blk_start, start);
-		itbl_blk_end = min(itbl_blk_end, end);
-
-		itbl_cluster_start = EXT4_B2C(sbi, itbl_blk_start - start);
-		itbl_cluster_end = EXT4_B2C(sbi, itbl_blk_end - start);
-
-		num_clusters += itbl_cluster_end - itbl_cluster_start + 1;
-
-		if (itbl_cluster_start == base_clusters - 1)
-			num_clusters--;
-	}
-
-
-	if (ext4_block_in_group(sb, ext4_block_bitmap(sb, gdp), block_group)) {
-		block_cluster = EXT4_B2C(sbi,
-					 ext4_block_bitmap(sb, gdp) - start);
-		if (block_cluster >= base_clusters &&
-		    (block_cluster < itbl_cluster_start ||
-		    block_cluster > itbl_cluster_end))
-			num_clusters++;
-	}
-
-	if (ext4_block_in_group(sb, ext4_inode_bitmap(sb, gdp), block_group)) {
-		inode_cluster = EXT4_B2C(sbi,
-					 ext4_inode_bitmap(sb, gdp) - start);
-
-
-		if (inode_cluster != block_cluster &&
-		    inode_cluster >= base_clusters &&
-		    (inode_cluster < itbl_cluster_start ||
-		    inode_cluster > itbl_cluster_end))
-			num_clusters++;
-	}
-
-	return num_clusters;
+	*cluster = EXT4_B2C(sbi, block - first);
+	return true;
 }
 
-
-/**
- * num_clusters_in_group - Implements the num clusters in group operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned int num_clusters_in_group(struct super_block *sb,
-					  ext4_group_t block_group)
+static void ifs_ext4_span_add(struct ifs_ext4_cluster_span *spans,
+			      unsigned int *count,
+			      unsigned int first,
+			      unsigned int last)
 {
-	unsigned int blocks;
+	unsigned int i;
+	unsigned int insert = *count;
 
-	if (block_group == ext4_get_groups_count(sb) - 1) {
+	for (i = 0; i < *count; i++) {
+		if (last + 1 < spans[i].first) {
+			insert = i;
+			break;
+		}
+		if (first > spans[i].last + 1)
+			continue;
 
+		spans[i].first = min(spans[i].first, first);
+		spans[i].last = max(spans[i].last, last);
 
-		blocks = ext4_blocks_count(EXT4_SB(sb)->s_es) -
-			ext4_group_first_block_no(sb, block_group);
-	} else
-		blocks = EXT4_BLOCKS_PER_GROUP(sb);
-	return EXT4_NUM_B2C(EXT4_SB(sb), blocks);
+		while (i + 1 < *count &&
+		       spans[i + 1].first <= spans[i].last + 1) {
+			spans[i].last = max(spans[i].last,
+					    spans[i + 1].last);
+			memmove(&spans[i + 1], &spans[i + 2],
+				(*count - i - 2) * sizeof(*spans));
+			(*count)--;
+		}
+		return;
+	}
+
+	if (*count >= 4)
+		return;
+
+	if (insert < *count)
+		memmove(&spans[insert + 1], &spans[insert],
+			(*count - insert) * sizeof(*spans));
+	spans[insert].first = first;
+	spans[insert].last = last;
+	spans[insert].present = true;
+	(*count)++;
 }
 
+static unsigned int ifs_ext4_base_meta_blocks(struct super_block *sb,
+					       ext4_group_t group);
 
-/**
- * ext4_init_block_bitmap - Initialises subsystem state and establishes the resources required by later operations.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext4_init_block_bitmap(struct super_block *sb,
-				   struct buffer_head *bh,
-				   ext4_group_t block_group,
-				   struct ext4_group_desc *gdp)
+static unsigned int ifs_ext4_metadata_clusters(struct super_block *sb,
+						ext4_group_t group,
+						struct ext4_group_desc *desc)
 {
-	unsigned int bit, bit_max;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	ext4_fsblk_t start, tmp;
+	struct ifs_ext4_cluster_span spans[4] = { };
+	ext4_fsblk_t first = ext4_group_first_block_no(sb, group);
+	unsigned int group_clusters = ifs_ext4_group_cluster_count(sb, group);
+	unsigned int span_count = 0;
+	unsigned int base_blocks;
+	unsigned int base_clusters;
+	unsigned int cluster;
+	unsigned int first_cluster;
+	unsigned int last_cluster;
+	unsigned int i;
+	unsigned int total = 0;
+	ext4_fsblk_t table;
+	ext4_fsblk_t table_last;
 
-	ASSERT(buffer_locked(bh));
+	base_blocks = ifs_ext4_base_meta_blocks(sb, group);
+	base_clusters = EXT4_NUM_B2C(sbi, base_blocks);
+	if (base_clusters)
+		ifs_ext4_span_add(spans, &span_count, 0, base_clusters - 1);
 
-	if (!ext4_group_desc_csum_verify(sb, block_group, gdp)) {
-		ext4_mark_group_bitmap_corrupted(sb, block_group,
-					EXT4_GROUP_INFO_BBITMAP_CORRUPT |
-					EXT4_GROUP_INFO_IBITMAP_CORRUPT);
+	if (ifs_ext4_local_cluster(sb, group,
+				  ext4_block_bitmap(sb, desc), &cluster) &&
+	    cluster < group_clusters)
+		ifs_ext4_span_add(spans, &span_count, cluster, cluster);
+
+	if (ifs_ext4_local_cluster(sb, group,
+				  ext4_inode_bitmap(sb, desc), &cluster) &&
+	    cluster < group_clusters)
+		ifs_ext4_span_add(spans, &span_count, cluster, cluster);
+
+	table = ext4_inode_table(sb, desc);
+	if (sbi->s_itb_per_group &&
+	    !check_add_overflow(table,
+				(ext4_fsblk_t)sbi->s_itb_per_group - 1,
+				&table_last) &&
+	    ifs_ext4_local_cluster(sb, group, table, &first_cluster) &&
+	    ifs_ext4_local_cluster(sb, group, table_last, &last_cluster)) {
+		first_cluster = min(first_cluster, group_clusters);
+		last_cluster = min(last_cluster, group_clusters - 1);
+		if (first_cluster <= last_cluster)
+			ifs_ext4_span_add(spans, &span_count,
+					  first_cluster, last_cluster);
+	}
+
+	for (i = 0; i < span_count; i++)
+		total += spans[i].last - spans[i].first + 1;
+
+	return total;
+}
+
+static int ifs_ext4_build_uninitialised_bitmap(struct super_block *sb,
+						struct buffer_head *bh,
+						ext4_group_t group,
+						struct ext4_group_desc *desc)
+{
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	ext4_fsblk_t first = ext4_group_first_block_no(sb, group);
+	ext4_fsblk_t table;
+	unsigned int cluster;
+	unsigned int bit;
+	unsigned int cluster_count;
+	unsigned int base_clusters;
+
+	lockdep_assert_held(&EXT4_GROUP_LOCK(sb, group)->rlock);
+
+	if (!ext4_group_desc_csum_verify(sb, group, desc)) {
+		ext4_mark_group_bitmap_corrupted(
+			sb, group,
+			EXT4_GROUP_INFO_BBITMAP_CORRUPT |
+			EXT4_GROUP_INFO_IBITMAP_CORRUPT);
 		return -EFSBADCRC;
 	}
-	memset(bh->b_data, 0, sb->s_blocksize);
 
-	bit_max = ext4_num_base_meta_clusters(sb, block_group);
-	if ((bit_max >> 3) >= bh->b_size)
-		return -EFSCORRUPTED;
+	memset(bh->b_data, 0, bh->b_size);
+	cluster_count = ifs_ext4_group_cluster_count(sb, group);
+	base_clusters = EXT4_NUM_B2C(
+		sbi, ifs_ext4_base_meta_blocks(sb, group));
+	if (base_clusters > bh->b_size * 8U)
+		return -EUCLEAN;
 
-	for (bit = 0; bit < bit_max; bit++)
+	for (bit = 0; bit < base_clusters; bit++)
 		ext4_set_bit(bit, bh->b_data);
 
-	start = ext4_group_first_block_no(sb, block_group);
+	if (ifs_ext4_local_cluster(sb, group,
+				  ext4_block_bitmap(sb, desc), &cluster))
+		ext4_set_bit(cluster, bh->b_data);
 
+	if (ifs_ext4_local_cluster(sb, group,
+				  ext4_inode_bitmap(sb, desc), &cluster))
+		ext4_set_bit(cluster, bh->b_data);
 
-	tmp = ext4_block_bitmap(sb, gdp);
-	if (ext4_block_in_group(sb, tmp, block_group))
-		ext4_set_bit(EXT4_B2C(sbi, tmp - start), bh->b_data);
-
-	tmp = ext4_inode_bitmap(sb, gdp);
-	if (ext4_block_in_group(sb, tmp, block_group))
-		ext4_set_bit(EXT4_B2C(sbi, tmp - start), bh->b_data);
-
-	tmp = ext4_inode_table(sb, gdp);
-	for (; tmp < ext4_inode_table(sb, gdp) +
-		     sbi->s_itb_per_group; tmp++) {
-		if (ext4_block_in_group(sb, tmp, block_group))
-			ext4_set_bit(EXT4_B2C(sbi, tmp - start), bh->b_data);
+	table = ext4_inode_table(sb, desc);
+	for (bit = 0; bit < sbi->s_itb_per_group; bit++) {
+		if (ifs_ext4_local_cluster(sb, group, table + bit, &cluster))
+			ext4_set_bit(cluster, bh->b_data);
 	}
 
-
-	ext4_mark_bitmap_end(num_clusters_in_group(sb, block_group),
-			     sb->s_blocksize * 8, bh->b_data);
+	ext4_mark_bitmap_end(cluster_count, bh->b_size * 8U, bh->b_data);
 	return 0;
 }
 
-
-/**
- * ext4_free_clusters_after_init - Initialises subsystem state and establishes the resources required by later operations.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 unsigned ext4_free_clusters_after_init(struct super_block *sb,
-				       ext4_group_t block_group,
-				       struct ext4_group_desc *gdp)
+				       ext4_group_t group,
+				       struct ext4_group_desc *desc)
 {
-	return num_clusters_in_group(sb, block_group) -
-		ext4_num_overhead_clusters(sb, block_group, gdp);
+	unsigned int clusters = ifs_ext4_group_cluster_count(sb, group);
+	unsigned int metadata = ifs_ext4_metadata_clusters(sb, group, desc);
+
+	return clusters > metadata ? clusters - metadata : 0;
 }
 
-
-/**
- * ext4_get_group_desc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-struct ext4_group_desc * ext4_get_group_desc(struct super_block *sb,
-					     ext4_group_t block_group,
+struct ext4_group_desc *ext4_get_group_desc(struct super_block *sb,
+					     ext4_group_t group,
 					     struct buffer_head **bh)
 {
-	unsigned int group_desc;
-	unsigned int offset;
-	ext4_group_t ngroups = ext4_get_groups_count(sb);
-	struct ext4_group_desc *desc;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	struct buffer_head *bh_p;
+	ext4_group_t groups = ext4_get_groups_count(sb);
+	unsigned int descriptor_index;
+	unsigned int descriptor_slot;
+	struct buffer_head *descriptor_bh;
 
-	KUNIT_STATIC_STUB_REDIRECT(ext4_get_group_desc,
-				   sb, block_group, bh);
+	KUNIT_STATIC_STUB_REDIRECT(ext4_get_group_desc, sb, group, bh);
 
-	if (block_group >= ngroups) {
-		ext4_error(sb, "block_group >= groups_count - block_group = %u,"
-			   " groups_count = %u", block_group, ngroups);
-
+	if (group >= groups) {
+		ext4_error(sb, "group %u outside group count %u",
+			   group, groups);
 		return NULL;
 	}
 
-	group_desc = block_group >> EXT4_DESC_PER_BLOCK_BITS(sb);
-	offset = block_group & (EXT4_DESC_PER_BLOCK(sb) - 1);
-	bh_p = sbi_array_rcu_deref(sbi, s_group_desc, group_desc);
-
-
-	if (!bh_p) {
-		ext4_error(sb, "Group descriptor not loaded - "
-			   "block_group = %u, group_desc = %u, desc = %u",
-			   block_group, group_desc, offset);
+	descriptor_index = group >> EXT4_DESC_PER_BLOCK_BITS(sb);
+	descriptor_slot = group & (EXT4_DESC_PER_BLOCK(sb) - 1);
+	descriptor_bh =
+		sbi_array_rcu_deref(sbi, s_group_desc, descriptor_index);
+	if (!descriptor_bh) {
+		ext4_error(sb, "group descriptor block %u unavailable for group %u",
+			   descriptor_index, group);
 		return NULL;
 	}
 
-	desc = (struct ext4_group_desc *)(
-		(__u8 *)bh_p->b_data +
-		offset * EXT4_DESC_SIZE(sb));
 	if (bh)
-		*bh = bh_p;
-	return desc;
+		*bh = descriptor_bh;
+
+	return (struct ext4_group_desc *)
+		((u8 *)descriptor_bh->b_data +
+		 descriptor_slot * EXT4_DESC_SIZE(sb));
 }
 
-
-/**
- * ext4_valid_block_bitmap_padding - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext4_fsblk_t ext4_valid_block_bitmap_padding(struct super_block *sb,
-						    ext4_group_t block_group,
-						    struct buffer_head *bh)
-{
-	ext4_grpblk_t next_zero_bit;
-	unsigned long bitmap_size = sb->s_blocksize * 8;
-	unsigned int offset = num_clusters_in_group(sb, block_group);
-
-	if (bitmap_size <= offset)
-		return 0;
-
-	next_zero_bit = ext4_find_next_zero_bit(bh->b_data, bitmap_size, offset);
-
-	return (next_zero_bit < bitmap_size ? next_zero_bit : 0);
-}
-
-
-/**
- * ext4_get_group_info - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 struct ext4_group_info *ext4_get_group_info(struct super_block *sb,
 					    ext4_group_t group)
 {
-	struct ext4_group_info **grp_info;
-	long indexv, indexh;
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	struct ext4_group_info **vector;
+	unsigned int outer;
+	unsigned int inner;
 
-	if (unlikely(group >= EXT4_SB(sb)->s_groups_count))
+	if (unlikely(group >= ext4_get_groups_count(sb)))
 		return NULL;
-	indexv = group >> (EXT4_DESC_PER_BLOCK_BITS(sb));
-	indexh = group & ((EXT4_DESC_PER_BLOCK(sb)) - 1);
-	grp_info = sbi_array_rcu_deref(EXT4_SB(sb), s_group_info, indexv);
-	return grp_info[indexh];
+
+	outer = group >> EXT4_DESC_PER_BLOCK_BITS(sb);
+	inner = group & (EXT4_DESC_PER_BLOCK(sb) - 1);
+	vector = sbi_array_rcu_deref(sbi, s_group_info, outer);
+	return vector ? vector[inner] : NULL;
 }
 
+static ext4_fsblk_t ifs_ext4_bitmap_padding_error(struct super_block *sb,
+						   ext4_group_t group,
+						   struct buffer_head *bh)
+{
+	unsigned int start = ifs_ext4_group_cluster_count(sb, group);
+	unsigned int limit = bh->b_size * 8U;
+	unsigned int zero;
 
-/**
- * ext4_valid_block_bitmap - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static ext4_fsblk_t ext4_valid_block_bitmap(struct super_block *sb,
-					    struct ext4_group_desc *desc,
-					    ext4_group_t block_group,
-					    struct buffer_head *bh)
+	if (start >= limit)
+		return 0;
+
+	zero = ext4_find_next_zero_bit(bh->b_data, limit, start);
+	return zero < limit ? zero : 0;
+}
+
+static ext4_fsblk_t ifs_ext4_required_cluster_missing(
+	struct super_block *sb, struct ext4_group_desc *desc,
+	ext4_group_t group, struct buffer_head *bh)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	ext4_grpblk_t offset;
-	ext4_grpblk_t next_zero_bit;
-	ext4_grpblk_t max_bit = EXT4_CLUSTERS_PER_GROUP(sb);
-	ext4_fsblk_t blk;
-	ext4_fsblk_t group_first_block;
+	ext4_fsblk_t first = ext4_group_first_block_no(sb, group);
+	ext4_fsblk_t table;
+	ext4_fsblk_t table_last;
+	unsigned int cluster;
+	unsigned int first_cluster;
+	unsigned int last_cluster;
+	unsigned int zero;
 
-	if (ext4_has_feature_flex_bg(sb)) {
-
-
+	if (ext4_has_feature_flex_bg(sb))
 		return 0;
-	}
-	group_first_block = ext4_group_first_block_no(sb, block_group);
 
+	if (!ifs_ext4_local_cluster(sb, group,
+				   ext4_block_bitmap(sb, desc), &cluster) ||
+	    cluster >= EXT4_CLUSTERS_PER_GROUP(sb) ||
+	    !ext4_test_bit(cluster, bh->b_data))
+		return ext4_block_bitmap(sb, desc);
 
-	blk = ext4_block_bitmap(sb, desc);
-	offset = blk - group_first_block;
-	if (offset < 0 || EXT4_B2C(sbi, offset) >= max_bit ||
-	    !ext4_test_bit(EXT4_B2C(sbi, offset), bh->b_data))
+	if (!ifs_ext4_local_cluster(sb, group,
+				   ext4_inode_bitmap(sb, desc), &cluster) ||
+	    cluster >= EXT4_CLUSTERS_PER_GROUP(sb) ||
+	    !ext4_test_bit(cluster, bh->b_data))
+		return ext4_inode_bitmap(sb, desc);
 
-		return blk;
+	table = ext4_inode_table(sb, desc);
+	if (!sbi->s_itb_per_group ||
+	    check_add_overflow(table,
+			       (ext4_fsblk_t)sbi->s_itb_per_group - 1,
+			       &table_last) ||
+	    !ifs_ext4_local_cluster(sb, group, table, &first_cluster) ||
+	    !ifs_ext4_local_cluster(sb, group, table_last, &last_cluster))
+		return table;
 
+	zero = ext4_find_next_zero_bit(
+		bh->b_data, last_cluster + 1, first_cluster);
+	if (zero <= last_cluster)
+		return table;
 
-	blk = ext4_inode_bitmap(sb, desc);
-	offset = blk - group_first_block;
-	if (offset < 0 || EXT4_B2C(sbi, offset) >= max_bit ||
-	    !ext4_test_bit(EXT4_B2C(sbi, offset), bh->b_data))
-
-		return blk;
-
-
-	blk = ext4_inode_table(sb, desc);
-	offset = blk - group_first_block;
-	if (offset < 0 || EXT4_B2C(sbi, offset) >= max_bit ||
-	    EXT4_B2C(sbi, offset + sbi->s_itb_per_group - 1) >= max_bit)
-		return blk;
-	next_zero_bit = ext4_find_next_zero_bit(bh->b_data,
-			EXT4_B2C(sbi, offset + sbi->s_itb_per_group - 1) + 1,
-			EXT4_B2C(sbi, offset));
-	if (next_zero_bit <
-	    EXT4_B2C(sbi, offset + sbi->s_itb_per_group - 1) + 1)
-
-		return blk;
+	(void)first;
 	return 0;
 }
 
-
-/**
- * ext4_validate_block_bitmap - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext4_validate_block_bitmap(struct super_block *sb,
-				      struct ext4_group_desc *desc,
-				      ext4_group_t block_group,
-				      struct buffer_head *bh)
+static int ifs_ext4_verify_block_bitmap(struct super_block *sb,
+					 struct ext4_group_desc *desc,
+					 ext4_group_t group,
+					 struct buffer_head *bh)
 {
-	ext4_fsblk_t	blk;
-	struct ext4_group_info *grp;
+	struct ext4_group_info *info;
+	ext4_fsblk_t bad;
 
 	if (EXT4_SB(sb)->s_mount_state & EXT4_FC_REPLAY)
 		return 0;
-
-	grp = ext4_get_group_info(sb, block_group);
-
 	if (buffer_verified(bh))
 		return 0;
-	if (!grp || EXT4_MB_GRP_BBITMAP_CORRUPT(grp))
-		return -EFSCORRUPTED;
 
-	ext4_lock_group(sb, block_group);
+	info = ext4_get_group_info(sb, group);
+	if (!info || EXT4_MB_GRP_BBITMAP_CORRUPT(info))
+		return -EUCLEAN;
+
+	ext4_lock_group(sb, group);
 	if (buffer_verified(bh))
 		goto verified;
-	if (unlikely(!ext4_block_bitmap_csum_verify(sb, desc, bh) ||
-		     ext4_simulate_fail(sb, EXT4_SIM_BBITMAP_CRC))) {
-		ext4_unlock_group(sb, block_group);
-		ext4_error(sb, "bg %u: bad block bitmap checksum", block_group);
-		ext4_mark_group_bitmap_corrupted(sb, block_group,
-					EXT4_GROUP_INFO_BBITMAP_CORRUPT);
+
+	if (!ext4_block_bitmap_csum_verify(sb, desc, bh) ||
+	    ext4_simulate_fail(sb, EXT4_SIM_BBITMAP_CRC)) {
+		ext4_unlock_group(sb, group);
+		ext4_error(sb, "group %u has invalid block bitmap checksum",
+			   group);
+		ext4_mark_group_bitmap_corrupted(
+			sb, group, EXT4_GROUP_INFO_BBITMAP_CORRUPT);
 		return -EFSBADCRC;
 	}
-	blk = ext4_valid_block_bitmap(sb, desc, block_group, bh);
-	if (unlikely(blk != 0)) {
-		ext4_unlock_group(sb, block_group);
-		ext4_error(sb, "bg %u: block %llu: invalid block bitmap",
-			   block_group, blk);
-		ext4_mark_group_bitmap_corrupted(sb, block_group,
-					EXT4_GROUP_INFO_BBITMAP_CORRUPT);
-		return -EFSCORRUPTED;
+
+	bad = ifs_ext4_required_cluster_missing(sb, desc, group, bh);
+	if (!bad)
+		bad = ifs_ext4_bitmap_padding_error(sb, group, bh);
+	if (bad) {
+		ext4_unlock_group(sb, group);
+		ext4_error(sb, "group %u has invalid block bitmap at %llu",
+			   group, (unsigned long long)bad);
+		ext4_mark_group_bitmap_corrupted(
+			sb, group, EXT4_GROUP_INFO_BBITMAP_CORRUPT);
+		return -EUCLEAN;
 	}
-	blk = ext4_valid_block_bitmap_padding(sb, block_group, bh);
-	if (unlikely(blk != 0)) {
-		ext4_unlock_group(sb, block_group);
-		ext4_error(sb, "bg %u: block %llu: padding at end of block bitmap is not set",
-			   block_group, blk);
-		ext4_mark_group_bitmap_corrupted(sb, block_group,
-						 EXT4_GROUP_INFO_BBITMAP_CORRUPT);
-		return -EFSCORRUPTED;
-	}
+
 	set_buffer_verified(bh);
 verified:
-	ext4_unlock_group(sb, block_group);
+	ext4_unlock_group(sb, group);
 	return 0;
 }
 
-
-/**
- * ext4_read_block_bitmap_nowait - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 struct buffer_head *
-ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group,
+ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t group,
 			      bool ignore_locked)
 {
-	struct ext4_group_desc *desc;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	struct ext4_group_desc *desc;
 	struct buffer_head *bh;
-	ext4_fsblk_t bitmap_blk;
-	int err;
+	ext4_fsblk_t block;
+	int error;
 
-	KUNIT_STATIC_STUB_REDIRECT(ext4_read_block_bitmap_nowait,
-				   sb, block_group, ignore_locked);
+	KUNIT_STATIC_STUB_REDIRECT(
+		ext4_read_block_bitmap_nowait, sb, group, ignore_locked);
 
-	desc = ext4_get_group_desc(sb, block_group, NULL);
+	desc = ext4_get_group_desc(sb, group, NULL);
 	if (!desc)
-		return ERR_PTR(-EFSCORRUPTED);
-	bitmap_blk = ext4_block_bitmap(sb, desc);
-	if ((bitmap_blk <= le32_to_cpu(sbi->s_es->s_first_data_block)) ||
-	    (bitmap_blk >= ext4_blocks_count(sbi->s_es))) {
-		ext4_error(sb, "Invalid block bitmap block %llu in "
-			   "block_group %u", bitmap_blk, block_group);
-		ext4_mark_group_bitmap_corrupted(sb, block_group,
-					EXT4_GROUP_INFO_BBITMAP_CORRUPT);
-		return ERR_PTR(-EFSCORRUPTED);
+		return ERR_PTR(-EUCLEAN);
+
+	block = ext4_block_bitmap(sb, desc);
+	if (block <= le32_to_cpu(sbi->s_es->s_first_data_block) ||
+	    block >= ext4_blocks_count(sbi->s_es)) {
+		ext4_error(sb, "group %u block bitmap points outside filesystem: %llu",
+			   group, (unsigned long long)block);
+		ext4_mark_group_bitmap_corrupted(
+			sb, group, EXT4_GROUP_INFO_BBITMAP_CORRUPT);
+		return ERR_PTR(-EUCLEAN);
 	}
-	bh = sb_getblk(sb, bitmap_blk);
-	if (unlikely(!bh)) {
-		ext4_warning(sb, "Cannot get buffer for block bitmap - "
-			     "block_group = %u, block_bitmap = %llu",
-			     block_group, bitmap_blk);
+
+	bh = sb_getblk(sb, block);
+	if (!bh)
 		return ERR_PTR(-ENOMEM);
-	}
 
 	if (ignore_locked && buffer_locked(bh)) {
-
 		put_bh(bh);
 		return NULL;
 	}
@@ -571,202 +474,152 @@ ext4_read_block_bitmap_nowait(struct super_block *sb, ext4_group_t block_group,
 		unlock_buffer(bh);
 		goto verify;
 	}
-	ext4_lock_group(sb, block_group);
+
+	ext4_lock_group(sb, group);
 	if (ext4_has_group_desc_csum(sb) &&
 	    (desc->bg_flags & cpu_to_le16(EXT4_BG_BLOCK_UNINIT))) {
-		if (block_group == 0) {
-			ext4_unlock_group(sb, block_group);
+		if (!group) {
+			error = -EUCLEAN;
+			ext4_unlock_group(sb, group);
 			unlock_buffer(bh);
-			ext4_error(sb, "Block bitmap for bg 0 marked "
-				   "uninitialized");
-			err = -EFSCORRUPTED;
-			goto out;
+			goto fail;
 		}
-		err = ext4_init_block_bitmap(sb, bh, block_group, desc);
-		if (err) {
-			ext4_unlock_group(sb, block_group);
+
+		error = ifs_ext4_build_uninitialised_bitmap(
+			sb, bh, group, desc);
+		if (error) {
+			ext4_unlock_group(sb, group);
 			unlock_buffer(bh);
-			ext4_error(sb, "Failed to init block bitmap for group "
-				   "%u: %d", block_group, err);
-			goto out;
+			goto fail;
 		}
+
 		set_bitmap_uptodate(bh);
 		set_buffer_uptodate(bh);
 		set_buffer_verified(bh);
-		ext4_unlock_group(sb, block_group);
+		ext4_unlock_group(sb, group);
 		unlock_buffer(bh);
 		return bh;
 	}
-	ext4_unlock_group(sb, block_group);
+	ext4_unlock_group(sb, group);
+
 	if (buffer_uptodate(bh)) {
-
-
 		set_bitmap_uptodate(bh);
 		unlock_buffer(bh);
 		goto verify;
 	}
 
-
 	set_buffer_new(bh);
-	trace_ext4_read_block_bitmap_load(sb, block_group, ignore_locked);
-	ext4_read_bh_nowait(bh, REQ_META | REQ_PRIO |
-			    (ignore_locked ? REQ_RAHEAD : 0),
-			    ext4_end_bitmap_read,
-			    ext4_simulate_fail(sb, EXT4_SIM_BBITMAP_EIO));
+	trace_ext4_read_block_bitmap_load(sb, group, ignore_locked);
+	ext4_read_bh_nowait(
+		bh,
+		REQ_META | REQ_PRIO | (ignore_locked ? REQ_RAHEAD : 0),
+		ext4_end_bitmap_read,
+		ext4_simulate_fail(sb, EXT4_SIM_BBITMAP_EIO));
 	return bh;
+
 verify:
-	err = ext4_validate_block_bitmap(sb, desc, block_group, bh);
-	if (err)
-		goto out;
-	return bh;
-out:
+	error = ifs_ext4_verify_block_bitmap(sb, desc, group, bh);
+	if (!error)
+		return bh;
+fail:
 	put_bh(bh);
-	return ERR_PTR(err);
+	return ERR_PTR(error);
 }
 
-
-/**
- * ext4_wait_block_bitmap - Implements the wait block bitmap operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext4_wait_block_bitmap(struct super_block *sb, ext4_group_t block_group,
+int ext4_wait_block_bitmap(struct super_block *sb, ext4_group_t group,
 			   struct buffer_head *bh)
 {
 	struct ext4_group_desc *desc;
 
-	KUNIT_STATIC_STUB_REDIRECT(ext4_wait_block_bitmap,
-				   sb, block_group, bh);
+	KUNIT_STATIC_STUB_REDIRECT(ext4_wait_block_bitmap, sb, group, bh);
 
 	if (!buffer_new(bh))
 		return 0;
-	desc = ext4_get_group_desc(sb, block_group, NULL);
+
+	desc = ext4_get_group_desc(sb, group, NULL);
 	if (!desc)
-		return -EFSCORRUPTED;
+		return -EUCLEAN;
+
 	wait_on_buffer(bh);
 	if (!buffer_uptodate(bh)) {
-		ext4_error_err(sb, EIO, "Cannot read block bitmap - "
-			       "block_group = %u, block_bitmap = %llu",
-			       block_group, (unsigned long long) bh->b_blocknr);
-		ext4_mark_group_bitmap_corrupted(sb, block_group,
-					EXT4_GROUP_INFO_BBITMAP_CORRUPT);
+		ext4_error_err(sb, EIO,
+			       "cannot read block bitmap for group %u at %llu",
+			       group, (unsigned long long)bh->b_blocknr);
+		ext4_mark_group_bitmap_corrupted(
+			sb, group, EXT4_GROUP_INFO_BBITMAP_CORRUPT);
 		return -EIO;
 	}
-	clear_buffer_new(bh);
 
-	return ext4_validate_block_bitmap(sb, desc, block_group, bh);
+	clear_buffer_new(bh);
+	return ifs_ext4_verify_block_bitmap(sb, desc, group, bh);
 }
 
-
-/**
- * ext4_read_block_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 struct buffer_head *
-ext4_read_block_bitmap(struct super_block *sb, ext4_group_t block_group)
+ext4_read_block_bitmap(struct super_block *sb, ext4_group_t group)
 {
 	struct buffer_head *bh;
-	int err;
+	int error;
 
-	bh = ext4_read_block_bitmap_nowait(sb, block_group, false);
+	bh = ext4_read_block_bitmap_nowait(sb, group, false);
 	if (IS_ERR(bh))
 		return bh;
-	err = ext4_wait_block_bitmap(sb, block_group, bh);
-	if (err) {
-		put_bh(bh);
-		return ERR_PTR(err);
-	}
-	return bh;
+
+	error = ext4_wait_block_bitmap(sb, group, bh);
+	if (!error)
+		return bh;
+
+	put_bh(bh);
+	return ERR_PTR(error);
 }
 
-
-/**
- * ext4_has_free_clusters - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext4_has_free_clusters(struct ext4_sb_info *sbi,
-				  s64 nclusters, unsigned int flags)
+static bool ifs_ext4_free_space_available(struct ext4_sb_info *sbi,
+					   s64 requested,
+					   unsigned int flags)
 {
-	s64 free_clusters, dirty_clusters, rsv, resv_clusters;
-	struct percpu_counter *fcc = &sbi->s_freeclusters_counter;
-	struct percpu_counter *dcc = &sbi->s_dirtyclusters_counter;
+	struct percpu_counter *free_counter = &sbi->s_freeclusters_counter;
+	struct percpu_counter *dirty_counter = &sbi->s_dirtyclusters_counter;
+	s64 free_clusters = percpu_counter_read_positive(free_counter);
+	s64 dirty_clusters = percpu_counter_read_positive(dirty_counter);
+	s64 private_reserve = atomic64_read(&sbi->s_resv_clusters);
+	s64 filesystem_reserve =
+		ext4_r_blocks_count(sbi->s_es) >> sbi->s_cluster_bits;
+	s64 protected = filesystem_reserve + private_reserve;
 
-	free_clusters  = percpu_counter_read_positive(fcc);
-	dirty_clusters = percpu_counter_read_positive(dcc);
-	resv_clusters = atomic64_read(&sbi->s_resv_clusters);
-
-
-	rsv = (ext4_r_blocks_count(sbi->s_es) >> sbi->s_cluster_bits) +
-	      resv_clusters;
-
-	if (free_clusters - (nclusters + rsv + dirty_clusters) <
-					EXT4_FREECLUSTERS_WATERMARK) {
-		free_clusters  = percpu_counter_sum_positive(fcc);
-		dirty_clusters = percpu_counter_sum_positive(dcc);
+	if (free_clusters - (requested + protected + dirty_clusters) <
+	    EXT4_FREECLUSTERS_WATERMARK) {
+		free_clusters = percpu_counter_sum_positive(free_counter);
+		dirty_clusters = percpu_counter_sum_positive(dirty_counter);
 	}
 
-
-	if (free_clusters >= (rsv + nclusters + dirty_clusters))
-		return 1;
-
+	if (free_clusters >= requested + protected + dirty_clusters)
+		return true;
 
 	if (uid_eq(sbi->s_resuid, current_fsuid()) ||
-	    (!gid_eq(sbi->s_resgid, GLOBAL_ROOT_GID) && in_group_p(sbi->s_resgid)) ||
+	    (!gid_eq(sbi->s_resgid, GLOBAL_ROOT_GID) &&
+	     in_group_p(sbi->s_resgid)) ||
 	    (flags & EXT4_MB_USE_ROOT_BLOCKS) ||
 	    capable(CAP_SYS_RESOURCE)) {
-
-		if (free_clusters >= (nclusters + dirty_clusters +
-				      resv_clusters))
-			return 1;
+		if (free_clusters >=
+		    requested + private_reserve + dirty_clusters)
+			return true;
 	}
 
-	if (flags & EXT4_MB_USE_RESERVED) {
-		if (free_clusters >= (nclusters + dirty_clusters))
-			return 1;
-	}
+	if (flags & EXT4_MB_USE_RESERVED)
+		return free_clusters >= requested + dirty_clusters;
 
+	return false;
+}
+
+int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
+			     s64 clusters, unsigned int flags)
+{
+	if (!ifs_ext4_free_space_available(sbi, clusters, flags))
+		return -ENOSPC;
+
+	percpu_counter_add(&sbi->s_dirtyclusters_counter, clusters);
 	return 0;
 }
 
-
-/**
- * ext4_claim_free_clusters - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
-			     s64 nclusters, unsigned int flags)
-{
-	if (ext4_has_free_clusters(sbi, nclusters, flags)) {
-		percpu_counter_add(&sbi->s_dirtyclusters_counter, nclusters);
-		return 0;
-	} else
-		return -ENOSPC;
-}
-
-
-/**
- * ext4_should_retry_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext4_should_retry_alloc(struct super_block *sb, int *retries)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -774,428 +627,285 @@ int ext4_should_retry_alloc(struct super_block *sb, int *retries)
 	if (!sbi->s_journal)
 		return 0;
 
-	if (++(*retries) > 3) {
+	(*retries)++;
+	if (*retries > 3) {
 		percpu_counter_inc(&sbi->s_sra_exceeded_retry_limit);
 		return 0;
 	}
 
-
 	smp_mb();
-	if (sbi->s_mb_free_pending == 0) {
+	if (!sbi->s_mb_free_pending) {
 		if (test_opt(sb, DISCARD)) {
 			atomic_inc(&sbi->s_retry_alloc_pending);
 			flush_work(&sbi->s_discard_work);
 			atomic_dec(&sbi->s_retry_alloc_pending);
 		}
-		return ext4_has_free_clusters(sbi, 1, 0);
+		return ifs_ext4_free_space_available(sbi, 1, 0);
 	}
 
-
-	ext4_debug("%s: retrying operation after ENOSPC\n", sb->s_id);
-	(void) jbd2_journal_force_commit_nested(sbi->s_journal);
+	(void)jbd2_journal_force_commit_nested(sbi->s_journal);
 	return 1;
 }
 
-
-/**
- * ext4_new_meta_blocks - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 ext4_fsblk_t ext4_new_meta_blocks(handle_t *handle, struct inode *inode,
 				  ext4_fsblk_t goal, unsigned int flags,
-				  unsigned long *count, int *errp)
+				  unsigned long *count, int *error)
 {
-	struct ext4_allocation_request ar;
-	ext4_fsblk_t ret;
+	struct ext4_allocation_request request = {
+		.inode = inode,
+		.goal = goal,
+		.len = count ? *count : 1,
+		.flags = flags,
+	};
+	ext4_fsblk_t block;
 
-	memset(&ar, 0, sizeof(ar));
-
-	ar.inode = inode;
-	ar.goal = goal;
-	ar.len = count ? *count : 1;
-	ar.flags = flags;
-
-	ret = ext4_mb_new_blocks(handle, &ar, errp);
+	block = ext4_mb_new_blocks(handle, &request, error);
 	if (count)
-		*count = ar.len;
+		*count = request.len;
 
+	if (!*error && (flags & EXT4_MB_DELALLOC_RESERVED))
+		dquot_alloc_block_nofail(
+			inode,
+			EXT4_C2B(EXT4_SB(inode->i_sb), request.len));
 
-	if (!(*errp) && (flags & EXT4_MB_DELALLOC_RESERVED)) {
-		dquot_alloc_block_nofail(inode,
-				EXT4_C2B(EXT4_SB(inode->i_sb), ar.len));
-	}
-	return ret;
+	return block;
 }
 
-
-/**
- * ext4_count_free_clusters - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 ext4_fsblk_t ext4_count_free_clusters(struct super_block *sb)
 {
-	ext4_fsblk_t desc_count;
-	struct ext4_group_desc *gdp;
-	ext4_group_t i;
-	ext4_group_t ngroups = ext4_get_groups_count(sb);
-	struct ext4_group_info *grp;
-#ifdef EXT4FS_DEBUG
-	struct ext4_super_block *es;
-	ext4_fsblk_t bitmap_count;
-	unsigned int x;
-	struct buffer_head *bitmap_bh = NULL;
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	ext4_group_t groups = ext4_get_groups_count(sb);
+	ext4_group_t group;
+	ext4_fsblk_t total = 0;
 
-	es = EXT4_SB(sb)->s_es;
-	desc_count = 0;
-	bitmap_count = 0;
-	gdp = NULL;
+	for (group = 0; group < groups; group++) {
+		struct ext4_group_desc *desc;
+		struct ext4_group_info *info = NULL;
 
-	for (i = 0; i < ngroups; i++) {
-		gdp = ext4_get_group_desc(sb, i, NULL);
-		if (!gdp)
+		desc = ext4_get_group_desc(sb, group, NULL);
+		if (!desc)
 			continue;
-		grp = NULL;
-		if (EXT4_SB(sb)->s_group_info)
-			grp = ext4_get_group_info(sb, i);
-		if (!grp || !EXT4_MB_GRP_BBITMAP_CORRUPT(grp))
-			desc_count += ext4_free_group_clusters(sb, gdp);
-		brelse(bitmap_bh);
-		bitmap_bh = ext4_read_block_bitmap(sb, i);
-		if (IS_ERR(bitmap_bh)) {
-			bitmap_bh = NULL;
-			continue;
-		}
-
-		x = ext4_count_free(bitmap_bh->b_data,
-				    EXT4_CLUSTERS_PER_GROUP(sb) / 8);
-		printk(KERN_DEBUG "group %u: stored = %d, counted = %u\n",
-			i, ext4_free_group_clusters(sb, gdp), x);
-		bitmap_count += x;
-	}
-	brelse(bitmap_bh);
-	printk(KERN_DEBUG "ext4_count_free_clusters: stored = %llu"
-	       ", computed = %llu, %llu\n",
-	       EXT4_NUM_B2C(EXT4_SB(sb), ext4_free_blocks_count(es)),
-	       desc_count, bitmap_count);
-	return bitmap_count;
-#else
-	desc_count = 0;
-	for (i = 0; i < ngroups; i++) {
-		gdp = ext4_get_group_desc(sb, i, NULL);
-		if (!gdp)
-			continue;
-		grp = NULL;
-		if (EXT4_SB(sb)->s_group_info)
-			grp = ext4_get_group_info(sb, i);
-		if (!grp || !EXT4_MB_GRP_BBITMAP_CORRUPT(grp))
-			desc_count += ext4_free_group_clusters(sb, gdp);
+		if (sbi->s_group_info)
+			info = ext4_get_group_info(sb, group);
+		if (!info || !EXT4_MB_GRP_BBITMAP_CORRUPT(info))
+			total += ext4_free_group_clusters(sb, desc);
 	}
 
-	return desc_count;
-#endif
+	return total;
 }
-
 
 int ext4_bg_has_super(struct super_block *sb, ext4_group_t group)
 {
 	const struct ext4_super_block *es = EXT4_SB(sb)->s_es;
 
 	return ifs_ext4_group_has_super_ex(
-		ext4_has_feature_sparse_super(sb) ? 1 : 0,
-		ext4_has_feature_sparse_super2(sb) ? 1 : 0,
+		ext4_has_feature_sparse_super(sb),
+		ext4_has_feature_sparse_super2(sb),
 		le32_to_cpu(es->s_backup_bgs[0]),
 		le32_to_cpu(es->s_backup_bgs[1]),
-		(ifs_ext4_u32)group);
+		group);
 }
 
-
-/**
- * ext4_bg_num_gdb_meta - Implements the bg num gdb meta operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned long ext4_bg_num_gdb_meta(struct super_block *sb,
-					ext4_group_t group)
+static unsigned long ifs_ext4_meta_bg_descriptor_count(
+	struct super_block *sb, ext4_group_t group)
 {
-	unsigned long metagroup = group / EXT4_DESC_PER_BLOCK(sb);
-	ext4_group_t first = metagroup * EXT4_DESC_PER_BLOCK(sb);
-	ext4_group_t last = first + EXT4_DESC_PER_BLOCK(sb) - 1;
+	unsigned long descriptor_block =
+		group / EXT4_DESC_PER_BLOCK(sb);
+	ext4_group_t first =
+		descriptor_block * EXT4_DESC_PER_BLOCK(sb);
+	ext4_group_t last =
+		first + EXT4_DESC_PER_BLOCK(sb) - 1;
 
-	if (group == first || group == first + 1 || group == last)
-		return 1;
-	return 0;
+	return group == first || group == first + 1 || group == last;
 }
 
-
-/**
- * ext4_bg_num_gdb_nometa - Implements the bg num gdb nometa operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned long ext4_bg_num_gdb_nometa(struct super_block *sb,
-					ext4_group_t group)
+static unsigned long ifs_ext4_legacy_descriptor_count(
+	struct super_block *sb, ext4_group_t group)
 {
 	if (!ext4_bg_has_super(sb, group))
 		return 0;
 
 	if (ext4_has_feature_meta_bg(sb))
 		return le32_to_cpu(EXT4_SB(sb)->s_es->s_first_meta_bg);
-	else
-		return EXT4_SB(sb)->s_gdb_count;
+
+	return EXT4_SB(sb)->s_gdb_count;
 }
 
-
-/**
- * ext4_bg_num_gdb - Implements the bg num gdb operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 unsigned long ext4_bg_num_gdb(struct super_block *sb, ext4_group_t group)
 {
-	unsigned long first_meta_bg =
-			le32_to_cpu(EXT4_SB(sb)->s_es->s_first_meta_bg);
-	unsigned long metagroup = group / EXT4_DESC_PER_BLOCK(sb);
-
-	if (!ext4_has_feature_meta_bg(sb) || metagroup < first_meta_bg)
-		return ext4_bg_num_gdb_nometa(sb, group);
-
-	return ext4_bg_num_gdb_meta(sb,group);
-
-}
-
-
-/**
- * ext4_num_base_meta_blocks - Implements the num base meta blocks operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned int ext4_num_base_meta_blocks(struct super_block *sb,
-				       ext4_group_t block_group)
-{
-	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	unsigned num;
-
-
-	num = ext4_bg_has_super(sb, block_group);
+	unsigned long first_meta =
+		le32_to_cpu(EXT4_SB(sb)->s_es->s_first_meta_bg);
+	unsigned long meta_group =
+		group / EXT4_DESC_PER_BLOCK(sb);
 
 	if (!ext4_has_feature_meta_bg(sb) ||
-	    block_group < le32_to_cpu(sbi->s_es->s_first_meta_bg) *
-			  sbi->s_desc_per_block) {
-		if (num) {
-			num += ext4_bg_num_gdb_nometa(sb, block_group);
-			num += le16_to_cpu(sbi->s_es->s_reserved_gdt_blocks);
+	    meta_group < first_meta)
+		return ifs_ext4_legacy_descriptor_count(sb, group);
+
+	return ifs_ext4_meta_bg_descriptor_count(sb, group);
+}
+
+static unsigned int ifs_ext4_base_meta_blocks(struct super_block *sb,
+					       ext4_group_t group)
+{
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	unsigned int blocks = ext4_bg_has_super(sb, group);
+
+	if (!ext4_has_feature_meta_bg(sb) ||
+	    group < le32_to_cpu(sbi->s_es->s_first_meta_bg) *
+		    sbi->s_desc_per_block) {
+		if (blocks) {
+			blocks +=
+				ifs_ext4_legacy_descriptor_count(sb, group);
+			blocks += le16_to_cpu(
+				sbi->s_es->s_reserved_gdt_blocks);
 		}
 	} else {
-		num += ext4_bg_num_gdb_meta(sb, block_group);
+		blocks += ifs_ext4_meta_bg_descriptor_count(sb, group);
 	}
-	return num;
+
+	return blocks;
 }
 
-
-/**
- * ext4_num_base_meta_clusters - Implements the num base meta clusters operation within the block allocation subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static unsigned int ext4_num_base_meta_clusters(struct super_block *sb,
-						ext4_group_t block_group)
+unsigned int ext4_num_base_meta_blocks(struct super_block *sb,
+				       ext4_group_t group)
 {
-	return EXT4_NUM_B2C(EXT4_SB(sb), ext4_num_base_meta_blocks(sb, block_group));
+	return ifs_ext4_base_meta_blocks(sb, group);
 }
 
-
-/**
- * ext4_inode_to_goal_block - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 ext4_fsblk_t ext4_inode_to_goal_block(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
-	ext4_group_t block_group;
+	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
+	ext4_group_t group = ei->i_block_group;
+	unsigned int flex = ext4_flex_bg_size(sbi);
+	ext4_fsblk_t group_first;
+	ext4_fsblk_t filesystem_last;
+	ext4_fsblk_t group_blocks;
 	ext4_grpblk_t colour;
-	int flex_size = ext4_flex_bg_size(EXT4_SB(inode->i_sb));
-	ext4_fsblk_t bg_start;
-	ext4_fsblk_t last_block;
 
-	block_group = ei->i_block_group;
-	if (flex_size >= EXT4_FLEX_SIZE_DIR_ALLOC_SCHEME) {
-
-
-		block_group &= ~(flex_size-1);
+	if (flex >= EXT4_FLEX_SIZE_DIR_ALLOC_SCHEME) {
+		group &= ~(flex - 1);
 		if (S_ISREG(inode->i_mode))
-			block_group++;
+			group++;
 	}
-	bg_start = ext4_group_first_block_no(inode->i_sb, block_group);
-	last_block = ext4_blocks_count(EXT4_SB(inode->i_sb)->s_es) - 1;
 
-
+	group_first = ext4_group_first_block_no(inode->i_sb, group);
 	if (test_opt(inode->i_sb, DELALLOC))
-		return bg_start;
+		return group_first;
 
-	if (bg_start + EXT4_BLOCKS_PER_GROUP(inode->i_sb) <= last_block)
-		colour = (task_pid_nr(current) % 16) *
-			(EXT4_BLOCKS_PER_GROUP(inode->i_sb) / 16);
-	else
-		colour = (task_pid_nr(current) % 16) *
-			((last_block - bg_start) / 16);
-	return bg_start + colour;
+	filesystem_last = ext4_blocks_count(sbi->s_es) - 1;
+	if (group_first >= filesystem_last)
+		return group_first;
+
+	group_blocks = min_t(ext4_fsblk_t,
+			     EXT4_BLOCKS_PER_GROUP(inode->i_sb),
+			     filesystem_last - group_first + 1);
+	colour = (task_pid_nr(current) & 15U) * (group_blocks / 16U);
+	return group_first + colour;
 }
 
-
-/**
- * ext4_count_free - Computes derived filesystem state used for validation, accounting or policy decisions.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-unsigned int ext4_count_free(char *bitmap, unsigned int numchars)
+unsigned int ext4_count_free(char *bitmap, unsigned int bytes)
 {
-	return numchars * BITS_PER_BYTE - memweight(bitmap, numchars);
+	return bytes * BITS_PER_BYTE - memweight(bitmap, bytes);
 }
 
+static u32 ifs_ext4_inode_bitmap_checksum(struct super_block *sb,
+					  struct buffer_head *bh)
+{
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	unsigned int bytes = EXT4_INODES_PER_GROUP(sb) >> 3;
 
-/**
- * ext4_inode_bitmap_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
+	return ext4_chksum(sbi, sbi->s_csum_seed,
+			   (u8 *)bh->b_data, bytes);
+}
+
 int ext4_inode_bitmap_csum_verify(struct super_block *sb,
-				  struct ext4_group_desc *gdp,
+				  struct ext4_group_desc *desc,
 				  struct buffer_head *bh)
 {
-	__u32 hi;
-	__u32 provided, calculated;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	int sz;
+	u32 stored;
+	u32 calculated;
 
 	if (!ext4_has_metadata_csum(sb))
 		return 1;
 
-	sz = EXT4_INODES_PER_GROUP(sb) >> 3;
-	provided = le16_to_cpu(gdp->bg_inode_bitmap_csum_lo);
-	calculated = ext4_chksum(sbi, sbi->s_csum_seed, (__u8 *)bh->b_data, sz);
-	if (sbi->s_desc_size >= EXT4_BG_INODE_BITMAP_CSUM_HI_END) {
-		hi = le16_to_cpu(gdp->bg_inode_bitmap_csum_hi);
-		provided |= (hi << 16);
-	} else
-		calculated &= 0xFFFF;
-
-	return provided == calculated;
-}
-
-
-/**
- * ext4_inode_bitmap_csum_set - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext4_inode_bitmap_csum_set(struct super_block *sb,
-				struct ext4_group_desc *gdp,
-				struct buffer_head *bh)
-{
-	__u32 csum;
-	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	int sz;
-
-	if (!ext4_has_metadata_csum(sb))
-		return;
-
-	sz = EXT4_INODES_PER_GROUP(sb) >> 3;
-	csum = ext4_chksum(sbi, sbi->s_csum_seed, (__u8 *)bh->b_data, sz);
-	gdp->bg_inode_bitmap_csum_lo = cpu_to_le16(csum & 0xFFFF);
+	stored = le16_to_cpu(desc->bg_inode_bitmap_csum_lo);
+	calculated = ifs_ext4_inode_bitmap_checksum(sb, bh);
 	if (sbi->s_desc_size >= EXT4_BG_INODE_BITMAP_CSUM_HI_END)
-		gdp->bg_inode_bitmap_csum_hi = cpu_to_le16(csum >> 16);
+		stored |=
+			(u32)le16_to_cpu(desc->bg_inode_bitmap_csum_hi) << 16;
+	else
+		calculated &= 0xffffU;
+
+	return stored == calculated;
 }
 
-
-/**
- * ext4_block_bitmap_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int ext4_block_bitmap_csum_verify(struct super_block *sb,
-				  struct ext4_group_desc *gdp,
-				  struct buffer_head *bh)
-{
-	__u32 hi;
-	__u32 provided, calculated;
-	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	int sz = EXT4_CLUSTERS_PER_GROUP(sb) / 8;
-
-	if (!ext4_has_metadata_csum(sb))
-		return 1;
-
-	provided = le16_to_cpu(gdp->bg_block_bitmap_csum_lo);
-	calculated = ext4_chksum(sbi, sbi->s_csum_seed, (__u8 *)bh->b_data, sz);
-	if (sbi->s_desc_size >= EXT4_BG_BLOCK_BITMAP_CSUM_HI_END) {
-		hi = le16_to_cpu(gdp->bg_block_bitmap_csum_hi);
-		provided |= (hi << 16);
-	} else
-		calculated &= 0xFFFF;
-
-	return provided == calculated;
-}
-
-
-/**
- * ext4_block_bitmap_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext4_block_bitmap_csum_set(struct super_block *sb,
-				struct ext4_group_desc *gdp,
+void ext4_inode_bitmap_csum_set(struct super_block *sb,
+				struct ext4_group_desc *desc,
 				struct buffer_head *bh)
 {
-	int sz = EXT4_CLUSTERS_PER_GROUP(sb) / 8;
-	__u32 csum;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	u32 checksum;
 
 	if (!ext4_has_metadata_csum(sb))
 		return;
 
-	csum = ext4_chksum(sbi, sbi->s_csum_seed, (__u8 *)bh->b_data, sz);
-	gdp->bg_block_bitmap_csum_lo = cpu_to_le16(csum & 0xFFFF);
+	checksum = ifs_ext4_inode_bitmap_checksum(sb, bh);
+	desc->bg_inode_bitmap_csum_lo =
+		cpu_to_le16(checksum & 0xffffU);
+	if (sbi->s_desc_size >= EXT4_BG_INODE_BITMAP_CSUM_HI_END)
+		desc->bg_inode_bitmap_csum_hi =
+			cpu_to_le16(checksum >> 16);
+}
+
+static u32 ifs_ext4_block_bitmap_checksum(struct super_block *sb,
+					  struct buffer_head *bh)
+{
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	unsigned int bytes = EXT4_CLUSTERS_PER_GROUP(sb) >> 3;
+
+	return ext4_chksum(sbi, sbi->s_csum_seed,
+			   (u8 *)bh->b_data, bytes);
+}
+
+int ext4_block_bitmap_csum_verify(struct super_block *sb,
+				  struct ext4_group_desc *desc,
+				  struct buffer_head *bh)
+{
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	u32 stored;
+	u32 calculated;
+
+	if (!ext4_has_metadata_csum(sb))
+		return 1;
+
+	stored = le16_to_cpu(desc->bg_block_bitmap_csum_lo);
+	calculated = ifs_ext4_block_bitmap_checksum(sb, bh);
 	if (sbi->s_desc_size >= EXT4_BG_BLOCK_BITMAP_CSUM_HI_END)
-		gdp->bg_block_bitmap_csum_hi = cpu_to_le16(csum >> 16);
+		stored |=
+			(u32)le16_to_cpu(desc->bg_block_bitmap_csum_hi) << 16;
+	else
+		calculated &= 0xffffU;
+
+	return stored == calculated;
+}
+
+void ext4_block_bitmap_csum_set(struct super_block *sb,
+				struct ext4_group_desc *desc,
+				struct buffer_head *bh)
+{
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	u32 checksum;
+
+	if (!ext4_has_metadata_csum(sb))
+		return;
+
+	checksum = ifs_ext4_block_bitmap_checksum(sb, bh);
+	desc->bg_block_bitmap_csum_lo =
+		cpu_to_le16(checksum & 0xffffU);
+	if (sbi->s_desc_size >= EXT4_BG_BLOCK_BITMAP_CSUM_HI_END)
+		desc->bg_block_bitmap_csum_hi =
+			cpu_to_le16(checksum >> 16);
 }
