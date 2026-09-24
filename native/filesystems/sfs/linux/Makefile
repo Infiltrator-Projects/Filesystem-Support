@@ -1,8 +1,5 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
 # Amiga Smart File System (SFS) — out-of-tree Linux module.
 #
-# The implementation began from the pinned ASFS source recorded in
-# ../SOURCE.md.  The filesystem algorithms remain source-based while the
 # Linux-facing VFS interfaces are modernised for current kernels.
 
 obj-m += sfs.o
