@@ -26,7 +26,9 @@ Important block IDs include:
 - soft link: `SLNK`;
 - admin-space container: `ADMC`;
 - bitmap: `BTMP`;
-- transaction failure: `TRFA`.
+- transaction storage: `TRST`;
+- transaction failure: `TRFA`;
+- transaction complete/idle marker: `TROK`.
 
 ## Root blocks
 
@@ -80,7 +82,7 @@ An SFS object represents a file, directory or special object. Its fixed fields i
 
 The canonical object record parser validates terminators, maximum name length and record-size arithmetic.
 
-The current SFS maximum filename length is 105 bytes.
+The published SmartFileSystem 1.279 user-visible filename limit is 107 characters. The current Filesystem Support SFS core still uses `IFS_SFS_MAX_FILENAME = 105`; that is an implementation-specific limit to be reconciled, not the on-disk format limit.
 
 ## Object containers
 
@@ -137,9 +139,51 @@ The allocator keeps a reserve of free blocks so metadata operations do not deadl
 
 Structured blocks are checksummed. Validation checks the block header ID, self pointer and checksum before consuming the structure.
 
-## Transaction-failure metadata
+## Transaction and crash-recovery protocol
 
-SFS includes a transaction-failure block type used to represent interrupted metadata work. Recovery handling must treat it as filesystem state rather than generic journal replay.
+SFS does not use an EXT-style redo journal. Its transaction layer records the set of block modifications required to move from one valid filesystem state to another.
+
+A transaction operation identifies a target block and carries replacement/original-state data. Operation flags distinguish at least a block with no original allocation (`OI_EMPTY`) and a target that no longer needs to be written because it was deleted (`OI_DELETE`).
+
+When a transaction must be recoverable, the operation stream is serialized into one or more `TRST` transaction-storage blocks. Each `TRST` block has the standard SFS block header, a pointer to the next storage block and transaction bytes.
+
+The fixed transaction-marker location is two blocks after the root object container in the normal formatted layout. In the clean state it contains a checksummed `TROK` block. During recoverable publication it can contain a `TRFA` block whose payload points to the first `TRST` block.
+
+Mount/startup recovery of a valid `TRFA` marker is:
+
+1. follow and validate the `TRST` chain;
+2. reconstruct the saved block operations;
+3. re-apply those operations to their target blocks;
+4. only after successful replay replace/remove the failure marker so the volume returns to the clean `TROK` state.
+
+Transaction-storage pointers, target block numbers, compressed record lengths and chain termination are part of the corruption boundary. Malformed recovery data must never become an arbitrary disk write.
+
+## Canonical formatted-volume topology
+
+The AROS format path and SmartFilesystem 1.279-compatible format output establish the normal empty-volume topology:
+
+```text
+block 0                         primary SFS root
+admin-space start               ADMC
+root object block               OBJC containing root object + RootInfo
+root + 1                        HTAB for the root directory
+root + 2                        TROK transaction marker
+root + 3                        BNDC empty extent B-tree root
+root + 4                        NDC object-node root
+root + 5                        OBJC for .recycled when enabled
+bitmap base ...                 BTMP blocks
+last filesystem block           secondary SFS root
+```
+
+The exact absolute admin/root location depends on reserved-start geometry; the relationships above are format topology, not permission to infer locations without validating the root.
+
+One `BTMP` block covers `(block_size - 12) * 8` filesystem blocks because the first 12 bytes are the standard block header. SFS bitmap bits use set = free.
+
+## Checksum convention
+
+SFS metadata uses additive 32-bit big-endian checksums with the checksum field zeroed during calculation. SmartFilesystem 1.279-compatible format output uses a whole-block sum of `0xFFFFFFFF` for `SFS\0`. SFS2 has a variant-specific one-less checksum rule described in the SFS2 design.
+
+Checksum behaviour must be tested against handler-produced fixtures; it must not be replaced with a host-native checksum or an EXT-style CRC.
 
 ## Filesystem Support source design
 
@@ -182,7 +226,7 @@ The current SFS distribution documents the SFS\0 format with these user-visible 
 - a recycled/deleted-files directory;
 - no hard-link support in the distributed implementation.
 
-The current canonical constant `IFS_SFS_MAX_FILENAME` is 105. That is an implementation discrepancy against the distributed format documentation's 107-character limit and must not be presented as the filesystem's true limit.
+The current canonical constant `IFS_SFS_MAX_FILENAME` is 105. That is an implementation discrepancy against the SmartFilesystem 1.279 published/observed 107-character limit. Historical ports also imposed smaller configurable policy limits, so format capability, handler policy and the current project constant are recorded separately.
 
 ### Root placement and redundancy
 
@@ -233,3 +277,11 @@ Read-ahead caching and transparent defragmentation are implementation features r
 ## Qualification expectations
 
 A filesystem is not considered complete merely because it compiles. Qualification should include independently manufactured media, normal read/write workloads, malformed-media rejection, mount/unmount cycles, allocation exhaustion, rename/link/unlink cases, recovery where applicable, and independent verification by a separate implementation or checker where one exists.
+
+## Verification references
+
+- SmartFileSystem 1.279 distribution/readme: https://aminet.net/package/disk/misc/SFS
+- AROS SFS low-level implementation: `aros-development-team/AROS/rom/filesys/SFS/FS/`, especially `blockstructure.h`, `objects.h`, `nodes.h`, `btreenodes.h`, `adminspaces.h`, `bitmap.h`, `transactions.h`, `transactions.c` and `filesystemmain.c`.
+- SmartFilesystem 1.279 handler-compatible formatter evidence: `ChuckyGang/AmiPart/src/nativefmt.c`, documented there as byte-for-byte verified against the handler under AmiFUSE.
+
+Where historical ports and the current SmartFilesystem handler expose different policy limits, this document records the format/handler distinction rather than silently adopting one implementation constant.
