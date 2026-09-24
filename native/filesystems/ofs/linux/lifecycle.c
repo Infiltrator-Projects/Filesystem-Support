@@ -35,6 +35,9 @@ static int ifs_ofs_variant_classify(u32 dostype, u32 *flags)
 #include <linux/iversion.h>
 #include <linux/math64.h>
 #include <linux/limits.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+#include <linux/fs_context.h>
+#endif
 
 struct ifs_ofs_mount_config {
     kuid_t uid;
@@ -50,7 +53,9 @@ struct ifs_ofs_mount_config {
 
 static int affs_statfs(struct dentry *dentry, struct kstatfs *buffer);
 static int affs_show_options(struct seq_file *output, struct dentry *root);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
 static int affs_remount(struct super_block *sb, int *flags, char *data);
+#endif
 
 static void affs_commit_super(struct super_block *sb, bool wait)
 {
@@ -174,7 +179,9 @@ static const struct super_operations affs_sops = {
     .put_super = affs_put_super,
     .sync_fs = affs_sync_fs,
     .statfs = affs_statfs,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
     .remount_fs = affs_remount,
+#endif
     .show_options = affs_show_options,
 };
 
@@ -521,9 +528,11 @@ static void ifs_ofs_free_super_info(struct super_block *sb)
     sb->s_fs_info = NULL;
 }
 
-static int affs_fill_super(struct super_block *sb, void *data, int silent)
+static int ifs_ofs_fill_super_config(
+    struct super_block *sb,
+    struct ifs_ofs_mount_config *config,
+    int silent)
 {
-    struct ifs_ofs_mount_config config;
     struct affs_sb_info *sbi;
     struct buffer_head *root_bh = NULL;
     struct buffer_head *boot_bh = NULL;
@@ -532,11 +541,6 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
     u32 dostype;
     int bitmap_flags;
     int result;
-
-    ifs_ofs_mount_config_defaults(&config);
-    result = ifs_ofs_parse_options(data, &config);
-    if (result != 0)
-        goto out_config;
 
     sb->s_magic = AFFS_SUPER_MAGIC;
     sb->s_op = &affs_sops;
@@ -556,21 +560,21 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 
     sb->s_fs_info = sbi;
     sbi->sb = sb;
-    sbi->s_flags = config.flags;
-    sbi->s_mode = config.mode;
-    sbi->s_uid = config.uid;
-    sbi->s_gid = config.gid;
-    sbi->s_reserved = config.reserved;
-    sbi->s_prefix = config.prefix;
-    config.prefix = NULL;
-    memcpy(sbi->s_volume, config.volume, sizeof(sbi->s_volume));
+    sbi->s_flags = config->flags;
+    sbi->s_mode = config->mode;
+    sbi->s_uid = config->uid;
+    sbi->s_gid = config->gid;
+    sbi->s_reserved = config->reserved;
+    sbi->s_prefix = config->prefix;
+    config->prefix = NULL;
+    memcpy(sbi->s_volume, config->volume, sizeof(sbi->s_volume));
 
     mutex_init(&sbi->s_bmlock);
     spin_lock_init(&sbi->symlink_lock);
     spin_lock_init(&sbi->work_lock);
     INIT_DELAYED_WORK(&sbi->sb_work, ifs_ofs_flush_super_work);
 
-    result = ifs_ofs_find_root(sb, &config, &root_bh);
+    result = ifs_ofs_find_root(sb, config, &root_bh);
     if (result != 0) {
         if (!silent)
             pr_err("No valid root block on device %s\n", sb->s_id);
@@ -630,9 +634,17 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
         goto fail;
     }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+    set_default_d_op(
+        sb,
+        affs_test_opt(sbi->s_flags, SF_INTL) ?
+            &affs_intl_dentry_operations :
+            &affs_dentry_operations);
+#else
     sb->s_d_op = affs_test_opt(sbi->s_flags, SF_INTL) ?
                  &affs_intl_dentry_operations :
                  &affs_dentry_operations;
+#endif
 
     sb->s_root = d_make_root(root_inode);
     if (!sb->s_root) {
@@ -641,19 +653,40 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
     }
 
     sb->s_export_op = &affs_export_ops;
-    result = 0;
-    goto out_config;
+    return 0;
 
 fail:
     brelse(boot_bh);
     affs_brelse(root_bh);
     ifs_ofs_free_super_info(sb);
-
-out_config:
-    kfree(config.prefix);
     return result;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
+static int affs_fill_super(struct super_block *sb, void *data, int silent)
+{
+    struct ifs_ofs_mount_config config;
+    int result;
+
+    ifs_ofs_mount_config_defaults(&config);
+    result = ifs_ofs_parse_options(data, &config);
+    if (result == 0)
+        result = ifs_ofs_fill_super_config(sb, &config, silent);
+    kfree(config.prefix);
+    return result;
+}
+#else
+static int affs_fill_super(struct super_block *sb, struct fs_context *fc)
+{
+    return ifs_ofs_fill_super_config(
+        sb,
+        fc->fs_private,
+        (fc->sb_flags & SB_SILENT) != 0);
+}
+#endif
+
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
 static int affs_remount(struct super_block *sb, int *flags, char *data)
 {
     struct affs_sb_info *sbi = AFFS_SB(sb);
@@ -717,6 +750,111 @@ out:
     return result;
 }
 
+#else
+static int ifs_ofs_parse_monolithic(struct fs_context *fc, void *data)
+{
+    return ifs_ofs_parse_options(
+        data,
+        (struct ifs_ofs_mount_config *)fc->fs_private);
+}
+
+static int affs_reconfigure(struct fs_context *fc)
+{
+    struct super_block *sb = fc->root->d_sb;
+    struct affs_sb_info *sbi = AFFS_SB(sb);
+    struct ifs_ofs_mount_config *config = fc->fs_private;
+    char *old_prefix;
+    int result = 0;
+
+    if (config->reserved != sbi->s_reserved ||
+        config->root_block != (s32)sbi->s_root_block ||
+        config->blocksize != (int)sb->s_blocksize)
+        return -EINVAL;
+
+    sync_filesystem(sb);
+    flush_delayed_work(&sbi->sb_work);
+    fc->sb_flags |= SB_NODIRATIME;
+
+    config->flags |= sbi->s_flags &
+        (AFFS_MOUNT_SF_INTL | AFFS_MOUNT_SF_MUFS |
+         AFFS_MOUNT_SF_OFS);
+
+    sbi->s_flags = config->flags;
+    sbi->s_mode = config->mode;
+    sbi->s_uid = config->uid;
+    sbi->s_gid = config->gid;
+
+    spin_lock(&sbi->symlink_lock);
+    old_prefix = sbi->s_prefix;
+    sbi->s_prefix = config->prefix;
+    config->prefix = NULL;
+    memcpy(sbi->s_volume, config->volume, sizeof(sbi->s_volume));
+    spin_unlock(&sbi->symlink_lock);
+    kfree(old_prefix);
+
+    if ((bool)(fc->sb_flags & SB_RDONLY) != sb_rdonly(sb)) {
+        if ((fc->sb_flags & SB_RDONLY) != 0) {
+            affs_free_bitmap(sb);
+        } else {
+            int bitmap_flags = fc->sb_flags;
+
+            result = affs_init_bitmap(sb, &bitmap_flags);
+            if (result == 0)
+                fc->sb_flags = bitmap_flags;
+        }
+    }
+
+    return result;
+}
+
+static int affs_get_tree(struct fs_context *fc)
+{
+    return get_tree_bdev(fc, affs_fill_super);
+}
+
+static void ifs_ofs_free_fs_context(struct fs_context *fc)
+{
+    struct ifs_ofs_mount_config *config = fc->fs_private;
+
+    if (!config)
+        return;
+    kfree(config->prefix);
+    kfree(config);
+    fc->fs_private = NULL;
+}
+
+static const struct fs_context_operations ifs_ofs_context_operations = {
+    .parse_monolithic = ifs_ofs_parse_monolithic,
+    .get_tree = affs_get_tree,
+    .reconfigure = affs_reconfigure,
+    .free = ifs_ofs_free_fs_context,
+};
+
+static int ifs_ofs_init_fs_context(struct fs_context *fc)
+{
+    struct ifs_ofs_mount_config *config;
+    int result = 0;
+
+    config = kzalloc(sizeof(*config), GFP_KERNEL);
+    if (!config)
+        return -ENOMEM;
+
+    if (fc->purpose == FS_CONTEXT_FOR_RECONFIGURE)
+        result = ifs_ofs_mount_config_from_super(fc->root->d_sb, config);
+    else
+        ifs_ofs_mount_config_defaults(config);
+
+    if (result != 0) {
+        kfree(config);
+        return result;
+    }
+
+    fc->ops = &ifs_ofs_context_operations;
+    fc->fs_private = config;
+    return 0;
+}
+#endif
+
 static int affs_statfs(struct dentry *dentry, struct kstatfs *buffer)
 {
     struct super_block *sb = dentry->d_sb;
@@ -735,12 +873,14 @@ static int affs_statfs(struct dentry *dentry, struct kstatfs *buffer)
     return 0;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
 static struct dentry *affs_mount(
     struct file_system_type *type, int flags,
     const char *device, void *data)
 {
     return mount_bdev(type, flags, device, data, affs_fill_super);
 }
+#endif
 
 static void affs_kill_sb(struct super_block *sb)
 {
@@ -760,7 +900,11 @@ static void affs_kill_sb(struct super_block *sb)
 static struct file_system_type affs_fs_type = {
     .owner = THIS_MODULE,
     .name = IFS_OFS_FS_NAME,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+    .init_fs_context = ifs_ofs_init_fs_context,
+#else
     .mount = affs_mount,
+#endif
     .kill_sb = affs_kill_sb,
     .fs_flags = FS_REQUIRES_DEV,
 };
