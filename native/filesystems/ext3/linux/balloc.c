@@ -12,6 +12,7 @@
  */
 
 #include <linux/buffer_head.h>
+#include <linux/blkdev.h>
 #include <linux/capability.h>
 #include <linux/cred.h>
 #include <linux/quotaops.h>
@@ -201,10 +202,11 @@ static int ifs_ext3_claim_bit(
 	struct buffer_head *bitmap, unsigned long bit)
 {
 	struct journal_head *jh = bh2jh(bitmap);
-	spinlock_t *lock = sb_bgl_lock(EXT3_SB(sb), group);
 	bool committed_busy = false;
 
-	if (ext3_set_bit_atomic(lock, bit, bitmap->b_data))
+	if (ext3_set_bit_atomic(
+		    sb_bgl_lock(EXT3_SB(sb), group),
+		    bit, bitmap->b_data))
 		return 0;
 
 	jbd_lock_bh_state(bitmap);
@@ -214,7 +216,9 @@ static int ifs_ext3_claim_bit(
 	jbd_unlock_bh_state(bitmap);
 
 	if (committed_busy) {
-		ext3_clear_bit_atomic(lock, bit, bitmap->b_data);
+		ext3_clear_bit_atomic(
+			sb_bgl_lock(EXT3_SB(sb), group),
+			bit, bitmap->b_data);
 		return 0;
 	}
 
