@@ -962,7 +962,7 @@ int affs_create(
 
     inode = affs_new_inode(dir);
     if (!inode)
-        return IFS_OFS_MKDIR_FAILURE(-ENOSPC);
+        return -ENOSPC;
 
     inode->i_mode = mode;
     affs_mode_to_prot(inode);
@@ -991,7 +991,7 @@ IFS_OFS_MKDIR_RETURN affs_mkdir(
 
     inode = affs_new_inode(dir);
     if (!inode)
-        return -ENOSPC;
+        return IFS_OFS_MKDIR_FAILURE(-ENOSPC);
 
     inode->i_mode = S_IFDIR | mode;
     affs_mode_to_prot(inode);
