@@ -743,56 +743,5 @@ static inline int ext2_init_security(
 }
 #endif
 
-#ifndef INFILTRATOR_EXT2_MBCACHE_H
-#define INFILTRATOR_EXT2_MBCACHE_H
-
-struct mb_cache_entry {
-	struct list_head e_list;
-	struct hlist_bl_node e_hash_list;
-	atomic_t e_refcnt;
-	u32 e_key;
-	unsigned long e_flags;
-	u64 e_value;
-};
-
-enum {
-	MBE_REFERENCED_B = 0,
-	MBE_REUSABLE_B,
-};
-
-struct mb_cache *mb_cache_create(int bucket_bits);
-void mb_cache_destroy(struct mb_cache *cache);
-int mb_cache_entry_create(
-	struct mb_cache *cache, gfp_t mask,
-	u32 key, u64 value, bool reusable);
-void __mb_cache_entry_free(
-	struct mb_cache *cache, struct mb_cache_entry *entry);
-void mb_cache_entry_wait_unused(struct mb_cache_entry *entry);
-
-static inline void mb_cache_entry_put(
-	struct mb_cache *cache, struct mb_cache_entry *entry)
-{
-	unsigned int refs = atomic_dec_return(&entry->e_refcnt);
-
-	if (refs > 0U) {
-		if (refs <= 2U)
-			wake_up_var(&entry->e_refcnt);
-		return;
-	}
-	__mb_cache_entry_free(cache, entry);
-}
-
-struct mb_cache_entry *mb_cache_entry_delete_or_get(
-	struct mb_cache *cache, u32 key, u64 value);
-struct mb_cache_entry *mb_cache_entry_get(
-	struct mb_cache *cache, u32 key, u64 value);
-struct mb_cache_entry *mb_cache_entry_find_first(
-	struct mb_cache *cache, u32 key);
-struct mb_cache_entry *mb_cache_entry_find_next(
-	struct mb_cache *cache, struct mb_cache_entry *entry);
-void mb_cache_entry_touch(
-	struct mb_cache *cache, struct mb_cache_entry *entry);
-
-#endif
 
 #endif
