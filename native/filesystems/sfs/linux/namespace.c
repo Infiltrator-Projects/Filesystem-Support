@@ -166,13 +166,15 @@ static int sfs_instantiate_lookup(
     if (!inode)
         return -ENOMEM;
 
-    if ((inode->i_state & I_NEW) != 0) {
+    if (IFS_SFS_INODE_IS_NEW(inode)) {
         asfs_read_locked_inode(inode, object);
         unlock_new_inode(inode);
     }
 
     asfs_brelse(object_bh);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
     d_set_d_op(dentry, &asfs_dentry_operations);
+#endif
     d_add(dentry, inode);
     return 0;
 }
@@ -327,7 +329,9 @@ struct dentry *asfs_lookup(
     if (result != -ENOENT)
         return ERR_PTR(result);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
     d_set_d_op(dentry, &asfs_dentry_operations);
+#endif
     d_add(dentry, NULL);
     return NULL;
 }

@@ -482,13 +482,18 @@ static int sfs_fill_super_data(struct super_block *sb, void *data, int silent)
 		goto fail_after_ops;
 	}
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+	set_default_d_op(sb, &asfs_dentry_operations);
+#endif
 	sb->s_root = d_make_root(root_inode);
 	if (!sb->s_root) {
 		result = -ENOMEM;
 		goto fail_after_ops;
 	}
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
 	d_set_d_op(sb->s_root, &asfs_dentry_operations);
+#endif
 	return 0;
 
 fail_after_ops:
