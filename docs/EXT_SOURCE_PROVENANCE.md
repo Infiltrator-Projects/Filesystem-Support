@@ -29,25 +29,30 @@ Linux adapter; Windows-specific interfaces belong to the Windows adapter.
 
 ## Project-authored EXT2 units
 
-The following active EXT2 units are maintained as project-authored source:
+EXT2 has completed its first permanent responsibility recut. The active Linux
+adapter no longer uses the inherited translation-unit names.
+
+The project-authored active units are:
 
 - `native/filesystems/ext2/core/ext2_core.c`
 - `native/filesystems/ext2/core/ext2_core.h`
 - `native/filesystems/ext2/core/ext2_engine.c`
 - `native/filesystems/ext2/core/ext2_engine.h`
-- `native/filesystems/ext2/linux/canonical.c`
-- `native/filesystems/ext2/linux/file.c`
-- `native/filesystems/ext2/linux/namei.c`
-- `native/filesystems/ext2/linux/ialloc.c`
-- `native/filesystems/ext2/linux/inode.c`
-- `native/filesystems/ext2/linux/xattr.c`
-- `native/filesystems/ext2/linux/super.c`
+- `native/filesystems/ext2/linux/core_bridge.c`
+- `native/filesystems/ext2/linux/allocation.c`
+- `native/filesystems/ext2/linux/namespace.c`
+- `native/filesystems/ext2/linux/io.c`
+- `native/filesystems/ext2/linux/metadata.c`
+- `native/filesystems/ext2/linux/lifecycle.c`
+- `native/filesystems/ext2/linux/linux_adapter.h`
 - `native/filesystems/ext2/linux/Makefile`
 
-The regular-file, namespace, inode-allocation, directory, block-allocation and
-Linux private-model units have been replaced with project-owned implementations.
-Their Linux code uses kernel interfaces as platform APIs but does not retain the
-previous implementation bodies or third-party author blocks.
+The Linux source is now cut by Filesystem Support responsibility rather than by
+the historical `balloc/ialloc/dir/namei/file/inode/xattr/super` translation
+unit boundaries. Block and inode allocation are one allocation adapter;
+directory enumeration and namespace mutation are one namespace adapter; file
+and inode/page-cache integration are one I/O adapter; extended metadata is one
+metadata adapter; and mount/module lifetime is one lifecycle adapter.
 
 ## EXT2 migration state
 
