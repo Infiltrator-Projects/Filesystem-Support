@@ -28,6 +28,11 @@ struct ifs_ext2_link {
 	ext2_fsblk_t block;
 };
 
+static unsigned long ifs_ext2_sectors_per_block(const struct inode *inode)
+{
+	return inode->i_sb->s_blocksize >> 9;
+}
+
 static bool ifs_ext2_fast_symlink(struct inode *inode)
 {
 	const unsigned long ea_sectors = EXT2_I(inode)->i_file_acl ?
