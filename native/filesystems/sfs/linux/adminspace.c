@@ -50,7 +50,7 @@ static int sfs_scan_free_range(
 {
     const u32 bits_per_bitmap = ASFS_SB(sb)->blocks_inbitmap;
     const int words = (int)(bits_per_bitmap >> 5);
-    u32 current = start;
+    u32 scan_block = start;
     u32 run_start = 0U;
     u32 run_length = 0U;
 
@@ -58,10 +58,10 @@ static int sfs_scan_free_range(
         start > end || end > ASFS_SB(sb)->totalblocks)
         return -EINVAL;
 
-    while (current < end) {
-        const u32 bitmap_index = current / bits_per_bitmap;
+    while (scan_block < end) {
+        const u32 bitmap_index = scan_block / bits_per_bitmap;
         const u32 bitmap_base_block = bitmap_index * bits_per_bitmap;
-        const u32 local_start = current - bitmap_base_block;
+        const u32 local_start = scan_block - bitmap_base_block;
         const u32 local_end = min(
             bits_per_bitmap, end - bitmap_base_block);
         struct buffer_head *bh;
@@ -131,7 +131,7 @@ static int sfs_scan_free_range(
 
         if (local_end != bits_per_bitmap)
             run_length = 0U;
-        current = bitmap_base_block + local_end;
+        scan_block = bitmap_base_block + local_end;
     }
 
     return 0;
