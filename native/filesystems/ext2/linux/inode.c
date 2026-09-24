@@ -302,14 +302,25 @@ static int ifs_ext2_free_subtree(
 
 		if (!child)
 			continue;
-		error = ifs_ext2_free_subtree(inode, child, level - 1U);
-		if (error && !first_error)
-			first_error = error;
-	}
-	bforget(bh);
 
-	if (!first_error)
+		error = ifs_ext2_free_subtree(inode, child, level - 1U);
+		if (error) {
+			if (!first_error)
+				first_error = error;
+			continue;
+		}
+
+		pointers[index] = 0;
+	}
+
+	if (ifs_ext2_block_all_zero(pointers, ptrs)) {
+		bforget(bh);
 		ifs_ext2_release_block(inode, block);
+	} else {
+		mark_buffer_dirty_inode(bh, inode);
+		brelse(bh);
+	}
+
 	return first_error;
 }
 
