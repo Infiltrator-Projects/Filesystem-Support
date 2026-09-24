@@ -127,6 +127,8 @@ jobs:
             native/filesystems/ext4/linux/truncate.h
             native/filesystems/ext4/linux/fsmap.h
             native/filesystems/ext4/linux/fast_commit.h
+            native/filesystems/ext4/linux/crypto.c
+            native/filesystems/ext4/linux/verity.c
           )
           for file in "${rewritten[@]}"; do
             test -s "$file"
