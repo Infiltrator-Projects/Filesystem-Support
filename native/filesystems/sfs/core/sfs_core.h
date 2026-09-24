@@ -145,6 +145,7 @@ int ifs_sfs_validate_block_header(
     ifs_sfs_u32 expected_block_number,
     ifs_sfs_u32 expected_block_id);
 
+#define IFS_SFS_OBJECT_FIXED_SIZE 25U
 #define IFS_SFS_NODE_CONTAINER_FIXED_SIZE 20U
 #define IFS_SFS_OBJECT_NODE_SIZE 10U
 #define IFS_SFS_NODE_INDEX_ENTRY_SIZE 4U
