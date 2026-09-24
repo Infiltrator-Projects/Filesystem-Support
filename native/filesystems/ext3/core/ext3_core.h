@@ -132,6 +132,22 @@ IfsExt3DirectoryRecordStatus ifs_ext3_validate_directory_record(
 const char *ifs_ext3_directory_record_status_string(
     IfsExt3DirectoryRecordStatus status);
 
+
+#define IFS_EXT3_HASH_LEGACY 0
+#define IFS_EXT3_HASH_HALF_MD4 1
+#define IFS_EXT3_HASH_TEA 2
+#define IFS_EXT3_HASH_LEGACY_UNSIGNED 3
+#define IFS_EXT3_HASH_HALF_MD4_UNSIGNED 4
+#define IFS_EXT3_HASH_TEA_UNSIGNED 5
+
+int ifs_ext3_directory_hash(
+    const ifs_ext3_u8 *name,
+    ifs_ext3_u32 length,
+    int version,
+    const ifs_ext3_u32 seed[4],
+    ifs_ext3_u32 *major_hash,
+    ifs_ext3_u32 *minor_hash);
+
 #define IFS_EXT3_NDIR_BLOCKS 12U
 #define IFS_EXT3_IND_BLOCK   12U
 #define IFS_EXT3_DIND_BLOCK  13U
