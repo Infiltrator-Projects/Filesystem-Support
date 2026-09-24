@@ -221,7 +221,7 @@ static inline bool asfs_object_slot_fits(
 
     if (object_bytes < start || object_bytes > end)
         return false;
-    return (size_t)(end - object_bytes) >= sizeof(struct fsObject) + 2U;
+    return (size_t)(end - object_bytes) >= IFS_SFS_OBJECT_FIXED_SIZE + 2U;
 }
 
 /* objects */
