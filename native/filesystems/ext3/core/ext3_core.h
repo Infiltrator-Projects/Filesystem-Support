@@ -22,6 +22,37 @@ typedef uint32_t ifs_ext3_u32;
 typedef uint64_t ifs_ext3_u64;
 
 
+#define IFS_EXT3_JOURNAL_MAGIC 0xc03b3998U
+#define IFS_EXT3_JOURNAL_DESCRIPTOR_BLOCK 1U
+#define IFS_EXT3_JOURNAL_COMMIT_BLOCK 2U
+#define IFS_EXT3_JOURNAL_SUPERBLOCK_V1 3U
+#define IFS_EXT3_JOURNAL_SUPERBLOCK_V2 4U
+#define IFS_EXT3_JOURNAL_REVOKE_BLOCK 5U
+#define IFS_EXT3_JOURNAL_FEATURE_INCOMPAT_REVOKE 0x00000001U
+
+typedef enum IfsExt3JournalStatus {
+    IFS_EXT3_JOURNAL_OK = 0,
+    IFS_EXT3_JOURNAL_BAD_ARGUMENT,
+    IFS_EXT3_JOURNAL_BAD_MAGIC,
+    IFS_EXT3_JOURNAL_BAD_TYPE,
+    IFS_EXT3_JOURNAL_BAD_BLOCK_SIZE,
+    IFS_EXT3_JOURNAL_BAD_GEOMETRY,
+    IFS_EXT3_JOURNAL_UNSUPPORTED_FEATURE
+} IfsExt3JournalStatus;
+
+IfsExt3JournalStatus ifs_ext3_validate_journal_header(
+    ifs_ext3_u32 magic,
+    ifs_ext3_u32 block_type,
+    ifs_ext3_u32 sequence);
+
+IfsExt3JournalStatus ifs_ext3_validate_journal_superblock(
+    ifs_ext3_u32 block_size,
+    ifs_ext3_u32 max_length,
+    ifs_ext3_u32 first_block,
+    ifs_ext3_u32 start_block,
+    ifs_ext3_u32 incompat_features);
+
+
 #endif
 
 #define IFS_EXT3_FEATURE_INCOMPAT_FILETYPE 0x0002U
