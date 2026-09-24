@@ -1,736 +1,507 @@
-// SPDX-License-Identifier: LGPL-2.1
-/*
- * Copyright IBM Corporation, 2007
- * Author Aneesh Kumar K.V <aneesh.kumar@linux.vnet.ibm.com>
- *
- */
-
-/*
- * EXT4 — Mapping-format migration
- *
- * Purpose:
- *   Converts eligible inodes from legacy indirect mapping to extent mapping.
- *
- * Filesystem model:
- *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
- *
- * Correctness focus:
- *   Migration changes persistent mapping representation and therefore requires rollback-safe ordering so either old or new mapping remains valid after failure.
- *
- * Project rules:
- *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
- *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
- */
-
 #include <linux/slab.h>
-#include "ext4_jbd2.h"
+
 #include "ext4_extents.h"
+#include "ext4_jbd2.h"
 
-
-/**
- * struct migrate_struct - Private EXT4 state/data structure used by mapping-format migration.
- *
- * Treat fields that mirror persistent media or cross subsystem boundaries
- * as interface contracts rather than incidental layout.
- */
-struct migrate_struct {
-	ext4_lblk_t first_block, last_block, curr_block;
-	ext4_fsblk_t first_pblock, last_pblock;
+struct ext4_migrate_run {
+	ext4_lblk_t logical_start;
+	ext4_lblk_t logical_last;
+	ext4_lblk_t logical_cursor;
+	ext4_fsblk_t physical_start;
+	ext4_fsblk_t physical_last;
 };
 
-
-/**
- * finish_range - Implements the finish range operation within the mapping-format migration subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int finish_range(handle_t *handle, struct inode *inode,
-				struct migrate_struct *lb)
-
+static int ext4_migrate_flush_run(handle_t *handle, struct inode *inode,
+				  struct ext4_migrate_run *run)
 {
-	int retval = 0, needed;
-	struct ext4_extent newext;
+	struct ext4_extent extent;
 	struct ext4_ext_path *path;
-	if (lb->first_pblock == 0)
+	unsigned int length;
+	int credits;
+	int err = 0;
+
+	if (!run->physical_start)
 		return 0;
 
-
-	newext.ee_block = cpu_to_le32(lb->first_block);
-	newext.ee_len   = cpu_to_le16(lb->last_block - lb->first_block + 1);
-	ext4_ext_store_pblock(&newext, lb->first_pblock);
+	length = run->logical_last - run->logical_start + 1;
+	memset(&extent, 0, sizeof(extent));
+	extent.ee_block = cpu_to_le32(run->logical_start);
+	extent.ee_len = cpu_to_le16(length);
+	ext4_ext_store_pblock(&extent, run->physical_start);
 
 	down_write(&EXT4_I(inode)->i_data_sem);
-	path = ext4_find_extent(inode, lb->first_block, NULL, 0);
+	path = ext4_find_extent(inode, run->logical_start, NULL, 0);
 	if (IS_ERR(path)) {
-		retval = PTR_ERR(path);
-		goto err_out;
+		err = PTR_ERR(path);
+		path = NULL;
+		goto out_unlock;
 	}
 
+	credits = ext4_ext_calc_credits_for_single_extent(
+		inode, length, path);
+	err = ext4_datasem_ensure_credits(
+		handle, inode, credits, credits, 0);
+	if (err)
+		goto out_unlock;
 
-	needed = ext4_ext_calc_credits_for_single_extent(inode,
-		    lb->last_block - lb->first_block + 1, path);
+	path = ext4_ext_insert_extent(
+		handle, inode, path, &extent, 0);
+	if (IS_ERR(path)) {
+		err = PTR_ERR(path);
+		path = NULL;
+	}
 
-	retval = ext4_datasem_ensure_credits(handle, inode, needed, needed, 0);
-	if (retval < 0)
-		goto err_out;
-	path = ext4_ext_insert_extent(handle, inode, path, &newext, 0);
-	if (IS_ERR(path))
-		retval = PTR_ERR(path);
-err_out:
-	up_write((&EXT4_I(inode)->i_data_sem));
+out_unlock:
+	up_write(&EXT4_I(inode)->i_data_sem);
 	ext4_free_ext_path(path);
-	lb->first_pblock = 0;
-	return retval;
+	run->physical_start = 0;
+	return err;
 }
 
-
-/**
- * update_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int update_extent_range(handle_t *handle, struct inode *inode,
-			       ext4_fsblk_t pblock, struct migrate_struct *lb)
+static int ext4_migrate_add_block(handle_t *handle, struct inode *inode,
+				  ext4_fsblk_t physical,
+				  struct ext4_migrate_run *run)
 {
-	int retval;
-
-
-	if (lb->first_pblock &&
-		(lb->last_pblock+1 == pblock) &&
-		(lb->last_block+1 == lb->curr_block)) {
-		lb->last_pblock = pblock;
-		lb->last_block = lb->curr_block;
-		lb->curr_block++;
-		return 0;
-	}
-
-
-	retval = finish_range(handle, inode, lb);
-	lb->first_pblock = lb->last_pblock = pblock;
-	lb->first_block = lb->last_block = lb->curr_block;
-	lb->curr_block++;
-	return retval;
-}
-
-
-/**
- * update_ind_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int update_ind_extent_range(handle_t *handle, struct inode *inode,
-				   ext4_fsblk_t pblock,
-				   struct migrate_struct *lb)
-{
-	struct buffer_head *bh;
-	__le32 *i_data;
-	int i, retval = 0;
-	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
-
-	bh = ext4_sb_bread(inode->i_sb, pblock, 0);
-	if (IS_ERR(bh))
-		return PTR_ERR(bh);
-
-	i_data = (__le32 *)bh->b_data;
-	for (i = 0; i < max_entries; i++) {
-		if (i_data[i]) {
-			retval = update_extent_range(handle, inode,
-						le32_to_cpu(i_data[i]), lb);
-			if (retval)
-				break;
-		} else {
-			lb->curr_block++;
-		}
-	}
-	put_bh(bh);
-	return retval;
-
-}
-
-
-/**
- * update_dind_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int update_dind_extent_range(handle_t *handle, struct inode *inode,
-				    ext4_fsblk_t pblock,
-				    struct migrate_struct *lb)
-{
-	struct buffer_head *bh;
-	__le32 *i_data;
-	int i, retval = 0;
-	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
-
-	bh = ext4_sb_bread(inode->i_sb, pblock, 0);
-	if (IS_ERR(bh))
-		return PTR_ERR(bh);
-
-	i_data = (__le32 *)bh->b_data;
-	for (i = 0; i < max_entries; i++) {
-		if (i_data[i]) {
-			retval = update_ind_extent_range(handle, inode,
-						le32_to_cpu(i_data[i]), lb);
-			if (retval)
-				break;
-		} else {
-
-			lb->curr_block += max_entries;
-		}
-	}
-	put_bh(bh);
-	return retval;
-
-}
-
-
-/**
- * update_tind_extent_range - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int update_tind_extent_range(handle_t *handle, struct inode *inode,
-				    ext4_fsblk_t pblock,
-				    struct migrate_struct *lb)
-{
-	struct buffer_head *bh;
-	__le32 *i_data;
-	int i, retval = 0;
-	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
-
-	bh = ext4_sb_bread(inode->i_sb, pblock, 0);
-	if (IS_ERR(bh))
-		return PTR_ERR(bh);
-
-	i_data = (__le32 *)bh->b_data;
-	for (i = 0; i < max_entries; i++) {
-		if (i_data[i]) {
-			retval = update_dind_extent_range(handle, inode,
-						le32_to_cpu(i_data[i]), lb);
-			if (retval)
-				break;
-		} else {
-
-			lb->curr_block += max_entries * max_entries;
-		}
-	}
-	put_bh(bh);
-	return retval;
-
-}
-
-
-/**
- * free_dind_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int free_dind_blocks(handle_t *handle,
-				struct inode *inode, __le32 i_data)
-{
-	int i;
-	__le32 *tmp_idata;
-	struct buffer_head *bh;
-	struct super_block *sb = inode->i_sb;
-	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
 	int err;
 
-	bh = ext4_sb_bread(sb, le32_to_cpu(i_data), 0);
-	if (IS_ERR(bh))
-		return PTR_ERR(bh);
-
-	tmp_idata = (__le32 *)bh->b_data;
-	for (i = 0; i < max_entries; i++) {
-		if (tmp_idata[i]) {
-			err = ext4_journal_ensure_credits(handle,
-				EXT4_RESERVE_TRANS_BLOCKS,
-				ext4_free_metadata_revoke_credits(sb, 1));
-			if (err < 0) {
-				put_bh(bh);
-				return err;
-			}
-			ext4_free_blocks(handle, inode, NULL,
-					 le32_to_cpu(tmp_idata[i]), 1,
-					 EXT4_FREE_BLOCKS_METADATA |
-					 EXT4_FREE_BLOCKS_FORGET);
-		}
+	if (run->physical_start &&
+	    run->physical_last + 1 == physical &&
+	    run->logical_last + 1 == run->logical_cursor) {
+		run->physical_last = physical;
+		run->logical_last = run->logical_cursor++;
+		return 0;
 	}
-	put_bh(bh);
-	err = ext4_journal_ensure_credits(handle, EXT4_RESERVE_TRANS_BLOCKS,
-				ext4_free_metadata_revoke_credits(sb, 1));
-	if (err < 0)
+
+	err = ext4_migrate_flush_run(handle, inode, run);
+	if (err)
 		return err;
-	ext4_free_blocks(handle, inode, NULL, le32_to_cpu(i_data), 1,
-			 EXT4_FREE_BLOCKS_METADATA |
-			 EXT4_FREE_BLOCKS_FORGET);
+
+	run->physical_start = physical;
+	run->physical_last = physical;
+	run->logical_start = run->logical_cursor;
+	run->logical_last = run->logical_cursor++;
 	return 0;
 }
 
-
-/**
- * free_tind_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int free_tind_blocks(handle_t *handle,
-				struct inode *inode, __le32 i_data)
+static int ext4_migrate_scan_indirect(handle_t *handle, struct inode *inode,
+				      ext4_fsblk_t block,
+				      unsigned int depth,
+				      struct ext4_migrate_run *run)
 {
-	int i, retval = 0;
-	__le32 *tmp_idata;
 	struct buffer_head *bh;
-	unsigned long max_entries = inode->i_sb->s_blocksize >> 2;
+	__le32 *entries;
+	const unsigned int per_block = inode->i_sb->s_blocksize >> 2;
+	u64 hole_advance = 1;
+	unsigned int i;
+	int err = 0;
 
-	bh = ext4_sb_bread(inode->i_sb, le32_to_cpu(i_data), 0);
-	if (IS_ERR(bh))
-		return PTR_ERR(bh);
+	if (depth == 0)
+		return ext4_migrate_add_block(handle, inode, block, run);
 
-	tmp_idata = (__le32 *)bh->b_data;
-	for (i = 0; i < max_entries; i++) {
-		if (tmp_idata[i]) {
-			retval = free_dind_blocks(handle,
-					inode, tmp_idata[i]);
-			if (retval) {
-				put_bh(bh);
-				return retval;
-			}
-		}
-	}
-	put_bh(bh);
-	retval = ext4_journal_ensure_credits(handle, EXT4_RESERVE_TRANS_BLOCKS,
-			ext4_free_metadata_revoke_credits(inode->i_sb, 1));
-	if (retval < 0)
-		return retval;
-	ext4_free_blocks(handle, inode, NULL, le32_to_cpu(i_data), 1,
-			 EXT4_FREE_BLOCKS_METADATA |
-			 EXT4_FREE_BLOCKS_FORGET);
-	return 0;
-}
+	for (i = 1; i < depth; ++i)
+		hole_advance *= per_block;
 
-
-/**
- * free_ind_block - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int free_ind_block(handle_t *handle, struct inode *inode, __le32 *i_data)
-{
-	int retval;
-
-
-	if (i_data[0]) {
-		retval = ext4_journal_ensure_credits(handle,
-			EXT4_RESERVE_TRANS_BLOCKS,
-			ext4_free_metadata_revoke_credits(inode->i_sb, 1));
-		if (retval < 0)
-			return retval;
-		ext4_free_blocks(handle, inode, NULL,
-				le32_to_cpu(i_data[0]), 1,
-				 EXT4_FREE_BLOCKS_METADATA |
-				 EXT4_FREE_BLOCKS_FORGET);
-	}
-
-
-	if (i_data[1]) {
-		retval = free_dind_blocks(handle, inode, i_data[1]);
-		if (retval)
-			return retval;
-	}
-
-
-	if (i_data[2]) {
-		retval = free_tind_blocks(handle, inode, i_data[2]);
-		if (retval)
-			return retval;
-	}
-	return 0;
-}
-
-
-/**
- * ext4_ext_swap_inode_data - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int ext4_ext_swap_inode_data(handle_t *handle, struct inode *inode,
-						struct inode *tmp_inode)
-{
-	int retval, retval2 = 0;
-	__le32	i_data[3];
-	struct ext4_inode_info *ei = EXT4_I(inode);
-	struct ext4_inode_info *tmp_ei = EXT4_I(tmp_inode);
-
-
-	retval = ext4_journal_ensure_credits(handle, 1, 0);
-	if (retval < 0)
-		goto err_out;
-
-	i_data[0] = ei->i_data[EXT4_IND_BLOCK];
-	i_data[1] = ei->i_data[EXT4_DIND_BLOCK];
-	i_data[2] = ei->i_data[EXT4_TIND_BLOCK];
-
-	down_write(&EXT4_I(inode)->i_data_sem);
-
-
-	if (!ext4_test_inode_state(inode, EXT4_STATE_EXT_MIGRATE)) {
-		retval = -EAGAIN;
-		up_write(&EXT4_I(inode)->i_data_sem);
-		goto err_out;
-	} else
-		ext4_clear_inode_state(inode, EXT4_STATE_EXT_MIGRATE);
-
-
-	ext4_set_inode_flag(inode, EXT4_INODE_EXTENTS);
-	memcpy(ei->i_data, tmp_ei->i_data, sizeof(ei->i_data));
-
-
-	spin_lock(&inode->i_lock);
-	inode->i_blocks += tmp_inode->i_blocks;
-	spin_unlock(&inode->i_lock);
-	up_write(&EXT4_I(inode)->i_data_sem);
-
-
-	retval = free_ind_block(handle, inode, i_data);
-	retval2 = ext4_mark_inode_dirty(handle, inode);
-	if (unlikely(retval2 && !retval))
-		retval = retval2;
-
-err_out:
-	return retval;
-}
-
-
-/**
- * free_ext_idx - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int free_ext_idx(handle_t *handle, struct inode *inode,
-					struct ext4_extent_idx *ix)
-{
-	int i, retval = 0;
-	ext4_fsblk_t block;
-	struct buffer_head *bh;
-	struct ext4_extent_header *eh;
-
-	block = ext4_idx_pblock(ix);
 	bh = ext4_sb_bread(inode->i_sb, block, 0);
 	if (IS_ERR(bh))
 		return PTR_ERR(bh);
 
-	eh = (struct ext4_extent_header *)bh->b_data;
-	if (eh->eh_depth != 0) {
-		ix = EXT_FIRST_INDEX(eh);
-		for (i = 0; i < le16_to_cpu(eh->eh_entries); i++, ix++) {
-			retval = free_ext_idx(handle, inode, ix);
-			if (retval) {
+	entries = (__le32 *)bh->b_data;
+	for (i = 0; i < per_block; ++i) {
+		if (entries[i]) {
+			err = ext4_migrate_scan_indirect(
+				handle, inode, le32_to_cpu(entries[i]),
+				depth - 1, run);
+			if (err)
+				break;
+		} else {
+			if (hole_advance > EXT4_MAX_LOGICAL_BLOCK -
+			    run->logical_cursor) {
+				err = -EFSCORRUPTED;
+				break;
+			}
+			run->logical_cursor += hole_advance;
+		}
+	}
+
+	put_bh(bh);
+	return err;
+}
+
+static int ext4_migrate_free_indirect_tree(handle_t *handle,
+					    struct inode *inode,
+					    ext4_fsblk_t block,
+					    unsigned int depth)
+{
+	struct buffer_head *bh;
+	__le32 *entries;
+	const unsigned int per_block = inode->i_sb->s_blocksize >> 2;
+	unsigned int i;
+	int err;
+
+	if (!block)
+		return 0;
+
+	if (depth > 1) {
+		bh = ext4_sb_bread(inode->i_sb, block, 0);
+		if (IS_ERR(bh))
+			return PTR_ERR(bh);
+
+		entries = (__le32 *)bh->b_data;
+		for (i = 0; i < per_block; ++i) {
+			if (!entries[i])
+				continue;
+			err = ext4_migrate_free_indirect_tree(
+				handle, inode, le32_to_cpu(entries[i]),
+				depth - 1);
+			if (err) {
 				put_bh(bh);
-				return retval;
+				return err;
+			}
+		}
+		put_bh(bh);
+	}
+
+	err = ext4_journal_ensure_credits(
+		handle, EXT4_RESERVE_TRANS_BLOCKS,
+		ext4_free_metadata_revoke_credits(inode->i_sb, 1));
+	if (err)
+		return err;
+
+	ext4_free_blocks(
+		handle, inode, NULL, block, 1,
+		EXT4_FREE_BLOCKS_METADATA | EXT4_FREE_BLOCKS_FORGET);
+	return 0;
+}
+
+static int ext4_migrate_free_old_indirects(handle_t *handle,
+					    struct inode *inode,
+					    const __le32 saved[3])
+{
+	int err;
+
+	err = ext4_migrate_free_indirect_tree(
+		handle, inode, le32_to_cpu(saved[0]), 1);
+	if (err)
+		return err;
+	err = ext4_migrate_free_indirect_tree(
+		handle, inode, le32_to_cpu(saved[1]), 2);
+	if (err)
+		return err;
+	return ext4_migrate_free_indirect_tree(
+		handle, inode, le32_to_cpu(saved[2]), 3);
+}
+
+static int ext4_migrate_swap_to_extents(handle_t *handle,
+					 struct inode *inode,
+					 struct inode *temp)
+{
+	struct ext4_inode_info *dst = EXT4_I(inode);
+	struct ext4_inode_info *src = EXT4_I(temp);
+	__le32 saved[3];
+	int err;
+	int mark_err;
+
+	err = ext4_journal_ensure_credits(handle, 1, 0);
+	if (err)
+		return err;
+
+	saved[0] = dst->i_data[EXT4_IND_BLOCK];
+	saved[1] = dst->i_data[EXT4_DIND_BLOCK];
+	saved[2] = dst->i_data[EXT4_TIND_BLOCK];
+
+	down_write(&dst->i_data_sem);
+	if (!ext4_test_inode_state(inode, EXT4_STATE_EXT_MIGRATE)) {
+		up_write(&dst->i_data_sem);
+		return -EAGAIN;
+	}
+	ext4_clear_inode_state(inode, EXT4_STATE_EXT_MIGRATE);
+
+	ext4_set_inode_flag(inode, EXT4_INODE_EXTENTS);
+	memcpy(dst->i_data, src->i_data, sizeof(dst->i_data));
+	spin_lock(&inode->i_lock);
+	inode->i_blocks += temp->i_blocks;
+	spin_unlock(&inode->i_lock);
+	up_write(&dst->i_data_sem);
+
+	err = ext4_migrate_free_old_indirects(handle, inode, saved);
+	mark_err = ext4_mark_inode_dirty(handle, inode);
+	if (!err)
+		err = mark_err;
+	return err;
+}
+
+static int ext4_migrate_free_extent_index(handle_t *handle,
+					   struct inode *inode,
+					   struct ext4_extent_idx *index)
+{
+	struct buffer_head *bh;
+	struct ext4_extent_header *header;
+	struct ext4_extent_idx *child;
+	ext4_fsblk_t block = ext4_idx_pblock(index);
+	unsigned int i;
+	int err;
+
+	bh = ext4_sb_bread(inode->i_sb, block, 0);
+	if (IS_ERR(bh))
+		return PTR_ERR(bh);
+
+	header = (struct ext4_extent_header *)bh->b_data;
+	if (le16_to_cpu(header->eh_depth) != 0) {
+		child = EXT_FIRST_INDEX(header);
+		for (i = 0; i < le16_to_cpu(header->eh_entries); ++i, ++child) {
+			err = ext4_migrate_free_extent_index(
+				handle, inode, child);
+			if (err) {
+				put_bh(bh);
+				return err;
 			}
 		}
 	}
 	put_bh(bh);
-	retval = ext4_journal_ensure_credits(handle, EXT4_RESERVE_TRANS_BLOCKS,
-			ext4_free_metadata_revoke_credits(inode->i_sb, 1));
-	if (retval < 0)
-		return retval;
-	ext4_free_blocks(handle, inode, NULL, block, 1,
-			 EXT4_FREE_BLOCKS_METADATA | EXT4_FREE_BLOCKS_FORGET);
+
+	err = ext4_journal_ensure_credits(
+		handle, EXT4_RESERVE_TRANS_BLOCKS,
+		ext4_free_metadata_revoke_credits(inode->i_sb, 1));
+	if (err)
+		return err;
+
+	ext4_free_blocks(
+		handle, inode, NULL, block, 1,
+		EXT4_FREE_BLOCKS_METADATA | EXT4_FREE_BLOCKS_FORGET);
 	return 0;
 }
 
-
-/**
- * free_ext_block - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-static int free_ext_block(handle_t *handle, struct inode *inode)
+static int ext4_migrate_free_extent_tree(handle_t *handle,
+					  struct inode *inode)
 {
-	int i, retval = 0;
-	struct ext4_inode_info *ei = EXT4_I(inode);
-	struct ext4_extent_header *eh = (struct ext4_extent_header *)ei->i_data;
-	struct ext4_extent_idx *ix;
-	if (eh->eh_depth == 0)
+	struct ext4_extent_header *header = ext_inode_hdr(inode);
+	struct ext4_extent_idx *index;
+	unsigned int i;
+	int err;
 
-
+	if (le16_to_cpu(header->eh_depth) == 0)
 		return 0;
-	ix = EXT_FIRST_INDEX(eh);
-	for (i = 0; i < le16_to_cpu(eh->eh_entries); i++, ix++) {
-		retval = free_ext_idx(handle, inode, ix);
-		if (retval)
-			return retval;
+
+	index = EXT_FIRST_INDEX(header);
+	for (i = 0; i < le16_to_cpu(header->eh_entries); ++i, ++index) {
+		err = ext4_migrate_free_extent_index(handle, inode, index);
+		if (err)
+			return err;
 	}
-	return retval;
+	return 0;
 }
 
+static int ext4_migrate_build_extent_tree(handle_t *handle,
+					   struct inode *source,
+					   struct inode *temp)
+{
+	struct ext4_inode_info *ei = EXT4_I(source);
+	struct ext4_migrate_run run = { 0 };
+	const unsigned int per_block = source->i_sb->s_blocksize >> 2;
+	unsigned int i;
+	int err;
 
-/**
- * ext4_ext_migrate - Implements the ext migrate operation within the mapping-format migration subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
+	for (i = 0; i < EXT4_NDIR_BLOCKS; ++i) {
+		if (ei->i_data[i])
+			err = ext4_migrate_add_block(
+				handle, temp, le32_to_cpu(ei->i_data[i]), &run);
+		else {
+			run.logical_cursor++;
+			err = 0;
+		}
+		if (err)
+			return err;
+	}
+
+	if (ei->i_data[EXT4_IND_BLOCK])
+		err = ext4_migrate_scan_indirect(
+			handle, temp,
+			le32_to_cpu(ei->i_data[EXT4_IND_BLOCK]), 1, &run);
+	else {
+		run.logical_cursor += per_block;
+		err = 0;
+	}
+	if (err)
+		return err;
+
+	if (ei->i_data[EXT4_DIND_BLOCK])
+		err = ext4_migrate_scan_indirect(
+			handle, temp,
+			le32_to_cpu(ei->i_data[EXT4_DIND_BLOCK]), 2, &run);
+	else {
+		run.logical_cursor += (ext4_lblk_t)per_block * per_block;
+		err = 0;
+	}
+	if (err)
+		return err;
+
+	if (ei->i_data[EXT4_TIND_BLOCK]) {
+		err = ext4_migrate_scan_indirect(
+			handle, temp,
+			le32_to_cpu(ei->i_data[EXT4_TIND_BLOCK]), 3, &run);
+		if (err)
+			return err;
+	}
+
+	return ext4_migrate_flush_run(handle, temp, &run);
+}
+
 int ext4_ext_migrate(struct inode *inode)
 {
+	struct ext4_inode_info *ei = EXT4_I(inode);
+	struct inode *temp = NULL;
 	handle_t *handle;
-	int retval = 0, i;
-	__le32 *i_data;
-	struct ext4_inode_info *ei;
-	struct inode *tmp_inode = NULL;
-	struct migrate_struct lb;
-	unsigned long max_entries;
-	__u32 goal, tmp_csum_seed;
 	uid_t owner[2];
-	int alloc_ctx;
-
+	__u32 goal;
+	__u32 original_temp_seed;
+	int writepages_ctx;
+	int err;
 
 	if (!ext4_has_feature_extents(inode->i_sb) ||
 	    ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS) ||
 	    ext4_has_inline_data(inode))
 		return -EINVAL;
-
 	if (S_ISLNK(inode->i_mode) && inode->i_blocks == 0)
+		return 0;
 
-
-		return retval;
-
-	alloc_ctx = ext4_writepages_down_write(inode->i_sb);
-
-
-	handle = ext4_journal_start(inode, EXT4_HT_MIGRATE,
+	writepages_ctx = ext4_writepages_down_write(inode->i_sb);
+	handle = ext4_journal_start(
+		inode, EXT4_HT_MIGRATE,
 		3 + EXT4_MAXQUOTAS_TRANS_BLOCKS(inode->i_sb));
-
 	if (IS_ERR(handle)) {
-		retval = PTR_ERR(handle);
+		err = PTR_ERR(handle);
 		goto out_unlock;
 	}
-	goal = (((inode->i_ino - 1) / EXT4_INODES_PER_GROUP(inode->i_sb)) *
-		EXT4_INODES_PER_GROUP(inode->i_sb)) + 1;
+
+	goal = ((inode->i_ino - 1) /
+		EXT4_INODES_PER_GROUP(inode->i_sb)) *
+		EXT4_INODES_PER_GROUP(inode->i_sb) + 1;
 	owner[0] = i_uid_read(inode);
 	owner[1] = i_gid_read(inode);
-	tmp_inode = ext4_new_inode(handle, d_inode(inode->i_sb->s_root),
-				   S_IFREG, NULL, goal, owner, 0);
-	if (IS_ERR(tmp_inode)) {
-		retval = PTR_ERR(tmp_inode);
+
+	temp = ext4_new_inode(
+		handle, d_inode(inode->i_sb->s_root),
+		S_IFREG, NULL, goal, owner, 0);
+	if (IS_ERR(temp)) {
+		err = PTR_ERR(temp);
+		temp = NULL;
 		ext4_journal_stop(handle);
 		goto out_unlock;
 	}
 
-
-	ei = EXT4_I(inode);
-	tmp_csum_seed = EXT4_I(tmp_inode)->i_csum_seed;
-	EXT4_I(tmp_inode)->i_csum_seed = ei->i_csum_seed;
-	i_size_write(tmp_inode, i_size_read(inode));
-
-
-	clear_nlink(tmp_inode);
-
-	ext4_ext_tree_init(handle, tmp_inode);
+	original_temp_seed = EXT4_I(temp)->i_csum_seed;
+	EXT4_I(temp)->i_csum_seed = ei->i_csum_seed;
+	i_size_write(temp, i_size_read(inode));
+	clear_nlink(temp);
+	ext4_ext_tree_init(handle, temp);
 	ext4_journal_stop(handle);
 
-
-	down_read(&EXT4_I(inode)->i_data_sem);
+	down_write(&ei->i_data_sem);
 	ext4_set_inode_state(inode, EXT4_STATE_EXT_MIGRATE);
-	up_read((&EXT4_I(inode)->i_data_sem));
+	up_write(&ei->i_data_sem);
 
 	handle = ext4_journal_start(inode, EXT4_HT_MIGRATE, 1);
 	if (IS_ERR(handle)) {
-		retval = PTR_ERR(handle);
-		goto out_tmp_inode;
+		err = PTR_ERR(handle);
+		goto out_temp;
 	}
 
-	i_data = ei->i_data;
-	memset(&lb, 0, sizeof(lb));
+	err = ext4_migrate_build_extent_tree(handle, inode, temp);
+	if (!err)
+		err = ext4_migrate_swap_to_extents(handle, inode, temp);
+	if (err)
+		ext4_migrate_free_extent_tree(handle, temp);
 
-
-	max_entries = inode->i_sb->s_blocksize >> 2;
-	for (i = 0; i < EXT4_NDIR_BLOCKS; i++) {
-		if (i_data[i]) {
-			retval = update_extent_range(handle, tmp_inode,
-						le32_to_cpu(i_data[i]), &lb);
-			if (retval)
-				goto err_out;
-		} else
-			lb.curr_block++;
+	if (!ext4_journal_ensure_credits(handle, 1, 0)) {
+		i_size_write(temp, 0);
+		temp->i_blocks = 0;
+		EXT4_I(temp)->i_csum_seed = original_temp_seed;
+		ext4_ext_tree_init(handle, temp);
 	}
-	if (i_data[EXT4_IND_BLOCK]) {
-		retval = update_ind_extent_range(handle, tmp_inode,
-				le32_to_cpu(i_data[EXT4_IND_BLOCK]), &lb);
-		if (retval)
-			goto err_out;
-	} else
-		lb.curr_block += max_entries;
-	if (i_data[EXT4_DIND_BLOCK]) {
-		retval = update_dind_extent_range(handle, tmp_inode,
-				le32_to_cpu(i_data[EXT4_DIND_BLOCK]), &lb);
-		if (retval)
-			goto err_out;
-	} else
-		lb.curr_block += max_entries * max_entries;
-	if (i_data[EXT4_TIND_BLOCK]) {
-		retval = update_tind_extent_range(handle, tmp_inode,
-				le32_to_cpu(i_data[EXT4_TIND_BLOCK]), &lb);
-		if (retval)
-			goto err_out;
-	}
-
-
-	retval = finish_range(handle, tmp_inode, &lb);
-err_out:
-	if (retval)
-
-
-		free_ext_block(handle, tmp_inode);
-	else {
-		retval = ext4_ext_swap_inode_data(handle, inode, tmp_inode);
-		if (retval)
-
-
-			free_ext_block(handle, tmp_inode);
-	}
-
-
-	retval = ext4_journal_ensure_credits(handle, 1, 0);
-	if (retval < 0)
-		goto out_stop;
-
-
-	i_size_write(tmp_inode, 0);
-
-
-	tmp_inode->i_blocks = 0;
-	EXT4_I(tmp_inode)->i_csum_seed = tmp_csum_seed;
-
-
-	ext4_ext_tree_init(handle, tmp_inode);
-out_stop:
 	ext4_journal_stop(handle);
-out_tmp_inode:
-	unlock_new_inode(tmp_inode);
-	iput(tmp_inode);
+
+out_temp:
+	if (temp) {
+		unlock_new_inode(temp);
+		iput(temp);
+	}
 out_unlock:
-	ext4_writepages_up_write(inode->i_sb, alloc_ctx);
-	return retval;
+	ext4_writepages_up_write(inode->i_sb, writepages_ctx);
+	return err;
 }
 
-
-/**
- * ext4_ind_migrate - Implements the ind migrate operation within the mapping-format migration subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT4
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
 int ext4_ind_migrate(struct inode *inode)
 {
-	struct ext4_extent_header	*eh;
-	struct ext4_sb_info		*sbi = EXT4_SB(inode->i_sb);
-	struct ext4_super_block		*es = sbi->s_es;
-	struct ext4_inode_info		*ei = EXT4_I(inode);
-	struct ext4_extent		*ex;
-	unsigned int			i, len;
-	ext4_lblk_t			start, end;
-	ext4_fsblk_t			blk;
-	handle_t			*handle;
-	int				ret, ret2 = 0;
-	int				alloc_ctx;
+	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
+	struct ext4_inode_info *ei = EXT4_I(inode);
+	struct ext4_extent_header *header;
+	struct ext4_extent *extent;
+	handle_t *handle;
+	ext4_lblk_t logical_start = 0;
+	ext4_lblk_t logical_end = 0;
+	ext4_fsblk_t physical = 0;
+	unsigned int length = 0;
+	unsigned int i;
+	int writepages_ctx;
+	int err;
+	int mark_err;
 
 	if (!ext4_has_feature_extents(inode->i_sb) ||
-	    (!ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)))
+	    !ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
 		return -EINVAL;
-
 	if (ext4_has_feature_bigalloc(inode->i_sb))
 		return -EOPNOTSUPP;
-
 
 	if (test_opt(inode->i_sb, DELALLOC))
 		ext4_alloc_da_blocks(inode);
 
-	alloc_ctx = ext4_writepages_down_write(inode->i_sb);
-
+	writepages_ctx = ext4_writepages_down_write(inode->i_sb);
 	handle = ext4_journal_start(inode, EXT4_HT_MIGRATE, 1);
 	if (IS_ERR(handle)) {
-		ret = PTR_ERR(handle);
+		err = PTR_ERR(handle);
 		goto out_unlock;
 	}
 
-	down_write(&EXT4_I(inode)->i_data_sem);
-	ret = ext4_ext_check_inode(inode);
-	if (ret)
-		goto errout;
+	down_write(&ei->i_data_sem);
+	err = ext4_ext_check_inode(inode);
+	if (err)
+		goto out_sem;
 
-	eh = ext_inode_hdr(inode);
-	ex  = EXT_FIRST_EXTENT(eh);
-	if (ext4_blocks_count(es) > EXT4_MAX_BLOCK_FILE_PHYS ||
-	    eh->eh_depth != 0 || le16_to_cpu(eh->eh_entries) > 1) {
-		ret = -EOPNOTSUPP;
-		goto errout;
+	header = ext_inode_hdr(inode);
+	if (ext4_blocks_count(sbi->s_es) > EXT4_MAX_BLOCK_FILE_PHYS ||
+	    le16_to_cpu(header->eh_depth) != 0 ||
+	    le16_to_cpu(header->eh_entries) > 1) {
+		err = -EOPNOTSUPP;
+		goto out_sem;
 	}
-	if (eh->eh_entries == 0)
-		blk = len = start = end = 0;
-	else {
-		len = le16_to_cpu(ex->ee_len);
-		blk = ext4_ext_pblock(ex);
-		start = le32_to_cpu(ex->ee_block);
-		end = start + len - 1;
-		if (end >= EXT4_NDIR_BLOCKS) {
-			ret = -EOPNOTSUPP;
-			goto errout;
+
+	if (le16_to_cpu(header->eh_entries) == 1) {
+		extent = EXT_FIRST_EXTENT(header);
+		length = le16_to_cpu(extent->ee_len);
+		physical = ext4_ext_pblock(extent);
+		logical_start = le32_to_cpu(extent->ee_block);
+		logical_end = logical_start + length - 1;
+		if (logical_end >= EXT4_NDIR_BLOCKS) {
+			err = -EOPNOTSUPP;
+			goto out_sem;
 		}
 	}
 
 	ext4_clear_inode_flag(inode, EXT4_INODE_EXTENTS);
 	memset(ei->i_data, 0, sizeof(ei->i_data));
-	for (i = start; i <= end; i++)
-		ei->i_data[i] = cpu_to_le32(blk++);
-	ret2 = ext4_mark_inode_dirty(handle, inode);
-	if (unlikely(ret2 && !ret))
-		ret = ret2;
-errout:
-	up_write(&EXT4_I(inode)->i_data_sem);
+	if (length) {
+		for (i = logical_start; i <= logical_end; ++i)
+			ei->i_data[i] = cpu_to_le32(physical++);
+	}
+
+	mark_err = ext4_mark_inode_dirty(handle, inode);
+	if (!err)
+		err = mark_err;
+
+out_sem:
+	up_write(&ei->i_data_sem);
 	ext4_journal_stop(handle);
 out_unlock:
-	ext4_writepages_up_write(inode->i_sb, alloc_ctx);
-	return ret;
+	ext4_writepages_up_write(inode->i_sb, writepages_ctx);
+	return err;
 }
