@@ -330,6 +330,3 @@ int ext4_check_blockref(const char *function, unsigned int line,
 	return 0;
 }
 
-void __dump_mmp_msg(struct super_block *sb, struct mmp_struct *mmp,
-		    const char *function, unsigned int line,
-		    const char *msg);
