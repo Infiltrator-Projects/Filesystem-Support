@@ -198,7 +198,7 @@ out_unlock:
 
 int asfs_read_folio(struct file *file, struct folio *folio)
 {
-    (void)file;
+    (void)IFS_SFS_AOPS_WRITE_CONTEXT_ARG;
     return mpage_read_folio(folio, sfs_map_block);
 }
 
@@ -222,7 +222,7 @@ int asfs_writepages(
 }
 
 int asfs_write_begin(
-    struct file *file,
+    IFS_SFS_AOPS_WRITE_CONTEXT,
     struct address_space *mapping,
     loff_t position,
     unsigned int length,
@@ -525,7 +525,7 @@ struct inode *asfs_get_root_inode(struct super_block *sb)
         goto out;
 
     inode = iget_locked(sb, node);
-    if (inode && (inode->i_state & I_NEW) != 0) {
+    if (inode && IFS_SFS_INODE_IS_NEW(inode)) {
         asfs_read_locked_inode(inode, object);
         unlock_new_inode(inode);
     }

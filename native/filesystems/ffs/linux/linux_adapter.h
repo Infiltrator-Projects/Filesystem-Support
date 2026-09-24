@@ -13,7 +13,19 @@
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
 #include <linux/errno.h>
+#include <linux/version.h>
 #include "../core/ffs_primitives.h"
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+#define IFS_FFS_AOPS_WRITE_CONTEXT const struct kiocb *iocb
+#define IFS_FFS_AOPS_WRITE_CONTEXT_ARG iocb
+#define IFS_FFS_INODE_IS_NEW(inode) \
+    ((inode_state_read_once(inode) & I_NEW) != 0)
+#else
+#define IFS_FFS_AOPS_WRITE_CONTEXT struct file *file
+#define IFS_FFS_AOPS_WRITE_CONTEXT_ARG file
+#define IFS_FFS_INODE_IS_NEW(inode) (((inode)->i_state & I_NEW) != 0)
+#endif
 
 #define AFFS_HEAD(bh)     ((struct affs_head *)(bh)->b_data)
 #define AFFS_TAIL(sb, bh)     ((struct affs_tail *)((bh)->b_data + (sb)->s_blocksize -                          sizeof(struct affs_tail)))

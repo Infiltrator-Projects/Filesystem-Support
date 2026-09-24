@@ -918,7 +918,7 @@ static ssize_t ifs_ofs_direct_io(
 }
 
 static int ifs_ofs_write_begin(
-    struct file *file, struct address_space *mapping,
+    IFS_OFS_AOPS_WRITE_CONTEXT, struct address_space *mapping,
     loff_t position, unsigned int length,
     struct folio **folio, void **fsdata)
 {
@@ -929,7 +929,8 @@ static int ifs_ofs_write_begin(
         return -EFBIG;
 
     result = cont_write_begin(
-        file, mapping, position, length, folio, fsdata,
+        IFS_OFS_AOPS_WRITE_CONTEXT_ARG,
+        mapping, position, length, folio, fsdata,
         ifs_ofs_map_block,
         &AFFS_I(mapping->host)->mmu_private);
     if (result != 0)
@@ -938,13 +939,14 @@ static int ifs_ofs_write_begin(
 }
 
 static int ifs_ofs_write_end(
-    struct file *file, struct address_space *mapping,
+    IFS_OFS_AOPS_WRITE_CONTEXT, struct address_space *mapping,
     loff_t position, unsigned int length, unsigned int copied,
     struct folio *folio, void *fsdata)
 {
     struct inode *inode = mapping->host;
     const int result = generic_write_end(
-        file, mapping, position, length, copied, folio, fsdata);
+        IFS_OFS_AOPS_WRITE_CONTEXT_ARG,
+        mapping, position, length, copied, folio, fsdata);
 
     if (result > 0) {
         AFFS_I(inode)->mmu_private = inode->i_size;
@@ -1239,13 +1241,15 @@ static int ifs_ofs_ofs_read_folio(
 }
 
 static int ifs_ofs_ofs_write_begin(
-    struct file *file, struct address_space *mapping,
+    IFS_OFS_AOPS_WRITE_CONTEXT, struct address_space *mapping,
     loff_t position, unsigned int length,
     struct folio **folio_out, void **fsdata)
 {
     struct inode *inode = mapping->host;
     struct folio *folio;
     const u64 end = (u64)position + length;
+
+    (void)IFS_OFS_AOPS_WRITE_CONTEXT_ARG;
     const pgoff_t index = position >> PAGE_SHIFT;
     const u64 folio_start = (u64)index << PAGE_SHIFT;
     size_t readable = 0U;
@@ -1294,13 +1298,15 @@ static int ifs_ofs_ofs_write_begin(
 }
 
 static int ifs_ofs_ofs_write_end(
-    struct file *file, struct address_space *mapping,
+    IFS_OFS_AOPS_WRITE_CONTEXT, struct address_space *mapping,
     loff_t position, unsigned int length, unsigned int copied,
     struct folio *folio, void *fsdata)
 {
     struct inode *inode = mapping->host;
     struct super_block *sb = inode->i_sb;
     const u32 payload = AFFS_SB(sb)->s_data_blksize;
+
+    (void)IFS_OFS_AOPS_WRITE_CONTEXT_ARG;
     const unsigned int from =
         (unsigned int)(position & (PAGE_SIZE - 1));
     const char *data = folio_address(folio);
@@ -1764,7 +1770,7 @@ struct inode *affs_iget(struct super_block *sb, unsigned long inode_number)
     inode = iget_locked(sb, inode_number);
     if (!inode)
         return ERR_PTR(-ENOMEM);
-    if ((inode->i_state & I_NEW) == 0)
+    if (!IFS_OFS_INODE_IS_NEW(inode))
         return inode;
 
     bh = affs_bread(sb, (u32)inode_number);

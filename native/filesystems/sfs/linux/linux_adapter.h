@@ -5,9 +5,21 @@
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
 #include <linux/mutex.h>
+#include <linux/version.h>
 #include <asm/byteorder.h>
 #include "disk_layout.h"
 #include "../core/sfs_core.h"
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+#define IFS_SFS_AOPS_WRITE_CONTEXT const struct kiocb *iocb
+#define IFS_SFS_AOPS_WRITE_CONTEXT_ARG iocb
+#define IFS_SFS_INODE_IS_NEW(inode) \
+    ((inode_state_read_once(inode) & I_NEW) != 0)
+#else
+#define IFS_SFS_AOPS_WRITE_CONTEXT struct file *file
+#define IFS_SFS_AOPS_WRITE_CONTEXT_ARG file
+#define IFS_SFS_INODE_IS_NEW(inode) (((inode)->i_state & I_NEW) != 0)
+#endif
 
 #define asfs_debug(fmt,arg...) /* no debug at all */
 //#define asfs_debug(fmt,arg...) printk(fmt,##arg)  /* general debug infos */
