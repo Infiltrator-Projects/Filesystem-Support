@@ -1132,17 +1132,34 @@ int asfs_renameobject(
     {
         const u8 *const block_start = (const u8 *)source_bh->b_data;
         const u8 *const block_end = block_start + sb->s_blocksize;
-        const u8 *const name_start = (const u8 *)source->name;
+        const u8 *source_bytes = (const u8 *)source;
+        const u8 *name_start;
+        const u8 *terminator;
+        size_t object_offset;
+        size_t name_offset;
         size_t available;
         size_t limit;
 
-        if (name_start < block_start || name_start >= block_end)
+        if (source_bytes < block_start || source_bytes >= block_end)
             return -EUCLEAN;
 
+        object_offset = (size_t)(source_bytes - block_start);
+        if (object_offset > sb->s_blocksize ||
+            IFS_SFS_OBJECT_FIXED_SIZE > sb->s_blocksize - object_offset)
+            return -EUCLEAN;
+
+        name_offset = object_offset + IFS_SFS_OBJECT_FIXED_SIZE;
+        if (name_offset >= sb->s_blocksize)
+            return -EUCLEAN;
+
+        name_start = block_start + name_offset;
         available = (size_t)(block_end - name_start);
         limit = min_t(size_t, available, ASFS_MAXFN + 1U);
-        old_name_length = strnlen((const char *)name_start, limit);
-        if (old_name_length == limit || old_name_length > ASFS_MAXFN)
+        terminator = memchr(name_start, '\0', limit);
+        if (!terminator)
+            return -EUCLEAN;
+        old_name_length = (size_t)(terminator - name_start);
+        if (old_name_length > ASFS_MAXFN)
             return -EUCLEAN;
     }
 
