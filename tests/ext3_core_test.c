@@ -134,5 +134,28 @@ int main(void)
             return fail("out-of-range indirect block was accepted");
     }
 
+
+    if (ifs_ext3_validate_journal_header(
+            IFS_EXT3_JOURNAL_MAGIC,
+            IFS_EXT3_JOURNAL_DESCRIPTOR_BLOCK,
+            1U) != IFS_EXT3_JOURNAL_OK)
+        return fail("journal header validation failed");
+
+    if (ifs_ext3_validate_journal_header(
+            0U, IFS_EXT3_JOURNAL_DESCRIPTOR_BLOCK, 1U) !=
+        IFS_EXT3_JOURNAL_BAD_MAGIC)
+        return fail("bad journal magic was accepted");
+
+    if (ifs_ext3_validate_journal_superblock(
+            4096U, 32768U, 1U, 2U,
+            IFS_EXT3_JOURNAL_FEATURE_INCOMPAT_REVOKE) !=
+        IFS_EXT3_JOURNAL_OK)
+        return fail("valid journal superblock was rejected");
+
+    if (ifs_ext3_validate_journal_superblock(
+            4096U, 32768U, 1U, 2U, 0x80000000U) !=
+        IFS_EXT3_JOURNAL_UNSUPPORTED_FEATURE)
+        return fail("unsupported journal feature was accepted");
+
     return 0;
 }
