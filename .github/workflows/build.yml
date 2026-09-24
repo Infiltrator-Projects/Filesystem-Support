@@ -53,6 +53,12 @@ jobs:
           test ! -e tools/shape-ext4.sh
           test ! -e tools/harden-ext-ranges.py
 
+          # Every actively developed filesystem carries its own format/design
+          # document beside the canonical implementation.
+          for fs in ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+            test -s "native/filesystems/$fs/DESIGN.md"
+          done
+
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
           for legacy in \
