@@ -133,6 +133,7 @@ jobs:
             native/filesystems/ext4/linux/mmp.c
             native/filesystems/ext4/linux/ext4_jbd2.c
             native/filesystems/ext4/linux/readpage.c
+            native/filesystems/ext4/linux/fsmap.c
           )
           for file in "${rewritten[@]}"; do
             test -s "$file"
