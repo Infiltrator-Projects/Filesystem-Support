@@ -7,6 +7,11 @@ qualified.
 
 ## Structurally reviewed reference-state filesystems
 
+- [Classic HFS](../native/filesystems/hfs/DESIGN.md) — upstream Linux HFS
+  retained as reference evidence; the target is one canonical HFS engine with
+  thin Linux/Windows adapters.
+
+
 - [GFS2](../native/filesystems/gfs2/DESIGN.md) — shared-disk clustered
   filesystem; upstream Linux/DLM client is reference evidence while the target
   is one canonical GFS2 engine with thin host and cluster-lock adapters.

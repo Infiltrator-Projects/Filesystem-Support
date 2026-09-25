@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs cryfs curlftpfs davfs2 disorderfs ecryptfs efs encfs erofs erofsfuse exfat exfat-fuse ext2 ext3 ext4 f2fs fat ffs filevault fosfat fscrypt fuse-overlayfs fuse2fs fusefat fuseiso fusezip gfs2 glusterfs go-mtpfs gocryptfs gphotofs guestmount gvfs-fuse ofs pfs3 sfs sfs2; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs cryfs curlftpfs davfs2 disorderfs ecryptfs efs encfs erofs erofsfuse exfat exfat-fuse ext2 ext3 ext4 f2fs fat ffs filevault fosfat fscrypt fuse-overlayfs fuse2fs fusefat fuseiso fusezip gfs2 glusterfs go-mtpfs gocryptfs gphotofs guestmount gvfs-fuse hfs ofs pfs3 sfs sfs2; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -369,6 +369,13 @@ jobs:
           test ! -e native/filesystems/gvfs-fuse/core
           test -s native/filesystems/gvfs-fuse/DESIGN.md
 
+          # Classic HFS remains imported Linux reference evidence until its
+          # canonical local-filesystem engine is independently rewritten.
+          test ! -e native/filesystems/hfs/kernel
+          test -s native/filesystems/hfs/reference/linux/btree.c
+          test -s native/filesystems/hfs/reference/linux/catalog.c
+          test -s native/filesystems/hfs/DESIGN.md
+
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
           for legacy in \
@@ -428,6 +435,8 @@ jobs:
             ! grep -Fq 'copy_tree fs/bfs native/filesystems/bfs/kernel' "$refresh"
             grep -Fq 'copy_tree fs/gfs2 native/filesystems/gfs2/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/gfs2 native/filesystems/gfs2/kernel' "$refresh"
+            grep -Fq 'copy_tree fs/hfs native/filesystems/hfs/reference/linux' "$refresh"
+            ! grep -Fq 'copy_tree fs/hfs native/filesystems/hfs/kernel' "$refresh"
           fi
 
       - name: Verify rewritten EXT2 file layer provenance
