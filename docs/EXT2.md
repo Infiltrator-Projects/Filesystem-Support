@@ -1,190 +1,258 @@
-# EXT2 Native Driver
+# EXT2 Native Filesystem
 
 ## Purpose
 
-The EXT2 implementation is a deliberately self-contained Linux VFS module owned by Filesystem Support.
+Filesystem Support owns one EXT2 implementation.
 
-Its deployment target is exactly one loadable kernel module:
+EXT2 filesystem semantics are implemented once in the canonical `core/`. Linux
+and Windows are operating-system adapters around that same implementation; they
+must not become independent EXT2 filesystems.
+
+EXT2 remains deliberately separate from EXT3 and EXT4. Linux deployment
+produces exactly one loadable module:
 
 ```text
 ext2.ko
 ```
 
-There are no separate EXT2 helper applications and there are no separate support modules such as `mbcache.ko`. Code required only by EXT2 is compiled into `ext2.ko`.
+There is no project-owned helper filesystem module and no compatibility path
+that silently mounts journalled EXT3 media as EXT2.
 
-EXT2 is intentionally independent from EXT3 and EXT4. It must not register, mount or impersonate either filesystem.
+## Permanent source layout
 
-## Source ownership and migration layout
-
-The architectural rule is **one EXT2 filesystem implementation**. The
-portable filesystem implementation belongs in `core/`; `linux/` and
-`windows/` are OS wrappers around that same core, not separate EXT2
-implementations. Most filesystem logic should therefore converge into
-`core/`. Only host-specific VFS/KO or IFS/WDK integration remains in the
-wrappers.
-
-The current amount of code under `linux/` reflects migration history, not the
-target split. Moving a file into `linux/` does not classify its filesystem
-semantics as Linux-owned; those semantics must still be extracted or rewritten
-into `core/` as the migration proceeds.
-
-
-EXT2 is in active rewrite state.  The currently inherited Linux-style
-translation-unit names under `native/filesystems/ext2/linux/` are migration
-boundaries, not the final Filesystem Support architecture.
-
-Files such as `file.c`, `inode.c`, `super.c`, `dir.c` and `namei.c`
-remain useful temporary boundaries while each subsystem is replaced and
-qualified.  Their names and locations do not constrain the final implementation.
-
-The target source ownership is:
+The current production layout is the permanent responsibility-based layout:
 
 ```text
 native/filesystems/ext2/
-  core/       canonical EXT2 format and filesystem semantics
-  linux/      Linux VFS/module/block-device adapter
-  windows/    Windows IFS/WDK adapter
+  DESIGN.md
+
+  core/
+    ext2_core.c
+    ext2_core.h
+    ext2_engine.c
+    ext2_engine.h
+
+  linux/
+    Makefile
+    core_bridge.c
+    allocation.c
+    namespace.c
+    io.c
+    metadata.c
+    lifecycle.c
+    linux_adapter.h
+
+  windows/
+    Directory.Build.props
+    ext2_driver.c
+    ext2_driver.h
+    adapter_support.inc
+    name_translation.inc
+    file_dispatch.inc
+    directory_dispatch.inc
+    volume_lifecycle.inc
+    driver_entry.inc
+    filesystem_support_ext2.inf
+    filesystem_support_ext2.rc
+    filesystem_support_ext2.sln
+    filesystem_support_ext2.vcxproj
 ```
 
-The final directory need not contain one file corresponding to every Linux
-source file.  Rewritten code is grouped by the responsibilities that make sense
-for this project.  A migration unit may therefore be split when it contains
-both portable filesystem semantics and Linux-specific VFS glue, or consolidated
-when several tiny boundaries do not improve cohesion.
+The retired Linux-style boundaries such as `balloc.c`, `ialloc.c`,
+`dir.c`, `namei.c`, `file.c`, `inode.c`, `super.c` and `xattr.c`
+are not the Filesystem Support architecture and must not be reintroduced merely
+because upstream Linux uses or historically used similar translation units.
 
-The required architectural result is one canonical EXT2 implementation consumed
-by both operating-system adapters.  Linux still produces exactly one
-`ext2.ko`; changing source-file boundaries does not imply additional kernel
-modules.
+Likewise, the former `kernel/` staging directory and `linux/canonical.c`
+migration boundary are retired.
 
-The former `kernel/` staging directory has now been retired. The active Linux
-adapter and remaining Linux-side migration units live under `linux/`. As each
-mixed unit is rewritten, portable filesystem semantics move into `core/` while
-Linux-only VFS/module code remains under `linux/`.
+## Canonical core responsibilities
 
-## Module boundary
+`core/` is the filesystem, not a parser helper layer.
 
-`Makefile` produces one composite module:
+It owns host-neutral EXT2 behaviour including:
+
+- superblock decoding and validation;
+- feature negotiation and rejection policy;
+- block-size, inode-size and block-group geometry;
+- group-descriptor decoding and bounds validation;
+- sparse-superblock placement rules;
+- absolute-block to block-group/offset mapping;
+- direct, single-, double- and triple-indirect logical block mapping;
+- directory-record sizing, validation, insertion and deletion/coalescing rules;
+- initial `.` and `..` directory-record layout;
+- portable volume/inode/file engine behaviour;
+- corruption and range rejection;
+- any other EXT2 rule that Linux and Windows must interpret identically.
+
+If a filesystem rule would otherwise need to be implemented in both host
+adapters, it belongs in `core/`.
+
+## Linux adapter responsibilities
+
+The Linux adapter owns only Linux integration and Linux-specific policy.
+
+### `core_bridge.c`
+
+Compiles/binds the canonical EXT2 core into the Linux module. It must not grow a
+second set of EXT2 format rules.
+
+### `allocation.c`
+
+Owns Linux-side block/inode allocation integration, reservation/locality policy
+and VFS/kernel accounting mechanics. Host-neutral group geometry and mapping
+rules stay in the canonical core.
+
+### `namespace.c`
+
+Owns Linux directory iteration and VFS namespace mutation: lookup/create/link,
+unlink, mkdir/rmdir, mknod, rename and the Linux object/lifetime mechanics
+needed to expose canonical EXT2 namespace rules.
+
+### `io.c`
+
+Owns Linux inode/file/page-cache/address-space integration, including regular
+file I/O, inode lifecycle/mapping presentation, truncate, mmap/fsync and
+host-specific file operations.
+
+### `metadata.c`
+
+Owns Linux xattr, ACL and security-label integration plus the Linux-side
+metadata cache/lifetime mechanisms required to expose canonical EXT2 metadata
+rules.
+
+### `lifecycle.c`
+
+Owns VFS filesystem registration, mount/remount, superblock publication,
+freeze/sync/statfs, teardown, module lifetime and other Linux-only filesystem
+lifecycle mechanics.
+
+### `linux_adapter.h`
+
+Owns the Linux-private in-memory model and contracts shared by the adapter
+translation units. It must not become a second on-disk format specification.
+
+## Linux module boundary
+
+`native/filesystems/ext2/linux/Makefile` builds one composite module:
 
 ```text
-ext2.ko
+obj-m += ext2.o
+ext2-y := core_bridge.o allocation.o namespace.o io.o metadata.o lifecycle.o
 ```
 
-The core objects are:
+The result is one independently deployable `ext2.ko`.
+
+Changing source-file boundaries must never create helper modules or couple EXT2
+to EXT3/EXT4.
+
+## Windows adapter responsibilities
+
+The Windows adapter consumes the same canonical core through
+`../core/ext2_engine.h`.
+
+The adapter is cut by responsibility but deliberately compiled as one WDK
+translation unit at the current stage:
+
+- `ext2_driver.c` — small translation-unit shell;
+- `ext2_driver.h` — Windows-private VCB/FCB/CCB and dispatch contracts;
+- `adapter_support.inc` — object lifetime, locking and canonical-core block-I/O bridge;
+- `name_translation.inc` — Unicode/path and information translation plus IRP buffers;
+- `file_dispatch.inc` — create/read/write/cleanup/close and file-information IRPs;
+- `directory_dispatch.inc` — directory enumeration/control IRPs;
+- `volume_lifecycle.inc` — mount/verify/lock/dismount and filesystem/device control;
+- `driver_entry.inc` — DriverEntry and major-function registration.
+
+These fragments are Windows integration. EXT2 on-disk semantics must remain in
+the canonical core.
+
+Reusable IFS infrastructure may move to `native/platform/windows/` only when
+it is genuinely filesystem-neutral.
+
+## Media and feature contract
+
+EXT2 is a non-journalled block-group filesystem.
+
+The primary superblock begins at byte offset 1024. The canonical core validates
+the filesystem magic `0xEF53`, revision, block/inode geometry, block groups,
+feature masks and all later addresses before they are trusted.
+
+EXT2 block groups contain the block bitmap, inode bitmap, inode table and data
+blocks. Group descriptors identify those structures and carry free
+block/inode/directory counts.
+
+Classic EXT2 inode block mapping uses 15 entries:
 
 ```text
-balloc.o
-dir.o
-file.o
-ialloc.o
-inode.o
-namei.o
-super.o
+0..11   direct
+12      single indirect
+13      double indirect
+14      triple indirect
 ```
 
-When EXT2 extended attributes are enabled, `xattr.o` is added to the same `ext2.ko`.
+Directories contain variable-length records aligned within filesystem blocks.
+When the FILETYPE incompat feature is active, the directory entry carries an
+explicit file-type byte.
 
-No other `.ko` is produced by the EXT2 tree.
+Extended attributes are stored in the filesystem-defined xattr block referenced
+by the inode. Linux presentation of user/trusted/security/POSIX ACL namespaces
+belongs to the Linux adapter; xattr block validity and format rules remain
+filesystem semantics.
 
-## File responsibilities
+Fast symlinks may store their payload in the inode block-pointer area.
 
-### `super.c`
+## Format versus implementation claims
 
-Owns filesystem registration and module lifetime, mount and remount processing, superblock validation, feature compatibility checks, filesystem statistics, freeze/unfreeze behaviour, sync behaviour, inode-cache lifetime, quota hooks and teardown.
+A field or feature existing in the historical EXT-family format does not mean
+Filesystem Support claims that behaviour.
 
-EXT2 must fail closed when the media advertises the EXT3 journal compatibility feature. A journalled filesystem is not accepted as EXT2.
+The implementation explicitly rejects journalled media as EXT2. EXT3/EXT4
+feature recognition used to reject incompatible media is not EXT3/EXT4
+implementation.
 
-The intended rule is:
+Media outside the project's qualified compatibility range must not be advertised
+as supported merely because the field widths can represent it.
 
-```text
-EXT2 media -> may mount as EXT2
-journalled EXT3 media -> reject
-EXT4 media/features -> reject when unsupported/incompatible
-```
+## Validation and failure model
 
-Compatibility fields that exist in the on-disk extended-filesystem superblock remain present where required to preserve structure offsets and to identify unsupported media. Recognising another format is not the same as implementing it.
+Validation is fail-closed.
 
-### `inode.c`
+At mount/open time the implementation must reject, as applicable:
 
-Owns inode lifecycle, block mapping, truncation, read/write inode conversion, address-space operations, inode flags, file-operation selection and both normal and fast symlink inode operations.
+- wrong magic or unsupported revision/features;
+- journalled EXT3 media presented as EXT2;
+- contradictory block/inode geometry;
+- out-of-range group metadata;
+- invalid direct/indirect mapping;
+- malformed directory records;
+- impossible inode references;
+- corrupt xattr structures;
+- allocation/accounting underflow or overflow.
 
-The former tiny `symlink.c` is deliberately folded into this subsystem.
+EXT2 has no journal, so crash consistency depends on conservative metadata write
+ordering and offline checking after unclean shutdown.
 
-### `balloc.c`
+## Provenance and rewrite status
 
-Owns EXT2 block allocation and release, reservation windows, block-group accounting, sparse-superblock calculations and free-block accounting.
+EXT2 has crossed the project-authorship boundary.
 
-This remains separate because it is a large, coherent allocation subsystem.
+The authoritative provenance ledger is
+[`EXT_SOURCE_PROVENANCE.md`](EXT_SOURCE_PROVENANCE.md). It records the active
+canonical core and Linux responsibility units as project-authored implementation.
 
-### `ialloc.c`
+The Windows adapter consumes the same canonical EXT2 engine; its responsibility
+fragments are intentionally kept together as one WDK translation unit while
+their adapter-only ownership is made explicit.
 
-Owns inode allocation and release, directory-placement policy, inode-group selection and free-inode/directory accounting.
+The active EXT2 production tree must never be refreshed from or mechanically
+reshaped from upstream Linux source. External implementations may be studied as
+behavioural/interoperability evidence only.
 
-### `dir.c`
-
-Owns EXT2 directory-record parsing and validation, lookup support, directory iteration, insertion, deletion, empty-directory handling and directory file operations.
-
-### `namei.c`
-
-Owns namespace mutation and pathname-facing inode operations such as create, link, unlink, mkdir, rmdir, mknod and rename.
-
-It remains separate from `dir.c`: directory-record manipulation and VFS namespace operations are related but distinct responsibilities.
-
-### `file.c`
-
-Owns regular-file operations, buffered and direct I/O, DAX file paths where enabled, mmap, fsync, open/release behaviour, file attributes and EXT2-specific ioctls.
-
-The former `ioctl.c` is folded into this file because those operations belong to the regular-file interface and did not justify a separate translation unit.
-
-Diagnostic direct-I/O tracepoints are intentionally not part of this implementation.
-
-### `xattr.c`
-
-Owns the complete optional EXT2 metadata subsystem:
-
-- user extended attributes;
-- trusted extended attributes;
-- security-label extended attributes;
-- POSIX ACL encoding, decoding and storage;
-- EXT2 xattr block parsing, lookup, update and deduplication;
-- the private metadata-block cache used by EXT2 xattrs.
-
-The former `xattr_user.c`, `xattr_trusted.c`, `xattr_security.c`, `acl.c`, `acl.h`, `xattr.h`, `mbcache.c` and private `mbcache.h` are deliberately consolidated here and in `ext2.h`.
-
-The metadata cache is implementation code, not a separately loadable service. When xattrs are disabled, the xattr translation unit and its cache code are omitted from `ext2.ko`.
-
-### `ext2.h`
-
-Owns the private EXT2 declarations and on-disk structures required across the implementation.
-
-It also contains the private declarations formerly split across the xattr, ACL and metadata-cache headers.
-
-Fields and constants that are part of the historical extended-filesystem on-disk structure remain when they are required for correct parsing, offsets or rejection of incompatible features. Dead EXT3-only policy constants are not retained.
-
-## Mount and validation model
-
-EXT2 uses the Linux VFS block-filesystem model.
-
-At mount time the driver:
-
-1. allocates its in-memory superblock state;
-2. establishes the block size needed to read the on-disk superblock;
-3. validates the EXT magic value;
-4. validates revision and feature flags;
-5. rejects unsupported incompatible features;
-6. explicitly rejects journalled media;
-7. validates block and inode geometry;
-8. reads and validates group descriptors;
-9. establishes allocation/accounting state;
-10. creates the xattr cache only when xattrs are enabled;
-11. reads and validates the root inode;
-12. publishes the mounted filesystem to VFS.
-
-Validation is fail-closed. Corrupt or contradictory geometry must not be normalised into a mountable filesystem.
+Renaming, merging, recommenting or moving external code is not a rewrite.
 
 ## EXT2 versus EXT3 and EXT4
 
-The three implementations are intentionally independent.
+The three filesystems remain independently owned:
 
 ```text
 native/filesystems/ext2/ -> ext2.ko
@@ -192,72 +260,32 @@ native/filesystems/ext3/ -> ext3.ko
 native/filesystems/ext4/ -> ext4.ko
 ```
 
-Shared ancestry of the formats is not permission to collapse them into one driver.
+Shared ancestry of their formats is not permission to collapse their
+implementations or modules.
 
-For the current development phase, duplicated source is acceptable. Later refactoring may extract genuinely common code only when doing so preserves independent module ownership and does not create a mandatory helper module.
+Only genuinely filesystem-neutral infrastructure may move to shared Filesystem
+Support platform code or Infiltratr Common, and only when that sharing does not
+couple the three filesystems.
 
-## Optional features
+## Qualification
 
-Optional kernel configuration paths remain part of EXT2 where they are actual EXT2 capabilities, including:
+Compilation alone is not completion.
 
-- extended attributes;
-- POSIX ACLs;
-- security labels;
-- quotas;
-- DAX where the target kernel and block device support it;
-- compatibility ioctls where required by the kernel configuration.
+EXT2 qualification must cover, where applicable:
 
-Optional functionality must not force unrelated code into the module. In particular, the private metadata cache is linked only when EXT2 xattrs are enabled.
+- independently manufactured media;
+- read/write workloads;
+- malformed-media rejection;
+- mount/unmount cycles;
+- allocation exhaustion;
+- rename/link/unlink and directory mutation;
+- xattr/ACL/security metadata;
+- crash/unclean-state handling appropriate to non-journalled EXT2;
+- Linux VFS behaviour;
+- Windows IFS behaviour;
+- independent verification by another implementation/checker.
 
-## Deliberately excluded material
-
-The EXT2 tree deliberately excludes:
-
-- upstream Kconfig presentation text;
-- direct-I/O tracepoint source and definitions;
-- dead EXT3 journal-mode policy constants;
-- a compatibility path that mounts journalled EXT3 media as EXT2;
-- separate `mbcache.ko`;
-- separate helper applications;
-- EXT3 or EXT4 registration.
-
-These exclusions remain part of the EXT2 rewrite contract; the EXT trees are not refreshed from upstream while rewrite work is active.
-
-
-## Source-rewrite policy
-
-The active EXT2 implementation must not be regenerated from Linux or any other
-filesystem implementation.  External implementations may be studied as
-behavioural evidence, but their source is not an input to the production tree.
-
-The former Linux-source import and shaping workflow has been retired.  No
-automation may fetch an upstream EXT2 tree and copy, transform, merge or
-re-comment it into `native/filesystems/ext2/`.
-
-Conversion is file-by-file and explicit.  A production file is considered
-project-authored only after its implementation has been replaced by an
-Infiltrator implementation designed for this repository's contracts.  Merely
-changing comments, file boundaries, symbol names or Kbuild layout is not a
-rewrite.
-
-Current conversion state:
-
-- `core/ext2_core.c`, `core/ext2_core.h`, `core/ext2_engine.c` and
-  `core/ext2_engine.h` are the project-owned canonical core.
-- `linux/canonical.c` is the Linux adapter for that canonical core.
-- `linux/file.c` has been replaced with the Infiltrator regular-file/VFS
-  implementation.
-- Remaining Linux migration units are migration work until their implementation has
-  been independently replaced and validated.
-
-Legal/provenance notices are removed from a source file only when the inherited
-implementation in that file has actually been replaced.  This rule prevents a
-cosmetic provenance edit from being mistaken for a source rewrite.
-
-## Current development rule
-
-Do not optimise for similarity with upstream Linux directory layout.
-
-Optimise for a correct, understandable and independently owned EXT2 implementation with one filesystem folder and one filesystem module.
-
-Future changes should reduce duplication or complexity only when they make EXT2 clearer or safer without re-coupling it to EXT3, EXT4 or a shared support module.
+The authoritative architectural rules remain
+[`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md),
+[`EXT_SOURCE_PROVENANCE.md`](EXT_SOURCE_PROVENANCE.md), and the per-filesystem
+[`DESIGN.md`](../native/filesystems/ext2/DESIGN.md).
