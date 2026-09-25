@@ -93,10 +93,12 @@ jobs:
           copy_tree fs/udf native/filesystems/udf/kernel
           copy_tree fs/fuse native/filesystems/virtiofs/kernel
 
-          rm -rf native/filesystems/cifs/kernel
-          mkdir -p native/filesystems/cifs/kernel
-          cp -a /tmp/linux/fs/smb/client native/filesystems/cifs/kernel/client
-          cp -a /tmp/linux/fs/smb/common native/filesystems/cifs/kernel/common
+          # SMB/CIFS is a network filesystem. Preserve the Linux client/common
+          # sources solely as reference evidence for the canonical userspace core.
+          rm -rf native/filesystems/cifs/reference/linux
+          mkdir -p native/filesystems/cifs/reference/linux
+          cp -a /tmp/linux/fs/smb/client native/filesystems/cifs/reference/linux/client
+          cp -a /tmp/linux/fs/smb/common native/filesystems/cifs/reference/linux/common
 
           copy_tree fs/nfs native/filesystems/nfs/kernel
           # CephFS is distributed/network storage; keep the kernel client as

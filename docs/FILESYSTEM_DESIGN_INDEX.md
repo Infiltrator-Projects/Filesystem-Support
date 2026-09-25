@@ -13,6 +13,9 @@ qualified.
 - [CephFS](../native/filesystems/cephfs/DESIGN.md) — Linux kernel client
   retained as distributed-filesystem reference evidence; the target is a
   canonical CephFS client core behind the shared userspace-service boundary.
+- [SMB/CIFS](../native/filesystems/cifs/DESIGN.md) — Linux SMB client/common
+  sources retained as network-filesystem reference evidence; future project
+  code uses one canonical SMB client core behind the userspace service.
 - [ADFS](../native/filesystems/adfs/DESIGN.md) — Linux ADFS retained only as
   reference evidence; the target is one canonical ADFS engine with thin native
   Linux and Windows adapters.
