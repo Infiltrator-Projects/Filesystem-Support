@@ -67,6 +67,9 @@ qualified.
   userspace overlay. Any future first-party implementation belongs in a
   portable encrypted-overlay core plus userspace provider, not a kernel
   filesystem module.
+- [EncFS](../native/filesystems/encfs/DESIGN.md) — encrypted userspace
+  overlay. Future project code may use a portable encrypted-overlay core plus
+  userspace provider, without duplicating backing-filesystem semantics.
 - [CurlFtpFS](../native/filesystems/curlftpfs/DESIGN.md) — FTP
   remote-filesystem provider over userspace/FUSE. FTP protocol logic belongs
   behind the shared userspace-service boundary.
