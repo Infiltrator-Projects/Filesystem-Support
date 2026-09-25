@@ -16,6 +16,9 @@ qualified.
 - [Bcachefs](../native/filesystems/bcachefs/DESIGN.md) — large
   upstream Linux implementation retained as reference evidence only; the target
   remains one host-neutral Bcachefs engine with thin native platform adapters.
+- [BeFS](../native/filesystems/befs/DESIGN.md) — upstream Linux BeFS
+  retained as read-oriented reference evidence; the target is one canonical
+  BeFS engine with thin Linux/Windows adapters.
 
 ## Structurally reviewed userspace-only entries
 
