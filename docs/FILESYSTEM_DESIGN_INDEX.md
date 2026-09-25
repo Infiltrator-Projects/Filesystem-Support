@@ -37,6 +37,9 @@ qualified.
 - [CramFS](../native/filesystems/cramfs/DESIGN.md) — upstream Linux
   read-only CramFS retained as reference evidence; the target is one canonical
   compressed-image filesystem engine with thin native adapters.
+- [EROFS](../native/filesystems/erofs/DESIGN.md) — upstream Linux
+  EROFS retained as reference evidence; the target is one canonical read-only
+  compressed filesystem engine shared by native/userspace access paths.
 - [eCryptfs](../native/filesystems/ecryptfs/DESIGN.md) — upstream Linux
   stacked-crypto implementation retained as reference evidence; future project
   code separates portable eCryptfs format/crypto semantics from host adapters.

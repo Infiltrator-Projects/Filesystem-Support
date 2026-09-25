@@ -56,7 +56,7 @@ jobs:
           copy_tree fs/jfs native/filesystems/jfs/kernel
           copy_tree fs/nilfs2 native/filesystems/nilfs2/kernel
           copy_tree fs/reiserfs native/filesystems/reiserfs/kernel
-          copy_tree fs/erofs native/filesystems/erofs/kernel
+          copy_tree fs/erofs native/filesystems/erofs/reference/linux
           copy_tree fs/minix native/filesystems/minix/kernel
           copy_tree fs/romfs native/filesystems/romfs/kernel
           copy_tree fs/cramfs native/filesystems/cramfs/reference/linux
