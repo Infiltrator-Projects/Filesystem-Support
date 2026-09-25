@@ -114,6 +114,9 @@ qualified.
   volume/container. A future first-party implementation may own a portable
   container/decryption core, but the decrypted filesystem remains NTFS and is
   handled by the NTFS implementation.
+- [FileVault / FVDE](../native/filesystems/filevault/DESIGN.md) —
+  Apple encrypted-volume/container layer. A future portable decryptor may
+  expose a block view, while APFS/HFS filesystem semantics remain elsewhere.
 
 ## Structurally reviewed tools-only / future-native entries
 
