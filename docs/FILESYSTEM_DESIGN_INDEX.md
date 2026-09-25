@@ -31,6 +31,9 @@ qualified.
 - [exFAT](../native/filesystems/exfat/DESIGN.md) — upstream Linux exFAT
   retained as reference evidence; the target is one canonical exFAT engine
   shared by Linux, Windows and any userspace adapter.
+- [F2FS](../native/filesystems/f2fs/DESIGN.md) — upstream Linux F2FS
+  retained as reference evidence; the target is one canonical flash-filesystem
+  engine with thin host adapters.
 - [SCO BFS](../native/filesystems/bfs/DESIGN.md) — upstream Linux BFS retained
   only as reference evidence; the target is one canonical Boot File System
   engine with thin Linux/Windows adapters.

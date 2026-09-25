@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs cryfs curlftpfs davfs2 disorderfs ecryptfs efs encfs erofs erofsfuse exfat exfat-fuse ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs cryfs curlftpfs davfs2 disorderfs ecryptfs efs encfs erofs erofsfuse exfat exfat-fuse ext2 ext3 ext4 f2fs ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -260,6 +260,13 @@ jobs:
           test ! -e native/filesystems/exfat-fuse/core
           test -s native/filesystems/exfat-fuse/DESIGN.md
 
+          # F2FS remains imported Linux reference evidence until its flash,
+          # checkpoint and segment semantics are independently rewritten.
+          test ! -e native/filesystems/f2fs/kernel
+          test -s native/filesystems/f2fs/reference/linux/f2fs.h
+          test -s native/filesystems/f2fs/reference/linux/checkpoint.c
+          test -s native/filesystems/f2fs/DESIGN.md
+
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
           for legacy in \
@@ -304,6 +311,8 @@ jobs:
             ! grep -Fq 'copy_tree fs/erofs native/filesystems/erofs/kernel' "$refresh"
             grep -Fq 'copy_tree fs/exfat native/filesystems/exfat/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/exfat native/filesystems/exfat/kernel' "$refresh"
+            grep -Fq 'copy_tree fs/f2fs native/filesystems/f2fs/reference/linux' "$refresh"
+            ! grep -Fq 'copy_tree fs/f2fs native/filesystems/f2fs/kernel' "$refresh"
             grep -Fq 'copy_tree fs/efs native/filesystems/efs/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/efs native/filesystems/efs/kernel' "$refresh"
             grep -Fq 'copy_tree fs/ceph native/filesystems/cephfs/reference/linux' "$refresh"
