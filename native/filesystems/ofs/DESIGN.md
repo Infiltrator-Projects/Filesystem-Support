@@ -126,6 +126,7 @@ OFS is not journalled. Bitmap updates, object headers, directory hash links and 
 core/
   ofs_core.c/.h
   ofs_primitives.c/.h
+  ofs_disk_layout.h      host-neutral OFS on-disk structures
 
 linux/
   core_bridge.c
@@ -133,11 +134,12 @@ linux/
   namespace.c
   lifecycle.c
   linux_adapter.h
-  disk_layout.h
 
 windows/
   README.md              adapter still to be implemented
 ```
+
+`core/ofs_disk_layout.h` is the canonical host-neutral OFS media-layout contract. The Linux adapter consumes it through portable disk scalar aliases; Linux VFS types remain in `linux/linux_adapter.h`.
 
 There is no shared `amiga_common` implementation layer. OFS owns its own format semantics even when an FFS rule happens to be numerically identical.
 

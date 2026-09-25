@@ -63,13 +63,12 @@ filesystem.
 ## Current ownership state
 
 OFS and FFS now own separate canonical cores and permanent responsibility-cut
-Linux adapters. FFS has moved its on-disk layout contract into
-`core/ffs_disk_layout.h`; its Linux tree is therefore reduced to
-`core_bridge.c`, `storage.c`, `namespace.c`, `lifecycle.c` and
-`linux_adapter.h`. OFS is audited separately in alphabetical order and keeps
-its own filesystem-local layout contract until that pass is complete. Neither
-filesystem depends on a shared Amiga filesystem layer and neither retains the
-migration filenames `affs.h` or `amigaffs.h`.
+Linux adapters. Their on-disk layout contracts live independently in
+`core/ofs_disk_layout.h` and `core/ffs_disk_layout.h`; each Linux tree is
+therefore reduced to `core_bridge.c`, `storage.c`, `namespace.c`,
+`lifecycle.c` and `linux_adapter.h`. Neither filesystem depends on a shared
+Amiga filesystem layer and neither retains the migration filenames `affs.h`
+or `amigaffs.h`.
 
 SFS now uses the same project layout principle: `core_bridge.c`,
 `allocation.c`, `mapping.c`, `io.c`, `namespace.c`, `lifecycle.c`,
