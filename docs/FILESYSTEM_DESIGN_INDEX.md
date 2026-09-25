@@ -96,6 +96,11 @@ qualified.
 
 ## Structurally reviewed external-provider entries
 
+- [fuse2fs](../native/filesystems/fuse2fs/DESIGN.md) — external userspace
+  provider for EXT2/EXT3/EXT4. It must not become a fourth EXT implementation;
+  future project userspace adapters consume each filesystem's own canonical core.
+
+
 - [APFS-DKMS](../native/filesystems/apfs-dkms/DESIGN.md) — Debian's
   experimental out-of-tree APFS provider. It does not own APFS semantics in
   this repository; a future first-party APFS implementation must be one
