@@ -60,6 +60,11 @@ qualified.
 
 ## Structurally reviewed userspace-only entries
 
+- [GlusterFS](../native/filesystems/glusterfs/DESIGN.md) — distributed
+  userspace filesystem client; any first-party implementation belongs behind
+  the shared userspace-service boundary.
+
+
 - [fusezip](../native/filesystems/fusezip/DESIGN.md) — userspace ZIP archive
   namespace. ZIP container semantics and mount presentation remain userspace
   concerns rather than a kernel filesystem.
