@@ -19,6 +19,9 @@ qualified.
 - [BeFS](../native/filesystems/befs/DESIGN.md) — upstream Linux BeFS
   retained as read-oriented reference evidence; the target is one canonical
   BeFS engine with thin Linux/Windows adapters.
+- [SCO BFS](../native/filesystems/bfs/DESIGN.md) — upstream Linux BFS retained
+  only as reference evidence; the target is one canonical Boot File System
+  engine with thin Linux/Windows adapters.
 
 ## Structurally reviewed userspace-only entries
 

@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -122,6 +122,13 @@ jobs:
           test -s native/filesystems/befs/reference/linux/btree.c
           test -s native/filesystems/befs/DESIGN.md
 
+          # SCO BFS remains copied Linux reference source until independently
+          # rewritten into a canonical engine plus host adapters.
+          test ! -e native/filesystems/bfs/kernel
+          test -s native/filesystems/bfs/reference/linux/bfs.h
+          test -s native/filesystems/bfs/reference/linux/inode.c
+          test -s native/filesystems/bfs/DESIGN.md
+
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
           for legacy in \
@@ -156,6 +163,8 @@ jobs:
             ! grep -Fq 'copy_tree fs/bcachefs native/filesystems/bcachefs/kernel' "$refresh"
             grep -Fq 'copy_tree fs/befs native/filesystems/befs/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/befs native/filesystems/befs/kernel' "$refresh"
+            grep -Fq 'copy_tree fs/bfs native/filesystems/bfs/reference/linux' "$refresh"
+            ! grep -Fq 'copy_tree fs/bfs native/filesystems/bfs/kernel' "$refresh"
           fi
 
       - name: Verify rewritten EXT2 file layer provenance
