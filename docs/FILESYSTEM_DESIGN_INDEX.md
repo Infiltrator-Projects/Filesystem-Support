@@ -50,6 +50,13 @@ qualified.
   userspace APFS access through Debian's libfsapfs provider. It is a fallback
   provider identity, not an independent APFS implementation.
 
+## Structurally reviewed storage/container entries
+
+- [BitLocker](../native/filesystems/bitlocker/DESIGN.md) — encrypted Windows
+  volume/container. A future first-party implementation may own a portable
+  container/decryption core, but the decrypted filesystem remains NTFS and is
+  handled by the NTFS implementation.
+
 ## Active canonical/rewrite filesystems
 
 - [EXT2](../native/filesystems/ext2/DESIGN.md)
