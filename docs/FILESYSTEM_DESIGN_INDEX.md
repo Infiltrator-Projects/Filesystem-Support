@@ -96,6 +96,11 @@ qualified.
 
 ## Structurally reviewed external-provider entries
 
+- [fuseiso](../native/filesystems/fuseiso/DESIGN.md) — external
+  userspace ISO/image provider. ISO9660 semantics belong to the canonical
+  `iso9660/` implementation, not this provider identity.
+
+
 - [fusefat](../native/filesystems/fusefat/DESIGN.md) — external FUSE
   provider for FAT12/16/32 and exFAT. Future project userspace paths must consume
   the canonical `fat/` or `exfat/` core rather than duplicate either engine.
