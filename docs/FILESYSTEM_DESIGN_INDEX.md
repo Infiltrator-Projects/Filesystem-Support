@@ -21,6 +21,13 @@ qualified.
   module to invent; any future first-party implementation belongs behind the
   shared userspace-service boundary.
 
+## Structurally reviewed external-provider entries
+
+- [APFS-DKMS](../native/filesystems/apfs-dkms/DESIGN.md) — Debian's
+  experimental out-of-tree APFS provider. It does not own APFS semantics in
+  this repository; a future first-party APFS implementation must be one
+  canonical APFS engine shared by native platform adapters.
+
 ## Active canonical/rewrite filesystems
 
 - [EXT2](../native/filesystems/ext2/DESIGN.md)
