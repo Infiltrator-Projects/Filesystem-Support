@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -87,6 +87,13 @@ jobs:
           test ! -e native/filesystems/apfs-dkms/kernel
           test ! -e native/filesystems/apfs-dkms/core
           test -s native/filesystems/apfs-dkms/DESIGN.md
+
+          # APFS-FUSE is another external provider identity for the same APFS
+          # filesystem, not a second place to implement APFS semantics.
+          test ! -e native/filesystems/apfs-fuse/.gitkeep
+          test ! -e native/filesystems/apfs-fuse/kernel
+          test ! -e native/filesystems/apfs-fuse/core
+          test -s native/filesystems/apfs-fuse/DESIGN.md
 
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.

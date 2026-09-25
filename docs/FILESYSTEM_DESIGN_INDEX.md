@@ -27,6 +27,9 @@ qualified.
   experimental out-of-tree APFS provider. It does not own APFS semantics in
   this repository; a future first-party APFS implementation must be one
   canonical APFS engine shared by native platform adapters.
+- [APFS-FUSE](../native/filesystems/apfs-fuse/DESIGN.md) — conservative
+  userspace APFS access through Debian's libfsapfs provider. It is a fallback
+  provider identity, not an independent APFS implementation.
 
 ## Active canonical/rewrite filesystems
 
