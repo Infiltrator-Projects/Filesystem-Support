@@ -53,7 +53,8 @@ jobs:
           # Btrfs remains imported reference evidence.
           copy_tree fs/btrfs native/filesystems/btrfs/reference/linux
           copy_tree fs/f2fs native/filesystems/f2fs/reference/linux
-          copy_tree fs/jfs native/filesystems/jfs/kernel
+          # JFS remains reference/import state until its canonical engine is independently rewritten.
+          copy_tree fs/jfs native/filesystems/jfs/reference/linux
           copy_tree fs/nilfs2 native/filesystems/nilfs2/kernel
           copy_tree fs/reiserfs native/filesystems/reiserfs/kernel
           copy_tree fs/erofs native/filesystems/erofs/reference/linux
