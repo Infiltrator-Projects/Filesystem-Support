@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -175,6 +175,12 @@ jobs:
           test ! -e native/filesystems/convmvfs/kernel
           test ! -e native/filesystems/convmvfs/core
           test -s native/filesystems/convmvfs/DESIGN.md
+
+          # CP/M is a real disk-format family, currently exposed only through
+          # external tools. The placeholder is replaced by an explicit future
+          # canonical-engine contract.
+          test ! -e native/filesystems/cpm/.gitkeep
+          test -s native/filesystems/cpm/DESIGN.md
 
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.

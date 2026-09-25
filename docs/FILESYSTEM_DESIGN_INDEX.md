@@ -72,6 +72,12 @@ qualified.
   container/decryption core, but the decrypted filesystem remains NTFS and is
   handled by the NTFS implementation.
 
+## Structurally reviewed tools-only / future-native entries
+
+- [CP/M](../native/filesystems/cpm/DESIGN.md) — currently exposed through
+  cpmtools only, but it is a real disk-filesystem family and therefore reserves
+  a future canonical core plus thin native platform adapters.
+
 ## Active canonical/rewrite filesystems
 
 - [EXT2](../native/filesystems/ext2/DESIGN.md)
