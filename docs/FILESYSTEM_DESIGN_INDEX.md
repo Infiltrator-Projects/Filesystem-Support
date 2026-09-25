@@ -55,6 +55,11 @@ qualified.
 
 ## Structurally reviewed userspace-only entries
 
+- [fuse-overlayfs](../native/filesystems/fuse-overlayfs/DESIGN.md) —
+  userspace OverlayFS-compatible provider for rootless/container workloads; it
+  owns overlay presentation semantics, not an independent disk format.
+
+
 - [AFUSE](../native/filesystems/afuse/DESIGN.md) — catalogue-managed
   userspace/FUSE automounter. There is no native disk-format core or kernel
   module to invent; any future first-party implementation belongs behind the
