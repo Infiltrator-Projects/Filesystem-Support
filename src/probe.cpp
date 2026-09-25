@@ -253,7 +253,7 @@ void load_package_inventory()
     const auto installed = run_command({
         "dpkg-query",
         "-W",
-        "-f=\${Package}\t\${db:Status-Status}\n"
+        "-f=${Package}\t${db:Status-Status}\n"
     });
 
     std::istringstream installed_stream(installed.output);
