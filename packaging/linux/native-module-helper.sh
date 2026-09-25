@@ -33,6 +33,14 @@ kernel_build="/lib/modules/$kernel/build"
 destination_dir="/lib/modules/$kernel/updates/infiltrator"
 destination="$destination_dir/$module.ko"
 
+cleanup_tmp=""
+cleanup() {
+    if [[ -n "${cleanup_tmp:-}" ]]; then
+        rm -rf -- "$cleanup_tmp"
+    fi
+}
+trap cleanup EXIT
+
 ensure_build_environment() {
     local packages=()
 
@@ -77,6 +85,24 @@ secure_boot_enabled() {
     [[ -n "$variable" ]] || return 1
 
     [[ "$(od -An -t u1 -j 4 -N 1 "$variable" 2>/dev/null | tr -d '[:space:]')" == "1" ]]
+}
+
+kernel_build_compiler() {
+    local compile_header="$kernel_build/include/generated/compile.h"
+    local compiler=""
+
+    if [[ -r "$compile_header" ]]; then
+        compiler=$(
+            sed -n 's/^#define LINUX_COMPILER "\([^ ]*\).*/\1/p'                 "$compile_header" | head -n1
+        )
+    fi
+
+    if [[ -n "$compiler" ]] && command -v "$compiler" >/dev/null 2>&1; then
+        command -v "$compiler"
+        return 0
+    fi
+
+    command -v gcc
 }
 
 sign_for_secure_boot() {
@@ -144,13 +170,15 @@ install_native() {
 
     local tmp
     tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' EXIT
+    cleanup_tmp=$tmp
 
     mkdir -p "$tmp/$filesystem"
     cp -a "$source_fs/core" "$tmp/$filesystem/core"
     cp -a "$source_linux" "$tmp/$filesystem/linux"
 
-    make -C "$kernel_build" M="$tmp/$filesystem/linux" modules
+    local build_cc
+    build_cc=$(kernel_build_compiler)
+    make -C "$kernel_build" M="$tmp/$filesystem/linux" CC="$build_cc" modules
 
     local built="$tmp/$filesystem/linux/$module.ko"
     [[ -s "$built" ]] || {
