@@ -24,6 +24,9 @@ qualified.
   catalogue-managed userspace archive namespace. Any future first-party
   implementation belongs at the userspace-service/archive-adapter boundary,
   not in a kernel filesystem.
+- [AVFS](../native/filesystems/avfs/DESIGN.md) — userspace virtual
+  namespace spanning archives, images and remote locations. It belongs behind
+  the shared userspace-service boundary, not in a kernel filesystem.
 
 ## Structurally reviewed external-provider entries
 
