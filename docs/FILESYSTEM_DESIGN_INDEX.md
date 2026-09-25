@@ -28,6 +28,9 @@ qualified.
 - [SGI EFS](../native/filesystems/efs/DESIGN.md) — upstream Linux
   read-only EFS retained as reference evidence; the target is one canonical
   EFS reader with thin host adapters.
+- [exFAT](../native/filesystems/exfat/DESIGN.md) — upstream Linux exFAT
+  retained as reference evidence; the target is one canonical exFAT engine
+  shared by Linux, Windows and any userspace adapter.
 - [SCO BFS](../native/filesystems/bfs/DESIGN.md) — upstream Linux BFS retained
   only as reference evidence; the target is one canonical Boot File System
   engine with thin Linux/Windows adapters.
