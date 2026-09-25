@@ -95,6 +95,9 @@ qualified.
 - [EROFS via FUSE](../native/filesystems/erofsfuse/DESIGN.md) —
   external userspace provider for EROFS. EROFS semantics belong only in the
   canonical EROFS engine.
+- [exFAT via FUSE](../native/filesystems/exfat-fuse/DESIGN.md) —
+  external userspace provider for exFAT. All exFAT semantics remain in the
+  canonical exFAT engine.
 - [CephFS via FUSE](../native/filesystems/ceph-fuse/DESIGN.md) —
   external userspace CephFS client provider. CephFS semantics belong to one
   canonical CephFS implementation, not a FUSE-specific fork.
