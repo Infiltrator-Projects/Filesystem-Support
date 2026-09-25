@@ -94,7 +94,10 @@ jobs:
 
           copy_tree fs/nfs native/filesystems/nfs/kernel
           copy_tree fs/ceph native/filesystems/cephfs/kernel
-          copy_tree fs/9p native/filesystems/9p/kernel
+          # 9P is a remote protocol. Keep the upstream Linux V9FS tree solely
+          # as reference material; project-owned code will live outside this
+          # directory behind the canonical userspace-service boundary.
+          copy_tree fs/9p native/filesystems/9p/reference/linux
           copy_tree fs/orangefs native/filesystems/orangefs/kernel
 
       - name: Commit refreshed reference trees

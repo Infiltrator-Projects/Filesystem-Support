@@ -1,6 +1,17 @@
 # Filesystem Design Documents
 
-The actively developed EXT and Amiga-family filesystems each have a format/design document beside their implementation:
+Filesystem design documents record format/protocol facts, current ownership
+state and the intended canonical-engine versus platform boundary. A design
+document does not by itself claim that the filesystem has been rewritten or
+qualified.
+
+## Structurally reviewed reference-state filesystems
+
+- [9P](../native/filesystems/9p/DESIGN.md) — Linux V9FS retained only as
+  reference evidence; the target Filesystem Support implementation is a
+  canonical 9P core behind the shared userspace-service boundary.
+
+## Active canonical/rewrite filesystems
 
 - [EXT2](../native/filesystems/ext2/DESIGN.md)
 - [EXT3](../native/filesystems/ext3/DESIGN.md)
@@ -11,4 +22,7 @@ The actively developed EXT and Amiga-family filesystems each have a format/desig
 - [Amiga SFS2](../native/filesystems/sfs2/DESIGN.md)
 - [Amiga PFS3](../native/filesystems/pfs3/DESIGN.md)
 
-Each document separates the actual filesystem/on-disk design from the current implementation state and records the intended canonical-core versus operating-system-adapter boundary.
+Each document separates the filesystem/protocol design from current
+implementation state. Project-authored code uses Filesystem Support
+responsibility boundaries rather than inherited upstream translation-unit
+names.
