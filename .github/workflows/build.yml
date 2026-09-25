@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -74,6 +74,12 @@ jobs:
           test ! -e native/filesystems/adfs/kernel
           test -s native/filesystems/adfs/reference/linux/adfs.h
           test -s native/filesystems/adfs/reference/linux/map.c
+
+          # AFUSE is a userspace automounter catalogue entry, not a local disk
+          # format and not a candidate kernel module.
+          test ! -e native/filesystems/afuse/.gitkeep
+          test ! -e native/filesystems/afuse/kernel
+          test -s native/filesystems/afuse/DESIGN.md
 
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.

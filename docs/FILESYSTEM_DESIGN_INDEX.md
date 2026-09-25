@@ -14,6 +14,13 @@ qualified.
   reference evidence; the target is one canonical ADFS engine with thin native
   Linux and Windows adapters.
 
+## Structurally reviewed userspace-only entries
+
+- [AFUSE](../native/filesystems/afuse/DESIGN.md) — catalogue-managed
+  userspace/FUSE automounter. There is no native disk-format core or kernel
+  module to invent; any future first-party implementation belongs behind the
+  shared userspace-service boundary.
+
 ## Active canonical/rewrite filesystems
 
 - [EXT2](../native/filesystems/ext2/DESIGN.md)
