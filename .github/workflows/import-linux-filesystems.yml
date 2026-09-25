@@ -72,7 +72,10 @@ jobs:
           copy_tree fs/ubifs native/filesystems/ubifs/kernel
           copy_tree fs/zonefs native/filesystems/zonefs/kernel
           copy_tree fs/gfs2 native/filesystems/gfs2/reference/linux
-          copy_tree fs/ocfs2 native/filesystems/ocfs2/kernel
+          # OCFS2 is a shared-disk clustered filesystem in reference/import
+          # state. Keep the upstream Linux filesystem, DLM and cluster code
+          # visibly separate from future canonical/project adapter source.
+          copy_tree fs/ocfs2 native/filesystems/ocfs2/reference/linux
           # ADFS remains imported reference evidence until its canonical
           # local-filesystem engine and OS adapters are independently rewritten.
           copy_tree fs/adfs native/filesystems/adfs/reference/linux
