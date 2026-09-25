@@ -60,6 +60,11 @@ qualified.
 
 ## Structurally reviewed userspace-only entries
 
+- [guestmount](../native/filesystems/guestmount/DESIGN.md) — userspace
+  virtual-machine image/container access layer. It must dispatch contained
+  filesystems to their owning canonical implementations.
+
+
 - [GPhotoFS](../native/filesystems/gphotofs/DESIGN.md) — userspace
   camera/PTP device namespace provider; no disk-format engine belongs here.
 
