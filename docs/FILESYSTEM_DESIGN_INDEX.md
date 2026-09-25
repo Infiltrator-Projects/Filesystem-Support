@@ -123,6 +123,9 @@ qualified.
 - [CP/M](../native/filesystems/cpm/DESIGN.md) — currently exposed through
   cpmtools only, but it is a real disk-filesystem family and therefore reserves
   a future canonical core plus thin native platform adapters.
+- [Fosfat / Smaky](../native/filesystems/fosfat/DESIGN.md) — currently
+  external read-only userspace access, but the entry represents a real disk
+  filesystem and reserves one canonical format engine.
 
 ## Active canonical/rewrite filesystems
 
