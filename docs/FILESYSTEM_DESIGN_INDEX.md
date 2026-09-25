@@ -13,6 +13,9 @@ qualified.
 - [ADFS](../native/filesystems/adfs/DESIGN.md) — Linux ADFS retained only as
   reference evidence; the target is one canonical ADFS engine with thin native
   Linux and Windows adapters.
+- [Bcachefs](../native/filesystems/bcachefs/DESIGN.md) — large
+  upstream Linux implementation retained as reference evidence only; the target
+  remains one host-neutral Bcachefs engine with thin native platform adapters.
 
 ## Structurally reviewed userspace-only entries
 

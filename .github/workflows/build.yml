@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -108,6 +108,13 @@ jobs:
           test ! -e native/filesystems/avfs/core
           test -s native/filesystems/avfs/DESIGN.md
 
+          # Bcachefs remains imported reference evidence until an independent
+          # canonical engine and thin OS adapters are written.
+          test ! -e native/filesystems/bcachefs/kernel
+          test -s native/filesystems/bcachefs/reference/linux/bcachefs_format.h
+          test -s native/filesystems/bcachefs/reference/linux/btree_io.c
+          test -s native/filesystems/bcachefs/DESIGN.md
+
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
           for legacy in \
@@ -138,6 +145,8 @@ jobs:
             ! grep -Fq 'copy_tree fs/9p native/filesystems/9p/kernel' "$refresh"
             grep -Fq 'copy_tree fs/adfs native/filesystems/adfs/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/adfs native/filesystems/adfs/kernel' "$refresh"
+            grep -Fq 'copy_tree fs/bcachefs native/filesystems/bcachefs/reference/linux' "$refresh"
+            ! grep -Fq 'copy_tree fs/bcachefs native/filesystems/bcachefs/kernel' "$refresh"
           fi
 
       - name: Verify rewritten EXT2 file layer provenance
