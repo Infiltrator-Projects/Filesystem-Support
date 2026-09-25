@@ -22,6 +22,9 @@ qualified.
 - [SCO BFS](../native/filesystems/bfs/DESIGN.md) — upstream Linux BFS retained
   only as reference evidence; the target is one canonical Boot File System
   engine with thin Linux/Windows adapters.
+- [Btrfs](../native/filesystems/btrfs/DESIGN.md) — large upstream Linux
+  implementation retained as reference evidence only; future project code must
+  use one canonical Btrfs engine with thin host adapters.
 
 ## Structurally reviewed userspace-only entries
 
