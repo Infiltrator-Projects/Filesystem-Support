@@ -55,6 +55,11 @@ qualified.
 
 ## Structurally reviewed userspace-only entries
 
+- [fusezip](../native/filesystems/fusezip/DESIGN.md) — userspace ZIP archive
+  namespace. ZIP container semantics and mount presentation remain userspace
+  concerns rather than a kernel filesystem.
+
+
 - [fuse-overlayfs](../native/filesystems/fuse-overlayfs/DESIGN.md) —
   userspace OverlayFS-compatible provider for rootless/container workloads; it
   owns overlay presentation semantics, not an independent disk format.
