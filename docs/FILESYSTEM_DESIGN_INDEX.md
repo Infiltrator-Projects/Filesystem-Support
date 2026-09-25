@@ -52,6 +52,9 @@ qualified.
 - [APFS-FUSE](../native/filesystems/apfs-fuse/DESIGN.md) — conservative
   userspace APFS access through Debian's libfsapfs provider. It is a fallback
   provider identity, not an independent APFS implementation.
+- [CephFS via FUSE](../native/filesystems/ceph-fuse/DESIGN.md) —
+  external userspace CephFS client provider. CephFS semantics belong to one
+  canonical CephFS implementation, not a FUSE-specific fork.
 
 ## Structurally reviewed storage/container entries
 
