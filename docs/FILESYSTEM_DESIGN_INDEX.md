@@ -48,6 +48,9 @@ qualified.
 - [bindfs](../native/filesystems/bindfs/DESIGN.md) — userspace overlay
   that remaps ownership/permission presentation over an existing tree; no
   independent disk-format or kernel engine belongs here.
+- [ConvmvFS](../native/filesystems/convmvfs/DESIGN.md) — userspace
+  filename-charset translation overlay. Underlying filesystem semantics remain
+  with the filesystem being mirrored.
 
 ## Structurally reviewed external-provider entries
 
