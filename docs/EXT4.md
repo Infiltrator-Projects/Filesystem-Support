@@ -1,219 +1,336 @@
-# EXT4 Native Driver
+# EXT4 Native Filesystem
 
 ## Purpose
 
-The EXT4 implementation is the full-featured modern extended filesystem driver owned by Filesystem Support.
+Filesystem Support owns one EXT4 implementation.
 
-Its deployment target is exactly one loadable kernel module:
+EXT4 is a modern extent-capable, journalled block-group filesystem with 64-bit
+geometry, checksummed metadata, advanced allocation, inline data, fast commit,
+encryption/casefold integration and other EXT4-defined features.
+
+It is not an EXT2/EXT3 compatibility registration layer.
+
+Linux deployment produces exactly one independently deployable module:
 
 ```text
 ext4.ko
 ```
 
-The module registers only EXT4. It does not register EXT2 or EXT3 aliases and contains no compatibility-routing logic that deliberately mounts those filesystem types through the EXT4 registration path.
+JBD2 functionality required by the filesystem is embedded in that module; no
+separate project `jbd2.ko` or metadata-cache helper module is deployed.
 
-JBD2 and the metadata cache are implementation code embedded into `ext4.ko`; they are not separately deployed support modules.
+## Permanent responsibility layout
 
-## Source layout
-
-The architectural rule is **one EXT4 filesystem implementation**. The
-portable filesystem implementation belongs in `core/`; `linux/` and
-`windows/` are OS wrappers around that same core, not separate EXT4
-implementations. Most filesystem logic should therefore converge into
-`core/`. Only host-specific VFS/KO or IFS/WDK integration remains in the
-wrappers.
-
-The current amount of code under `linux/` reflects migration history, not the
-target split. Moving a file into `linux/` does not classify its filesystem
-semantics as Linux-owned; those semantics must still be extracted or rewritten
-into `core/` as the migration proceeds.
-
-
-The Linux implementation and remaining migration-era source now live at:
+The active source tree is already recut around Filesystem Support
+responsibilities:
 
 ```text
-native/filesystems/ext4/linux/
+native/filesystems/ext4/
+  DESIGN.md
+
+  core/
+    README.md
+    ext4_core.c
+    ext4_core.h
+
+  linux/
+    Makefile
+    core_bridge.c
+    storage_guard.c
+    directory_io.c
+    extent_tree.c
+    extent_cache.c
+    fast_commit_engine.c
+    file_io.c
+    inode_allocation.c
+    inline_data.c
+    inode_adapter.c
+    control.c
+    journal_core.c
+    journal_durability.c
+    journal_transactions.c
+    mapping_support.c
+    multiblock_allocation.c
+    namespace_mutation.c
+    orphan_recovery.c
+    writeback_io.c
+    online_resize.c
+    lifecycle.c
+    volume_admin.c
+    extended_metadata.c
+    security_support.c
+
+    embedded_jbd2.h
+    ext4.h
+    ext4_extents.h
+    ext4_jbd2.h
+    extents_status.h
+    fast_commit.h
+    fsmap.h
+    mballoc.h
+    truncate.h
+    xattr.h
+
+    include/linux/jbd2.h
+    include/trace/events/jbd2.h
+
+  windows/
+    README.md
 ```
 
-The current Linux migration tree contains 46 files.
+The historical upstream boundaries such as `extents.c`,
+`extents_status.c`, `mballoc.c`, `fast_commit.c`, `inline.c`,
+`resize.c`, `mmp.c`, `orphan.c`, `fsmap.c`, `page-io.c`,
+`readpage.c`, `crypto.c`, `verity.c` and the upstream JBD2 translation
+units are not the permanent Filesystem Support file layout.
 
-`linux/` is the active adapter/migration location, not the permanent home of portable EXT4 semantics. As feature engines are independently rewritten, filesystem-format logic moves into `core/`; a future Windows adapter belongs under `windows/`.
+Those historical names may remain useful reference terminology, but they must
+not be restored merely to resemble Linux source organization.
 
-EXT4 is intentionally much larger than EXT2 or EXT3 because its genuine feature engines are large and independent. The project removes tiny organisational splits, compatibility-only code and production-irrelevant tests, but it does not merge large subsystems merely to reduce a file count.
+## Canonical core
 
-### Shared core progress
+`core/` is the canonical host-neutral EXT4 layer.
 
-The first extracted canonical subsystem is feature-compatibility policy plus
-the format-intrinsic bigalloc rules. `core/ext4_core.c` owns those decisions.
-The Linux wrapper retains only host-capability checks such as kernel Unicode and
-quota configuration.
+The project-authored canonical core owns format/feature rules that have already
+crossed the implementation-ownership boundary, including:
 
-This is intentionally a small first slice. Extents, allocation, journaling,
-inode, directory and mutation engines remain migration work until they can be
-moved without weakening the working driver.
+- EXT4 feature negotiation and fail-closed compatibility policy;
+- block, cluster and bigalloc geometry rules;
+- EXT4 format constants and bounded decoding represented by the current core;
+- host-neutral corruption/range rejection represented by the current core.
+
+More filesystem semantics move into `core/` only when their implementation
+body is independently rewritten and qualified. A source recut alone is not a
+semantic extraction.
+
+Linux VFS objects, Linux page-cache/bio/workqueue mechanics and Windows IFS
+objects never belong in the canonical core.
+
+## Linux responsibility files
+
+The Linux directory is cut by project responsibility, not upstream
+translation-unit history.
+
+### Project-authored active units
+
+The authoritative provenance ledger currently classifies these Linux-side
+units as project-authored:
+
+- `core_bridge.c`
+- `storage_guard.c`
+- `directory_io.c`
+- `mapping_support.c`
+- `volume_admin.c`
+- `journal_durability.c`
+- `security_support.c`
+- `embedded_jbd2.h`
+- `truncate.h`
+- `fsmap.h`
+- `fast_commit.h`
+- `ext4_jbd2.h`
+- `mballoc.h`
+- `extents_status.h`
+- `ext4_extents.h`
+- `xattr.h`
+
+These files remain Linux adapter or adapter-contract code where they contain
+host integration. Host-neutral EXT4 rules continue to migrate into `core/`
+when that strengthens the architecture.
+
+### Migration implementation
+
+The following responsibility-named units still contain materially inherited
+implementation and remain migration code until their bodies are independently
+replaced:
+
+- `extent_tree.c`
+- `extent_cache.c`
+- `fast_commit_engine.c`
+- `file_io.c`
+- `inode_allocation.c`
+- `inline_data.c`
+- `inode_adapter.c`
+- `control.c`
+- `journal_core.c`
+- `journal_transactions.c`
+- `multiblock_allocation.c`
+- `namespace_mutation.c`
+- `orphan_recovery.c`
+- `writeback_io.c`
+- `online_resize.c`
+- `lifecycle.c`
+- `extended_metadata.c`
+- `ext4.h`
+- `include/linux/jbd2.h`
+- `include/trace/events/jbd2.h`
+
+The trace-event include hierarchy is retained because Linux tracepoint
+generation requires that path. It is Linux-only diagnostic migration material,
+not canonical EXT4/JBD2 semantics.
+
+## Linux module boundary
+
+The active Kbuild contract produces one module:
+
+```text
+obj-m += ext4.o
+
+ext4-y := core_bridge.o storage_guard.o directory_io.o journal_durability.o \
+          extent_tree.o extent_cache.o fast_commit_engine.o file_io.o \
+          inode_allocation.o inline_data.o inode_adapter.o control.o \
+          journal_core.o journal_transactions.o mapping_support.o \
+          multiblock_allocation.o namespace_mutation.o orphan_recovery.o \
+          writeback_io.o online_resize.o lifecycle.o volume_admin.o \
+          extended_metadata.o security_support.o
+```
+
+The result is exactly one Filesystem Support `ext4.ko`.
+
+Changing source-file boundaries must not create a mandatory helper module or
+collapse EXT4 into EXT2/EXT3.
+
+## Windows boundary
+
+`windows/` is reserved for the EXT4 IFS/WDK adapter.
+
+No project-owned Windows EXT4 filesystem driver is claimed yet. When
+implemented, it must consume the same canonical EXT4 core and must not become a
+second EXT4 implementation.
+
+Reusable Windows IFS infrastructure belongs in
+`native/platform/windows/` only when it is genuinely filesystem-neutral.
 
 ## Filesystem identity
 
-The driver registers only:
+EXT4 registers only EXT4.
+
+Because EXT2, EXT3 and EXT4 share ancestry, some valid feature combinations can
+be difficult to distinguish solely by a synthetic label. The implementation
+must therefore rely on the actual format/feature contract rather than inventing
+a fake discriminator.
+
+Filesystem Support still maintains independent deployments:
 
 ```text
-ext4
+native/filesystems/ext2/ -> ext2.ko
+native/filesystems/ext3/ -> ext3.ko
+native/filesystems/ext4/ -> ext4.ko
 ```
 
-The source tree contains no EXT2/EXT3 registration, no `IS_EXT2_SB` or `IS_EXT3_SB` routing, no EXT2/EXT3 support-mask checks and no mount messages that describe mounting EXT2 or EXT3 through the EXT4 subsystem.
+## Major EXT4 format responsibilities
 
-### On-disk identity limitation
+The canonical filesystem model must ultimately own the host-neutral semantics
+for, as supported:
 
-EXT4 shares ancestry, magic values and some valid feature combinations with earlier extended filesystems. An EXT4 filesystem deliberately formatted with only an EXT3-compatible feature set may be indistinguishable from EXT3 using on-disk feature bits alone.
-
-Therefore the driver can be EXT4-only in registration and implementation without inventing a false on-disk discriminator. We do not require an EXT4-only feature bit merely to make the label unambiguous, because that would reject valid EXT4 feature combinations.
-
-## Preserved EXT4 feature set
-
-The implementation deliberately keeps the complete current EXT4 feature machinery from the pinned Linux source, including the supported paths for:
-
-- extents;
-- 64-bit block addressing;
-- delayed allocation;
-- multiblock allocation;
-- persistent preallocation;
-- indirect-block compatibility paths that remain valid EXT4 semantics;
-- extent status tracking;
+- superblock and 64-bit feature/geometry state;
+- block groups, flex groups and bigalloc clusters;
+- traditional block mapping and extent trees;
+- block/inode/multiblock allocation semantics;
+- directory records and HTree indexing;
+- xattrs, EA inodes and metadata checksums;
 - inline data;
-- flexible block groups;
-- meta block groups;
-- bigalloc;
-- huge files;
-- large directories;
-- directory indexing and hashing;
-- directory link-count extensions;
-- sparse superblocks and sparse-super2;
-- metadata checksums;
-- group-descriptor checksums;
-- checksum seeds;
-- extended inode sizes;
-- extended-attribute inodes;
-- user, trusted, Hurd and security xattrs;
-- POSIX ACLs;
-- quotas and project quotas;
-- project IDs;
-- encryption when the target kernel provides the generic fscrypt framework;
-- fs-verity when the target kernel provides the generic verity framework;
-- casefolded directories;
-- multiple mount protection;
+- JBD2 journal format and recovery invariants;
+- fast-commit format and replay rules;
+- MMP;
+- quotas/project IDs;
+- encryption/casefold format state;
+- fs-verity metadata;
+- orphan tracking/orphan files;
 - online resize;
-- extent migration;
-- extent movement;
-- filesystem mapping queries;
-- orphan handling and orphan files;
-- fast commit;
-- JBD2 journal transactions, commit, checkpoint, recovery and revoke handling;
-- external/internal journal handling supported by EXT4;
-- DAX paths where supported by the target kernel/device;
-- normal buffered, direct and mapped I/O;
-- lazy inode-table initialisation;
-- sysfs control and reporting;
-- block-validity checking.
+- corruption/range validation.
 
-Feature code is removed only when it is not part of production EXT4 functionality, such as KUnit source or old cross-filesystem compatibility routing.
-
-## Important source boundaries
-
-Large feature engines remain separate because they are genuine independent EXT4 responsibilities.
-
-Examples include:
-
-- `extents.c` and `extents_status.c`;
-- `mballoc.c`;
-- `fast_commit.c`;
-- `inline.c`;
-- `resize.c`;
-- `mmp.c`;
-- `orphan.c`;
-- `fsmap.c`;
-- `page-io.c` and `readpage.c`;
-- `crypto.c`;
-- `verity.c`;
-- the six embedded JBD2 implementation units.
-
-Tiny organisational units are folded into their owning subsystem:
-
-- bitmap helpers -> `balloc.c`;
-- directory hash helpers -> `dir.c`;
-- fsync -> `file.c`;
-- symlink inode operations -> `inode.c`;
-- ACL and user/trusted/security/Hurd xattr handlers -> `xattr.c`;
-- mbcache -> `xattr.c`;
-- ACL and mbcache declarations -> `xattr.h`.
+Linux integration with fscrypt, verity, quotas, page cache, bios, workqueues and
+VFS objects remains adapter work.
 
 ## JBD2
 
-JBD2 is part of the EXT4 implementation in this project.
+EXT4 uses JBD2, whose on-disk structures are big-endian while EXT filesystem
+metadata is little-endian.
 
-The tree retains the substantial transaction, commit, checkpoint, recovery, revoke and journal-core files, but Kbuild links those objects directly into:
+The project source responsibilities are deliberately split into:
 
-```text
-ext4.ko
-```
+- `journal_durability.c` — project-authored checkpoint/commit/recovery/revoke
+  durability implementation;
+- `journal_core.c` — journal object/ring integration, still migration source;
+- `journal_transactions.c` — handle/credit/transaction-state integration,
+  still migration source.
 
-There is no separately deployed `jbd2.ko` from Filesystem Support.
+Only complete committed transactions are replayable. Journal geometry,
+descriptor/tag layouts, revoke width, checksums and sequence/ring state must be
+validated before replay.
 
-The embedded JBD2 module entry/exit surface is removed and its lifetime is driven from EXT4's single module lifecycle.
+## Fast commit
 
-## Metadata cache
+FAST_COMMIT is not a substitute for the full JBD2 transaction engine.
 
-The metadata block cache used by EXT4 xattrs is merged into the xattr subsystem and linked directly into `ext4.ko`.
+The fast-commit log represents a bounded set of metadata deltas and must fall
+back to a normal full transaction whenever an operation cannot be represented
+safely. Replay must reconstruct idempotent resulting state and must not depend
+on undurable data.
 
-It is not a helper application and not a separate support module.
+## Checksums and fail-closed validation
 
-## Production-only shaping
+EXT4 metadata checksum coverage is structure-specific; there is no single
+generic "checksum this block" rule.
 
-The EXT4 production tree deliberately excludes:
+Depending on enabled features, validation includes checksums for structures such
+as:
 
-- upstream Kconfig presentation text;
-- KUnit configuration;
-- inode KUnit test source;
-- mballoc KUnit test source;
-- EXT2 registration and compatibility-routing code;
-- EXT3 registration and compatibility-routing code;
-- compatibility-only EXT2/EXT3 support masks.
+- superblock;
+- group descriptors;
+- block/cluster and inode bitmaps;
+- inodes;
+- extent blocks;
+- directory leaves and HTree nodes;
+- xattr blocks;
+- MMP state.
 
-Those items do not implement an EXT4 filesystem feature.
+Unknown incompatibility features fail mounting. Unknown read-only-compatible
+features prohibit writable mounting.
 
+Contradictory geometry, invalid tree depth/order, out-of-range extents,
+impossible allocation state, malformed journal state and unsupported format
+combinations fail closed.
 
-## Source-rewrite policy
+## Rewrite and provenance rule
 
-EXT4 production source must be an Infiltrator implementation of the EXT4
-on-disk and VFS contracts.  Linux and other mature implementations may be used
-to learn observable behaviour and edge cases, but their implementation source
-must not be copied, transformed or regenerated into the active tree.
+EXT4 production source must not be refreshed from or mechanically reshaped from
+Linux.
 
-The previous pinned-Linux import/shaping path has been retired.  In particular,
-there is no longer a supported workflow that copies `fs/ext4`, JBD2 or
-mbcache into this repository and edits it into the one-module layout.
+External implementations may be studied for behaviour, compatibility and test
+evidence. A migration unit becomes project-authored only when its
+implementation body has actually been independently replaced and qualified.
 
-The current `linux/` directory still contains migration-era source from that
-earlier approach.  Existing third-party provenance must remain attached to such
-files until their implementation has actually been replaced.  Each converted
-unit must instead be designed around this project's own module boundaries,
-failure rules and tests.
+Renaming, merging, recommenting or moving inherited implementation does not
+change provenance.
 
-The completion condition is behavioural rather than textual: the project must
-retain valid EXT4 semantics and media compatibility while no active
-implementation unit depends on copied external source expression.
+The authoritative classification is
+[`EXT_SOURCE_PROVENANCE.md`](EXT_SOURCE_PROVENANCE.md).
 
-The architectural target remains:
+## Qualification
 
-- exactly one `ext4.ko`;
-- EXT4 registration only;
-- JBD2 functionality owned inside the EXT4 module boundary;
-- no separate project JBD2 or metadata-cache module;
-- no EXT2/EXT3 compatibility-routing implementation.
+EXT4 is not complete because `ext4.ko` compiles.
 
-## Development rule
+Qualification must cover the supported combinations of:
 
-Do not simplify EXT4 by deleting legitimate EXT4 features.
+- independently manufactured media;
+- normal read/write workloads;
+- extent and indirect mapping;
+- allocation and exhaustion;
+- metadata checksum verification;
+- journal and fast-commit recovery;
+- directory/HTree mutation;
+- xattr/ACL/security metadata;
+- inline data;
+- orphan handling;
+- resize;
+- mount/unmount and unclean recovery;
+- malformed-media rejection;
+- independent checker/implementation verification.
 
-The objective is a filesystem-specific implementation, not a minimal implementation.
+Feature recognition is not the same thing as feature qualification.
 
-Refactoring is acceptable when it reduces duplication or improves correctness while retaining all valid EXT4 feature combinations and the single-`ext4.ko` deployment model.
+The authoritative architecture and source-ownership contracts are
+[`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md),
+[`EXT_SOURCE_PROVENANCE.md`](EXT_SOURCE_PROVENANCE.md), and
+[`../native/filesystems/ext4/DESIGN.md`](../native/filesystems/ext4/DESIGN.md).
