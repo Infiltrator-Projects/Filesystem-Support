@@ -34,6 +34,9 @@ qualified.
 - [F2FS](../native/filesystems/f2fs/DESIGN.md) — upstream Linux F2FS
   retained as reference evidence; the target is one canonical flash-filesystem
   engine with thin host adapters.
+- [FAT12/16/32](../native/filesystems/fat/DESIGN.md) — upstream Linux
+  FAT/MS-DOS/VFAT implementation retained as reference evidence; the target is
+  one canonical FAT-family engine with explicit namespace policy.
 - [SCO BFS](../native/filesystems/bfs/DESIGN.md) — upstream Linux BFS retained
   only as reference evidence; the target is one canonical Boot File System
   engine with thin Linux/Windows adapters.
