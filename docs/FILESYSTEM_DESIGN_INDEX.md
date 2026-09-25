@@ -120,6 +120,9 @@ qualified.
 
 ## Structurally reviewed tools-only / future-native entries
 
+- [fscrypt](../native/filesystems/fscrypt/DESIGN.md) — management/policy tooling
+  for encryption implemented by filesystems such as EXT4, F2FS and UBIFS; it
+  does not own an independent filesystem engine.
 - [CP/M](../native/filesystems/cpm/DESIGN.md) — currently exposed through
   cpmtools only, but it is a real disk-filesystem family and therefore reserves
   a future canonical core plus thin native platform adapters.
