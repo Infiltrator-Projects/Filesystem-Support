@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs cryfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -188,6 +188,12 @@ jobs:
           test -s native/filesystems/cramfs/reference/linux/inode.c
           test -s native/filesystems/cramfs/reference/linux/uncompress.c
           test -s native/filesystems/cramfs/DESIGN.md
+
+          # CryFS is a userspace encrypted overlay provider, not a local
+          # disk-format kernel filesystem.
+          test ! -e native/filesystems/cryfs/.gitkeep
+          test ! -e native/filesystems/cryfs/kernel
+          test -s native/filesystems/cryfs/DESIGN.md
 
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
