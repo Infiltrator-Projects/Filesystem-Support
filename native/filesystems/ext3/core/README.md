@@ -1,11 +1,27 @@
 # EXT3 canonical core
 
-EXT3 is in active rewrite state. The current working implementation still
-resides under ../linux/ because its filesystem semantics and Linux VFS glue
-have not yet been safely separated.
+This directory is the canonical host-neutral EXT3 filesystem layer.
 
-Project-authored, host-neutral EXT3 format and filesystem semantics move into
-this directory subsystem by subsystem as they are rewritten and qualified.
+EXT3 remains in active rewrite state, but the core is no longer merely a future
+placeholder. The following project-authored files are active:
 
-Do not copy or mechanically transform the migration-era Linux implementation
-into this directory.
+- `ext3_core.c`
+- `ext3_core.h`
+
+They own the EXT3 format/feature and other host-neutral semantics that have
+already crossed the implementation-ownership boundary.
+
+Additional filesystem and JBD semantics move here subsystem by subsystem only
+after their implementation is independently rewritten and qualified. The active
+Linux adapter under `../linux/` still contains a mixture of project-authored
+responsibility units and materially inherited migration implementation; the
+authoritative classification is maintained in
+`../../../docs/EXT_SOURCE_PROVENANCE.md`.
+
+Do not copy, mechanically transform, rename or recomment migration-era Linux
+implementation into this directory. A filesystem rule belongs here because it
+is host-neutral EXT3 semantics, not because a Linux file was moved.
+
+Linux VFS/module integration remains in `../linux/`. A future Windows IFS/WDK
+adapter belongs in `../windows/` and must consume this same canonical core
+rather than implement EXT3 again.
