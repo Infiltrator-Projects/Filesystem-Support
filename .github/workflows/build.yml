@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -67,6 +67,13 @@ jobs:
           test ! -e native/filesystems/9p/kernel
           test -s native/filesystems/9p/reference/linux/v9fs.c
           test -s native/filesystems/9p/reference/linux/vfs_inode.c
+
+          # ADFS is a conventional local filesystem, but it has not crossed
+          # the project-authorship boundary. Keep copied Linux source solely
+          # under reference/linux until an independent core/adapter rewrite.
+          test ! -e native/filesystems/adfs/kernel
+          test -s native/filesystems/adfs/reference/linux/adfs.h
+          test -s native/filesystems/adfs/reference/linux/map.c
 
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
@@ -96,6 +103,8 @@ jobs:
             ! grep -Eq 'native/filesystems/(ext2|ext3|ext4|ofs|ffs|sfs|sfs2|pfs3)' "$refresh"
             grep -Fq 'copy_tree fs/9p native/filesystems/9p/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/9p native/filesystems/9p/kernel' "$refresh"
+            grep -Fq 'copy_tree fs/adfs native/filesystems/adfs/reference/linux' "$refresh"
+            ! grep -Fq 'copy_tree fs/adfs native/filesystems/adfs/kernel' "$refresh"
           fi
 
       - name: Verify rewritten EXT2 file layer provenance

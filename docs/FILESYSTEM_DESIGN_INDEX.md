@@ -10,6 +10,9 @@ qualified.
 - [9P](../native/filesystems/9p/DESIGN.md) — Linux V9FS retained only as
   reference evidence; the target Filesystem Support implementation is a
   canonical 9P core behind the shared userspace-service boundary.
+- [ADFS](../native/filesystems/adfs/DESIGN.md) — Linux ADFS retained only as
+  reference evidence; the target is one canonical ADFS engine with thin native
+  Linux and Windows adapters.
 
 ## Active canonical/rewrite filesystems
 
