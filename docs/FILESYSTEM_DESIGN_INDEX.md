@@ -20,6 +20,10 @@ qualified.
   userspace/FUSE automounter. There is no native disk-format core or kernel
   module to invent; any future first-party implementation belongs behind the
   shared userspace-service boundary.
+- [ArchiveMount](../native/filesystems/archivemount/DESIGN.md) —
+  catalogue-managed userspace archive namespace. Any future first-party
+  implementation belongs at the userspace-service/archive-adapter boundary,
+  not in a kernel filesystem.
 
 ## Structurally reviewed external-provider entries
 

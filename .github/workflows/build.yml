@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -94,6 +94,13 @@ jobs:
           test ! -e native/filesystems/apfs-fuse/kernel
           test ! -e native/filesystems/apfs-fuse/core
           test -s native/filesystems/apfs-fuse/DESIGN.md
+
+          # ArchiveMount is a userspace archive namespace provider. Archive
+          # codecs and libarchive semantics do not become a kernel filesystem.
+          test ! -e native/filesystems/archivemount/.gitkeep
+          test ! -e native/filesystems/archivemount/kernel
+          test ! -e native/filesystems/archivemount/core
+          test -s native/filesystems/archivemount/DESIGN.md
 
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
