@@ -19,6 +19,9 @@ qualified.
   filesystem; upstream Linux OCFS2, O2CB and DLM source is reference evidence
   while the target is one canonical OCFS2 engine with thin host and cluster
   coordination adapters.
+- [OMFS](../native/filesystems/omfs/DESIGN.md) — upstream Linux OMFS is
+  preserved as reference evidence; the target is one canonical OMFS engine with
+  thin Linux/Windows adapters.
 
 
 - [9P](../native/filesystems/9p/DESIGN.md) — Linux V9FS retained only as

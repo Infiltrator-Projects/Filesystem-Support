@@ -89,7 +89,9 @@ jobs:
           copy_tree fs/qnx6 native/filesystems/qnx6/kernel
           copy_tree fs/sysv native/filesystems/sysv/kernel
           copy_tree fs/ufs native/filesystems/ufs/kernel
-          copy_tree fs/omfs native/filesystems/omfs/kernel
+          # OMFS remains imported reference evidence until its canonical
+          # local-filesystem engine and thin OS adapters are independently written.
+          copy_tree fs/omfs native/filesystems/omfs/reference/linux
           copy_tree fs/fat native/filesystems/fat/reference/linux
           copy_tree fs/exfat native/filesystems/exfat/reference/linux
           # NTFS3 is a Linux provider/reference for the single canonical NTFS
