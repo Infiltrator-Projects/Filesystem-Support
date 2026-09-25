@@ -1,227 +1,303 @@
-# EXT3 Native Driver
+# EXT3 Native Filesystem
 
 ## Purpose
 
-The EXT3 implementation is a standalone Linux VFS filesystem driver owned by Filesystem Support.
+Filesystem Support owns one EXT3 implementation.
 
-Its deployment target is exactly one loadable kernel module:
+EXT3 extends the EXT2 block-group family with JBD transactional durability and
+recovery. The journal is part of EXT3 correctness; it is not an optional wrapper
+around EXT2 and EXT3 is not implemented by registering EXT4 under another name.
+
+Linux deployment produces exactly one independently deployable module:
 
 ```text
 ext3.ko
 ```
 
-EXT3 is not implemented by registering EXT4 under another name. Its semantic starting point is the last standalone Linux EXT3 driver, Linux v4.2, because Linux removed the separate EXT3 driver after that release.
+The journal implementation is embedded in that module. Filesystem Support does
+not deploy a separate `jbd.ko` or metadata-cache helper module.
 
-The historical JBD journal engine and metadata cache are embedded into `ext3.ko`. No `jbd.ko` or `mbcache.ko` is produced.
+## Permanent responsibility layout
 
-## Source layout
-
-The architectural rule is **one EXT3 filesystem implementation**. The
-portable filesystem implementation belongs in `core/`; `linux/` and
-`windows/` are OS wrappers around that same core, not separate EXT3
-implementations. Most filesystem logic should therefore converge into
-`core/`. Only host-specific VFS/KO or IFS/WDK integration remains in the
-wrappers.
-
-The current amount of code under `linux/` reflects migration history, not the
-target split. Moving a file into `linux/` does not classify its filesystem
-semantics as Linux-owned; those semantics must still be extracted or rewritten
-into `core/` as the migration proceeds.
-
-
-The Linux implementation and remaining migration-era source now live at:
+The active production tree is responsibility-based:
 
 ```text
-native/filesystems/ext3/linux/
+native/filesystems/ext3/
+  DESIGN.md
+
+  core/
+    README.md
+    ext3_core.c
+    ext3_core.h
+
+  linux/
+    Makefile
+    core_bridge.c
+    allocation.c
+    directory_io.c
+    file_io.c
+    inode_adapter.c
+    namespace_mutation.c
+    extended_metadata.c
+    lifecycle.c
+    journal_durability.c
+    journal_core.c
+    journal_transactions.c
+    linux_adapter.h
+    journal_internal.h
+
+  windows/
+    README.md
 ```
 
-The current Linux migration tree contains 18 files:
+The historical Linux migration boundaries such as `balloc.c`, `ialloc.c`,
+`dir.c`, `file.c`, `inode.c`, `namei.c`, `resize.c`, `super.c`,
+`xattr.c`, `jbd_checkpoint.c`, `jbd_commit.c`, `jbd_journal.c`,
+`jbd_recovery.c`, `jbd_revoke.c` and `jbd_transaction.c` are retired as
+active file boundaries.
+
+Those names may remain useful when studying historical implementations, but
+they are not the Filesystem Support architecture and must not be restored merely
+to resemble Linux source organization.
+
+## Canonical core
+
+`core/` is the canonical EXT3 filesystem layer.
+
+The current project-authored core owns host-neutral rules including:
+
+- EXT3 superblock feature policy and compatibility validation;
+- filesystem geometry and block-group constraints;
+- EXT-family directory-record validation;
+- indirect block-path calculations;
+- EXT3/JBD on-disk format constants and checked decoding that have already been
+  promoted from migration code;
+- corruption/range rejection for the semantics represented in the core.
+
+Additional host-neutral filesystem and journal semantics move into `core/`
+only when their implementation bodies are independently replaced and qualified.
+
+The canonical core must not depend on Linux VFS objects, Windows IFS objects or
+GUI/package-manager code.
+
+## Linux adapter responsibilities
+
+The Linux directory is cut by project responsibility rather than by the
+historical EXT3/JBD translation-unit layout.
+
+### `core_bridge.c`
+
+Binds the canonical EXT3 core into `ext3.ko`. It must not contain a parallel
+set of format rules.
+
+### `allocation.c`
+
+Owns the project-authored Linux allocation and online-growth adapter: block and
+inode allocation integration, group-accounting interaction and Linux-specific
+allocation policy. Host-neutral geometry remains canonical-core territory.
+
+### `directory_io.c`
+
+Owns the project-authored Linux directory-I/O adapter and the VFS mechanics that
+expose EXT3 directory behaviour.
+
+### `file_io.c`
+
+Owns the project-authored Linux regular-file adapter, including VFS file
+operations and host I/O integration.
+
+### `inode_adapter.c`
+
+Owns Linux inode/page-cache integration. This unit remains migration
+implementation until its body is independently replaced and promoted in the
+provenance ledger.
+
+### `namespace_mutation.c`
+
+Owns Linux namespace mutation mechanics such as create/link/unlink/rename.
+This unit remains migration implementation until independently replaced.
+
+### `extended_metadata.c`
+
+Owns Linux xattr/ACL/security metadata integration. This unit remains migration
+implementation until independently replaced.
+
+### `lifecycle.c`
+
+Owns mount, superblock publication, module/VFS lifetime and Linux-only
+filesystem lifecycle. This unit remains migration implementation until
+independently replaced.
+
+### `journal_durability.c`
+
+Owns the project-authored checkpoint, commit, recovery and revoke implementation
+for the embedded journal durability path.
+
+### `journal_core.c`
+
+Owns journal object/ring lifecycle and Linux integration that has not yet crossed
+the project-authorship boundary.
+
+### `journal_transactions.c`
+
+Owns journal handle/transaction state-machine integration that has not yet
+crossed the project-authorship boundary.
+
+### `linux_adapter.h` and `journal_internal.h`
+
+Own the Linux-private EXT3 and embedded-journal adapter contracts. They remain
+migration implementation until their inherited bodies are independently
+replaced.
+
+## Current provenance state
+
+The authoritative source-ownership ledger is
+[`EXT_SOURCE_PROVENANCE.md`](EXT_SOURCE_PROVENANCE.md).
+
+Currently project-authored EXT3 units are:
+
+- `core/ext3_core.c`
+- `core/ext3_core.h`
+- `linux/core_bridge.c`
+- `linux/allocation.c`
+- `linux/directory_io.c`
+- `linux/file_io.c`
+- `linux/journal_durability.c`
+
+The following responsibility-named Linux units remain materially inherited
+migration implementation:
+
+- `linux/inode_adapter.c`
+- `linux/namespace_mutation.c`
+- `linux/lifecycle.c`
+- `linux/extended_metadata.c`
+- `linux/journal_core.c`
+- `linux/journal_transactions.c`
+- `linux/linux_adapter.h`
+- `linux/journal_internal.h`
+
+A responsibility recut, rename or comment rewrite does not change provenance.
+Those units are promoted only after the implementation body itself is replaced
+and qualified.
+
+## Linux module boundary
+
+The Linux build remains one module:
 
 ```text
-Makefile
-ext3.h
-journal.h
+obj-m += ext3.o
 
-balloc.c
-dir.c
-file.c
-ialloc.c
-inode.c
-namei.c
-resize.c
-super.c
-xattr.c
-
-jbd_checkpoint.c
-jbd_commit.c
-jbd_journal.c
-jbd_recovery.c
-jbd_revoke.c
-jbd_transaction.c
+ext3-y := core_bridge.o allocation.o directory_io.o file_io.o inode_adapter.o \
+          namespace_mutation.o lifecycle.o extended_metadata.o \
+          journal_durability.o journal_core.o journal_transactions.o
 ```
 
-This is deliberately larger than EXT2 because journaling is a real EXT3 subsystem and its transaction, commit, checkpoint, recovery and revoke engines are substantial enough to remain separate.
+There is one EXT3 filesystem module, `ext3.ko`.
 
-`linux/` is the active adapter/migration location, not the eventual home of portable EXT3 semantics. As subsystems are independently rewritten, format logic moves into `core/`; a future Windows adapter belongs under `windows/`.
+The embedded journal and metadata support must not escape into required helper
+modules.
 
-### Shared core progress
+## Windows boundary
 
-The first extracted canonical subsystem is feature-compatibility policy.
-`core/ext3_core.c` owns the supported incompatible and read-only-compatible
-feature masks. The Linux mount/remount paths call that shared core; they no
-longer maintain an independent copy of those format rules.
+`windows/` is reserved for the EXT3 IFS/WDK adapter.
 
-This is intentionally a small first slice. Journal, inode, allocation,
-directory and mutation semantics remain migration work until they can be moved
-without weakening the working driver.
+No project-owned Windows EXT3 driver is claimed yet. When implemented, it must
+consume the same canonical EXT3 core and must not become a second EXT3
+filesystem implementation.
+
+Reusable Windows IFS mechanics may live in
+`native/platform/windows/` only when they are genuinely filesystem-neutral.
 
 ## Filesystem identity
 
-EXT3 registers only:
+EXT3 registers only EXT3.
+
+A valid EXT3 mount requires the journal semantics expected by the supported
+format/state. Unsupported EXT4 incompatibility features fail closed rather than
+being silently accepted as EXT3.
+
+EXT2, EXT3 and EXT4 remain independently deployable and independently owned:
 
 ```text
-ext3
+native/filesystems/ext2/ -> ext2.ko
+native/filesystems/ext3/ -> ext3.ko
+native/filesystems/ext4/ -> ext4.ko
 ```
 
-A valid EXT3 mount requires a journal or an explicit request to create one. The driver does not register EXT2 or EXT4 aliases.
+Shared ancestry is not permission to collapse them into one driver.
 
-Unsupported EXT4-only incompatibility features must fail closed rather than silently being accepted as EXT3.
+## Journal model
 
-## Preserved EXT3 feature set
+The EXT3/JBD journal uses magic `0xC03B3998` and big-endian journal fields,
+while the EXT filesystem metadata remains little-endian.
 
-The driver deliberately retains the complete feature set of the last standalone EXT3 implementation, including:
+The journal contains descriptor, data/metadata image, revoke, commit and
+superblock records. Recovery is bounded by transaction sequence and valid
+circular-log geometry.
 
-- internal journals;
-- external journal devices;
-- journal recovery after an unclean shutdown;
+Only committed transactions are replayable.
+
+The recovery model is:
+
+1. validate journal geometry and scan transaction boundaries;
+2. construct revoke state;
+3. replay committed, non-revoked block images in transaction order.
+
+Malformed headers/tags, impossible block numbers, unsafe ring geometry and
+unsupported journal features must fail closed before replay writes occur.
+
+## Data modes and ordering
+
+The implementation preserves the traditional EXT3 data-mode contracts where
+supported:
+
 - `data=journal`;
 - `data=ordered`;
-- `data=writeback`;
-- configurable commit behaviour and barriers supported by the EXT3/JBD implementation;
-- indexed directories and directory hashing;
-- file-type directory entries;
-- sparse superblocks;
-- large files;
-- meta block groups where supported by EXT3;
-- online resize support;
-- reserved resize inode handling;
-- user extended attributes;
-- trusted extended attributes;
-- security-label extended attributes;
-- POSIX ACLs;
-- quotas and journalled quota handling when the target kernel supplies quota support;
-- orphan tracking and replay-safe truncate semantics;
-- normal EXT3 inode, block, directory, namespace, symlink and file operations.
+- `data=writeback`.
 
-The EXT3-specific xattr, ACL and security paths are built into the module rather than delegated to external helper modules.
+Journal transaction, checkpoint and home-write ordering must preserve the
+selected mode across writeback, truncate, rename, unlink and fsync.
 
-## Source responsibilities
+## Orphan and resize semantics
 
-### `super.c`
+EXT3 recovery also includes the filesystem orphan-chain mechanism used for
+interrupted unlink/truncate handling. Orphan inode numbers and links must be
+range checked and loops rejected.
 
-Owns EXT3 registration, mount and remount handling, superblock validation, journal discovery/loading/creation, recovery-state management, freeze/unfreeze, sync, quota integration, module lifecycle and the small EXT3-to-JBD adapter.
+Online growth and allocation remain block-group based. Geometry must be checked
+before new group metadata is published.
 
-### `journal.h`
+## Rewrite rule
 
-Owns the private JBD types and interfaces used inside `ext3.ko`. It is private implementation material, not a module ABI.
+The active EXT3 implementation must not be regenerated from Linux or another
+filesystem implementation.
 
-### `jbd_*.c`
+External implementations may be studied as behavioural, interoperability and
+test evidence. Production source crosses the project-authorship boundary only
+when the implementation body is independently replaced for this repository.
 
-These files implement the embedded EXT3 journal engine:
+The retired upstream-style filenames must not be recreated as a source-shaping
+step.
 
-- transaction lifecycle;
-- journal commit;
-- checkpointing;
-- recovery/replay;
-- revoke handling;
-- journal core and cache lifetime.
+## Qualification
 
-Their symbols are not exported as a separate kernel service and they do not contain their own module entry/exit points.
+EXT3 is not complete merely because `ext3.ko` builds.
 
-### `balloc.c`
+Qualification must cover, where applicable:
 
-Owns block allocation, block-group accounting, reservation windows and bitmap helpers.
+- independently manufactured EXT3 media;
+- supported journal states and replay;
+- malformed filesystem and journal structures;
+- block/inode allocation and exhaustion;
+- directory and namespace mutation;
+- file I/O and fsync ordering;
+- xattrs, ACLs and security metadata;
+- online growth;
+- unclean shutdown/orphan/recovery behaviour;
+- repeated mount/unmount;
+- independent checker or implementation verification.
 
-### `ialloc.c`
-
-Owns inode allocation, inode-group selection and inode accounting.
-
-### `dir.c`
-
-Owns directory parsing, iteration, indexed-directory hashing and directory-record operations.
-
-### `namei.c`
-
-Owns VFS namespace mutation such as create, link, unlink, rename, mkdir, rmdir and mknod.
-
-### `inode.c`
-
-Owns inode mapping, truncate, orphan-sensitive inode updates, address-space operations and symlink inode operations.
-
-### `file.c`
-
-Owns regular-file operations, fsync and EXT3 file ioctls.
-
-### `resize.c`
-
-Owns EXT3 online resize and resize-inode operations.
-
-### `xattr.c`
-
-Owns EXT3 extended attributes, POSIX ACL storage, security labels and the private metadata-block cache used for xattr block sharing.
-
-### `ext3.h`
-
-Owns the shared EXT3 on-disk and in-memory declarations plus the small private declarations formerly split across ACL, xattr and namei headers.
-
-## One-module rule
-
-The module build is intentionally:
-
-```text
-all EXT3 implementation code
-        +
-embedded JBD
-        +
-embedded xattr metadata cache
-        ->
-ext3.ko
-```
-
-There is one `module_init()` and one `module_exit()` in the complete tree.
-
-
-## Source-rewrite policy
-
-EXT3 is an Infiltrator filesystem implementation, not a repackaged Linux EXT3
-driver.  The historical EXT3 behaviour and on-disk format may be studied from
-specifications, test media and existing implementations, but production source
-must be written for this repository's independent one-module architecture.
-
-The former workflow that imported Linux v4.2 `fs/ext3`, JBD and mbcache and
-then shaped those sources into `ext3.ko` has been retired.  No replacement
-workflow may copy or transform an external implementation into the active
-source tree.
-
-The current `linux/` directory still contains migration-era implementation that
-predates this rule.  Those units must retain their existing legal provenance
-until each implementation is genuinely replaced.  The migration is complete
-only when the active EXT3 tree is project-authored implementation throughout,
-with behaviour validated against EXT3 media and compatibility tests rather than
-against source-text identity.
-
-The target architecture remains unchanged:
-
-- one `ext3.ko`;
-- EXT3 registration only;
-- journal semantics owned inside the EXT3 module;
-- no separately deployed JBD or metadata-cache module;
-- no EXT4 compatibility registration used as an EXT3 implementation.
-
-## Development rule
-
-EXT3 must evolve independently.
-
-Common code may eventually be extracted only after EXT2, EXT3 and EXT4 have independently proven the same mechanism and sharing does not create another required helper `.ko`.
-
-Correct filesystem semantics take priority over matching upstream Linux file organisation.
+The authoritative architecture and provenance contracts are
+[`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md),
+[`EXT_SOURCE_PROVENANCE.md`](EXT_SOURCE_PROVENANCE.md), and
+[`../native/filesystems/ext3/DESIGN.md`](../native/filesystems/ext3/DESIGN.md).
