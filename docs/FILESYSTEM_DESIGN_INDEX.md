@@ -54,6 +54,9 @@ qualified.
 - [ConvmvFS](../native/filesystems/convmvfs/DESIGN.md) — userspace
   filename-charset translation overlay. Underlying filesystem semantics remain
   with the filesystem being mirrored.
+- [disorderfs](../native/filesystems/disorderfs/DESIGN.md) — userspace
+  testing overlay that intentionally perturbs metadata/order to expose
+  reproducibility assumptions; it owns no disk-format semantics.
 - [CryFS](../native/filesystems/cryfs/DESIGN.md) — encrypted
   userspace overlay. Any future first-party implementation belongs in a
   portable encrypted-overlay core plus userspace provider, not a kernel
