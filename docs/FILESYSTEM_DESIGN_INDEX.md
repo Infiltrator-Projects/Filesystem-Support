@@ -61,6 +61,9 @@ qualified.
 - [CurlFtpFS](../native/filesystems/curlftpfs/DESIGN.md) — FTP
   remote-filesystem provider over userspace/FUSE. FTP protocol logic belongs
   behind the shared userspace-service boundary.
+- [davfs2](../native/filesystems/davfs2/DESIGN.md) — WebDAV remote
+  filesystem provider. WebDAV/HTTP semantics belong behind the shared
+  userspace-service boundary, not in a kernel filesystem.
 
 ## Structurally reviewed external-provider entries
 
