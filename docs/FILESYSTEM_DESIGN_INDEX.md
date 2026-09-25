@@ -96,6 +96,11 @@ qualified.
 
 ## Structurally reviewed external-provider entries
 
+- [fusefat](../native/filesystems/fusefat/DESIGN.md) — external FUSE
+  provider for FAT12/16/32 and exFAT. Future project userspace paths must consume
+  the canonical `fat/` or `exfat/` core rather than duplicate either engine.
+
+
 - [fuse2fs](../native/filesystems/fuse2fs/DESIGN.md) — external userspace
   provider for EXT2/EXT3/EXT4. It must not become a fourth EXT implementation;
   future project userspace adapters consume each filesystem's own canonical core.
