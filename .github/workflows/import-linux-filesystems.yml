@@ -88,7 +88,8 @@ jobs:
           copy_tree fs/exfat native/filesystems/exfat/reference/linux
           copy_tree fs/ntfs3 native/filesystems/ntfs3/kernel
           copy_tree fs/hfs native/filesystems/hfs/reference/linux
-          # HFS+ remains reference/import state until its canonical engine is independently rewritten.\n          copy_tree fs/hfsplus native/filesystems/hfsplus/reference/linux
+          # HFS+ remains reference/import state until its canonical engine is independently rewritten.
+          copy_tree fs/hfsplus native/filesystems/hfsplus/reference/linux
           copy_tree fs/isofs native/filesystems/iso9660/kernel
           copy_tree fs/udf native/filesystems/udf/kernel
           copy_tree fs/fuse native/filesystems/virtiofs/kernel
