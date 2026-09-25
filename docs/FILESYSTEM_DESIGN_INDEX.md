@@ -171,6 +171,9 @@ qualified.
 - [CephFS via FUSE](../native/filesystems/ceph-fuse/DESIGN.md) —
   external userspace CephFS client provider. CephFS semantics belong to one
   canonical CephFS implementation, not a FUSE-specific fork.
+- [Linux NTFS3 provider](../native/filesystems/ntfs3/DESIGN.md) — copied Linux
+  NTFS3 source is retained only under `reference/linux/`; NTFS semantics belong
+  to the single canonical `ntfs/` ownership point, not a second NTFS3 engine.
 
 ## Structurally reviewed storage/container entries
 

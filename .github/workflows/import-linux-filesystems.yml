@@ -89,7 +89,10 @@ jobs:
           copy_tree fs/omfs native/filesystems/omfs/kernel
           copy_tree fs/fat native/filesystems/fat/reference/linux
           copy_tree fs/exfat native/filesystems/exfat/reference/linux
-          copy_tree fs/ntfs3 native/filesystems/ntfs3/kernel
+          # NTFS3 is a Linux provider/reference for the single canonical NTFS
+          # ownership point under native/filesystems/ntfs. Keep copied Linux
+          # source visibly separated from future project-authored NTFS code.
+          copy_tree fs/ntfs3 native/filesystems/ntfs3/reference/linux
           copy_tree fs/hfs native/filesystems/hfs/reference/linux
           # HFS+ remains reference/import state until its canonical engine is independently rewritten.
           copy_tree fs/hfsplus native/filesystems/hfsplus/reference/linux
