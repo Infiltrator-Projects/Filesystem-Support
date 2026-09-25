@@ -60,6 +60,11 @@ qualified.
 
 ## Structurally reviewed userspace-only entries
 
+- [GVfs FUSE bridge](../native/filesystems/gvfs-fuse/DESIGN.md) — desktop
+  userspace bridge exposing GVfs mounts to non-GIO applications; underlying
+  protocol/filesystem semantics remain with their real providers.
+
+
 - [guestmount](../native/filesystems/guestmount/DESIGN.md) — userspace
   virtual-machine image/container access layer. It must dispatch contained
   filesystems to their owning canonical implementations.
