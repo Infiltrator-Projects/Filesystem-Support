@@ -10,9 +10,9 @@
  */
 #if defined(__KERNEL__)
 #include <linux/types.h>
-typedef ifs_ffs_disk_be16 ifs_ffs_disk_be16;
-typedef ifs_ffs_disk_be32 ifs_ffs_disk_be32;
-typedef ifs_ffs_disk_u8 ifs_ffs_disk_u8;
+typedef __be16 ifs_ffs_disk_be16;
+typedef __be32 ifs_ffs_disk_be32;
+typedef u8 ifs_ffs_disk_u8;
 #elif defined(IFS_FFS_WINDOWS_KERNEL)
 typedef unsigned short ifs_ffs_disk_be16;
 typedef unsigned int ifs_ffs_disk_be32;
