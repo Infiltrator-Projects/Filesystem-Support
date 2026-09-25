@@ -31,6 +31,9 @@ qualified.
 - [Btrfs](../native/filesystems/btrfs/DESIGN.md) — large upstream Linux
   implementation retained as reference evidence only; future project code must
   use one canonical Btrfs engine with thin host adapters.
+- [CramFS](../native/filesystems/cramfs/DESIGN.md) — upstream Linux
+  read-only CramFS retained as reference evidence; the target is one canonical
+  compressed-image filesystem engine with thin native adapters.
 
 ## Structurally reviewed userspace-only entries
 

@@ -59,7 +59,7 @@ jobs:
           copy_tree fs/erofs native/filesystems/erofs/kernel
           copy_tree fs/minix native/filesystems/minix/kernel
           copy_tree fs/romfs native/filesystems/romfs/kernel
-          copy_tree fs/cramfs native/filesystems/cramfs/kernel
+          copy_tree fs/cramfs native/filesystems/cramfs/reference/linux
           copy_tree fs/squashfs native/filesystems/squashfs/kernel
           # Bcachefs is still reference/import state. Keep the Linux tree
           # visibly separate from future canonical project source.

@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -182,6 +182,13 @@ jobs:
           test ! -e native/filesystems/cpm/.gitkeep
           test -s native/filesystems/cpm/DESIGN.md
 
+          # CramFS remains imported Linux reference evidence until a
+          # host-neutral read-only engine and adapters are independently built.
+          test ! -e native/filesystems/cramfs/kernel
+          test -s native/filesystems/cramfs/reference/linux/inode.c
+          test -s native/filesystems/cramfs/reference/linux/uncompress.c
+          test -s native/filesystems/cramfs/DESIGN.md
+
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
           for legacy in \
@@ -218,6 +225,8 @@ jobs:
             ! grep -Fq 'copy_tree fs/befs native/filesystems/befs/kernel' "$refresh"
             grep -Fq 'copy_tree fs/btrfs native/filesystems/btrfs/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/btrfs native/filesystems/btrfs/kernel' "$refresh"
+            grep -Fq 'copy_tree fs/cramfs native/filesystems/cramfs/reference/linux' "$refresh"
+            ! grep -Fq 'copy_tree fs/cramfs native/filesystems/cramfs/kernel' "$refresh"
             grep -Fq 'copy_tree fs/ceph native/filesystems/cephfs/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/ceph native/filesystems/cephfs/kernel' "$refresh"
             grep -Fq 'native/filesystems/cifs/reference/linux/client' "$refresh"
