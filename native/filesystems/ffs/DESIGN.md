@@ -95,6 +95,7 @@ FFS is not journalled. Mutation ordering must ensure that new blocks are initial
 core/
   ffs_core.c/.h
   ffs_primitives.c/.h
+  ffs_disk_layout.h     portable on-disk structures and format constants
 
 linux/
   core_bridge.c
@@ -102,7 +103,6 @@ linux/
   namespace.c
   lifecycle.c
   linux_adapter.h
-  disk_layout.h
 
 windows/
   README.md

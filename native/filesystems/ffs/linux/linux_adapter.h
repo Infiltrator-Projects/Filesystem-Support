@@ -3,7 +3,7 @@
 #endif
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include "disk_layout.h"
+#include "../core/ffs_disk_layout.h"
 #ifndef INFILTRATOR_FFS_LINUX_ADAPTER_H
 #define INFILTRATOR_FFS_LINUX_ADAPTER_H
 
