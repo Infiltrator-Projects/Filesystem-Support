@@ -65,7 +65,7 @@ jobs:
           # visibly separate from future canonical project source.
           copy_tree fs/bcachefs native/filesystems/bcachefs/reference/linux
           copy_tree fs/overlayfs native/filesystems/overlayfs/kernel
-          copy_tree fs/ecryptfs native/filesystems/ecryptfs/kernel
+          copy_tree fs/ecryptfs native/filesystems/ecryptfs/reference/linux
           copy_tree fs/jffs2 native/filesystems/jffs2/kernel
           copy_tree fs/ubifs native/filesystems/ubifs/kernel
           copy_tree fs/zonefs native/filesystems/zonefs/kernel

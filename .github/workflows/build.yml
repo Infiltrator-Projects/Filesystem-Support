@@ -57,7 +57,7 @@ jobs:
           # design/ownership document at its filesystem root. Reference-state
           # filesystems use that document to make clear that imported source is
           # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs cryfs curlftpfs davfs2 disorderfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs cryfs curlftpfs davfs2 disorderfs ecryptfs ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             test -s "native/filesystems/$fs/DESIGN.md"
           done
 
@@ -214,6 +214,13 @@ jobs:
           test ! -e native/filesystems/disorderfs/core
           test -s native/filesystems/disorderfs/DESIGN.md
 
+          # eCryptfs is a stacked cryptographic filesystem. Keep the Linux
+          # implementation as reference until portable semantics are rewritten.
+          test ! -e native/filesystems/ecryptfs/kernel
+          test -s native/filesystems/ecryptfs/reference/linux/crypto.c
+          test -s native/filesystems/ecryptfs/reference/linux/keystore.c
+          test -s native/filesystems/ecryptfs/DESIGN.md
+
           # Active rewrite trees use Filesystem Support responsibility
           # boundaries, not the imported Linux/AFFS/ASFS file layout.
           for legacy in \
@@ -252,6 +259,8 @@ jobs:
             ! grep -Fq 'copy_tree fs/btrfs native/filesystems/btrfs/kernel' "$refresh"
             grep -Fq 'copy_tree fs/cramfs native/filesystems/cramfs/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/cramfs native/filesystems/cramfs/kernel' "$refresh"
+            grep -Fq 'copy_tree fs/ecryptfs native/filesystems/ecryptfs/reference/linux' "$refresh"
+            ! grep -Fq 'copy_tree fs/ecryptfs native/filesystems/ecryptfs/kernel' "$refresh"
             grep -Fq 'copy_tree fs/ceph native/filesystems/cephfs/reference/linux' "$refresh"
             ! grep -Fq 'copy_tree fs/ceph native/filesystems/cephfs/kernel' "$refresh"
             grep -Fq 'native/filesystems/cifs/reference/linux/client' "$refresh"
