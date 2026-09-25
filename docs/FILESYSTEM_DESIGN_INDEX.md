@@ -60,6 +60,11 @@ qualified.
 
 ## Structurally reviewed userspace-only entries
 
+- [go-mtpfs](../native/filesystems/go-mtpfs/DESIGN.md) — userspace MTP
+  device namespace provider; MTP transport/device semantics belong behind the
+  shared userspace-service boundary.
+
+
 - [GlusterFS](../native/filesystems/glusterfs/DESIGN.md) — distributed
   userspace filesystem client; any first-party implementation belongs behind
   the shared userspace-service boundary.
