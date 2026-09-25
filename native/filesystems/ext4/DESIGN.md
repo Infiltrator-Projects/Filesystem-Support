@@ -199,6 +199,12 @@ linux/
 
 Headers in the Linux adapter define the EXT4/JBD2 private contracts, but the long-term design continues to move host-neutral semantics into `core/`.
 
+The Linux-only `include/trace/events/jbd2.h` path is a deliberate exception to
+the responsibility-style flat source naming: Linux tracepoint generation
+requires the trace-event include hierarchy. It is diagnostic adapter material,
+not canonical EXT4/JBD2 semantics, and its provenance remains tracked
+separately until independently replaced.
+
 ## Current implementation boundary
 
 The permanent translation-unit layout is project-owned. Some large EXT4 implementation bodies remain in migration/rewrite state and retain their historical provenance until independently replaced. Source recutting does not by itself change that classification.
