@@ -190,6 +190,10 @@ qualified.
 - [CP/M](../native/filesystems/cpm/DESIGN.md) — currently exposed through
   cpmtools only, but it is a real disk-filesystem family and therefore reserves
   a future canonical core plus thin native platform adapters.
+- [NTFS](../native/filesystems/ntfs/DESIGN.md) — currently exposed through
+  NTFS-3G userspace and Linux NTFS3 provider paths; both are providers for one
+  filesystem, and future first-party NTFS semantics belong only in the canonical
+  `ntfs/` core with thin platform adapters.
 - [Fosfat / Smaky](../native/filesystems/fosfat/DESIGN.md) — currently
   external read-only userspace access, but the entry represents a real disk
   filesystem and reserves one canonical format engine.
