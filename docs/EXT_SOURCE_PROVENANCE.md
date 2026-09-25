@@ -81,6 +81,13 @@ The directory, allocator, inode lifecycle/mapping, mount/superblock, extended
 metadata and Linux private-model replacements have now crossed the
 implementation-ownership boundary.
 
+The live Windows adapter consumes the same canonical EXT2 engine. Its former
+single `ext2_driver.c` implementation body is now cut into responsibility-owned
+Windows fragments for object/I/O support, name/information translation, file
+dispatch, directory dispatch, volume lifecycle and DriverEntry. The fragments
+remain one WDK translation unit intentionally, so this structural recut changes
+neither linkage nor filesystem semantics.
+
 ## Project-authored EXT3 units
 
 EXT3's active Linux tree is now cut by Filesystem Support responsibility rather

@@ -156,10 +156,22 @@ linux/
   linux_adapter.h      Linux-private model and contracts
 
 windows/
-  ext2_driver.*        Windows IFS/WDK adapter
+  ext2_driver.c          WDK translation-unit shell
+  ext2_driver.h          Windows-private adapter model/contracts
+  adapter_support.inc    object lifetime, locking and canonical-core block-I/O bridge
+  name_translation.inc   Unicode/path conversion, information helpers and IRP buffers
+  file_dispatch.inc      create/read/write/cleanup/close and file-information IRPs
+  directory_dispatch.inc directory enumeration/control IRPs
+  volume_lifecycle.inc   mount/verify/lock/dismount and filesystem/device control
+  driver_entry.inc       DriverEntry and major-function registration
 ```
 
-The same canonical engine is intended to serve both operating systems.
+The same canonical engine serves both operating systems. The Windows adapter is
+source-cut by responsibility but deliberately remains one WDK translation unit
+at this stage. That preserves established static helper and object-lifetime
+behaviour while eliminating the monolithic source boundary. Reusable IFS
+mechanics can later move into `native/platform/windows/` only when doing so
+does not pull EXT2 semantics out of `core/`.
 
 ## Forensic completion notes against the kernel EXT2 specification
 

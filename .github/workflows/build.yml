@@ -497,6 +497,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          for part in adapter_support name_translation file_dispatch directory_dispatch volume_lifecycle driver_entry; do
+            test -s "native/filesystems/ext2/windows/$part.inc"
+            grep -Fq "#include \"$part.inc\"" native/filesystems/ext2/windows/ext2_driver.c
+          done
+          test "$(wc -l < native/filesystems/ext2/windows/ext2_driver.c)" -lt 80
           test ! -e native/filesystems/ext2/windows/ext2_compat.h
           ! grep -R -E 'archive/extfs-for-windows|core/extfs(_classic_resize|_resize_dispatch)?\.c'               native/filesystems/ext2/windows windows/build CMakeLists.txt
           grep -Fq '..\core\ext2_core.c'               native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
