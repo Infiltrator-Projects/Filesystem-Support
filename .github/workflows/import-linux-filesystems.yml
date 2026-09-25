@@ -77,7 +77,7 @@ jobs:
           # BeFS remains reference/import state.
           copy_tree fs/befs native/filesystems/befs/reference/linux
           copy_tree fs/bfs native/filesystems/bfs/reference/linux
-          copy_tree fs/efs native/filesystems/efs/kernel
+          copy_tree fs/efs native/filesystems/efs/reference/linux
           copy_tree fs/hpfs native/filesystems/hpfs/kernel
           copy_tree fs/qnx4 native/filesystems/qnx4/kernel
           copy_tree fs/qnx6 native/filesystems/qnx6/kernel

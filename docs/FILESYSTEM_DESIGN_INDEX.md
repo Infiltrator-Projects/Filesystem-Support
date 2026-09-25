@@ -25,6 +25,9 @@ qualified.
 - [BeFS](../native/filesystems/befs/DESIGN.md) — upstream Linux BeFS
   retained as read-oriented reference evidence; the target is one canonical
   BeFS engine with thin Linux/Windows adapters.
+- [SGI EFS](../native/filesystems/efs/DESIGN.md) — upstream Linux
+  read-only EFS retained as reference evidence; the target is one canonical
+  EFS reader with thin host adapters.
 - [SCO BFS](../native/filesystems/bfs/DESIGN.md) — upstream Linux BFS retained
   only as reference evidence; the target is one canonical Boot File System
   engine with thin Linux/Windows adapters.
