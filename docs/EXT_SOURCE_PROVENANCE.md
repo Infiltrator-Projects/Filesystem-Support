@@ -171,6 +171,12 @@ until their bodies are independently replaced and qualified:
 - `native/filesystems/ext4/linux/extended_metadata.c`
 - `native/filesystems/ext4/linux/ext4.h`
 - `native/filesystems/ext4/linux/include/linux/jbd2.h`
+- `native/filesystems/ext4/linux/include/trace/events/jbd2.h`
+
+The trace-event header remains Linux-only diagnostic migration source. Its
+`include/trace/events/` path is retained because the Linux tracepoint
+preprocessor expects that include shape; the path does not imply that its
+implementation has crossed the project-authorship boundary.
 
 EXT4 remains one `ext4.ko`. The permanent source layout is now ours even while
 the implementation-replacement ledger remains deliberately conservative.
