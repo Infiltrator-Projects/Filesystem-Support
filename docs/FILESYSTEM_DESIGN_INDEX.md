@@ -58,6 +58,9 @@ qualified.
   userspace overlay. Any future first-party implementation belongs in a
   portable encrypted-overlay core plus userspace provider, not a kernel
   filesystem module.
+- [CurlFtpFS](../native/filesystems/curlftpfs/DESIGN.md) — FTP
+  remote-filesystem provider over userspace/FUSE. FTP protocol logic belongs
+  behind the shared userspace-service boundary.
 
 ## Structurally reviewed external-provider entries
 
