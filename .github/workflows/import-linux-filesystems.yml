@@ -121,7 +121,10 @@ jobs:
           # as reference material; project-owned code will live outside this
           # directory behind the canonical userspace-service boundary.
           copy_tree fs/9p native/filesystems/9p/reference/linux
-          copy_tree fs/orangefs native/filesystems/orangefs/kernel
+          # OrangeFS is a distributed/network filesystem in reference/import
+          # state. Keep the upstream Linux client visibly separate from any
+          # future canonical client core or userspace/provider adapter.
+          copy_tree fs/orangefs native/filesystems/orangefs/reference/linux
 
       - name: Commit refreshed reference trees
         shell: bash
