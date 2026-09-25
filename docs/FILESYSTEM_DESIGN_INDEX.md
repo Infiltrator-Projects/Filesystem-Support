@@ -60,6 +60,10 @@ qualified.
 
 ## Structurally reviewed userspace-only entries
 
+- [GPhotoFS](../native/filesystems/gphotofs/DESIGN.md) — userspace
+  camera/PTP device namespace provider; no disk-format engine belongs here.
+
+
 - [gocryptfs](../native/filesystems/gocryptfs/DESIGN.md) — encrypted
   userspace overlay. A future first-party implementation may have a portable
   encrypted-overlay core plus userspace adapter, never a duplicate backing fs.
