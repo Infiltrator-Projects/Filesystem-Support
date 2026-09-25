@@ -7,6 +7,11 @@ qualified.
 
 ## Structurally reviewed reference-state filesystems
 
+- [GFS2](../native/filesystems/gfs2/DESIGN.md) — shared-disk clustered
+  filesystem; upstream Linux/DLM client is reference evidence while the target
+  is one canonical GFS2 engine with thin host and cluster-lock adapters.
+
+
 - [9P](../native/filesystems/9p/DESIGN.md) — Linux V9FS retained only as
   reference evidence; the target Filesystem Support implementation is a
   canonical 9P core behind the shared userspace-service boundary.

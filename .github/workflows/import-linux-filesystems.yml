@@ -69,7 +69,7 @@ jobs:
           copy_tree fs/jffs2 native/filesystems/jffs2/kernel
           copy_tree fs/ubifs native/filesystems/ubifs/kernel
           copy_tree fs/zonefs native/filesystems/zonefs/kernel
-          copy_tree fs/gfs2 native/filesystems/gfs2/kernel
+          copy_tree fs/gfs2 native/filesystems/gfs2/reference/linux
           copy_tree fs/ocfs2 native/filesystems/ocfs2/kernel
           # ADFS remains imported reference evidence until its canonical
           # local-filesystem engine and OS adapters are independently rewritten.
