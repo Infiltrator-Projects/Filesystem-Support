@@ -99,7 +99,9 @@ jobs:
           cp -a /tmp/linux/fs/smb/common native/filesystems/cifs/kernel/common
 
           copy_tree fs/nfs native/filesystems/nfs/kernel
-          copy_tree fs/ceph native/filesystems/cephfs/kernel
+          # CephFS is distributed/network storage; keep the kernel client as
+          # explicit reference evidence for a future canonical userspace core.
+          copy_tree fs/ceph native/filesystems/cephfs/reference/linux
           # 9P is a remote protocol. Keep the upstream Linux V9FS tree solely
           # as reference material; project-owned code will live outside this
           # directory behind the canonical userspace-service boundary.
