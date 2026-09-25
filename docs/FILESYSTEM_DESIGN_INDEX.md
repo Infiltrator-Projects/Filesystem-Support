@@ -60,6 +60,11 @@ qualified.
 
 ## Structurally reviewed userspace-only entries
 
+- [gocryptfs](../native/filesystems/gocryptfs/DESIGN.md) — encrypted
+  userspace overlay. A future first-party implementation may have a portable
+  encrypted-overlay core plus userspace adapter, never a duplicate backing fs.
+
+
 - [go-mtpfs](../native/filesystems/go-mtpfs/DESIGN.md) — userspace MTP
   device namespace provider; MTP transport/device semantics belong behind the
   shared userspace-service boundary.
