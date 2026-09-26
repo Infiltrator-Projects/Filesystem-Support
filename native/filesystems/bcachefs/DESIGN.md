@@ -79,6 +79,13 @@ native/filesystems/bcachefs/
 The reference tree is not part of the Filesystem Support CMake production
 source graph.
 
+While Bcachefs remains in reference/import state, the filesystem root therefore
+contains only `DESIGN.md` and `reference/`. CI treats the appearance of
+`core/`, `linux/`, `windows/` or `kernel/` as a deliberate promotion event and
+rejects accidental production linkage of the imported tree. The reference
+filenames remain upstream filenames until implementation bodies are actually
+replaced.
+
 ## File-boundary rule
 
 Upstream filenames such as `btree_*.c`, `alloc_*.c`, `journal_*.c` and

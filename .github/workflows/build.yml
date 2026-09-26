@@ -189,10 +189,25 @@ jobs:
 
           # Bcachefs remains imported reference evidence until an independent
           # canonical engine and thin OS adapters are written.
-          test ! -e native/filesystems/bcachefs/kernel
+          test -s native/filesystems/bcachefs/DESIGN.md
+          test -d native/filesystems/bcachefs/reference/linux
+          for forbidden in core linux windows kernel userspace; do
+            test ! -e "native/filesystems/bcachefs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *)
+                echo "Unexpected Bcachefs root entry while still in reference/import state: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done < <(find native/filesystems/bcachefs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/bcachefs/reference/linux/bcachefs_format.h
           test -s native/filesystems/bcachefs/reference/linux/btree_io.c
-          test -s native/filesystems/bcachefs/DESIGN.md
+          test -s native/filesystems/bcachefs/reference/linux/journal.c
+          test -s native/filesystems/bcachefs/reference/linux/snapshot.c
+          ! grep -Fq 'native/filesystems/bcachefs/reference' CMakeLists.txt
 
           # BeFS remains copied Linux reference source until an independent
           # host-neutral implementation is written.
