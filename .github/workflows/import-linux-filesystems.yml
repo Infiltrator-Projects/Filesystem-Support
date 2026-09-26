@@ -120,7 +120,9 @@ jobs:
           copy_tree fs/hfsplus native/filesystems/hfsplus/reference/linux
           # ISO9660 remains reference/import state until its canonical engine is independently rewritten.
           copy_tree fs/isofs native/filesystems/iso9660/reference/linux
-          copy_tree fs/udf native/filesystems/udf/kernel
+          # UDF remains reference/import state until its canonical ECMA-167/UDF
+          # engine is independently rewritten.
+          copy_tree fs/udf native/filesystems/udf/reference/linux
           copy_tree fs/fuse native/filesystems/virtiofs/kernel
 
           # SMB/CIFS is a network filesystem. Preserve the Linux client/common
