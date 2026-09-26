@@ -13,6 +13,17 @@ FAT is currently **reference/import state**. The pinned Linux FAT/VFAT/MS-DOS
 implementation is preserved under `reference/linux/` with upstream licensing
 and provenance. It is not project-authored Filesystem Support code.
 
+## Current directory contract
+
+While FAT remains in reference/import state, the filesystem root contains only
+`DESIGN.md` and `reference/`, with the pinned upstream Linux FAT/MS-DOS/VFAT
+implementation under `reference/linux/`. The future `core/`, `linux/`,
+`windows/` and `userspace/` directories appear only with independently
+authored implementation; `kernel/` is not a valid alternate source tree.
+
+CI enforces this boundary and rejects accidental production linkage of the
+imported reference source.
+
 ## Target layout
 
 ```text
