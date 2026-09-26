@@ -566,11 +566,17 @@ jobs:
           ! grep -Fq 'native/filesystems/exfat/reference' CMakeLists.txt
 
           # exfat-fuse is an external userspace provider for the same exFAT
-          # engine; it must never grow an independent parser/core.
-          test ! -e native/filesystems/exfat-fuse/.gitkeep
-          test ! -e native/filesystems/exfat-fuse/kernel
-          test ! -e native/filesystems/exfat-fuse/core
+          # engine; first-party userspace support belongs under exfat/userspace.
           test -s native/filesystems/exfat-fuse/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/exfat-fuse/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected exfat-fuse implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/exfat-fuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # F2FS remains imported Linux reference evidence until its flash,
           # checkpoint and segment semantics are independently rewritten.
