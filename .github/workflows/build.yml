@@ -449,12 +449,19 @@ jobs:
             }
           done < <(find native/filesystems/davfs2 -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
-          # disorderfs is a userspace testing overlay that deliberately
-          # perturbs metadata ordering/presentation.
-          test ! -e native/filesystems/disorderfs/.gitkeep
-          test ! -e native/filesystems/disorderfs/kernel
-          test ! -e native/filesystems/disorderfs/core
+          # disorderfs is currently an external userspace testing overlay.
+          # Until a first-party userspace implementation is admitted, DESIGN.md
+          # is the complete filesystem directory.
           test -s native/filesystems/disorderfs/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/disorderfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected disorderfs implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/disorderfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # eCryptfs is a stacked cryptographic filesystem. Keep the Linux
           # implementation as reference until portable semantics are rewritten.
