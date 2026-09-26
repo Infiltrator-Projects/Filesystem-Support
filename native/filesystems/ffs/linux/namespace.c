@@ -970,9 +970,7 @@ int affs_create(
 
     inode->i_op = &affs_file_inode_operations;
     inode->i_fop = &affs_file_operations;
-    inode->i_mapping->a_ops =
-        affs_test_opt(AFFS_SB(sb)->s_flags, SF_OFS) ?
-        &affs_aops_ofs : &affs_aops;
+    inode->i_mapping->a_ops = &affs_aops;
 
     result = affs_add_entry(dir, inode, dentry, ST_FILE);
     if (result != 0) {
