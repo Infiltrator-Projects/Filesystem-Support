@@ -61,7 +61,9 @@ jobs:
           copy_tree fs/reiserfs native/filesystems/reiserfs/reference/linux
           copy_tree fs/erofs native/filesystems/erofs/reference/linux
           copy_tree fs/minix native/filesystems/minix/reference/linux
-          copy_tree fs/romfs native/filesystems/romfs/kernel
+          # ROMFS remains reference/import state; the former ROMFS-first
+          # architecture milestone was superseded by EXT2.
+          copy_tree fs/romfs native/filesystems/romfs/reference/linux
           copy_tree fs/cramfs native/filesystems/cramfs/reference/linux
           copy_tree fs/squashfs native/filesystems/squashfs/kernel
           # Bcachefs is still reference/import state. Keep the Linux tree
