@@ -72,6 +72,24 @@ authorship or architecture transition that has not occurred.
 The reference tree is not linked by the product CMake build and is not a
 Filesystem Support native module.
 
+## Current directory contract
+
+While 9P remains in reference/import state, the filesystem root contains only
+`DESIGN.md` and `reference/`. The reference directory contains the pinned
+upstream Linux V9FS tree beneath `reference/linux/` using its original filenames
+and translation-unit boundaries.
+
+The directories `core/`, `userspace/`, `linux/`, `windows/` and `kernel/` are
+not valid in the current state. Creating `core/` or `userspace/` is itself a
+promotion event and requires the independent implementation, tests and
+interoperability evidence described below. A copied Linux source file must never
+be moved out of `reference/linux/` merely to make the tree resemble the target
+architecture.
+
+CI enforces this boundary, including preservation of SPDX provenance on copied
+C/header files and exclusion of the reference tree from the production CMake
+source graph.
+
 ## Promotion rule
 
 9P may move from reference/import state only through an explicit rewrite:

@@ -64,9 +64,30 @@ jobs:
           # 9P is a high-level remote filesystem protocol. Its copied Linux
           # V9FS source is reference evidence and must never masquerade as the
           # project's canonical implementation or a Filesystem Support .ko.
-          test ! -e native/filesystems/9p/kernel
+          test -s native/filesystems/9p/DESIGN.md
+          test -d native/filesystems/9p/reference/linux
+          for forbidden in core userspace linux windows kernel; do
+            test ! -e "native/filesystems/9p/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *)
+                echo "Unexpected 9P root entry while still in reference/import state: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done < <(find native/filesystems/9p -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/9p/reference/linux/v9fs.c
           test -s native/filesystems/9p/reference/linux/vfs_inode.c
+          while IFS= read -r source_file; do
+            grep -Fq 'SPDX-License-Identifier:' "$source_file" || {
+              echo "9P reference provenance marker missing: $source_file" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/9p/reference/linux -type f \
+                    \( -name '*.c' -o -name '*.h' \) -print | sort)
+          ! grep -Fq 'native/filesystems/9p/reference' CMakeLists.txt
 
           # ADFS is a conventional local filesystem, but it has not crossed
           # the project-authorship boundary. Keep copied Linux source solely
