@@ -65,7 +65,9 @@ jobs:
           # architecture milestone was superseded by EXT2.
           copy_tree fs/romfs native/filesystems/romfs/reference/linux
           copy_tree fs/cramfs native/filesystems/cramfs/reference/linux
-          copy_tree fs/squashfs native/filesystems/squashfs/kernel
+          # SquashFS remains reference/import state until its canonical
+          # read/decompression engine is independently rewritten.
+          copy_tree fs/squashfs native/filesystems/squashfs/reference/linux
           # Bcachefs is still reference/import state. Keep the Linux tree
           # visibly separate from future canonical project source.
           copy_tree fs/bcachefs native/filesystems/bcachefs/reference/linux
