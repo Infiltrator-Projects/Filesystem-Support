@@ -421,11 +421,19 @@ jobs:
             }
           done < <(find native/filesystems/cryfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
-          # CurlFtpFS is a remote FTP userspace provider.
-          test ! -e native/filesystems/curlftpfs/.gitkeep
-          test ! -e native/filesystems/curlftpfs/kernel
-          test ! -e native/filesystems/curlftpfs/core
+          # CurlFtpFS is currently an external FTP userspace provider. Until
+          # a first-party userspace implementation is admitted, DESIGN.md is
+          # the complete filesystem directory.
           test -s native/filesystems/curlftpfs/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/curlftpfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected CurlFtpFS implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/curlftpfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # davfs2 is a remote WebDAV userspace provider.
           test ! -e native/filesystems/davfs2/.gitkeep
