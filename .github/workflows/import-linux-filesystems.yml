@@ -105,7 +105,9 @@ jobs:
           # SysV remains reference/import state until its canonical
           # multi-variant engine is independently rewritten.
           copy_tree fs/sysv native/filesystems/sysv/reference/linux
-          copy_tree fs/ufs native/filesystems/ufs/kernel
+          # UFS remains reference/import state until its canonical multi-variant
+          # UFS engine is independently rewritten.
+          copy_tree fs/ufs native/filesystems/ufs/reference/linux
           # OMFS remains imported reference evidence until its canonical
           # local-filesystem engine and thin OS adapters are independently written.
           copy_tree fs/omfs native/filesystems/omfs/reference/linux
