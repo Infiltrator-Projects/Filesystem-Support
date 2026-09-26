@@ -78,7 +78,9 @@ jobs:
           copy_tree fs/ecryptfs native/filesystems/ecryptfs/reference/linux
           # JFFS2 remains reference/import state until its canonical engine is independently rewritten.
           copy_tree fs/jffs2 native/filesystems/jffs2/reference/linux
-          copy_tree fs/ubifs native/filesystems/ubifs/kernel
+          # UBIFS remains reference/import state until its canonical
+          # filesystem engine and UBI storage boundary are independently rewritten.
+          copy_tree fs/ubifs native/filesystems/ubifs/reference/linux
           copy_tree fs/zonefs native/filesystems/zonefs/kernel
           copy_tree fs/gfs2 native/filesystems/gfs2/reference/linux
           # OCFS2 is a shared-disk clustered filesystem in reference/import
