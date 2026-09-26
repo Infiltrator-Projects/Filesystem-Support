@@ -117,11 +117,19 @@ jobs:
                     \( -name '*.c' -o -name '*.h' \) -print | sort)
           ! grep -Fq 'native/filesystems/adfs/reference' CMakeLists.txt
 
-          # AFUSE is a userspace automounter catalogue entry, not a local disk
-          # format and not a candidate kernel module.
-          test ! -e native/filesystems/afuse/.gitkeep
-          test ! -e native/filesystems/afuse/kernel
+          # AFUSE is currently an external userspace-provider catalogue entry,
+          # not a first-party filesystem implementation. Until an explicit
+          # product decision promotes it, DESIGN.md is the complete directory.
           test -s native/filesystems/afuse/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/afuse/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected AFUSE entry before first-party promotion: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/afuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # APFS-DKMS is an external Debian provider identity, not a second
           # APFS implementation owned by this source tree.

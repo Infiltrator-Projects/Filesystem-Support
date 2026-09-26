@@ -27,6 +27,18 @@ boundary. It has been removed. This `DESIGN.md` is now the authoritative
 statement of why the directory intentionally contains no native filesystem
 engine.
 
+## Current directory contract
+
+While AFUSE remains an external-provider catalogue entry, the directory contains
+only `DESIGN.md`. A `userspace/` implementation is not created speculatively:
+its appearance would mean the project has deliberately admitted a first-party
+AFUSE-equivalent capability and must arrive with the service design and tests
+described below. `core/`, `linux/`, `windows/` and `kernel/` are likewise not
+valid in the current state.
+
+CI enforces this exact present-state boundary so an empty or experimental source
+tree cannot accidentally be mistaken for supported first-party functionality.
+
 ## Target layout
 
 If a first-party AFUSE-equivalent capability is ever admitted, its code belongs
