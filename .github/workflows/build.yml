@@ -173,11 +173,19 @@ jobs:
             }
           done < <(find native/filesystems/archivemount -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
-          # AVFS is a userspace virtual namespace spanning archives/remotes.
-          test ! -e native/filesystems/avfs/.gitkeep
-          test ! -e native/filesystems/avfs/kernel
-          test ! -e native/filesystems/avfs/core
+          # AVFS is currently an external userspace virtual-filesystem provider,
+          # not a first-party implementation. Until promotion, DESIGN.md is
+          # the complete filesystem directory.
           test -s native/filesystems/avfs/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/avfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected AVFS implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/avfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # Bcachefs remains imported reference evidence until an independent
           # canonical engine and thin OS adapters are written.
