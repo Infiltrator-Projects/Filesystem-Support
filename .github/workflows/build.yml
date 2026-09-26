@@ -211,10 +211,25 @@ jobs:
 
           # BeFS remains copied Linux reference source until an independent
           # host-neutral implementation is written.
-          test ! -e native/filesystems/befs/kernel
+          test -s native/filesystems/befs/DESIGN.md
+          test -d native/filesystems/befs/reference/linux
+          for forbidden in core linux windows userspace kernel; do
+            test ! -e "native/filesystems/befs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *)
+                echo "Unexpected BeFS root entry while still in reference/import state: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done < <(find native/filesystems/befs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/befs/reference/linux/befs_fs_types.h
           test -s native/filesystems/befs/reference/linux/btree.c
-          test -s native/filesystems/befs/DESIGN.md
+          test -s native/filesystems/befs/reference/linux/datastream.c
+          test -s native/filesystems/befs/reference/linux/linuxvfs.c
+          ! grep -Fq 'native/filesystems/befs/reference' CMakeLists.txt
 
           # SCO BFS remains copied Linux reference source until independently
           # rewritten into a canonical engine plus host adapters.

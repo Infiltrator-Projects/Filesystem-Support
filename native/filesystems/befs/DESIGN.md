@@ -53,6 +53,13 @@ native/filesystems/befs/
     linux/                  pinned upstream Linux BeFS source
 ```
 
+While BeFS remains in reference/import state, CI therefore treats
+`DESIGN.md` and `reference/` as the only valid filesystem-root entries. The
+appearance of `core/`, `linux/`, `windows/`, `userspace/` or `kernel/` is a
+promotion event and must arrive with independently authored implementation and
+qualification, not as a directory rename. The imported tree is excluded from
+the production CMake graph.
+
 The future project layout is:
 
 ```text
