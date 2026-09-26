@@ -910,6 +910,47 @@ jobs:
             ! grep -Eiq 'SPDX-License-Identifier|Copyright|Remy Card|Linus Torvalds|Stephen Tweedie|Darrick J\. Wong|GPL-2\.0' "$file"
           done
 
+      - name: Enforce permanent EXT3 source layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=native/filesystems/ext3
+          test ! -e "$root/reference"
+          test ! -e "$root/windows"
+          test ! -e "$root/kernel"
+          test ! -e "$root/userspace"
+
+          printf '%s\n' DESIGN.md core linux > /tmp/ext3-root.expected
+          find "$root" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/ext3-root.actual
+          sort -o /tmp/ext3-root.expected /tmp/ext3-root.expected
+          diff -u /tmp/ext3-root.expected /tmp/ext3-root.actual
+
+          printf '%s\n' ext3_core.c ext3_core.h > /tmp/ext3-core.expected
+          find "$root/core" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext3-core.actual
+          sort -o /tmp/ext3-core.expected /tmp/ext3-core.expected
+          diff -u /tmp/ext3-core.expected /tmp/ext3-core.actual
+
+          cat > /tmp/ext3-linux.expected <<'EOF'
+          Makefile
+          allocation.c
+          core_bridge.c
+          directory_io.c
+          extended_metadata.c
+          file_io.c
+          inode_adapter.c
+          journal_core.c
+          journal_durability.c
+          journal_internal.h
+          journal_transactions.c
+          lifecycle.c
+          linux_adapter.h
+          namespace_mutation.c
+          EOF
+          sed -i 's/^          //' /tmp/ext3-linux.expected
+          find "$root/linux" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext3-linux.actual
+          sort -o /tmp/ext3-linux.expected /tmp/ext3-linux.expected
+          diff -u /tmp/ext3-linux.expected /tmp/ext3-linux.actual
+
       - name: Guard project-authored SFS and EXT3 units
         shell: bash
         run: |
