@@ -16,6 +16,18 @@ The Linux SMB client and shared SMB protocol source under
 `reference/linux/client/` and `reference/linux/common/` are pinned upstream
 reference evidence only. They are not project-authored Filesystem Support code.
 
+## Current directory contract
+
+While SMB/CIFS remains in reference/import state, the filesystem root contains
+only `DESIGN.md` and `reference/`; the pinned Linux SMB client/common trees
+remain below `reference/linux/` with their upstream filenames and subsystem
+boundaries intact. The future `core/` and `userspace/` directories are created
+only when an independent client implementation actually begins. `linux/`,
+`windows/` and `kernel/` must not become alternate SMB semantic engines.
+
+CI enforces this present-state layout and rejects accidental production linkage
+of either imported reference subtree.
+
 ## Target layout
 
 ```text

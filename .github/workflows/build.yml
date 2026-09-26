@@ -342,10 +342,25 @@ jobs:
 
           # SMB/CIFS is a remote protocol/filesystem. Linux kernel source is
           # reference evidence; project semantics target the userspace core.
-          test ! -e native/filesystems/cifs/kernel
-          test -s native/filesystems/cifs/reference/linux/client/cifssmb.c
-          test -s native/filesystems/cifs/reference/linux/common/smb2pdu.h
           test -s native/filesystems/cifs/DESIGN.md
+          test -d native/filesystems/cifs/reference/linux/client
+          test -d native/filesystems/cifs/reference/linux/common
+          for forbidden in core userspace linux windows kernel; do
+            test ! -e "native/filesystems/cifs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *)
+                echo "Unexpected CIFS root entry while still in reference/import state: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done < <(find native/filesystems/cifs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+          test -s native/filesystems/cifs/reference/linux/client/cifssmb.c
+          test -s native/filesystems/cifs/reference/linux/client/smb2pdu.c
+          test -s native/filesystems/cifs/reference/linux/common/smb2pdu.h
+          ! grep -Fq 'native/filesystems/cifs/reference' CMakeLists.txt
 
           # ConvmvFS is a userspace charset/presentation overlay.
           test ! -e native/filesystems/convmvfs/.gitkeep
