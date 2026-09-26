@@ -88,7 +88,9 @@ jobs:
           copy_tree fs/efs native/filesystems/efs/reference/linux
           # HPFS remains reference/import state until its canonical engine is independently rewritten.
           copy_tree fs/hpfs native/filesystems/hpfs/reference/linux
-          copy_tree fs/qnx4 native/filesystems/qnx4/kernel
+          # QNX4 remains reference/import state until its canonical engine is
+          # independently rewritten.
+          copy_tree fs/qnx4 native/filesystems/qnx4/reference/linux
           copy_tree fs/qnx6 native/filesystems/qnx6/kernel
           copy_tree fs/sysv native/filesystems/sysv/kernel
           copy_tree fs/ufs native/filesystems/ufs/kernel
