@@ -56,7 +56,9 @@ jobs:
           # JFS remains reference/import state until its canonical engine is independently rewritten.
           copy_tree fs/jfs native/filesystems/jfs/reference/linux
           copy_tree fs/nilfs2 native/filesystems/nilfs2/reference/linux
-          copy_tree fs/reiserfs native/filesystems/reiserfs/kernel
+          # ReiserFS remains reference/import state until its canonical engine is
+          # independently rewritten.
+          copy_tree fs/reiserfs native/filesystems/reiserfs/reference/linux
           copy_tree fs/erofs native/filesystems/erofs/reference/linux
           copy_tree fs/minix native/filesystems/minix/reference/linux
           copy_tree fs/romfs native/filesystems/romfs/kernel
