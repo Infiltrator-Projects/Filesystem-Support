@@ -49,7 +49,8 @@ jobs:
 
           # Rewrite-state filesystems are deliberately excluded. EXT2/3/4 and
           # OFS/FFS are actively being migrated and must not be overwritten.
-          copy_tree fs/xfs native/filesystems/xfs/kernel
+          # XFS remains reference/import state until its canonical engine is independently rewritten.
+          copy_tree fs/xfs native/filesystems/xfs/reference/linux
           # Btrfs remains imported reference evidence.
           copy_tree fs/btrfs native/filesystems/btrfs/reference/linux
           copy_tree fs/f2fs native/filesystems/f2fs/reference/linux
