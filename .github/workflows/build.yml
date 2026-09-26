@@ -500,10 +500,19 @@ jobs:
           test -s native/filesystems/efs/reference/linux/dir.c
           ! grep -Fq 'native/filesystems/efs/reference' CMakeLists.txt
 
-          # EncFS is a userspace encrypted overlay.
-          test ! -e native/filesystems/encfs/.gitkeep
-          test ! -e native/filesystems/encfs/kernel
+          # EncFS is currently an external encrypted-overlay provider. A
+          # future core/userspace implementation requires explicit promotion;
+          # until then DESIGN.md is the complete filesystem directory.
           test -s native/filesystems/encfs/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/encfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected EncFS implementation entry before promotion: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/encfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # EROFS remains imported read-only reference evidence until its
           # canonical compressed-image engine is independently implemented.
