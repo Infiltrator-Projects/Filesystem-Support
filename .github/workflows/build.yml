@@ -267,11 +267,19 @@ jobs:
             }
           done < <(find native/filesystems/bindfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
-          # BitLocker is a storage-encryption/container layer. It may grow a
-          # portable container core, but it is not a filesystem kernel module.
-          test ! -e native/filesystems/bitlocker/.gitkeep
-          test ! -e native/filesystems/bitlocker/kernel
+          # BitLocker is currently an external container/encryption provider,
+          # not a first-party implementation. A future core/userspace pair is
+          # valid only after explicit promotion; kernel filesystem code is not.
           test -s native/filesystems/bitlocker/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/bitlocker/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected BitLocker implementation entry before promotion: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/bitlocker -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # Btrfs remains an imported Linux reference until independently
           # rewritten into the canonical engine/adapter architecture.
