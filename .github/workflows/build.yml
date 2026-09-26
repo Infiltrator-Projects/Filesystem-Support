@@ -599,10 +599,22 @@ jobs:
 
           # FAT12/16/32 remains imported Linux reference evidence until the
           # canonical FAT family engine is independently implemented.
-          test ! -e native/filesystems/fat/kernel
-          test -s native/filesystems/fat/reference/linux/fat.h
-          test -s native/filesystems/fat/reference/linux/namei_vfat.c
           test -s native/filesystems/fat/DESIGN.md
+          test -d native/filesystems/fat/reference/linux
+          for forbidden in core linux windows userspace kernel; do
+            test ! -e "native/filesystems/fat/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *) echo "Unexpected FAT root entry while still in reference/import state: $entry" >&2; exit 1 ;;
+            esac
+          done < <(find native/filesystems/fat -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+          test -s native/filesystems/fat/reference/linux/fat.h
+          test -s native/filesystems/fat/reference/linux/fatent.c
+          test -s native/filesystems/fat/reference/linux/namei_msdos.c
+          test -s native/filesystems/fat/reference/linux/namei_vfat.c
+          ! grep -Fq 'native/filesystems/fat/reference' CMakeLists.txt
 
           # FileVault/FVDE is an encrypted-volume layer; decrypted contents
           # are handed to the owning filesystem implementation.
