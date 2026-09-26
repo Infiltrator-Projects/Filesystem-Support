@@ -221,7 +221,6 @@ static int ifs_ext2_xattr_serialize(
 		ifs_ext2_u32 next_entry_offset = 0U;
 		ifs_ext2_u32 next_value_cursor = 0U;
 		IfsExt2Status layout_status;
-		size_t entry_size = EXT2_XATTR_LEN(items[index].name_length);
 
 		layout_status = ifs_ext2_xattr_packed_layout(
 			sb->s_blocksize,
