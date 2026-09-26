@@ -362,11 +362,19 @@ jobs:
           test -s native/filesystems/cifs/reference/linux/common/smb2pdu.h
           ! grep -Fq 'native/filesystems/cifs/reference' CMakeLists.txt
 
-          # ConvmvFS is a userspace charset/presentation overlay.
-          test ! -e native/filesystems/convmvfs/.gitkeep
-          test ! -e native/filesystems/convmvfs/kernel
-          test ! -e native/filesystems/convmvfs/core
+          # ConvmvFS is currently an external userspace charset/presentation
+          # overlay. Until a first-party userspace implementation is admitted,
+          # DESIGN.md is the complete filesystem directory.
           test -s native/filesystems/convmvfs/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/convmvfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected ConvmvFS implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/convmvfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # CP/M is a real disk-format family, currently exposed only through
           # external tools. The placeholder is replaced by an explicit future
