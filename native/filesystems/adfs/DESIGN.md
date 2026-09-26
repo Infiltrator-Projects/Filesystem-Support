@@ -96,6 +96,12 @@ native/filesystems/adfs/
 The reference tree is not linked by the product CMake build and is not an
 Infiltrator ADFS module.
 
+While ADFS remains in reference/import state, `core/`, `linux/`, `windows/`
+and `kernel/` are deliberately absent. Their appearance is a promotion event,
+not a harmless directory reshuffle. CI enforces the reference-only root shape,
+checks copied C/header provenance markers and rejects accidental production
+linkage of `reference/linux/`.
+
 ## Promotion rule
 
 ADFS leaves reference/import state only after an explicit rewrite milestone:

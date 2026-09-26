@@ -92,9 +92,30 @@ jobs:
           # ADFS is a conventional local filesystem, but it has not crossed
           # the project-authorship boundary. Keep copied Linux source solely
           # under reference/linux until an independent core/adapter rewrite.
-          test ! -e native/filesystems/adfs/kernel
+          test -s native/filesystems/adfs/DESIGN.md
+          test -d native/filesystems/adfs/reference/linux
+          for forbidden in core linux windows kernel; do
+            test ! -e "native/filesystems/adfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *)
+                echo "Unexpected ADFS root entry while still in reference/import state: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done < <(find native/filesystems/adfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/adfs/reference/linux/adfs.h
           test -s native/filesystems/adfs/reference/linux/map.c
+          while IFS= read -r source_file; do
+            grep -Fq 'SPDX-License-Identifier:' "$source_file" || {
+              echo "ADFS reference provenance marker missing: $source_file" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/adfs/reference/linux -type f \
+                    \( -name '*.c' -o -name '*.h' \) -print | sort)
+          ! grep -Fq 'native/filesystems/adfs/reference' CMakeLists.txt
 
           # AFUSE is a userspace automounter catalogue entry, not a local disk
           # format and not a candidate kernel module.
