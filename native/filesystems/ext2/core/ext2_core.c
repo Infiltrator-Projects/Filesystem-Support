@@ -483,6 +483,80 @@ IfsExt2Status ifs_ext2_validate_xattr_block(
     }
 }
 
+int ifs_ext2_xattr_name_compare(
+    const ifs_ext2_u8 left_index,
+    const void *left_name,
+    const ifs_ext2_u32 left_length,
+    const ifs_ext2_u8 right_index,
+    const void *right_name,
+    const ifs_ext2_u32 right_length)
+{
+    const ifs_ext2_u8 *left = (const ifs_ext2_u8 *)left_name;
+    const ifs_ext2_u8 *right = (const ifs_ext2_u8 *)right_name;
+    ifs_ext2_u32 index;
+    ifs_ext2_u32 common;
+
+    if (left_index != right_index)
+        return left_index < right_index ? -1 : 1;
+    if (left_length != right_length)
+        return left_length < right_length ? -1 : 1;
+    if (left_length != 0U &&
+        (left == IFS_EXT2_NULL || right == IFS_EXT2_NULL))
+        return left == right ? 0 : (left == IFS_EXT2_NULL ? -1 : 1);
+
+    common = left_length < right_length ? left_length : right_length;
+    for (index = 0U; index < common; ++index) {
+        if (left[index] != right[index])
+            return left[index] < right[index] ? -1 : 1;
+    }
+    return 0;
+}
+
+IfsExt2Status ifs_ext2_xattr_packed_layout(
+    const ifs_ext2_u32 block_size,
+    const ifs_ext2_u32 entry_offset,
+    const ifs_ext2_u32 name_length,
+    const ifs_ext2_u32 value_length,
+    const ifs_ext2_u32 value_cursor,
+    ifs_ext2_u32 *next_entry_offset,
+    ifs_ext2_u32 *next_value_cursor)
+{
+    ifs_ext2_u32 entry_length;
+    ifs_ext2_u32 padded_value;
+    ifs_ext2_u32 next_entry;
+    ifs_ext2_u32 next_value;
+
+    if (next_entry_offset == IFS_EXT2_NULL ||
+        next_value_cursor == IFS_EXT2_NULL)
+        return IFS_EXT2_ERROR_ARGUMENT;
+    *next_entry_offset = 0U;
+    *next_value_cursor = 0U;
+
+    if (block_size <
+            IFS_EXT2_XATTR_HEADER_SIZE + IFS_EXT2_XATTR_SENTINEL_SIZE ||
+        entry_offset < IFS_EXT2_XATTR_HEADER_SIZE ||
+        entry_offset > block_size ||
+        value_cursor > block_size ||
+        value_length > block_size)
+        return IFS_EXT2_ERROR_RANGE;
+
+    entry_length = ifs_ext2_xattr_entry_length(name_length);
+    padded_value = ifs_ext2_xattr_value_length(value_length);
+    if (entry_length > block_size - entry_offset ||
+        padded_value > value_cursor)
+        return IFS_EXT2_ERROR_NO_SPACE;
+
+    next_entry = entry_offset + entry_length;
+    next_value = value_cursor - padded_value;
+    if (next_entry > next_value ||
+        IFS_EXT2_XATTR_SENTINEL_SIZE > next_value - next_entry)
+        return IFS_EXT2_ERROR_NO_SPACE;
+
+    *next_entry_offset = next_entry;
+    *next_value_cursor = next_value;
+    return IFS_EXT2_OK;
+}
+
 ifs_ext2_u32 ifs_ext2_xattr_entry_hash(
     const void *name,
     const ifs_ext2_u32 name_length,

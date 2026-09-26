@@ -216,6 +216,23 @@ IfsExt2Status ifs_ext2_validate_xattr_block(
     const void *block,
     ifs_ext2_u32 block_size);
 
+int ifs_ext2_xattr_name_compare(
+    ifs_ext2_u8 left_index,
+    const void *left_name,
+    ifs_ext2_u32 left_length,
+    ifs_ext2_u8 right_index,
+    const void *right_name,
+    ifs_ext2_u32 right_length);
+
+IfsExt2Status ifs_ext2_xattr_packed_layout(
+    ifs_ext2_u32 block_size,
+    ifs_ext2_u32 entry_offset,
+    ifs_ext2_u32 name_length,
+    ifs_ext2_u32 value_length,
+    ifs_ext2_u32 value_cursor,
+    ifs_ext2_u32 *next_entry_offset,
+    ifs_ext2_u32 *next_value_cursor);
+
 ifs_ext2_u32 ifs_ext2_xattr_entry_hash(
     const void *name,
     ifs_ext2_u32 name_length,

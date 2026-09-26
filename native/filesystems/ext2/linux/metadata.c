@@ -125,19 +125,10 @@ static int ifs_ext2_xattr_item_compare(const void *left, const void *right)
 {
 	const struct ifs_ext2_xattr_item *a = left;
 	const struct ifs_ext2_xattr_item *b = right;
-	int result;
-	size_t common;
 
-	result = (int)a->name_index - (int)b->name_index;
-	if (result)
-		return result;
-
-	result = (int)a->name_length - (int)b->name_length;
-	if (result)
-		return result;
-
-	common = min_t(size_t, a->name_length, b->name_length);
-	return memcmp(a->name, b->name, common);
+	return ifs_ext2_xattr_name_compare(
+		a->name_index, a->name, a->name_length,
+		b->name_index, b->name, b->name_length);
 }
 
 static int ifs_ext2_xattr_collect(
@@ -227,22 +218,25 @@ static int ifs_ext2_xattr_serialize(
 
 	entry = (struct ext2_xattr_entry *)(header + 1);
 	for (index = 0; index < count; index++) {
+		ifs_ext2_u32 next_entry_offset = 0U;
+		ifs_ext2_u32 next_value_cursor = 0U;
+		IfsExt2Status layout_status;
 		size_t entry_size = EXT2_XATTR_LEN(items[index].name_length);
-		size_t value_size = EXT2_XATTR_SIZE(items[index].value_length);
-		size_t entry_end =
-			(size_t)((char *)entry - block) + entry_size +
-			IFS_EXT2_XATTR_SENTINEL_SIZE;
 
-		if (value_size > value_cursor) {
+		layout_status = ifs_ext2_xattr_packed_layout(
+			sb->s_blocksize,
+			(size_t)((char *)entry - block),
+			items[index].name_length,
+			items[index].value_length,
+			value_cursor,
+			&next_entry_offset,
+			&next_value_cursor);
+		if (layout_status != IFS_EXT2_OK) {
 			kfree(block);
-			return -ENOSPC;
+			return layout_status == IFS_EXT2_ERROR_NO_SPACE
+				? -ENOSPC : -EFSCORRUPTED;
 		}
-		value_cursor -= value_size;
-
-		if (entry_end > value_cursor) {
-			kfree(block);
-			return -ENOSPC;
-		}
+		value_cursor = next_value_cursor;
 
 		entry->e_name_len = items[index].name_length;
 		entry->e_name_index = items[index].name_index;
@@ -269,7 +263,7 @@ static int ifs_ext2_xattr_serialize(
 				items[index].value_length));
 
 		entry = (struct ext2_xattr_entry *)
-			((char *)entry + entry_size);
+			(block + next_entry_offset);
 	}
 
 	{

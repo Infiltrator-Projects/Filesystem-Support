@@ -242,6 +242,32 @@ int main(void)
             sb.blocks_count - 1U, 2U))
         return fail("data-block range validation is wrong");
 
+    if (ifs_ext2_xattr_name_compare(
+            1U, "abc", 3U, 1U, "abd", 3U) >= 0 ||
+        ifs_ext2_xattr_name_compare(
+            1U, "abc", 3U, 2U, "aaa", 3U) >= 0 ||
+        ifs_ext2_xattr_name_compare(
+            1U, "abcd", 4U, 1U, "z", 1U) <= 0)
+        return fail("xattr canonical ordering is wrong");
+
+    {
+        ifs_ext2_u32 next_entry = 0U;
+        ifs_ext2_u32 next_value = 0U;
+
+        if (ifs_ext2_xattr_packed_layout(
+                1024U, IFS_EXT2_XATTR_HEADER_SIZE,
+                3U, 4U, 1024U,
+                &next_entry, &next_value) != IFS_EXT2_OK ||
+            next_entry != 52U || next_value != 1020U)
+            return fail("xattr packed layout is wrong");
+
+        if (ifs_ext2_xattr_packed_layout(
+                64U, IFS_EXT2_XATTR_HEADER_SIZE,
+                31U, 16U, 64U,
+                &next_entry, &next_value) != IFS_EXT2_ERROR_NO_SPACE)
+            return fail("overlapping xattr layout was accepted");
+    }
+
     {
         unsigned char xattr[1024] = {0};
         const unsigned int entry = IFS_EXT2_XATTR_HEADER_SIZE;

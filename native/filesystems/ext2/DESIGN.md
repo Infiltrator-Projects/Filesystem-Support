@@ -167,7 +167,7 @@ windows/
 ```
 
 The canonical core also owns the host-neutral allocation-map invariants,
-data-block range guards, extended-attribute block validation/hash rules and
+data-block range guards, extended-attribute block validation, deterministic ordering, packed-layout/hash rules and
 POSIX-ACL on-disk sizing used by the Linux adapter. Linux retains buffer-cache
 access, quota/credential policy, VFS xattr namespace exposure and publication;
 those host mechanisms call the canonical format rules rather than maintaining
