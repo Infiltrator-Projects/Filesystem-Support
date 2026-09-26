@@ -91,7 +91,9 @@ jobs:
           # QNX4 remains reference/import state until its canonical engine is
           # independently rewritten.
           copy_tree fs/qnx4 native/filesystems/qnx4/reference/linux
-          copy_tree fs/qnx6 native/filesystems/qnx6/kernel
+          # QNX6 remains reference/import state until its canonical engine is
+          # independently rewritten.
+          copy_tree fs/qnx6 native/filesystems/qnx6/reference/linux
           copy_tree fs/sysv native/filesystems/sysv/kernel
           copy_tree fs/ufs native/filesystems/ufs/kernel
           # OMFS remains imported reference evidence until its canonical
