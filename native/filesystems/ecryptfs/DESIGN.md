@@ -18,6 +18,17 @@ The source under `reference/linux/` is the pinned upstream Linux eCryptfs
 implementation. It retains upstream licensing, provenance and source boundaries
 and is not project-authored Filesystem Support code.
 
+## Current directory contract
+
+While eCryptfs remains in reference/import state, the filesystem root contains
+only `DESIGN.md` and `reference/`, with the pinned Linux implementation below
+`reference/linux/`. The future `core/`, `linux/` and `windows/` directories
+appear only with independently authored implementation. `kernel/` and
+`userspace/` are not valid alternate semantic trees.
+
+CI enforces this present-state boundary and rejects accidental production
+linkage of the imported reference source.
+
 ## Target layout
 
 ```text
