@@ -13,6 +13,17 @@ preserved under `reference/linux/` with its original licensing, provenance
 and source boundaries. Filesystem Support does not claim it as project-authored
 code.
 
+## Current directory contract
+
+While EFS remains in reference/import state, the filesystem root contains only
+`DESIGN.md` and `reference/`, with the pinned upstream Linux implementation
+under `reference/linux/`. The future `core/`, `linux/` and `windows/`
+directories appear only with independently authored implementation. `kernel/`
+and `userspace/` are not valid substitutes for that architecture.
+
+CI enforces this present-state boundary and rejects accidental production
+linkage of the imported reference source.
+
 ## Target layout
 
 ```text
