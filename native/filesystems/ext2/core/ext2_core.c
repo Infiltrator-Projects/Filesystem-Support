@@ -291,6 +291,304 @@ IfsExt2Status ifs_ext2_validate_group_descriptor(
     return IFS_EXT2_OK;
 }
 
+
+static int ifs_ext2_bitmap_test(
+    const ifs_ext2_u8 *bitmap,
+    const ifs_ext2_u32 bitmap_size,
+    const ifs_ext2_u64 bit)
+{
+    const ifs_ext2_u64 byte = bit >> 3U;
+
+    if (bitmap == IFS_EXT2_NULL || byte >= bitmap_size)
+        return 0;
+    return (bitmap[(ifs_ext2_size_t)byte] &
+            (ifs_ext2_u8)(1U << (bit & 7U))) != 0U;
+}
+
+IfsExt2Status ifs_ext2_validate_group_metadata_bitmap(
+    const IfsExt2Superblock *superblock,
+    const ifs_ext2_u32 group,
+    const IfsExt2GroupDescriptor *descriptor,
+    const void *block_bitmap,
+    const ifs_ext2_u32 bitmap_size)
+{
+    const ifs_ext2_u8 *bitmap = (const ifs_ext2_u8 *)block_bitmap;
+    ifs_ext2_u64 first;
+    ifs_ext2_u64 last;
+    ifs_ext2_u64 table_last;
+    ifs_ext2_u64 block;
+
+    if (superblock == IFS_EXT2_NULL ||
+        descriptor == IFS_EXT2_NULL ||
+        bitmap == IFS_EXT2_NULL ||
+        bitmap_size == 0U)
+        return IFS_EXT2_ERROR_ARGUMENT;
+
+    if (ifs_ext2_group_bounds(
+            superblock, group, &first, &last) != IFS_EXT2_OK)
+        return IFS_EXT2_ERROR_RANGE;
+    if (ifs_ext2_validate_group_descriptor(
+            superblock, group, descriptor) != IFS_EXT2_OK)
+        return IFS_EXT2_ERROR_CORRUPT;
+
+    if ((last - first + 1U) >
+        (ifs_ext2_u64)bitmap_size * 8U)
+        return IFS_EXT2_ERROR_RANGE;
+
+    if (!ifs_ext2_bitmap_test(
+            bitmap, bitmap_size,
+            (ifs_ext2_u64)descriptor->block_bitmap - first) ||
+        !ifs_ext2_bitmap_test(
+            bitmap, bitmap_size,
+            (ifs_ext2_u64)descriptor->inode_bitmap - first))
+        return IFS_EXT2_ERROR_CORRUPT;
+
+    if (superblock->inode_table_blocks_per_group == 0U)
+        return IFS_EXT2_ERROR_CORRUPT;
+    table_last =
+        (ifs_ext2_u64)descriptor->inode_table +
+        superblock->inode_table_blocks_per_group - 1U;
+    if (table_last > last)
+        return IFS_EXT2_ERROR_CORRUPT;
+
+    for (block = descriptor->inode_table;
+         block <= table_last; ++block) {
+        if (!ifs_ext2_bitmap_test(
+                bitmap, bitmap_size, block - first))
+            return IFS_EXT2_ERROR_CORRUPT;
+    }
+
+    return IFS_EXT2_OK;
+}
+
+int ifs_ext2_data_block_range_valid(
+    const ifs_ext2_u32 first_data_block,
+    const ifs_ext2_u64 blocks_count,
+    const ifs_ext2_u64 superblock_block,
+    const ifs_ext2_u64 start,
+    const ifs_ext2_u32 count)
+{
+    ifs_ext2_u64 last;
+
+    if (count == 0U ||
+        start < first_data_block ||
+        start >= blocks_count ||
+        (ifs_ext2_u64)count > blocks_count - start)
+        return 0;
+
+    last = start + (ifs_ext2_u64)count - 1U;
+    if (start <= superblock_block && last >= superblock_block)
+        return 0;
+    return 1;
+}
+
+static ifs_ext2_u32 ifs_ext2_xattr_entry_length(
+    const ifs_ext2_u32 name_length)
+{
+    const ifs_ext2_u32 raw =
+        IFS_EXT2_XATTR_ENTRY_FIXED_SIZE + name_length;
+
+    return (raw + IFS_EXT2_XATTR_ALIGNMENT - 1U) &
+           ~(IFS_EXT2_XATTR_ALIGNMENT - 1U);
+}
+
+static ifs_ext2_u32 ifs_ext2_xattr_value_length(
+    const ifs_ext2_u32 value_length)
+{
+    return (value_length + IFS_EXT2_XATTR_ALIGNMENT - 1U) &
+           ~(IFS_EXT2_XATTR_ALIGNMENT - 1U);
+}
+
+static int ifs_ext2_xattr_sentinel(const ifs_ext2_u8 *entry)
+{
+    return entry[0] == 0U && entry[1] == 0U &&
+           entry[2] == 0U && entry[3] == 0U;
+}
+
+IfsExt2Status ifs_ext2_validate_xattr_block(
+    const void *block,
+    const ifs_ext2_u32 block_size)
+{
+    const ifs_ext2_u8 *base = (const ifs_ext2_u8 *)block;
+    ifs_ext2_u32 offset = IFS_EXT2_XATTR_HEADER_SIZE;
+    ifs_ext2_u32 value_floor = block_size;
+    ifs_ext2_u32 refcount;
+
+    if (base == IFS_EXT2_NULL)
+        return IFS_EXT2_ERROR_ARGUMENT;
+    if (block_size <
+        IFS_EXT2_XATTR_HEADER_SIZE + IFS_EXT2_XATTR_SENTINEL_SIZE)
+        return IFS_EXT2_ERROR_CORRUPT;
+    if (load_le32(base + 0U) != IFS_EXT2_XATTR_MAGIC ||
+        load_le32(base + 8U) != 1U)
+        return IFS_EXT2_ERROR_CORRUPT;
+
+    refcount = load_le32(base + 4U);
+    if (refcount == 0U ||
+        refcount > IFS_EXT2_XATTR_REFCOUNT_MAX)
+        return IFS_EXT2_ERROR_CORRUPT;
+
+    for (;;) {
+        if (offset > block_size - IFS_EXT2_XATTR_SENTINEL_SIZE)
+            return IFS_EXT2_ERROR_CORRUPT;
+        if (ifs_ext2_xattr_sentinel(base + offset)) {
+            if (offset + IFS_EXT2_XATTR_SENTINEL_SIZE > value_floor)
+                return IFS_EXT2_ERROR_CORRUPT;
+            return IFS_EXT2_OK;
+        }
+
+        {
+            const ifs_ext2_u32 name_length = base[offset + 0U];
+            const ifs_ext2_u32 entry_length =
+                ifs_ext2_xattr_entry_length(name_length);
+            const ifs_ext2_u32 value_offset =
+                load_le16(base + offset + 2U);
+            const ifs_ext2_u32 value_block =
+                load_le32(base + offset + 4U);
+            const ifs_ext2_u32 value_size =
+                load_le32(base + offset + 8U);
+            const ifs_ext2_u32 padded_value =
+                ifs_ext2_xattr_value_length(value_size);
+            ifs_ext2_u32 next;
+
+            if (value_size > block_size)
+                return IFS_EXT2_ERROR_CORRUPT;
+
+            if (offset > block_size - IFS_EXT2_XATTR_ENTRY_FIXED_SIZE ||
+                entry_length > block_size - offset)
+                return IFS_EXT2_ERROR_CORRUPT;
+            next = offset + entry_length;
+            if (next > value_floor ||
+                next + IFS_EXT2_XATTR_SENTINEL_SIZE > value_floor)
+                return IFS_EXT2_ERROR_CORRUPT;
+            if (value_block != 0U)
+                return IFS_EXT2_ERROR_CORRUPT;
+
+            if (value_size != 0U) {
+                if ((value_offset &
+                     (IFS_EXT2_XATTR_ALIGNMENT - 1U)) != 0U ||
+                    value_offset > block_size ||
+                    padded_value > block_size - value_offset)
+                    return IFS_EXT2_ERROR_CORRUPT;
+                if (value_offset < value_floor)
+                    value_floor = value_offset;
+                if (next + IFS_EXT2_XATTR_SENTINEL_SIZE > value_floor)
+                    return IFS_EXT2_ERROR_CORRUPT;
+            } else if (value_offset != 0U) {
+                return IFS_EXT2_ERROR_CORRUPT;
+            }
+
+            offset = next;
+        }
+    }
+}
+
+ifs_ext2_u32 ifs_ext2_xattr_entry_hash(
+    const void *name,
+    const ifs_ext2_u32 name_length,
+    const void *value,
+    const ifs_ext2_u32 value_length)
+{
+    const ifs_ext2_u8 *name_bytes = (const ifs_ext2_u8 *)name;
+    const ifs_ext2_u8 *value_bytes = (const ifs_ext2_u8 *)value;
+    const ifs_ext2_u32 padded =
+        ifs_ext2_xattr_value_length(value_length);
+    ifs_ext2_u32 hash = 0U;
+    ifs_ext2_u32 index;
+
+    if ((name_length != 0U && name_bytes == IFS_EXT2_NULL) ||
+        (value_length != 0U && value_bytes == IFS_EXT2_NULL))
+        return 0U;
+
+    for (index = 0U; index < name_length; ++index)
+        hash = (hash << 5U) ^ (hash >> 27U) ^ name_bytes[index];
+
+    for (index = 0U; index < padded; index += 4U) {
+        ifs_ext2_u32 word = 0U;
+        if (index < value_length)
+            word |= value_bytes[index];
+        if (index + 1U < value_length)
+            word |= (ifs_ext2_u32)value_bytes[index + 1U] << 8U;
+        if (index + 2U < value_length)
+            word |= (ifs_ext2_u32)value_bytes[index + 2U] << 16U;
+        if (index + 3U < value_length)
+            word |= (ifs_ext2_u32)value_bytes[index + 3U] << 24U;
+        hash = (hash << 16U) ^ (hash >> 16U) ^ word;
+    }
+
+    return hash;
+}
+
+IfsExt2Status ifs_ext2_xattr_block_hash(
+    const void *block,
+    const ifs_ext2_u32 block_size,
+    ifs_ext2_u32 *hash)
+{
+    const ifs_ext2_u8 *base = (const ifs_ext2_u8 *)block;
+    ifs_ext2_u32 offset = IFS_EXT2_XATTR_HEADER_SIZE;
+    ifs_ext2_u32 result = 0U;
+    IfsExt2Status status;
+
+    if (hash == IFS_EXT2_NULL)
+        return IFS_EXT2_ERROR_ARGUMENT;
+    *hash = 0U;
+    status = ifs_ext2_validate_xattr_block(block, block_size);
+    if (status != IFS_EXT2_OK)
+        return status;
+
+    while (!ifs_ext2_xattr_sentinel(base + offset)) {
+        const ifs_ext2_u32 entry_hash =
+            load_le32(base + offset + 12U);
+        if (entry_hash == 0U) {
+            result = 0U;
+            break;
+        }
+        result = (result << 16U) ^
+                 (result >> 16U) ^
+                 entry_hash;
+        offset += ifs_ext2_xattr_entry_length(base[offset + 0U]);
+    }
+
+    *hash = result;
+    return IFS_EXT2_OK;
+}
+
+ifs_ext2_size_t ifs_ext2_acl_size(const int count)
+{
+    if (count < 0)
+        return 0U;
+    if (count <= 4)
+        return IFS_EXT2_ACL_HEADER_SIZE +
+               (ifs_ext2_size_t)count *
+               IFS_EXT2_ACL_SHORT_ENTRY_SIZE;
+    return IFS_EXT2_ACL_HEADER_SIZE +
+           4U * IFS_EXT2_ACL_SHORT_ENTRY_SIZE +
+           (ifs_ext2_size_t)(count - 4) *
+           IFS_EXT2_ACL_FULL_ENTRY_SIZE;
+}
+
+int ifs_ext2_acl_count(const ifs_ext2_size_t size)
+{
+    ifs_ext2_size_t body;
+    ifs_ext2_size_t short_prefix;
+
+    if (size < IFS_EXT2_ACL_HEADER_SIZE)
+        return -1;
+
+    body = size - IFS_EXT2_ACL_HEADER_SIZE;
+    short_prefix = 4U * IFS_EXT2_ACL_SHORT_ENTRY_SIZE;
+    if (body < short_prefix) {
+        if ((body % IFS_EXT2_ACL_SHORT_ENTRY_SIZE) != 0U)
+            return -1;
+        return (int)(body / IFS_EXT2_ACL_SHORT_ENTRY_SIZE);
+    }
+
+    body -= short_prefix;
+    if ((body % IFS_EXT2_ACL_FULL_ENTRY_SIZE) != 0U)
+        return -1;
+    return 4 + (int)(body / IFS_EXT2_ACL_FULL_ENTRY_SIZE);
+}
+
 IfsExt2Status ifs_ext2_block_to_path(
     const ifs_ext2_u32 block_size,
     ifs_ext2_u64 logical_block,

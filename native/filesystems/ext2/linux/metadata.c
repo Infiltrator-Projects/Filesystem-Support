@@ -19,8 +19,6 @@
 
 #include "linux_adapter.h"
 
-#define IFS_EXT2_XATTR_SENTINEL_SIZE 4U
-
 struct mb_cache {
 	u32 marker;
 };
@@ -85,77 +83,12 @@ static struct ext2_xattr_entry *ifs_ext2_xattr_first(void *block)
 		((char *)block + sizeof(struct ext2_xattr_header));
 }
 
-static int ifs_ext2_xattr_validate_block(struct super_block *sb,
-					 const void *block)
+static int ifs_ext2_xattr_validate_block(
+	struct super_block *sb, const void *block)
 {
-	const struct ext2_xattr_header *header = block;
-	const char *base = block;
-	const char *end = base + sb->s_blocksize;
-	const struct ext2_xattr_entry *entry;
-	size_t value_floor = sb->s_blocksize;
-	u32 refcount;
-
-	if (sb->s_blocksize <
-	    sizeof(*header) + IFS_EXT2_XATTR_SENTINEL_SIZE)
-		return -EFSCORRUPTED;
-
-	if (header->h_magic != cpu_to_le32(EXT2_XATTR_MAGIC) ||
-	    header->h_blocks != cpu_to_le32(1))
-		return -EFSCORRUPTED;
-
-	refcount = le32_to_cpu(header->h_refcount);
-	if (refcount == 0 || refcount > EXT2_XATTR_REFCOUNT_MAX)
-		return -EFSCORRUPTED;
-
-	entry = ifs_ext2_xattr_first((void *)block);
-	for (;;) {
-		const char *entry_ptr = (const char *)entry;
-		const char *next;
-		size_t value_size;
-		size_t value_offset;
-		size_t padded_size;
-
-		if (entry_ptr + IFS_EXT2_XATTR_SENTINEL_SIZE > end)
-			return -EFSCORRUPTED;
-		if (ifs_ext2_xattr_is_last(entry)) {
-			if ((size_t)(entry_ptr - base) +
-			    IFS_EXT2_XATTR_SENTINEL_SIZE > value_floor)
-				return -EFSCORRUPTED;
-			return 0;
-		}
-
-		if (entry_ptr + sizeof(*entry) > end)
-			return -EFSCORRUPTED;
-
-		next = entry_ptr + EXT2_XATTR_LEN(entry->e_name_len);
-		if (next > end ||
-		    (size_t)(next - base) + IFS_EXT2_XATTR_SENTINEL_SIZE >
-		    value_floor)
-			return -EFSCORRUPTED;
-
-		if (entry->e_value_block != 0)
-			return -EFSCORRUPTED;
-
-		value_size = le32_to_cpu(entry->e_value_size);
-		value_offset = le16_to_cpu(entry->e_value_offs);
-		padded_size = EXT2_XATTR_SIZE(value_size);
-
-		if (value_size != 0) {
-			if ((value_offset & EXT2_XATTR_ROUND) != 0 ||
-			    value_offset > sb->s_blocksize ||
-			    padded_size > sb->s_blocksize - value_offset)
-				return -EFSCORRUPTED;
-			if (value_offset < value_floor)
-				value_floor = value_offset;
-			if ((size_t)(next - base) +
-			    IFS_EXT2_XATTR_SENTINEL_SIZE > value_floor)
-				return -EFSCORRUPTED;
-		} else if (value_offset != 0) {
-			return -EFSCORRUPTED;
-		}
-
-		entry = (const struct ext2_xattr_entry *)next;
-	}
+	return ifs_ext2_validate_xattr_block(
+		block, sb->s_blocksize) == IFS_EXT2_OK
+		? 0 : -EFSCORRUPTED;
 }
 
 static struct buffer_head *ifs_ext2_xattr_read(struct inode *inode, int *error)
@@ -264,55 +197,6 @@ static int ifs_ext2_xattr_find(
 	return -1;
 }
 
-static u32 ifs_ext2_xattr_entry_hash(
-	const char *name, size_t name_length,
-	const void *value, size_t value_length)
-{
-	const unsigned char *name_bytes = (const unsigned char *)name;
-	u32 hash = 0;
-	size_t index;
-	size_t padded = EXT2_XATTR_SIZE(value_length);
-
-	for (index = 0; index < name_length; index++)
-		hash = (hash << 5) ^ (hash >> 27) ^ name_bytes[index];
-
-	for (index = 0; index < padded; index += sizeof(__le32)) {
-		__le32 disk_word = 0;
-		u32 word;
-		size_t remaining;
-
-		if (index < value_length) {
-			remaining = min_t(size_t, sizeof(disk_word),
-					  value_length - index);
-			memcpy(&disk_word, (const char *)value + index, remaining);
-		}
-
-		word = le32_to_cpu(disk_word);
-		hash = (hash << 16) ^ (hash >> 16) ^ word;
-	}
-
-	return hash;
-}
-
-static void ifs_ext2_xattr_block_hash(struct ext2_xattr_header *header)
-{
-	struct ext2_xattr_entry *entry =
-		(struct ext2_xattr_entry *)(header + 1);
-	u32 hash = 0;
-
-	while (!ifs_ext2_xattr_is_last(entry)) {
-		u32 entry_hash = le32_to_cpu(entry->e_hash);
-
-		if (!entry_hash) {
-			hash = 0;
-			break;
-		}
-		hash = (hash << 16) ^ (hash >> 16) ^ entry_hash;
-		entry = EXT2_XATTR_NEXT(entry);
-	}
-
-	header->h_hash = cpu_to_le32(hash);
-}
 
 static int ifs_ext2_xattr_serialize(
 	struct super_block *sb,
@@ -388,7 +272,17 @@ static int ifs_ext2_xattr_serialize(
 			((char *)entry + entry_size);
 	}
 
-	ifs_ext2_xattr_block_hash(header);
+	{
+		u32 block_hash = 0;
+		IfsExt2Status status = ifs_ext2_xattr_block_hash(
+			block, sb->s_blocksize, &block_hash);
+
+		if (status != IFS_EXT2_OK) {
+			kfree(block);
+			return -EFSCORRUPTED;
+		}
+		header->h_hash = cpu_to_le32(block_hash);
+	}
 	*block_out = block;
 	return 0;
 }

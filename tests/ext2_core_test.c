@@ -205,6 +205,95 @@ int main(void)
             return fail("64K directory record did not encode");
     }
 
+    {
+        unsigned char bitmap[1024] = {0};
+        unsigned int block;
+        unsigned int bit;
+
+        for (block = gd.block_bitmap;
+             block <= gd.inode_table + sb.inode_table_blocks_per_group - 1U;
+             ++block) {
+            if (block != gd.inode_bitmap &&
+                block != gd.block_bitmap &&
+                block < gd.inode_table)
+                continue;
+            bit = block - sb.first_data_block;
+            bitmap[bit >> 3U] |= (unsigned char)(1U << (bit & 7U));
+        }
+
+        if (ifs_ext2_validate_group_metadata_bitmap(
+                &sb, 0U, &gd, bitmap, sizeof(bitmap)) != IFS_EXT2_OK)
+            return fail("valid metadata allocation bitmap was rejected");
+
+        bit = gd.inode_table + 3U - sb.first_data_block;
+        bitmap[bit >> 3U] &= (unsigned char)~(1U << (bit & 7U));
+        if (ifs_ext2_validate_group_metadata_bitmap(
+                &sb, 0U, &gd, bitmap, sizeof(bitmap)) !=
+            IFS_EXT2_ERROR_CORRUPT)
+            return fail("unallocated inode-table block was accepted");
+    }
+
+    if (!ifs_ext2_data_block_range_valid(
+            sb.first_data_block, sb.blocks_count, 1U, 2U, 2U) ||
+        ifs_ext2_data_block_range_valid(
+            sb.first_data_block, sb.blocks_count, 1U, 1U, 1U) ||
+        ifs_ext2_data_block_range_valid(
+            sb.first_data_block, sb.blocks_count, 1U,
+            sb.blocks_count - 1U, 2U))
+        return fail("data-block range validation is wrong");
+
+    {
+        unsigned char xattr[1024] = {0};
+        const unsigned int entry = IFS_EXT2_XATTR_HEADER_SIZE;
+        const unsigned int value_offset = 1020U;
+        const unsigned char value[4] = {'b', 'a', 'r', 0};
+        ifs_ext2_u32 entry_hash;
+        ifs_ext2_u32 block_hash = 0U;
+
+        store_le32(xattr + 0U, IFS_EXT2_XATTR_MAGIC);
+        store_le32(xattr + 4U, 1U);
+        store_le32(xattr + 8U, 1U);
+        xattr[entry + 0U] = 3U;
+        xattr[entry + 1U] = 1U;
+        store_le16(xattr + entry + 2U, value_offset);
+        store_le32(xattr + entry + 4U, 0U);
+        store_le32(xattr + entry + 8U, sizeof(value));
+        memcpy(xattr + entry + IFS_EXT2_XATTR_ENTRY_FIXED_SIZE,
+               "foo", 3U);
+        memcpy(xattr + value_offset, value, sizeof(value));
+
+        entry_hash = ifs_ext2_xattr_entry_hash(
+            "foo", 3U, value, sizeof(value));
+        if (entry_hash == 0U)
+            return fail("xattr entry hash unexpectedly zero");
+        store_le32(xattr + entry + 12U, entry_hash);
+
+        if (ifs_ext2_validate_xattr_block(
+                xattr, sizeof(xattr)) != IFS_EXT2_OK)
+            return fail("valid xattr block was rejected");
+        if (ifs_ext2_xattr_block_hash(
+                xattr, sizeof(xattr), &block_hash) != IFS_EXT2_OK ||
+            block_hash != entry_hash)
+            return fail("xattr block hash is wrong");
+
+        store_le32(xattr + entry + 4U, 1U);
+        if (ifs_ext2_validate_xattr_block(
+                xattr, sizeof(xattr)) != IFS_EXT2_ERROR_CORRUPT)
+            return fail("external xattr value block was accepted");
+    }
+
+    if (ifs_ext2_acl_size(0) != IFS_EXT2_ACL_HEADER_SIZE ||
+        ifs_ext2_acl_size(4) !=
+            IFS_EXT2_ACL_HEADER_SIZE +
+            4U * IFS_EXT2_ACL_SHORT_ENTRY_SIZE ||
+        ifs_ext2_acl_size(5) !=
+            IFS_EXT2_ACL_HEADER_SIZE +
+            4U * IFS_EXT2_ACL_SHORT_ENTRY_SIZE +
+            IFS_EXT2_ACL_FULL_ENTRY_SIZE ||
+        ifs_ext2_acl_count(ifs_ext2_acl_size(5)) != 5 ||
+        ifs_ext2_acl_count(5U) != -1)
+        return fail("ACL on-disk sizing contract is wrong");
+
     store_le32(raw + 0x5CU,
                IFS_EXT2_FEATURE_COMPAT_EXT_ATTR |
                IFS_EXT2_FEATURE_COMPAT_HAS_JOURNAL);

@@ -50,44 +50,35 @@ static bool ext2_group_metadata_reserved(
 	struct super_block *sb, unsigned int group,
 	struct ext2_group_desc *desc, struct buffer_head *bitmap)
 {
-	const ext2_fsblk_t first = ext2_group_first_block_no(sb, group);
-	const ext2_fsblk_t last = ext2_group_last_block_no(sb, group);
-	const u32 table_blocks = EXT2_SB(sb)->s_itb_per_group;
-	ext2_fsblk_t block;
-	unsigned long bit;
-	unsigned long end_bit;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	IfsExt2Superblock core_super = { 0 };
+	IfsExt2GroupDescriptor core_desc = { 0 };
+	IfsExt2Status status;
 
-	block = le32_to_cpu(desc->bg_block_bitmap);
-	if (block < first || block > last)
-		goto corrupt;
-	bit = block - first;
-	if (!ext2_test_bit(bit, bitmap->b_data))
-		goto corrupt;
+	core_super.first_data_block =
+		le32_to_cpu(sbi->s_es->s_first_data_block);
+	core_super.blocks_count =
+		le32_to_cpu(sbi->s_es->s_blocks_count);
+	core_super.blocks_per_group = sbi->s_blocks_per_group;
+	core_super.inode_table_blocks_per_group = sbi->s_itb_per_group;
+	core_super.group_count = sbi->s_groups_count;
 
-	block = le32_to_cpu(desc->bg_inode_bitmap);
-	if (block < first || block > last)
-		goto corrupt;
-	bit = block - first;
-	if (!ext2_test_bit(bit, bitmap->b_data))
-		goto corrupt;
+	core_desc.block_bitmap = le32_to_cpu(desc->bg_block_bitmap);
+	core_desc.inode_bitmap = le32_to_cpu(desc->bg_inode_bitmap);
+	core_desc.inode_table = le32_to_cpu(desc->bg_inode_table);
+	core_desc.free_blocks_count = le16_to_cpu(desc->bg_free_blocks_count);
+	core_desc.free_inodes_count = le16_to_cpu(desc->bg_free_inodes_count);
+	core_desc.used_dirs_count = le16_to_cpu(desc->bg_used_dirs_count);
 
-	block = le32_to_cpu(desc->bg_inode_table);
-	if (block < first || block > last || table_blocks == 0U)
-		goto corrupt;
-	bit = block - first;
-	if (check_add_overflow(bit, (unsigned long)table_blocks, &end_bit) ||
-	    end_bit > (last - first + 1U))
-		goto corrupt;
+	status = ifs_ext2_validate_group_metadata_bitmap(
+		&core_super, group, &core_desc,
+		bitmap->b_data, sb->s_blocksize);
+	if (status == IFS_EXT2_OK)
+		return true;
 
-	if (ext2_find_next_zero_bit(
-		    bitmap->b_data, end_bit, bit) < end_bit)
-		goto corrupt;
-
-	return true;
-
-corrupt:
 	ext2_error(sb, __func__,
-		   "group %u has corrupt metadata allocation map", group);
+		   "group %u has corrupt metadata allocation map: %s",
+		   group, ifs_ext2_status_string(status));
 	return false;
 }
 
@@ -655,22 +646,12 @@ int ext2_data_block_valid(
 	struct ext2_sb_info *sbi, ext2_fsblk_t start,
 	unsigned int count)
 {
-	const ext2_fsblk_t first =
-		le32_to_cpu(sbi->s_es->s_first_data_block);
-	const ext2_fsblk_t blocks =
-		le32_to_cpu(sbi->s_es->s_blocks_count);
-	ext2_fsblk_t last;
-
-	if (count == 0U || start < first || start >= blocks)
-		return 0;
-	if (count > blocks - start)
-		return 0;
-
-	last = start + count - 1U;
-	if (start <= sbi->s_sb_block && last >= sbi->s_sb_block)
-		return 0;
-
-	return 1;
+	return ifs_ext2_data_block_range_valid(
+		le32_to_cpu(sbi->s_es->s_first_data_block),
+		le32_to_cpu(sbi->s_es->s_blocks_count),
+		sbi->s_sb_block,
+		start,
+		count);
 }
 
 static int ext2_try_group(

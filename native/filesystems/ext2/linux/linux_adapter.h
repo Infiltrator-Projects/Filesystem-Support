@@ -614,31 +614,12 @@ typedef struct {
 
 static inline size_t ext2_acl_size(int count)
 {
-	if (count <= 4)
-		return sizeof(ext2_acl_header) +
-		       count * sizeof(ext2_acl_entry_short);
-	return sizeof(ext2_acl_header) +
-	       4 * sizeof(ext2_acl_entry_short) +
-	       (count - 4) * sizeof(ext2_acl_entry);
+	return (size_t)ifs_ext2_acl_size(count);
 }
 
 static inline int ext2_acl_count(size_t size)
 {
-	ssize_t tail;
-
-	if (size < sizeof(ext2_acl_header))
-		return -1;
-
-	size -= sizeof(ext2_acl_header);
-	tail = size - 4 * sizeof(ext2_acl_entry_short);
-	if (tail < 0) {
-		if (size % sizeof(ext2_acl_entry_short))
-			return -1;
-		return size / sizeof(ext2_acl_entry_short);
-	}
-	if (tail % sizeof(ext2_acl_entry))
-		return -1;
-	return tail / sizeof(ext2_acl_entry) + 4;
+	return ifs_ext2_acl_count((ifs_ext2_size_t)size);
 }
 
 #ifdef CONFIG_EXT2_FS_POSIX_ACL
@@ -657,8 +638,8 @@ static inline int ext2_init_acl(struct inode *inode, struct inode *dir)
 }
 #endif
 
-#define EXT2_XATTR_MAGIC 0xEA020000
-#define EXT2_XATTR_REFCOUNT_MAX 1024
+#define EXT2_XATTR_MAGIC IFS_EXT2_XATTR_MAGIC
+#define EXT2_XATTR_REFCOUNT_MAX IFS_EXT2_XATTR_REFCOUNT_MAX
 #define EXT2_XATTR_INDEX_USER 1
 #define EXT2_XATTR_INDEX_POSIX_ACL_ACCESS 2
 #define EXT2_XATTR_INDEX_POSIX_ACL_DEFAULT 3

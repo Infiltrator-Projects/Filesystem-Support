@@ -166,6 +166,13 @@ windows/
   driver_entry.inc       DriverEntry and major-function registration
 ```
 
+The canonical core also owns the host-neutral allocation-map invariants,
+data-block range guards, extended-attribute block validation/hash rules and
+POSIX-ACL on-disk sizing used by the Linux adapter. Linux retains buffer-cache
+access, quota/credential policy, VFS xattr namespace exposure and publication;
+those host mechanisms call the canonical format rules rather than maintaining
+private EXT2 disk semantics.
+
 The same canonical engine serves both operating systems. The Windows adapter is
 source-cut by responsibility but deliberately remains one WDK translation unit
 at this stage. That preserves established static helper and object-lifetime

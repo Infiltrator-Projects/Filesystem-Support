@@ -52,6 +52,17 @@ typedef size_t ifs_ext2_size_t;
 #define IFS_EXT2_TIND_BLOCK 14U
 #define IFS_EXT2_N_BLOCKS 15U
 
+#define IFS_EXT2_XATTR_MAGIC 0xEA020000U
+#define IFS_EXT2_XATTR_REFCOUNT_MAX 1024U
+#define IFS_EXT2_XATTR_HEADER_SIZE 32U
+#define IFS_EXT2_XATTR_ENTRY_FIXED_SIZE 16U
+#define IFS_EXT2_XATTR_SENTINEL_SIZE 4U
+#define IFS_EXT2_XATTR_ALIGNMENT 4U
+
+#define IFS_EXT2_ACL_HEADER_SIZE 4U
+#define IFS_EXT2_ACL_SHORT_ENTRY_SIZE 4U
+#define IFS_EXT2_ACL_FULL_ENTRY_SIZE 8U
+
 #define IFS_EXT2_FEATURE_COMPAT_HAS_JOURNAL 0x0004U
 #define IFS_EXT2_FEATURE_COMPAT_EXT_ATTR 0x0008U
 
@@ -186,6 +197,38 @@ IfsExt2Status ifs_ext2_block_to_path(
     ifs_ext2_u32 block_size,
     ifs_ext2_u64 logical_block,
     IfsExt2BlockPath *path);
+
+IfsExt2Status ifs_ext2_validate_group_metadata_bitmap(
+    const IfsExt2Superblock *superblock,
+    ifs_ext2_u32 group,
+    const IfsExt2GroupDescriptor *descriptor,
+    const void *block_bitmap,
+    ifs_ext2_u32 bitmap_size);
+
+int ifs_ext2_data_block_range_valid(
+    ifs_ext2_u32 first_data_block,
+    ifs_ext2_u64 blocks_count,
+    ifs_ext2_u64 superblock_block,
+    ifs_ext2_u64 start,
+    ifs_ext2_u32 count);
+
+IfsExt2Status ifs_ext2_validate_xattr_block(
+    const void *block,
+    ifs_ext2_u32 block_size);
+
+ifs_ext2_u32 ifs_ext2_xattr_entry_hash(
+    const void *name,
+    ifs_ext2_u32 name_length,
+    const void *value,
+    ifs_ext2_u32 value_length);
+
+IfsExt2Status ifs_ext2_xattr_block_hash(
+    const void *block,
+    ifs_ext2_u32 block_size,
+    ifs_ext2_u32 *hash);
+
+ifs_ext2_size_t ifs_ext2_acl_size(int count);
+int ifs_ext2_acl_count(ifs_ext2_size_t size);
 
 ifs_ext2_u32 ifs_ext2_directory_record_required_length(
     ifs_ext2_u32 name_length);
