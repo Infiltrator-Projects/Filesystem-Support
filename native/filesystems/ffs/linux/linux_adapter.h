@@ -37,8 +37,6 @@
 #define AFFS_TAIL(sb, bh)     ((struct affs_tail *)((bh)->b_data + (sb)->s_blocksize -                          sizeof(struct affs_tail)))
 #define AFFS_ROOT_HEAD(bh)     ((struct affs_root_head *)(bh)->b_data)
 #define AFFS_ROOT_TAIL(sb, bh)     ((struct affs_root_tail *)((bh)->b_data + (sb)->s_blocksize -                               sizeof(struct affs_root_tail)))
-#define AFFS_DATA_HEAD(bh)     ((struct affs_data_head *)(bh)->b_data)
-#define AFFS_DATA(bh)     (((struct affs_data_head *)(bh)->b_data)->data)
 #define AFFS_BLOCK(sb, bh, block)     (AFFS_HEAD(bh)->table[AFFS_SB(sb)->s_hashsize - 1 - (block)])
 
 #define AFFS_CACHE_SIZE PAGE_SIZE
@@ -114,7 +112,6 @@ struct affs_sb_info {
 #define AFFS_MOUNT_SF_SETGID      0x0020UL
 #define AFFS_MOUNT_SF_SETMODE     0x0040UL
 #define AFFS_MOUNT_SF_MUFS        0x0100UL
-#define AFFS_MOUNT_SF_OFS         0x0200UL
 #define AFFS_MOUNT_SF_PREFIX      0x0400UL
 #define AFFS_MOUNT_SF_VERBOSE     0x0800UL
 #define AFFS_MOUNT_SF_NO_TRUNCATE 0x1000UL
@@ -211,11 +208,9 @@ extern const struct inode_operations affs_file_inode_operations;
 extern const struct inode_operations affs_dir_inode_operations;
 extern const struct inode_operations affs_symlink_inode_operations;
 extern const struct file_operations affs_file_operations;
-extern const struct file_operations affs_file_operations_ofs;
 extern const struct file_operations affs_dir_operations;
 extern const struct address_space_operations affs_symlink_aops;
 extern const struct address_space_operations affs_aops;
-extern const struct address_space_operations affs_aops_ofs;
 extern const struct dentry_operations affs_dentry_operations;
 extern const struct dentry_operations affs_intl_dentry_operations;
 
