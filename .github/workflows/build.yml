@@ -481,11 +481,24 @@ jobs:
           test -s native/filesystems/ecryptfs/reference/linux/inode.c
           ! grep -Fq 'native/filesystems/ecryptfs/reference' CMakeLists.txt
 
-          # SGI EFS remains read-only imported reference evidence.
-          test ! -e native/filesystems/efs/kernel
+          # SGI EFS remains read-only imported reference evidence until a
+          # host-neutral read-only engine and thin adapters are independently built.
+          test -s native/filesystems/efs/DESIGN.md
+          test -d native/filesystems/efs/reference/linux
+          for forbidden in core linux windows userspace kernel; do
+            test ! -e "native/filesystems/efs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *) echo "Unexpected EFS root entry while still in reference/import state: $entry" >&2; exit 1 ;;
+            esac
+          done < <(find native/filesystems/efs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/efs/reference/linux/efs.h
           test -s native/filesystems/efs/reference/linux/super.c
-          test -s native/filesystems/efs/DESIGN.md
+          test -s native/filesystems/efs/reference/linux/inode.c
+          test -s native/filesystems/efs/reference/linux/dir.c
+          ! grep -Fq 'native/filesystems/efs/reference' CMakeLists.txt
 
           # EncFS is a userspace encrypted overlay.
           test ! -e native/filesystems/encfs/.gitkeep
