@@ -533,11 +533,18 @@ jobs:
           ! grep -Fq 'native/filesystems/erofs/reference' CMakeLists.txt
 
           # erofsfuse is only an external userspace provider for the same
-          # canonical EROFS filesystem.
-          test ! -e native/filesystems/erofsfuse/.gitkeep
-          test ! -e native/filesystems/erofsfuse/kernel
-          test ! -e native/filesystems/erofsfuse/core
+          # canonical EROFS filesystem. First-party userspace support belongs
+          # under erofs/userspace, so this provider directory is docs-only.
           test -s native/filesystems/erofsfuse/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/erofsfuse/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected erofsfuse implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/erofsfuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # exFAT remains imported Linux reference evidence until one
           # canonical cross-platform engine is independently rewritten.
