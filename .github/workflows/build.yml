@@ -580,10 +580,22 @@ jobs:
 
           # F2FS remains imported Linux reference evidence until its flash,
           # checkpoint and segment semantics are independently rewritten.
-          test ! -e native/filesystems/f2fs/kernel
+          test -s native/filesystems/f2fs/DESIGN.md
+          test -d native/filesystems/f2fs/reference/linux
+          for forbidden in core linux windows userspace kernel; do
+            test ! -e "native/filesystems/f2fs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *) echo "Unexpected F2FS root entry while still in reference/import state: $entry" >&2; exit 1 ;;
+            esac
+          done < <(find native/filesystems/f2fs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/f2fs/reference/linux/f2fs.h
           test -s native/filesystems/f2fs/reference/linux/checkpoint.c
-          test -s native/filesystems/f2fs/DESIGN.md
+          test -s native/filesystems/f2fs/reference/linux/segment.c
+          test -s native/filesystems/f2fs/reference/linux/recovery.c
+          ! grep -Fq 'native/filesystems/f2fs/reference' CMakeLists.txt
 
           # FAT12/16/32 remains imported Linux reference evidence until the
           # canonical FAT family engine is independently implemented.
