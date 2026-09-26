@@ -886,6 +886,7 @@ jobs:
             test -s "$file"
             ! grep -Eiq 'linux/fs/affs|Hans-Joachim Widmaier|Ray Burr|Eric Youngdale|Linus Torvalds' "$file"
           done
+          ! grep -R -Eq 'IFS_FFS_IS_OFS|SF_OFS|AFFS_MOUNT_SF_OFS|affs_aops_ofs|ifs_ffs_ofs_|AFFS_DATA_HEAD|AFFS_DATA\(' native/filesystems/ffs/linux
 
       - name: Reject external Amiga provenance in active sources
         shell: bash
