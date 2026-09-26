@@ -376,11 +376,19 @@ jobs:
             }
           done < <(find native/filesystems/convmvfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
-          # CP/M is a real disk-format family, currently exposed only through
-          # external tools. The placeholder is replaced by an explicit future
-          # canonical-engine contract.
-          test ! -e native/filesystems/cpm/.gitkeep
+          # CP/M is a real disk-format family, but it has not entered
+          # first-party implementation yet. Until promotion, DESIGN.md is the
+          # complete filesystem directory.
           test -s native/filesystems/cpm/DESIGN.md
+          for forbidden in .gitkeep core linux windows userspace kernel reference; do
+            test ! -e "native/filesystems/cpm/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected CP/M implementation entry before promotion: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/cpm -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # CramFS remains imported Linux reference evidence until a
           # host-neutral read-only engine and adapters are independently built.
