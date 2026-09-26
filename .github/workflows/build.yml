@@ -146,11 +146,18 @@ jobs:
           done < <(find native/filesystems/apfs-dkms -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # APFS-FUSE is another external provider identity for the same APFS
-          # filesystem, not a second place to implement APFS semantics.
-          test ! -e native/filesystems/apfs-fuse/.gitkeep
-          test ! -e native/filesystems/apfs-fuse/kernel
-          test ! -e native/filesystems/apfs-fuse/core
+          # filesystem, not a second place to implement APFS semantics. Its
+          # filesystem directory remains documentation-only.
           test -s native/filesystems/apfs-fuse/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/apfs-fuse/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected APFS-FUSE implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/apfs-fuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # ArchiveMount is a userspace archive namespace provider. Archive
           # codecs and libarchive semantics do not become a kernel filesystem.
