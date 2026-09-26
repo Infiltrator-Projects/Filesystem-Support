@@ -12,6 +12,17 @@ CramFS is currently **reference/import state**. The files under
 `reference/linux/` are the pinned upstream Linux implementation and retain
 their original licences, provenance and filenames. They are not project code.
 
+## Current directory contract
+
+While CramFS remains in reference/import state, the filesystem root contains
+only `DESIGN.md` and `reference/`, with the upstream implementation preserved
+under `reference/linux/`. The future `core/`, `linux/` and `windows/`
+directories appear only with independently authored code; `kernel/` and
+`userspace/` are not valid substitutes.
+
+CI enforces this boundary and keeps the imported reference source out of the
+production CMake graph.
+
 ## Target layout
 
 ```text

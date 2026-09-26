@@ -392,10 +392,21 @@ jobs:
 
           # CramFS remains imported Linux reference evidence until a
           # host-neutral read-only engine and adapters are independently built.
-          test ! -e native/filesystems/cramfs/kernel
+          test -s native/filesystems/cramfs/DESIGN.md
+          test -d native/filesystems/cramfs/reference/linux
+          for forbidden in core linux windows userspace kernel; do
+            test ! -e "native/filesystems/cramfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *) echo "Unexpected CramFS root entry while still in reference/import state: $entry" >&2; exit 1 ;;
+            esac
+          done < <(find native/filesystems/cramfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/cramfs/reference/linux/inode.c
           test -s native/filesystems/cramfs/reference/linux/uncompress.c
-          test -s native/filesystems/cramfs/DESIGN.md
+          test -s native/filesystems/cramfs/reference/linux/README
+          ! grep -Fq 'native/filesystems/cramfs/reference' CMakeLists.txt
 
           # CryFS is a userspace encrypted overlay provider, not a local
           # disk-format kernel filesystem.
