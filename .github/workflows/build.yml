@@ -757,6 +757,66 @@ jobs:
             ! grep -Fq 'copy_tree fs/hfs native/filesystems/hfs/kernel' "$refresh"
           fi
 
+      - name: Enforce permanent EXT2 source layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=native/filesystems/ext2
+          test ! -e "$root/reference"
+          test ! -e "$root/kernel"
+          test ! -e "$root/userspace"
+
+          printf '%s\n' DESIGN.md core linux windows > /tmp/ext2-root.expected
+          find "$root" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/ext2-root.actual
+          sort -o /tmp/ext2-root.expected /tmp/ext2-root.expected
+          diff -u /tmp/ext2-root.expected /tmp/ext2-root.actual
+
+          cat > /tmp/ext2-core.expected <<'EOF'
+          ext2_core.c
+          ext2_core.h
+          ext2_engine.c
+          ext2_engine.h
+          EOF
+          sed -i 's/^          //' /tmp/ext2-core.expected
+          find "$root/core" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext2-core.actual
+          sort -o /tmp/ext2-core.expected /tmp/ext2-core.expected
+          diff -u /tmp/ext2-core.expected /tmp/ext2-core.actual
+
+          cat > /tmp/ext2-linux.expected <<'EOF'
+          Makefile
+          allocation.c
+          core_bridge.c
+          io.c
+          lifecycle.c
+          linux_adapter.h
+          metadata.c
+          namespace.c
+          EOF
+          sed -i 's/^          //' /tmp/ext2-linux.expected
+          find "$root/linux" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext2-linux.actual
+          sort -o /tmp/ext2-linux.expected /tmp/ext2-linux.expected
+          diff -u /tmp/ext2-linux.expected /tmp/ext2-linux.actual
+
+          cat > /tmp/ext2-windows.expected <<'EOF'
+          Directory.Build.props
+          adapter_support.inc
+          directory_dispatch.inc
+          driver_entry.inc
+          ext2_driver.c
+          ext2_driver.h
+          file_dispatch.inc
+          filesystem_support_ext2.inf
+          filesystem_support_ext2.rc
+          filesystem_support_ext2.sln
+          filesystem_support_ext2.vcxproj
+          name_translation.inc
+          volume_lifecycle.inc
+          EOF
+          sed -i 's/^          //' /tmp/ext2-windows.expected
+          find "$root/windows" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext2-windows.actual
+          sort -o /tmp/ext2-windows.expected /tmp/ext2-windows.expected
+          diff -u /tmp/ext2-windows.expected /tmp/ext2-windows.actual
+
       - name: Verify rewritten EXT2 file layer provenance
         shell: bash
         run: |
