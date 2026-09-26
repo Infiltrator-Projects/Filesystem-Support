@@ -12,6 +12,17 @@ F2FS is currently **reference/import state**. The Linux implementation under
 `reference/linux/` is preserved unchanged as upstream evidence and is not
 project-authored source.
 
+## Current directory contract
+
+While F2FS remains in reference/import state, the filesystem root contains only
+`DESIGN.md` and `reference/`, with the pinned upstream Linux implementation
+under `reference/linux/`. The future `core/`, `linux/` and `windows/`
+directories appear only with independently authored implementation. `kernel/`
+and `userspace/` are not valid alternate source trees.
+
+CI enforces this boundary and rejects accidental production linkage of the
+imported reference source.
+
 ## Target layout
 
 ```text
