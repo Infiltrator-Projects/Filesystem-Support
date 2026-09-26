@@ -16,6 +16,17 @@ The upstream files retain their original names, licences and provenance.
 `dir.c`, `file.c` and `inode.c` are reference translation units, not the
 required permanent project file boundaries.
 
+## Current directory contract
+
+While BFS remains in reference/import state, the filesystem root contains only
+`DESIGN.md` and `reference/`, with the copied Linux implementation below
+`reference/linux/`. The future `core/`, `linux/` and `windows/` directories do
+not exist until an independent rewrite actually begins; `kernel/` and
+`userspace/` are not valid substitutes for that architecture.
+
+CI enforces this present-state boundary and keeps the imported tree out of the
+production CMake source graph.
+
 ## Target layout
 
 ```text

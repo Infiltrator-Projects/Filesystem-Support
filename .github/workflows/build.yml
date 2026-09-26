@@ -233,10 +233,25 @@ jobs:
 
           # SCO BFS remains copied Linux reference source until independently
           # rewritten into a canonical engine plus host adapters.
-          test ! -e native/filesystems/bfs/kernel
-          test -s native/filesystems/bfs/reference/linux/bfs.h
-          test -s native/filesystems/bfs/reference/linux/inode.c
           test -s native/filesystems/bfs/DESIGN.md
+          test -d native/filesystems/bfs/reference/linux
+          for forbidden in core linux windows userspace kernel; do
+            test ! -e "native/filesystems/bfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *)
+                echo "Unexpected BFS root entry while still in reference/import state: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done < <(find native/filesystems/bfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+          test -s native/filesystems/bfs/reference/linux/bfs.h
+          test -s native/filesystems/bfs/reference/linux/dir.c
+          test -s native/filesystems/bfs/reference/linux/file.c
+          test -s native/filesystems/bfs/reference/linux/inode.c
+          ! grep -Fq 'native/filesystems/bfs/reference' CMakeLists.txt
 
           # bindfs is a userspace overlay/presentation provider.
           test ! -e native/filesystems/bindfs/.gitkeep
