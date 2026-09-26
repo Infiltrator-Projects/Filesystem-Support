@@ -37,7 +37,6 @@ legacy staging path and did not make that source project-authored.
 ```text
 native/filesystems/romfs/
   DESIGN.md
-  README.md
   reference/
     linux/               pinned upstream Linux ROMFS source, reference only
 ```
