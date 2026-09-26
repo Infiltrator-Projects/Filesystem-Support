@@ -548,10 +548,22 @@ jobs:
 
           # exFAT remains imported Linux reference evidence until one
           # canonical cross-platform engine is independently rewritten.
-          test ! -e native/filesystems/exfat/kernel
+          test -s native/filesystems/exfat/DESIGN.md
+          test -d native/filesystems/exfat/reference/linux
+          for forbidden in core linux windows userspace kernel; do
+            test ! -e "native/filesystems/exfat/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *) echo "Unexpected exFAT root entry while still in reference/import state: $entry" >&2; exit 1 ;;
+            esac
+          done < <(find native/filesystems/exfat -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/exfat/reference/linux/exfat_raw.h
           test -s native/filesystems/exfat/reference/linux/super.c
-          test -s native/filesystems/exfat/DESIGN.md
+          test -s native/filesystems/exfat/reference/linux/dir.c
+          test -s native/filesystems/exfat/reference/linux/fatent.c
+          ! grep -Fq 'native/filesystems/exfat/reference' CMakeLists.txt
 
           # exfat-fuse is an external userspace provider for the same exFAT
           # engine; it must never grow an independent parser/core.
