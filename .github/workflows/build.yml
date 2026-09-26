@@ -132,11 +132,18 @@ jobs:
           done < <(find native/filesystems/afuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # APFS-DKMS is an external Debian provider identity, not a second
-          # APFS implementation owned by this source tree.
-          test ! -e native/filesystems/apfs-dkms/.gitkeep
-          test ! -e native/filesystems/apfs-dkms/kernel
-          test ! -e native/filesystems/apfs-dkms/core
+          # APFS implementation owned by this source tree. Its filesystem
+          # directory is documentation-only until that contract changes.
           test -s native/filesystems/apfs-dkms/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/apfs-dkms/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected APFS-DKMS implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/apfs-dkms -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # APFS-FUSE is another external provider identity for the same APFS
           # filesystem, not a second place to implement APFS semantics.
