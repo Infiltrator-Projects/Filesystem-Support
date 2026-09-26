@@ -872,7 +872,7 @@ jobs:
             native/filesystems/ofs/linux/namespace.c
             native/filesystems/ofs/linux/lifecycle.c
             native/filesystems/ofs/linux/linux_adapter.h
-            native/filesystems/ofs/linux/disk_layout.h
+            native/filesystems/ofs/core/ofs_disk_layout.h
             native/filesystems/ofs/core/ofs_primitives.c
             native/filesystems/ffs/linux/core_bridge.c
             native/filesystems/ffs/linux/storage.c
