@@ -516,10 +516,21 @@ jobs:
 
           # EROFS remains imported read-only reference evidence until its
           # canonical compressed-image engine is independently implemented.
-          test ! -e native/filesystems/erofs/kernel
+          test -s native/filesystems/erofs/DESIGN.md
+          test -d native/filesystems/erofs/reference/linux
+          for forbidden in core linux windows userspace kernel; do
+            test ! -e "native/filesystems/erofs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *) echo "Unexpected EROFS root entry while still in reference/import state: $entry" >&2; exit 1 ;;
+            esac
+          done < <(find native/filesystems/erofs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/erofs/reference/linux/erofs_fs.h
           test -s native/filesystems/erofs/reference/linux/zmap.c
-          test -s native/filesystems/erofs/DESIGN.md
+          test -s native/filesystems/erofs/reference/linux/decompressor.c
+          ! grep -Fq 'native/filesystems/erofs/reference' CMakeLists.txt
 
           # erofsfuse is only an external userspace provider for the same
           # canonical EROFS filesystem.
