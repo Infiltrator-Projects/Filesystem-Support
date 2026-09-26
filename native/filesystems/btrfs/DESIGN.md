@@ -15,6 +15,18 @@ project-authored Filesystem Support code.
 The reference tree is intentionally preserved with upstream filenames,
 licences, copyright and subsystem boundaries.
 
+## Current directory contract
+
+While Btrfs remains in reference/import state, the filesystem root contains only
+`DESIGN.md` and `reference/`; the copied Linux tree remains under
+`reference/linux/` with upstream filenames and boundaries intact. The future
+`core/`, `linux/` and `windows/` directories are created only when an
+independent rewrite actually begins. `kernel/` and `userspace/` are not valid
+shortcuts around that promotion boundary.
+
+CI enforces this present-state layout and rejects accidental linkage of the
+reference tree into the production CMake graph.
+
 ## Target layout
 
 ```text

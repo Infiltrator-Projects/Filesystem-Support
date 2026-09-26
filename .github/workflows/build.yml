@@ -283,10 +283,25 @@ jobs:
 
           # Btrfs remains an imported Linux reference until independently
           # rewritten into the canonical engine/adapter architecture.
-          test ! -e native/filesystems/btrfs/kernel
+          test -s native/filesystems/btrfs/DESIGN.md
+          test -d native/filesystems/btrfs/reference/linux
+          for forbidden in core linux windows userspace kernel; do
+            test ! -e "native/filesystems/btrfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *)
+                echo "Unexpected Btrfs root entry while still in reference/import state: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done < <(find native/filesystems/btrfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/btrfs/reference/linux/ctree.c
           test -s native/filesystems/btrfs/reference/linux/inode.c
-          test -s native/filesystems/btrfs/DESIGN.md
+          test -s native/filesystems/btrfs/reference/linux/extent-tree.c
+          test -s native/filesystems/btrfs/reference/linux/volumes.c
+          ! grep -Fq 'native/filesystems/btrfs/reference' CMakeLists.txt
 
           # ceph-fuse is an external userspace provider for CephFS, not a
           # second CephFS semantic implementation.
