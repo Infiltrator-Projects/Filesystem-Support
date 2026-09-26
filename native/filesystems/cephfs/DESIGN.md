@@ -22,6 +22,17 @@ Support does not claim it as project-authored code.
 The separate `ceph-fuse` catalogue identity is also only an external provider;
 it must not become a second CephFS implementation.
 
+## Current directory contract
+
+While CephFS remains in reference/import state, the filesystem root contains
+only `DESIGN.md` and `reference/`. The future `core/` and `userspace/`
+directories are created only when the independent client implementation begins;
+`linux/`, `windows/` and `kernel/` must not be introduced as alternate
+semantic implementations.
+
+CI enforces this present-state layout and rejects accidental production linkage
+of the imported Linux client.
+
 ## Target layout
 
 ```text

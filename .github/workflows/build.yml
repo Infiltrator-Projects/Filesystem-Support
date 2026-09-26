@@ -320,10 +320,25 @@ jobs:
           # CephFS is a distributed protocol/filesystem. The Linux kernel
           # client is reference evidence; project code targets the shared
           # userspace-service architecture.
-          test ! -e native/filesystems/cephfs/kernel
+          test -s native/filesystems/cephfs/DESIGN.md
+          test -d native/filesystems/cephfs/reference/linux
+          for forbidden in core userspace linux windows kernel; do
+            test ! -e "native/filesystems/cephfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            case "$entry" in
+              DESIGN.md|reference) ;;
+              *)
+                echo "Unexpected CephFS root entry while still in reference/import state: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done < <(find native/filesystems/cephfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           test -s native/filesystems/cephfs/reference/linux/mds_client.c
           test -s native/filesystems/cephfs/reference/linux/super.c
-          test -s native/filesystems/cephfs/DESIGN.md
+          test -s native/filesystems/cephfs/reference/linux/caps.c
+          test -s native/filesystems/cephfs/reference/linux/inode.c
+          ! grep -Fq 'native/filesystems/cephfs/reference' CMakeLists.txt
 
           # SMB/CIFS is a remote protocol/filesystem. Linux kernel source is
           # reference evidence; project semantics target the userspace core.
