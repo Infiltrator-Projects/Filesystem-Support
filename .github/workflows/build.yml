@@ -908,6 +908,20 @@ jobs:
             test ! -e "$legacy"
           done
 
+      - name: Enforce ZFS ownership layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=native/filesystems/zfs
+          test -s "$root/DESIGN.md"
+          for forbidden in .gitkeep core linux windows userspace kernel reference; do
+            test ! -e "$root/$forbidden"
+          done
+          printf '%s\n' DESIGN.md > /tmp/zfs-root.expected
+          find "$root" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/zfs-root.actual
+          diff -u /tmp/zfs-root.expected /tmp/zfs-root.actual
+          ! grep -Fq 'native/filesystems/zfs/' CMakeLists.txt
+
       - name: Enforce permanent EXT4 source layout
         shell: bash
         run: |
