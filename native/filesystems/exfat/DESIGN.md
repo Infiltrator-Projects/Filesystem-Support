@@ -11,6 +11,17 @@ exFAT is currently **reference/import state**. The pinned upstream Linux
 implementation is preserved under `reference/linux/` with original licensing,
 copyright and filenames. It is not project-authored Filesystem Support code.
 
+## Current directory contract
+
+While exFAT remains in reference/import state, the filesystem root contains only
+`DESIGN.md` and `reference/`, with the pinned upstream Linux implementation
+under `reference/linux/`. The future `core/`, `linux/`, `windows/` and
+`userspace/` directories appear only with independently authored implementation;
+`kernel/` is not a valid alternate source tree.
+
+CI enforces this boundary and rejects accidental production linkage of the
+imported reference source.
+
 ## Target layout
 
 ```text
