@@ -408,11 +408,18 @@ jobs:
           test -s native/filesystems/cramfs/reference/linux/README
           ! grep -Fq 'native/filesystems/cramfs/reference' CMakeLists.txt
 
-          # CryFS is a userspace encrypted overlay provider, not a local
-          # disk-format kernel filesystem.
-          test ! -e native/filesystems/cryfs/.gitkeep
-          test ! -e native/filesystems/cryfs/kernel
+          # CryFS is an external userspace provider. Until an explicit
+          # first-party implementation exists, this directory is docs-only.
           test -s native/filesystems/cryfs/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/cryfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected CryFS implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/cryfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # CurlFtpFS is a remote FTP userspace provider.
           test ! -e native/filesystems/curlftpfs/.gitkeep
