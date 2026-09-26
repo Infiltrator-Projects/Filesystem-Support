@@ -883,6 +883,73 @@ jobs:
             test ! -e "$legacy"
           done
 
+      - name: Enforce permanent EXT4 source layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=native/filesystems/ext4
+          test ! -e "$root/reference"
+          test ! -e "$root/windows"
+          test ! -e "$root/kernel"
+          test ! -e "$root/userspace"
+
+          printf '%s\n' DESIGN.md core linux > /tmp/ext4-root.expected
+          find "$root" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/ext4-root.actual
+          sort -o /tmp/ext4-root.expected /tmp/ext4-root.expected
+          diff -u /tmp/ext4-root.expected /tmp/ext4-root.actual
+
+          printf '%s\n' ext4_core.c ext4_core.h > /tmp/ext4-core.expected
+          find "$root/core" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext4-core.actual
+          sort -o /tmp/ext4-core.expected /tmp/ext4-core.expected
+          diff -u /tmp/ext4-core.expected /tmp/ext4-core.actual
+
+          cat > /tmp/ext4-linux.expected <<'EOF'
+          Makefile
+          control.c
+          core_bridge.c
+          directory_io.c
+          embedded_jbd2.h
+          ext4.h
+          ext4_extents.h
+          ext4_jbd2.h
+          extended_metadata.c
+          extent_cache.c
+          extent_tree.c
+          extents_status.h
+          fast_commit.h
+          fast_commit_engine.c
+          file_io.c
+          fsmap.h
+          include
+          inline_data.c
+          inode_adapter.c
+          inode_allocation.c
+          journal_core.c
+          journal_durability.c
+          journal_transactions.c
+          lifecycle.c
+          mapping_support.c
+          mballoc.h
+          multiblock_allocation.c
+          namespace_mutation.c
+          online_resize.c
+          orphan_recovery.c
+          security_support.c
+          storage_guard.c
+          truncate.h
+          volume_admin.c
+          writeback_io.c
+          xattr.h
+          EOF
+          sed -i 's/^          //' /tmp/ext4-linux.expected
+          find "$root/linux" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/ext4-linux.actual
+          sort -o /tmp/ext4-linux.expected /tmp/ext4-linux.expected
+          diff -u /tmp/ext4-linux.expected /tmp/ext4-linux.actual
+
+          test -s "$root/linux/include/linux/jbd2.h"
+          test -s "$root/linux/include/trace/events/jbd2.h"
+          test "$(find "$root/linux/include" -type f | wc -l)" -eq 2
+
       - name: Guard rewritten EXT4 interface provenance
         shell: bash
         run: |
