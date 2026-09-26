@@ -65,7 +65,10 @@ jobs:
           # Bcachefs is still reference/import state. Keep the Linux tree
           # visibly separate from future canonical project source.
           copy_tree fs/bcachefs native/filesystems/bcachefs/reference/linux
-          copy_tree fs/overlayfs native/filesystems/overlayfs/kernel
+          # OverlayFS remains reference/import state. Keep copied Linux source
+          # behind the explicit provenance boundary until an independent
+          # canonical overlay engine is implemented.
+          copy_tree fs/overlayfs native/filesystems/overlayfs/reference/linux
           copy_tree fs/ecryptfs native/filesystems/ecryptfs/reference/linux
           # JFFS2 remains reference/import state until its canonical engine is independently rewritten.
           copy_tree fs/jffs2 native/filesystems/jffs2/reference/linux
