@@ -159,12 +159,19 @@ jobs:
             }
           done < <(find native/filesystems/apfs-fuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
-          # ArchiveMount is a userspace archive namespace provider. Archive
-          # codecs and libarchive semantics do not become a kernel filesystem.
-          test ! -e native/filesystems/archivemount/.gitkeep
-          test ! -e native/filesystems/archivemount/kernel
-          test ! -e native/filesystems/archivemount/core
+          # ArchiveMount is currently an external userspace archive provider,
+          # not a first-party implementation. Until promotion, DESIGN.md is
+          # the complete filesystem directory.
           test -s native/filesystems/archivemount/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/archivemount/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected ArchiveMount implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/archivemount -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # AVFS is a userspace virtual namespace spanning archives/remotes.
           test ! -e native/filesystems/avfs/.gitkeep
