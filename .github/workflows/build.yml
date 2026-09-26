@@ -879,7 +879,7 @@ jobs:
             native/filesystems/ffs/linux/namespace.c
             native/filesystems/ffs/linux/lifecycle.c
             native/filesystems/ffs/linux/linux_adapter.h
-            native/filesystems/ffs/linux/disk_layout.h
+            native/filesystems/ffs/core/ffs_disk_layout.h
             native/filesystems/ffs/core/ffs_primitives.c
           )
           for file in "${rewritten[@]}"; do
