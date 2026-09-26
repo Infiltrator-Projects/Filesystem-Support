@@ -435,11 +435,19 @@ jobs:
             }
           done < <(find native/filesystems/curlftpfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
-          # davfs2 is a remote WebDAV userspace provider.
-          test ! -e native/filesystems/davfs2/.gitkeep
-          test ! -e native/filesystems/davfs2/kernel
-          test ! -e native/filesystems/davfs2/core
+          # davfs2 is currently an external WebDAV userspace provider. Until
+          # a first-party userspace implementation is admitted, DESIGN.md is
+          # the complete filesystem directory.
           test -s native/filesystems/davfs2/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/davfs2/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected davfs2 implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/davfs2 -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # disorderfs is a userspace testing overlay that deliberately
           # perturbs metadata ordering/presentation.
