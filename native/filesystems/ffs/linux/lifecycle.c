@@ -5,7 +5,6 @@
 #define IFS_FFS_FORMAT_LABEL "FFS"
 #define IFS_FFS_INODE_CACHE_NAME "ffs_inode_cache"
 #define IFS_FFS_MODULE_DESCRIPTION "Amiga FFS filesystem support for Linux"
-#define IFS_FFS_IS_OFS 0
 
 static int ifs_ffs_variant_classify(u32 dostype, u32 *flags)
 {
@@ -502,11 +501,6 @@ static int ifs_ffs_apply_format_identity(
     if ((variant_flags & IFS_FFS_VARIANT_INTL) != 0U)
         affs_set_opt(sbi->s_flags, SF_INTL);
 
-#if IFS_FFS_IS_OFS
-    affs_set_opt(sbi->s_flags, SF_OFS);
-    sb->s_flags |= SB_NOEXEC;
-#endif
-
     return 0;
 }
 
@@ -612,14 +606,6 @@ static int ifs_ffs_fill_super_config(
 
     sb->s_flags |= SB_NODEV | SB_NOSUID;
     sbi->s_data_blksize = (u32)sb->s_blocksize;
-#if IFS_FFS_IS_OFS
-    if (sbi->s_data_blksize <= sizeof(struct affs_data_head)) {
-        result = -EUCLEAN;
-        goto fail;
-    }
-    sbi->s_data_blksize -= sizeof(struct affs_data_head);
-#endif
-
     bitmap_flags = sb->s_flags;
     result = affs_init_bitmap(sb, &bitmap_flags);
     if (result != 0)
@@ -715,8 +701,7 @@ static int affs_remount(struct super_block *sb, int *flags, char *data)
      * Media-derived format identity cannot be changed by remount options.
      */
     config.flags |= sbi->s_flags &
-        (AFFS_MOUNT_SF_INTL | AFFS_MOUNT_SF_MUFS |
-         AFFS_MOUNT_SF_OFS);
+        (AFFS_MOUNT_SF_INTL | AFFS_MOUNT_SF_MUFS);
 
     sbi->s_flags = config.flags;
     sbi->s_mode = config.mode;
@@ -774,8 +759,7 @@ static int affs_reconfigure(struct fs_context *fc)
     fc->sb_flags |= SB_NODIRATIME;
 
     config->flags |= sbi->s_flags &
-        (AFFS_MOUNT_SF_INTL | AFFS_MOUNT_SF_MUFS |
-         AFFS_MOUNT_SF_OFS);
+        (AFFS_MOUNT_SF_INTL | AFFS_MOUNT_SF_MUFS);
 
     sbi->s_flags = config->flags;
     sbi->s_mode = config->mode;
