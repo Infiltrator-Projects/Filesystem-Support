@@ -253,11 +253,19 @@ jobs:
           test -s native/filesystems/bfs/reference/linux/inode.c
           ! grep -Fq 'native/filesystems/bfs/reference' CMakeLists.txt
 
-          # bindfs is a userspace overlay/presentation provider.
-          test ! -e native/filesystems/bindfs/.gitkeep
-          test ! -e native/filesystems/bindfs/kernel
-          test ! -e native/filesystems/bindfs/core
+          # bindfs is currently an external userspace overlay/presentation
+          # provider. Until a first-party userspace implementation is admitted,
+          # DESIGN.md is the complete filesystem directory.
           test -s native/filesystems/bindfs/DESIGN.md
+          for forbidden in .gitkeep core userspace linux windows kernel reference; do
+            test ! -e "native/filesystems/bindfs/$forbidden"
+          done
+          while IFS= read -r entry; do
+            test "$entry" = "DESIGN.md" || {
+              echo "Unexpected bindfs implementation entry: $entry" >&2
+              exit 1
+            }
+          done < <(find native/filesystems/bindfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
 
           # BitLocker is a storage-encryption/container layer. It may grow a
           # portable container core, but it is not a filesystem kernel module.
