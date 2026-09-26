@@ -125,7 +125,9 @@ jobs:
           # UDF remains reference/import state until its canonical ECMA-167/UDF
           # engine is independently rewritten.
           copy_tree fs/udf native/filesystems/udf/reference/linux
-          copy_tree fs/fuse native/filesystems/virtiofs/kernel
+          # VirtioFS remains reference/import state. Preserve the Linux FUSE +
+          # virtio-fs client implementation strictly as reference evidence.
+          copy_tree fs/fuse native/filesystems/virtiofs/reference/linux
 
           # SMB/CIFS is a network filesystem. Preserve the Linux client/common
           # sources solely as reference evidence for the canonical userspace core.
