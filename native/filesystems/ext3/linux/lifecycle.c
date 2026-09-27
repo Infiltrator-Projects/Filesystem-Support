@@ -2388,7 +2388,7 @@ static void ifs_ext3_local_ext3_init_journal_params(struct super_block *sb, jour
 		journal->j_commit_interval = sbi->s_commit_interval;
 
 
-	spin_lock(&journal->j_state_lock);
+	write_lock(&journal->j_state_lock);
 	if (test_opt(sb, BARRIER))
 		journal->j_flags |= JFS_BARRIER;
 	else
@@ -2397,7 +2397,7 @@ static void ifs_ext3_local_ext3_init_journal_params(struct super_block *sb, jour
 		journal->j_flags |= JFS_ABORT_ON_SYNCDATA_ERR;
 	else
 		journal->j_flags &= ~JFS_ABORT_ON_SYNCDATA_ERR;
-	spin_unlock(&journal->j_state_lock);
+	write_unlock(&journal->j_state_lock);
 }
 
 
@@ -3085,7 +3085,7 @@ static int ifs_ext3_local_ext3_statfs (struct dentry * dentry, struct kstatfs * 
 
 
 		if (sbi->s_journal && !sbi->journal_bdev)
-			overhead += sbi->s_journal->j_maxlen;
+			overhead += sbi->s_journal->j_total_len;
 
 		sbi->s_overhead_last = overhead;
 		smp_wmb();
