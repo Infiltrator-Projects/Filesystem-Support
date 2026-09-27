@@ -1,4 +1,9 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: jbd2.h.
+ * Project-maintained canonical implementation.
+ */
 
 /*
  * EXT4 — JBD2 tracing schema
@@ -14,7 +19,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:

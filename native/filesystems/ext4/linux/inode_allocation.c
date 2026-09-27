@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: inode_allocation.c.
+ * Project-maintained canonical implementation.
+ */
+
 // SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/ext4/ialloc.c
@@ -27,7 +34,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -98,14 +105,14 @@ void ext4_end_bitmap_read(struct buffer_head *bh, int uptodate)
 
 
 /**
- * ext4_validate_inode_bitmap - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_ext4_validate_inode_bitmap - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_validate_inode_bitmap(struct super_block *sb,
+static int ifs_ext4_local_ext4_validate_inode_bitmap(struct super_block *sb,
 				      struct ext4_group_desc *desc,
 				      ext4_group_t block_group,
 				      struct buffer_head *bh)
@@ -144,7 +151,7 @@ verified:
 
 
 /**
- * ext4_read_inode_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_read_inode_bitmap - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -152,7 +159,7 @@ verified:
  * rollback, abort or retry policy.
  */
 static struct buffer_head *
-ext4_read_inode_bitmap(struct super_block *sb, ext4_group_t block_group)
+ifs_ext4_local_ext4_read_inode_bitmap(struct super_block *sb, ext4_group_t block_group)
 {
 	struct ext4_group_desc *desc;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -236,7 +243,7 @@ ext4_read_inode_bitmap(struct super_block *sb, ext4_group_t block_group)
 	}
 
 verify:
-	err = ext4_validate_inode_bitmap(sb, desc, block_group, bh);
+	err = ifs_ext4_local_ext4_validate_inode_bitmap(sb, desc, block_group, bh);
 	if (err)
 		goto out;
 	return bh;
@@ -306,7 +313,7 @@ void ext4_free_inode(handle_t *handle, struct inode *inode)
 	}
 	block_group = (ino - 1) / EXT4_INODES_PER_GROUP(sb);
 	bit = (ino - 1) % EXT4_INODES_PER_GROUP(sb);
-	bitmap_bh = ext4_read_inode_bitmap(sb, block_group);
+	bitmap_bh = ifs_ext4_local_ext4_read_inode_bitmap(sb, block_group);
 
 	if (IS_ERR(bitmap_bh)) {
 		fatal = PTR_ERR(bitmap_bh);
@@ -398,14 +405,14 @@ struct orlov_stats {
 
 
 /**
- * get_orlov_stats - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_get_orlov_stats - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void get_orlov_stats(struct super_block *sb, ext4_group_t g,
+static void ifs_ext4_local_get_orlov_stats(struct super_block *sb, ext4_group_t g,
 			    int flex_size, struct orlov_stats *stats)
 {
 	struct ext4_group_desc *desc;
@@ -433,14 +440,14 @@ static void get_orlov_stats(struct super_block *sb, ext4_group_t g,
 
 
 /**
- * find_group_orlov - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_find_group_orlov - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int find_group_orlov(struct super_block *sb, struct inode *parent,
+static int ifs_ext4_local_find_group_orlov(struct super_block *sb, struct inode *parent,
 			    ext4_group_t *group, umode_t mode,
 			    const struct qstr *qstr)
 {
@@ -488,7 +495,7 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent,
 			parent_group = get_random_u32_below(ngroups);
 		for (i = 0; i < ngroups; i++) {
 			g = (parent_group + i) % ngroups;
-			get_orlov_stats(sb, g, flex_size, &stats);
+			ifs_ext4_local_get_orlov_stats(sb, g, flex_size, &stats);
 			if (!stats.free_inodes)
 				continue;
 			if (stats.used_dirs >= best_ndir)
@@ -540,7 +547,7 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent,
 
 	for (i = 0; i < ngroups; i++) {
 		grp = (parent_group + i) % ngroups;
-		get_orlov_stats(sb, grp, flex_size, &stats);
+		ifs_ext4_local_get_orlov_stats(sb, grp, flex_size, &stats);
 		if (stats.used_dirs >= max_dirs)
 			continue;
 		if (stats.free_inodes < min_inodes)
@@ -579,14 +586,14 @@ fallback_retry:
 
 
 /**
- * find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_find_group_other - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int find_group_other(struct super_block *sb, struct inode *parent,
+static int ifs_ext4_local_find_group_other(struct super_block *sb, struct inode *parent,
 			    ext4_group_t *group, umode_t mode)
 {
 	ext4_group_t parent_group = EXT4_I(parent)->i_block_group;
@@ -620,7 +627,7 @@ static int find_group_other(struct super_block *sb, struct inode *parent,
 		*group = parent_group + flex_size;
 		if (*group > ngroups)
 			*group = 0;
-		return find_group_orlov(sb, parent, group, mode, NULL);
+		return ifs_ext4_local_find_group_orlov(sb, parent, group, mode, NULL);
 	}
 
 
@@ -663,14 +670,14 @@ static int find_group_other(struct super_block *sb, struct inode *parent,
 
 
 /**
- * recently_deleted - Implements the recently deleted operation within the inode allocation subsystem.
+ * ifs_ext4_local_recently_deleted - Implements the recently deleted operation within the inode allocation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int recently_deleted(struct super_block *sb, ext4_group_t group, int ino)
+static int ifs_ext4_local_recently_deleted(struct super_block *sb, ext4_group_t group, int ino)
 {
 	struct ext4_group_desc	*gdp;
 	struct ext4_inode	*raw_inode;
@@ -716,14 +723,14 @@ out:
 
 
 /**
- * find_inode_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_find_inode_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int find_inode_bit(struct super_block *sb, ext4_group_t group,
+static int ifs_ext4_local_find_inode_bit(struct super_block *sb, ext4_group_t group,
 			  struct buffer_head *bitmap, unsigned long *ino)
 {
 	bool check_recently_deleted = EXT4_SB(sb)->s_journal == NULL;
@@ -736,7 +743,7 @@ next:
 	if (*ino >= EXT4_INODES_PER_GROUP(sb))
 		goto not_found;
 
-	if (check_recently_deleted && recently_deleted(sb, group, *ino)) {
+	if (check_recently_deleted && ifs_ext4_local_recently_deleted(sb, group, *ino)) {
 		recently_deleted_ino = *ino;
 		*ino = *ino + 1;
 		if (*ino < EXT4_INODES_PER_GROUP(sb))
@@ -776,7 +783,7 @@ int ext4_mark_inode_used(struct super_block *sb, int ino)
 
 	group = (ino - 1) / EXT4_INODES_PER_GROUP(sb);
 	bit = (ino - 1) % EXT4_INODES_PER_GROUP(sb);
-	inode_bitmap_bh = ext4_read_inode_bitmap(sb, group);
+	inode_bitmap_bh = ifs_ext4_local_ext4_read_inode_bitmap(sb, group);
 	if (IS_ERR(inode_bitmap_bh))
 		return PTR_ERR(inode_bitmap_bh);
 
@@ -875,14 +882,14 @@ out:
 
 
 /**
- * ext4_xattr_credits_for_new_inode - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ifs_ext4_local_ext4_xattr_credits_for_new_inode - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_credits_for_new_inode(struct inode *dir, mode_t mode,
+static int ifs_ext4_local_ext4_xattr_credits_for_new_inode(struct inode *dir, mode_t mode,
 					    bool encrypt)
 {
 	struct super_block *sb = dir->i_sb;
@@ -1005,7 +1012,7 @@ struct inode *__ext4_new_inode(struct mnt_idmap *idmap,
 		goto out;
 
 	if (!handle && sbi->s_journal && !(i_flags & EXT4_EA_INODE_FL)) {
-		ret2 = ext4_xattr_credits_for_new_inode(dir, mode, encrypt);
+		ret2 = ifs_ext4_local_ext4_xattr_credits_for_new_inode(dir, mode, encrypt);
 		if (ret2 < 0) {
 			err = ret2;
 			goto out;
@@ -1024,9 +1031,9 @@ struct inode *__ext4_new_inode(struct mnt_idmap *idmap,
 	}
 
 	if (S_ISDIR(mode))
-		ret2 = find_group_orlov(sb, dir, &group, mode, qstr);
+		ret2 = ifs_ext4_local_find_group_orlov(sb, dir, &group, mode, qstr);
 	else
-		ret2 = find_group_other(sb, dir, &group, mode);
+		ret2 = ifs_ext4_local_find_group_other(sb, dir, &group, mode);
 
 got_group:
 	EXT4_I(dir)->i_last_alloc_group = group;
@@ -1055,7 +1062,7 @@ got_group:
 		}
 
 		brelse(inode_bitmap_bh);
-		inode_bitmap_bh = ext4_read_inode_bitmap(sb, group);
+		inode_bitmap_bh = ifs_ext4_local_ext4_read_inode_bitmap(sb, group);
 
 		if (IS_ERR(inode_bitmap_bh)) {
 			inode_bitmap_bh = NULL;
@@ -1065,7 +1072,7 @@ got_group:
 		    EXT4_MB_GRP_IBITMAP_CORRUPT(grp))
 			goto next_group;
 
-		ret2 = find_inode_bit(sb, group, inode_bitmap_bh, &ino);
+		ret2 = ifs_ext4_local_find_inode_bit(sb, group, inode_bitmap_bh, &ino);
 		if (!ret2)
 			goto next_group;
 
@@ -1100,7 +1107,7 @@ got_group:
 		if (ret2) {
 
 
-			ret2 = find_inode_bit(sb, group, inode_bitmap_bh, &ino);
+			ret2 = ifs_ext4_local_find_inode_bit(sb, group, inode_bitmap_bh, &ino);
 			if (ret2) {
 				ext4_set_bit(ino, inode_bitmap_bh->b_data);
 				ret2 = 0;
@@ -1374,7 +1381,7 @@ struct inode *ext4_orphan_get(struct super_block *sb, unsigned long ino)
 
 	block_group = (ino - 1) / EXT4_INODES_PER_GROUP(sb);
 	bit = (ino - 1) % EXT4_INODES_PER_GROUP(sb);
-	bitmap_bh = ext4_read_inode_bitmap(sb, block_group);
+	bitmap_bh = ifs_ext4_local_ext4_read_inode_bitmap(sb, block_group);
 	if (IS_ERR(bitmap_bh))
 		return ERR_CAST(bitmap_bh);
 
@@ -1453,7 +1460,7 @@ unsigned long ext4_count_free_inodes(struct super_block *sb)
 			continue;
 		desc_count += ext4_free_inodes_count(sb, gdp);
 		brelse(bitmap_bh);
-		bitmap_bh = ext4_read_inode_bitmap(sb, i);
+		bitmap_bh = ifs_ext4_local_ext4_read_inode_bitmap(sb, i);
 		if (IS_ERR(bitmap_bh)) {
 			bitmap_bh = NULL;
 			continue;

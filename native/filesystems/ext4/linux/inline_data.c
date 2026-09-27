@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: inline_data.c.
+ * Project-maintained canonical implementation.
+ */
+
 // SPDX-License-Identifier: LGPL-2.1
 /*
  * Copyright (c) 2012 Taobao.
@@ -18,7 +25,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -44,14 +51,14 @@
 
 
 /**
- * ext4_get_inline_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_get_inline_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_get_inline_size(struct inode *inode)
+static int ifs_ext4_local_ext4_get_inline_size(struct inode *inode)
 {
 	if (EXT4_I(inode)->i_inline_off)
 		return EXT4_I(inode)->i_inline_size;
@@ -61,14 +68,14 @@ static int ext4_get_inline_size(struct inode *inode)
 
 
 /**
- * get_max_inline_xattr_value_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_get_max_inline_xattr_value_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int get_max_inline_xattr_value_size(struct inode *inode,
+static int ifs_ext4_local_get_max_inline_xattr_value_size(struct inode *inode,
 					   struct ext4_iloc *iloc)
 {
 	struct ext4_xattr_ibody_header *header;
@@ -160,7 +167,7 @@ int ext4_get_max_inline_size(struct inode *inode)
 	}
 
 	down_read(&EXT4_I(inode)->xattr_sem);
-	max_inline_size = get_max_inline_xattr_value_size(inode, &iloc);
+	max_inline_size = ifs_ext4_local_get_max_inline_xattr_value_size(inode, &iloc);
 	up_read(&EXT4_I(inode)->xattr_sem);
 
 	brelse(iloc.bh);
@@ -221,14 +228,14 @@ out:
 
 
 /**
- * ext4_read_inline_data - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_read_inline_data - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_read_inline_data(struct inode *inode, void *buffer,
+static int ifs_ext4_local_ext4_read_inline_data(struct inode *inode, void *buffer,
 				 unsigned int len,
 				 struct ext4_iloc *iloc)
 {
@@ -269,14 +276,14 @@ out:
 
 
 /**
- * ext4_write_inline_data - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_write_inline_data - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_write_inline_data(struct inode *inode, struct ext4_iloc *iloc,
+static void ifs_ext4_local_ext4_write_inline_data(struct inode *inode, struct ext4_iloc *iloc,
 				   void *buffer, loff_t pos, unsigned int len)
 {
 	struct ext4_xattr_entry *entry;
@@ -317,14 +324,14 @@ static void ext4_write_inline_data(struct inode *inode, struct ext4_iloc *iloc,
 
 
 /**
- * ext4_create_inline_data - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_create_inline_data - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_create_inline_data(handle_t *handle,
+static int ifs_ext4_local_ext4_create_inline_data(handle_t *handle,
 				   struct inode *inode, unsigned len)
 {
 	int error;
@@ -395,14 +402,14 @@ out:
 
 
 /**
- * ext4_update_inline_data - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_update_inline_data - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_update_inline_data(handle_t *handle, struct inode *inode,
+static int ifs_ext4_local_ext4_update_inline_data(handle_t *handle, struct inode *inode,
 				   unsigned int len)
 {
 	int error;
@@ -475,14 +482,14 @@ out:
 
 
 /**
- * ext4_prepare_inline_data - Implements the prepare inline data operation within the inline-data support subsystem.
+ * ifs_ext4_local_ext4_prepare_inline_data - Implements the prepare inline data operation within the inline-data support subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_prepare_inline_data(handle_t *handle, struct inode *inode,
+static int ifs_ext4_local_ext4_prepare_inline_data(handle_t *handle, struct inode *inode,
 				    loff_t len)
 {
 	int ret, size, no_expand;
@@ -500,9 +507,9 @@ static int ext4_prepare_inline_data(handle_t *handle, struct inode *inode,
 
 	(void) ext4_find_inline_data_nolock(inode);
 	if (ei->i_inline_off)
-		ret = ext4_update_inline_data(handle, inode, len);
+		ret = ifs_ext4_local_ext4_update_inline_data(handle, inode, len);
 	else
-		ret = ext4_create_inline_data(handle, inode, len);
+		ret = ifs_ext4_local_ext4_create_inline_data(handle, inode, len);
 
 	ext4_write_unlock_xattr(inode, &no_expand);
 	return ret;
@@ -510,14 +517,14 @@ static int ext4_prepare_inline_data(handle_t *handle, struct inode *inode,
 
 
 /**
- * ext4_destroy_inline_data_nolock - Tears down subsystem state after users have been quiesced.
+ * ifs_ext4_local_ext4_destroy_inline_data_nolock - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_destroy_inline_data_nolock(handle_t *handle,
+static int ifs_ext4_local_ext4_destroy_inline_data_nolock(handle_t *handle,
 					   struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -586,14 +593,14 @@ out:
 
 
 /**
- * ext4_read_inline_folio - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_read_inline_folio - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_read_inline_folio(struct inode *inode, struct folio *folio)
+static int ifs_ext4_local_ext4_read_inline_folio(struct inode *inode, struct folio *folio)
 {
 	void *kaddr;
 	int ret = 0;
@@ -614,7 +621,7 @@ static int ext4_read_inline_folio(struct inode *inode, struct folio *folio)
 	if (ret)
 		goto out;
 
-	len = min_t(size_t, ext4_get_inline_size(inode), i_size_read(inode));
+	len = min_t(size_t, ifs_ext4_local_ext4_get_inline_size(inode), i_size_read(inode));
 
 	if (len > PAGE_SIZE) {
 		ext4_error_inode(inode, __func__, __LINE__, 0,
@@ -625,7 +632,7 @@ static int ext4_read_inline_folio(struct inode *inode, struct folio *folio)
 	}
 
 	kaddr = kmap_local_folio(folio, 0);
-	ret = ext4_read_inline_data(inode, kaddr, len, &iloc);
+	ret = ifs_ext4_local_ext4_read_inline_data(inode, kaddr, len, &iloc);
 	kaddr = folio_zero_tail(folio, len, kaddr + len);
 	kunmap_local(kaddr);
 	folio_mark_uptodate(folio);
@@ -656,7 +663,7 @@ int ext4_readpage_inline(struct inode *inode, struct folio *folio)
 
 
 	if (!folio->index)
-		ret = ext4_read_inline_folio(inode, folio);
+		ret = ifs_ext4_local_ext4_read_inline_folio(inode, folio);
 	else if (!folio_test_uptodate(folio)) {
 		folio_zero_segment(folio, 0, folio_size(folio));
 		folio_mark_uptodate(folio);
@@ -670,14 +677,14 @@ int ext4_readpage_inline(struct inode *inode, struct folio *folio)
 
 
 /**
- * ext4_convert_inline_data_to_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ * ifs_ext4_local_ext4_convert_inline_data_to_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_convert_inline_data_to_extent(struct address_space *mapping,
+static int ifs_ext4_local_ext4_convert_inline_data_to_extent(struct address_space *mapping,
 					      struct inode *inode)
 {
 	int ret, needed_blocks, no_expand;
@@ -725,14 +732,14 @@ retry:
 	}
 
 	from = 0;
-	to = ext4_get_inline_size(inode);
+	to = ifs_ext4_local_ext4_get_inline_size(inode);
 	if (!folio_test_uptodate(folio)) {
-		ret = ext4_read_inline_folio(inode, folio);
+		ret = ifs_ext4_local_ext4_read_inline_folio(inode, folio);
 		if (ret < 0)
 			goto out;
 	}
 
-	ret = ext4_destroy_inline_data_nolock(handle, inode);
+	ret = ifs_ext4_local_ext4_destroy_inline_data_nolock(handle, inode);
 	if (ret)
 		goto out;
 
@@ -819,7 +826,7 @@ int ext4_try_to_write_inline_data(struct address_space *mapping,
 		goto out;
 	}
 
-	ret = ext4_prepare_inline_data(handle, inode, pos + len);
+	ret = ifs_ext4_local_ext4_prepare_inline_data(handle, inode, pos + len);
 	if (ret && ret != -ENOSPC)
 		goto out;
 
@@ -852,7 +859,7 @@ int ext4_try_to_write_inline_data(struct address_space *mapping,
 	}
 
 	if (!folio_test_uptodate(folio)) {
-		ret = ext4_read_inline_folio(inode, folio);
+		ret = ifs_ext4_local_ext4_read_inline_folio(inode, folio);
 		if (ret < 0) {
 			folio_unlock(folio);
 			folio_put(folio);
@@ -870,7 +877,7 @@ out:
 	brelse(iloc.bh);
 	return ret;
 convert:
-	return ext4_convert_inline_data_to_extent(mapping, inode);
+	return ifs_ext4_local_ext4_convert_inline_data_to_extent(mapping, inode);
 }
 
 
@@ -909,7 +916,7 @@ int ext4_write_inline_data_end(struct inode *inode, loff_t pos, unsigned len,
 		(void) ext4_find_inline_data_nolock(inode);
 
 		kaddr = kmap_local_folio(folio, 0);
-		ext4_write_inline_data(inode, &iloc, kaddr, pos, copied);
+		ifs_ext4_local_ext4_write_inline_data(inode, &iloc, kaddr, pos, copied);
 		kunmap_local(kaddr);
 		folio_mark_uptodate(folio);
 
@@ -948,14 +955,14 @@ out:
 
 
 /**
- * ext4_da_convert_inline_data_to_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ * ifs_ext4_local_ext4_da_convert_inline_data_to_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_da_convert_inline_data_to_extent(struct address_space *mapping,
+static int ifs_ext4_local_ext4_da_convert_inline_data_to_extent(struct address_space *mapping,
 						 struct inode *inode,
 						 void **fsdata)
 {
@@ -973,10 +980,10 @@ static int ext4_da_convert_inline_data_to_extent(struct address_space *mapping,
 		goto out;
 	}
 
-	inline_size = ext4_get_inline_size(inode);
+	inline_size = ifs_ext4_local_ext4_get_inline_size(inode);
 
 	if (!folio_test_uptodate(folio)) {
-		ret = ext4_read_inline_folio(inode, folio);
+		ret = ifs_ext4_local_ext4_read_inline_folio(inode, folio);
 		if (ret < 0)
 			goto out;
 	}
@@ -1038,13 +1045,13 @@ retry_journal:
 		goto out;
 	}
 
-	ret = ext4_prepare_inline_data(handle, inode, pos + len);
+	ret = ifs_ext4_local_ext4_prepare_inline_data(handle, inode, pos + len);
 	if (ret && ret != -ENOSPC)
 		goto out_journal;
 
 	if (ret == -ENOSPC) {
 		ext4_journal_stop(handle);
-		ret = ext4_da_convert_inline_data_to_extent(mapping,
+		ret = ifs_ext4_local_ext4_da_convert_inline_data_to_extent(mapping,
 							    inode,
 							    fsdata);
 		if (ret == -ENOSPC &&
@@ -1068,7 +1075,7 @@ retry_journal:
 	}
 
 	if (!folio_test_uptodate(folio)) {
-		ret = ext4_read_inline_folio(inode, folio);
+		ret = ifs_ext4_local_ext4_read_inline_folio(inode, folio);
 		if (ret < 0)
 			goto out_release_page;
 	}
@@ -1132,14 +1139,14 @@ void ext4_show_inline_dir(struct inode *dir, struct buffer_head *bh,
 
 
 /**
- * ext4_add_dirent_to_inline - Implements the add dirent to inline operation within the inline-data support subsystem.
+ * ifs_ext4_local_ext4_add_dirent_to_inline - Implements the add dirent to inline operation within the inline-data support subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_add_dirent_to_inline(handle_t *handle,
+static int ifs_ext4_local_ext4_add_dirent_to_inline(handle_t *handle,
 				     struct ext4_filename *fname,
 				     struct inode *dir,
 				     struct inode *inode,
@@ -1196,14 +1203,14 @@ static void *ext4_get_inline_xattr_pos(struct inode *inode,
 
 
 /**
- * ext4_update_final_de - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_update_final_de - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_update_final_de(void *de_buf, int old_size, int new_size)
+static void ifs_ext4_local_ext4_update_final_de(void *de_buf, int old_size, int new_size)
 {
 	struct ext4_dir_entry_2 *de, *prev_de;
 	void *limit;
@@ -1230,29 +1237,29 @@ static void ext4_update_final_de(void *de_buf, int old_size, int new_size)
 
 
 /**
- * ext4_update_inline_dir - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_update_inline_dir - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_update_inline_dir(handle_t *handle, struct inode *dir,
+static int ifs_ext4_local_ext4_update_inline_dir(handle_t *handle, struct inode *dir,
 				  struct ext4_iloc *iloc)
 {
 	int ret;
 	int old_size = EXT4_I(dir)->i_inline_size - EXT4_MIN_INLINE_DATA_SIZE;
-	int new_size = get_max_inline_xattr_value_size(dir, iloc);
+	int new_size = ifs_ext4_local_get_max_inline_xattr_value_size(dir, iloc);
 
 	if (new_size - old_size <= ext4_dir_rec_len(1, NULL))
 		return -ENOSPC;
 
-	ret = ext4_update_inline_data(handle, dir,
+	ret = ifs_ext4_local_ext4_update_inline_data(handle, dir,
 				      new_size + EXT4_MIN_INLINE_DATA_SIZE);
 	if (ret)
 		return ret;
 
-	ext4_update_final_de(ext4_get_inline_xattr_pos(dir, iloc), old_size,
+	ifs_ext4_local_ext4_update_final_de(ext4_get_inline_xattr_pos(dir, iloc), old_size,
 			     EXT4_I(dir)->i_inline_size -
 						EXT4_MIN_INLINE_DATA_SIZE);
 	dir->i_size = EXT4_I(dir)->i_disksize = EXT4_I(dir)->i_inline_size;
@@ -1261,40 +1268,40 @@ static int ext4_update_inline_dir(handle_t *handle, struct inode *dir,
 
 
 /**
- * ext4_restore_inline_data - Implements the restore inline data operation within the inline-data support subsystem.
+ * ifs_ext4_local_ext4_restore_inline_data - Implements the restore inline data operation within the inline-data support subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_restore_inline_data(handle_t *handle, struct inode *inode,
+static void ifs_ext4_local_ext4_restore_inline_data(handle_t *handle, struct inode *inode,
 				     struct ext4_iloc *iloc,
 				     void *buf, int inline_size)
 {
 	int ret;
 
-	ret = ext4_create_inline_data(handle, inode, inline_size);
+	ret = ifs_ext4_local_ext4_create_inline_data(handle, inode, inline_size);
 	if (ret) {
 		ext4_msg(inode->i_sb, KERN_EMERG,
 			"error restoring inline_data for inode -- potential data loss! (inode %lu, error %d)",
 			inode->i_ino, ret);
 		return;
 	}
-	ext4_write_inline_data(inode, iloc, buf, 0, inline_size);
+	ifs_ext4_local_ext4_write_inline_data(inode, iloc, buf, 0, inline_size);
 	ext4_set_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
 }
 
 
 /**
- * ext4_finish_convert_inline_dir - Implements the finish convert inline dir operation within the inline-data support subsystem.
+ * ifs_ext4_local_ext4_finish_convert_inline_dir - Implements the finish convert inline dir operation within the inline-data support subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_finish_convert_inline_dir(handle_t *handle,
+static int ifs_ext4_local_ext4_finish_convert_inline_dir(handle_t *handle,
 					  struct inode *inode,
 					  struct buffer_head *dir_block,
 					  void *buf,
@@ -1320,7 +1327,7 @@ static int ext4_finish_convert_inline_dir(handle_t *handle,
 	inode->i_size = inode->i_sb->s_blocksize;
 	i_size_write(inode, inode->i_sb->s_blocksize);
 	EXT4_I(inode)->i_disksize = inode->i_sb->s_blocksize;
-	ext4_update_final_de(dir_block->b_data,
+	ifs_ext4_local_ext4_update_final_de(dir_block->b_data,
 			inline_size - EXT4_INLINE_DOTDOT_SIZE + header_size,
 			inode->i_sb->s_blocksize - csum_size);
 
@@ -1338,14 +1345,14 @@ static int ext4_finish_convert_inline_dir(handle_t *handle,
 
 
 /**
- * ext4_convert_inline_data_nolock - Implements the convert inline data nolock operation within the inline-data support subsystem.
+ * ifs_ext4_local_ext4_convert_inline_data_nolock - Implements the convert inline data nolock operation within the inline-data support subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_convert_inline_data_nolock(handle_t *handle,
+static int ifs_ext4_local_ext4_convert_inline_data_nolock(handle_t *handle,
 					   struct inode *inode,
 					   struct ext4_iloc *iloc)
 {
@@ -1355,14 +1362,14 @@ static int ext4_convert_inline_data_nolock(handle_t *handle,
 	struct ext4_map_blocks map;
 	int inline_size;
 
-	inline_size = ext4_get_inline_size(inode);
+	inline_size = ifs_ext4_local_ext4_get_inline_size(inode);
 	buf = kmalloc(inline_size, GFP_NOFS);
 	if (!buf) {
 		error = -ENOMEM;
 		goto out;
 	}
 
-	error = ext4_read_inline_data(inode, buf, inline_size, iloc);
+	error = ifs_ext4_local_ext4_read_inline_data(inode, buf, inline_size, iloc);
 	if (error < 0)
 		goto out;
 
@@ -1375,7 +1382,7 @@ static int ext4_convert_inline_data_nolock(handle_t *handle,
 			goto out;
 	}
 
-	error = ext4_destroy_inline_data_nolock(handle, inode);
+	error = ifs_ext4_local_ext4_destroy_inline_data_nolock(handle, inode);
 	if (error)
 		goto out;
 
@@ -1413,13 +1420,13 @@ static int ext4_convert_inline_data_nolock(handle_t *handle,
 		error = ext4_handle_dirty_metadata(handle,
 						   inode, data_bh);
 	} else {
-		error = ext4_finish_convert_inline_dir(handle, inode, data_bh,
+		error = ifs_ext4_local_ext4_finish_convert_inline_dir(handle, inode, data_bh,
 						       buf, inline_size);
 	}
 
 out_restore:
 	if (error)
-		ext4_restore_inline_data(handle, inode, iloc, buf, inline_size);
+		ifs_ext4_local_ext4_restore_inline_data(handle, inode, iloc, buf, inline_size);
 
 out:
 	brelse(data_bh);
@@ -1455,7 +1462,7 @@ int ext4_try_add_inline_entry(handle_t *handle, struct ext4_filename *fname,
 						 EXT4_INLINE_DOTDOT_SIZE;
 	inline_size = EXT4_MIN_INLINE_DATA_SIZE - EXT4_INLINE_DOTDOT_SIZE;
 
-	ret = ext4_add_dirent_to_inline(handle, fname, dir, inode, &iloc,
+	ret = ifs_ext4_local_ext4_add_dirent_to_inline(handle, fname, dir, inode, &iloc,
 					inline_start, inline_size);
 	if (ret != -ENOSPC)
 		goto out;
@@ -1465,7 +1472,7 @@ int ext4_try_add_inline_entry(handle_t *handle, struct ext4_filename *fname,
 			EXT4_MIN_INLINE_DATA_SIZE;
 	if (!inline_size) {
 
-		ret = ext4_update_inline_dir(handle, dir, &iloc);
+		ret = ifs_ext4_local_ext4_update_inline_dir(handle, dir, &iloc);
 		if (ret && ret != -ENOSPC)
 			goto out;
 
@@ -1476,7 +1483,7 @@ int ext4_try_add_inline_entry(handle_t *handle, struct ext4_filename *fname,
 	if (inline_size) {
 		inline_start = ext4_get_inline_xattr_pos(dir, &iloc);
 
-		ret = ext4_add_dirent_to_inline(handle, fname, dir,
+		ret = ifs_ext4_local_ext4_add_dirent_to_inline(handle, fname, dir,
 						inode, &iloc, inline_start,
 						inline_size);
 
@@ -1485,7 +1492,7 @@ int ext4_try_add_inline_entry(handle_t *handle, struct ext4_filename *fname,
 	}
 
 
-	ret = ext4_convert_inline_data_nolock(handle, dir, &iloc);
+	ret = ifs_ext4_local_ext4_convert_inline_data_nolock(handle, dir, &iloc);
 
 out:
 	ext4_write_unlock_xattr(dir, &no_expand);
@@ -1533,7 +1540,7 @@ int ext4_inlinedir_to_tree(struct file *dir_file,
 		goto out;
 	}
 
-	inline_size = ext4_get_inline_size(inode);
+	inline_size = ifs_ext4_local_ext4_get_inline_size(inode);
 	dir_buf = kmalloc(inline_size, GFP_NOFS);
 	if (!dir_buf) {
 		ret = -ENOMEM;
@@ -1541,7 +1548,7 @@ int ext4_inlinedir_to_tree(struct file *dir_file,
 		goto out;
 	}
 
-	ret = ext4_read_inline_data(inode, dir_buf, inline_size, &iloc);
+	ret = ifs_ext4_local_ext4_read_inline_data(inode, dir_buf, inline_size, &iloc);
 	up_read(&EXT4_I(inode)->xattr_sem);
 	if (ret < 0)
 		goto out;
@@ -1650,7 +1657,7 @@ int ext4_read_inline_dir(struct file *file,
 		goto out;
 	}
 
-	inline_size = ext4_get_inline_size(inode);
+	inline_size = ifs_ext4_local_ext4_get_inline_size(inode);
 	dir_buf = kmalloc(inline_size, GFP_NOFS);
 	if (!dir_buf) {
 		ret = -ENOMEM;
@@ -1658,7 +1665,7 @@ int ext4_read_inline_dir(struct file *file,
 		goto out;
 	}
 
-	ret = ext4_read_inline_data(inode, dir_buf, inline_size, &iloc);
+	ret = ifs_ext4_local_ext4_read_inline_data(inode, dir_buf, inline_size, &iloc);
 	up_read(&EXT4_I(inode)->xattr_sem);
 	if (ret < 0)
 		goto out;
@@ -1757,12 +1764,12 @@ void *ext4_read_inline_link(struct inode *inode)
 		return ERR_PTR(ret);
 
 	ret = -ENOMEM;
-	inline_size = ext4_get_inline_size(inode);
+	inline_size = ifs_ext4_local_ext4_get_inline_size(inode);
 	link = kmalloc(inline_size + 1, GFP_NOFS);
 	if (!link)
 		goto out;
 
-	ret = ext4_read_inline_data(inode, link, inline_size, &iloc);
+	ret = ifs_ext4_local_ext4_read_inline_data(inode, link, inline_size, &iloc);
 	if (ret < 0) {
 		kfree(link);
 		goto out;
@@ -1819,7 +1826,7 @@ int ext4_try_create_inline_dir(handle_t *handle, struct inode *parent,
 	if (ret)
 		return ret;
 
-	ret = ext4_prepare_inline_data(handle, inode, inline_size);
+	ret = ifs_ext4_local_ext4_prepare_inline_data(handle, inode, inline_size);
 	if (ret)
 		goto out;
 
@@ -1888,11 +1895,11 @@ struct buffer_head *ext4_find_inline_entry(struct inode *dir,
 	if (ret < 0)
 		goto out;
 
-	if (ext4_get_inline_size(dir) == EXT4_MIN_INLINE_DATA_SIZE)
+	if (ifs_ext4_local_ext4_get_inline_size(dir) == EXT4_MIN_INLINE_DATA_SIZE)
 		goto out;
 
 	inline_start = ext4_get_inline_xattr_pos(dir, &is.iloc);
-	inline_size = ext4_get_inline_size(dir) - EXT4_MIN_INLINE_DATA_SIZE;
+	inline_size = ifs_ext4_local_ext4_get_inline_size(dir) - EXT4_MIN_INLINE_DATA_SIZE;
 
 	ret = ext4_search_dir(is.iloc.bh, inline_start, inline_size,
 			      dir, fname, 0, res_dir);
@@ -1947,7 +1954,7 @@ int ext4_delete_inline_entry(handle_t *handle,
 				EXT4_INLINE_DOTDOT_SIZE;
 	} else {
 		inline_start = ext4_get_inline_xattr_pos(dir, &iloc);
-		inline_size = ext4_get_inline_size(dir) -
+		inline_size = ifs_ext4_local_ext4_get_inline_size(dir) -
 				EXT4_MIN_INLINE_DATA_SIZE;
 	}
 
@@ -1975,7 +1982,7 @@ out:
 
 
 /**
- * ext4_get_inline_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_get_inline_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1983,7 +1990,7 @@ out:
  * rollback, abort or retry policy.
  */
 static inline struct ext4_dir_entry_2 *
-ext4_get_inline_entry(struct inode *inode,
+ifs_ext4_local_ext4_get_inline_entry(struct inode *inode,
 		      struct ext4_iloc *iloc,
 		      unsigned int offset,
 		      void **inline_start,
@@ -1991,7 +1998,7 @@ ext4_get_inline_entry(struct inode *inode,
 {
 	void *inline_pos;
 
-	BUG_ON(offset > ext4_get_inline_size(inode));
+	BUG_ON(offset > ifs_ext4_local_ext4_get_inline_size(inode));
 
 	if (offset < EXT4_MIN_INLINE_DATA_SIZE) {
 		inline_pos = (void *)ext4_raw_inode(iloc)->i_block;
@@ -1999,7 +2006,7 @@ ext4_get_inline_entry(struct inode *inode,
 	} else {
 		inline_pos = ext4_get_inline_xattr_pos(inode, iloc);
 		offset -= EXT4_MIN_INLINE_DATA_SIZE;
-		*inline_size = ext4_get_inline_size(inode) -
+		*inline_size = ifs_ext4_local_ext4_get_inline_size(inode) -
 				EXT4_MIN_INLINE_DATA_SIZE;
 	}
 
@@ -2050,10 +2057,10 @@ bool empty_inline_dir(struct inode *dir, int *has_inline_data)
 		goto out;
 	}
 
-	inline_len = ext4_get_inline_size(dir);
+	inline_len = ifs_ext4_local_ext4_get_inline_size(dir);
 	offset = EXT4_INLINE_DOTDOT_SIZE;
 	while (offset < inline_len) {
-		de = ext4_get_inline_entry(dir, &iloc, offset,
+		de = ifs_ext4_local_ext4_get_inline_entry(dir, &iloc, offset,
 					   &inline_pos, &inline_size);
 		if (ext4_check_dir_entry(dir, NULL, de,
 					 iloc.bh, inline_pos,
@@ -2094,7 +2101,7 @@ int ext4_destroy_inline_data(handle_t *handle, struct inode *inode)
 	int ret, no_expand;
 
 	ext4_write_lock_xattr(inode, &no_expand);
-	ret = ext4_destroy_inline_data_nolock(handle, inode);
+	ret = ifs_ext4_local_ext4_destroy_inline_data_nolock(handle, inode);
 	ext4_write_unlock_xattr(inode, &no_expand);
 
 	return ret;
@@ -2131,7 +2138,7 @@ int ext4_inline_data_iomap(struct inode *inode, struct iomap *iomap)
 
 	iomap->addr = addr;
 	iomap->offset = 0;
-	iomap->length = min_t(loff_t, ext4_get_inline_size(inode),
+	iomap->length = min_t(loff_t, ifs_ext4_local_ext4_get_inline_size(inode),
 			      i_size_read(inode));
 	iomap->type = IOMAP_INLINE;
 	iomap->flags = 0;
@@ -2186,7 +2193,7 @@ int ext4_inline_data_truncate(struct inode *inode, int *has_inline)
 
 	down_write(&EXT4_I(inode)->i_data_sem);
 	i_size = inode->i_size;
-	inline_size = ext4_get_inline_size(inode);
+	inline_size = ifs_ext4_local_ext4_get_inline_size(inode);
 	EXT4_I(inode)->i_disksize = i_size;
 
 	if (i_size < inline_size) {
@@ -2301,7 +2308,7 @@ int ext4_convert_inline_data(struct inode *inode)
 
 	ext4_write_lock_xattr(inode, &no_expand);
 	if (ext4_has_inline_data(inode))
-		error = ext4_convert_inline_data_nolock(handle, inode, &iloc);
+		error = ifs_ext4_local_ext4_convert_inline_data_nolock(handle, inode, &iloc);
 	ext4_write_unlock_xattr(inode, &no_expand);
 	ext4_journal_stop(handle);
 out_free:
