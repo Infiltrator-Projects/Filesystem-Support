@@ -1074,7 +1074,10 @@ jobs:
           grep -Fq -- '-DCONFIG_EXT2_FS_SECURITY=1' native/filesystems/ext2/linux/Makefile
 
   linux:
-    runs-on: ${{ startsWith(github.event.head_commit.message, 'Release ') && 'ubuntu-24.04' || 'linux-native' }}
+    # The current linux-native runners do not provide the build toolchain
+    # required by this job. Keep qualification deterministic on the hosted
+    # image until the runner image itself is provisioned with CMake/GTK.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
