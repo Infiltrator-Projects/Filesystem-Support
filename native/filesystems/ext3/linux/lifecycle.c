@@ -3499,8 +3499,6 @@ MODULE_DESCRIPTION("Third Extended Filesystem");
 MODULE_LICENSE("GPL");
 int infiltratr_ext3_mbcache_init(void);
 void infiltratr_ext3_mbcache_exit(void);
-int infiltratr_ext3_jbd_init(void);
-void infiltratr_ext3_jbd_exit(void);
 
 
 /**
@@ -3514,18 +3512,14 @@ void infiltratr_ext3_jbd_exit(void);
 static int __init ifs_ext3_local_init_ext3_fs(void)
 {
 	int err = infiltratr_ext3_mbcache_init();
+
 	if (err)
 		return err;
-	err = infiltratr_ext3_jbd_init();
-	if (err) {
-		infiltratr_ext3_mbcache_exit();
-		return err;
-	}
+
 	err = ifs_ext3_local_ext3_core_init_fs();
-	if (err) {
-		infiltratr_ext3_jbd_exit();
+	if (err)
 		infiltratr_ext3_mbcache_exit();
-	}
+
 	return err;
 }
 
@@ -3541,7 +3535,6 @@ static int __init ifs_ext3_local_init_ext3_fs(void)
 static void __exit ifs_ext3_local_exit_ext3_fs(void)
 {
 	ifs_ext3_local_ext3_core_exit_fs();
-	infiltratr_ext3_jbd_exit();
 	infiltratr_ext3_mbcache_exit();
 }
 
