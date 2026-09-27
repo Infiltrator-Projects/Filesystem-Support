@@ -1018,7 +1018,7 @@ static void ext4_show_inline_dir(struct inode *dir,
 	}
 }
 #else
-void ext4_show_inline_dir(struct inode *dir,
+static void ext4_show_inline_dir(struct inode *dir,
 			  struct buffer_head *bh,
 			  void *start,
 			  int size)
