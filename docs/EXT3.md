@@ -14,8 +14,9 @@ Linux deployment produces exactly one independently deployable module:
 ext3.ko
 ```
 
-The journal implementation is embedded in that module. Filesystem Support does
-not deploy a separate `jbd.ko` or metadata-cache helper module.
+The module uses Linux kernel JBD2 interfaces for journal operations. It does
+not include its former private journal engine. Its journal runtime therefore
+depends on kernel JBD2 support.
 
 ## Permanent responsibility layout
 
@@ -40,9 +41,7 @@ native/filesystems/ext3/
     namespace_mutation.c
     extended_metadata.c
     lifecycle.c
-    journal_durability.c
-    journal_core.c
-    journal_transactions.c
+    journal_compat.c
     linux_adapter.h
     journal_internal.h
 
@@ -128,57 +127,19 @@ Owns mount, superblock publication, module/VFS lifetime and Linux-only
 filesystem lifecycle. This unit remains migration implementation until
 independently replaced.
 
-### `journal_durability.c`
+### `journal_compat.c` and `journal_internal.h`
 
-Owns the project-authored checkpoint, commit, recovery and revoke implementation
-for the embedded journal durability path.
-
-### `journal_core.c`
-
-Owns journal object/ring lifecycle and Linux integration that has not yet crossed
-the project-authorship boundary.
-
-### `journal_transactions.c`
-
-Owns journal handle/transaction state-machine integration that has not yet
-crossed the project-authorship boundary.
-
-### `linux_adapter.h` and `journal_internal.h`
-
-Own the Linux-private EXT3 and embedded-journal adapter contracts. They remain
-migration implementation until their inherited bodies are independently
-replaced.
+These are the active EXT3 journal integration files. The module calls Linux
+kernel JBD2 interfaces; the former `journal_durability.c`, `journal_core.c`
+and `journal_transactions.c` are absent. Inspect current source and history
+before asserting independent authorship of any active adapter body.
 
 ## Current provenance state
 
-The authoritative source-ownership ledger is
+The migration classifications previously listed here named removed files and
+cannot establish authorship of current implementation bodies. The current
+source status and limits of that determination are recorded in
 [`EXT_SOURCE_PROVENANCE.md`](EXT_SOURCE_PROVENANCE.md).
-
-Currently project-authored EXT3 units are:
-
-- `core/ext3_core.c`
-- `core/ext3_core.h`
-- `linux/core_bridge.c`
-- `linux/allocation.c`
-- `linux/directory_io.c`
-- `linux/file_io.c`
-- `linux/journal_durability.c`
-
-The following responsibility-named Linux units remain materially inherited
-migration implementation:
-
-- `linux/inode_adapter.c`
-- `linux/namespace_mutation.c`
-- `linux/lifecycle.c`
-- `linux/extended_metadata.c`
-- `linux/journal_core.c`
-- `linux/journal_transactions.c`
-- `linux/linux_adapter.h`
-- `linux/journal_internal.h`
-
-A responsibility recut, rename or comment rewrite does not change provenance.
-Those units are promoted only after the implementation body itself is replaced
-and qualified.
 
 ## Linux module boundary
 
@@ -189,13 +150,12 @@ obj-m += ext3.o
 
 ext3-y := core_bridge.o allocation.o directory_io.o file_io.o inode_adapter.o \
           namespace_mutation.o lifecycle.o extended_metadata.o \
-          journal_durability.o journal_core.o journal_transactions.o
+          journal_compat.o
 ```
 
 There is one EXT3 filesystem module, `ext3.ko`.
 
-The embedded journal and metadata support must not escape into required helper
-modules.
+Journal operations currently rely on Linux kernel JBD2 support.
 
 ## Windows boundary
 
@@ -228,23 +188,11 @@ Shared ancestry is not permission to collapse them into one driver.
 
 ## Journal model
 
-The EXT3/JBD journal uses magic `0xC03B3998` and big-endian journal fields,
-while the EXT filesystem metadata remains little-endian.
-
-The journal contains descriptor, data/metadata image, revoke, commit and
-superblock records. Recovery is bounded by transaction sequence and valid
-circular-log geometry.
-
-Only committed transactions are replayable.
-
-The recovery model is:
-
-1. validate journal geometry and scan transaction boundaries;
-2. construct revoke state;
-3. replay committed, non-revoked block images in transaction order.
-
-Malformed headers/tags, impossible block numbers, unsafe ring geometry and
-unsupported journal features must fail closed before replay writes occur.
+EXT3's on-disk journal format uses magic `0xC03B3998` and big-endian fields.
+The active Linux adapter delegates journal transactions and recovery to kernel
+JBD2 interfaces. The former private journal engine described by older versions
+of this document is no longer in this module. Behaviour and recovery claims
+require tests against the current implementation.
 
 ## Data modes and ordering
 
