@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: namespace_mutation.c.
+ * Project-maintained canonical implementation.
+ */
+
 // SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/ext4/namei.c
@@ -39,7 +46,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -126,7 +133,7 @@ out:
 	return ERR_PTR(err);
 }
 
-static int ext4_dx_csum_verify(struct inode *inode,
+static int ifs_ext4_local_ext4_dx_csum_verify(struct inode *inode,
 			       struct ext4_dir_entry *dirent);
 
 
@@ -207,7 +214,7 @@ static struct buffer_head *__ext4_read_dirblock(struct inode *inode,
 
 
 	if (is_dx_block && type == INDEX) {
-		if (ext4_dx_csum_verify(inode, dirent) &&
+		if (ifs_ext4_local_ext4_dx_csum_verify(inode, dirent) &&
 		    !ext4_simulate_fail(inode->i_sb, EXT4_SIM_DIRBLOCK_CRC))
 			set_buffer_verified(bh);
 		else {
@@ -351,40 +358,40 @@ struct dx_tail {
 	__le32 dt_checksum;
 };
 
-static inline ext4_lblk_t dx_get_block(struct dx_entry *entry);
-static void dx_set_block(struct dx_entry *entry, ext4_lblk_t value);
-static inline unsigned dx_get_hash(struct dx_entry *entry);
-static void dx_set_hash(struct dx_entry *entry, unsigned value);
-static unsigned dx_get_count(struct dx_entry *entries);
-static unsigned dx_get_limit(struct dx_entry *entries);
-static void dx_set_count(struct dx_entry *entries, unsigned value);
-static void dx_set_limit(struct dx_entry *entries, unsigned value);
-static unsigned dx_root_limit(struct inode *dir, unsigned infosize);
-static unsigned dx_node_limit(struct inode *dir);
-static struct dx_frame *dx_probe(struct ext4_filename *fname,
+static inline ext4_lblk_t ifs_ext4_local_dx_get_block(struct dx_entry *entry);
+static void ifs_ext4_local_dx_set_block(struct dx_entry *entry, ext4_lblk_t value);
+static inline unsigned ifs_ext4_local_dx_get_hash(struct dx_entry *entry);
+static void ifs_ext4_local_dx_set_hash(struct dx_entry *entry, unsigned value);
+static unsigned ifs_ext4_local_dx_get_count(struct dx_entry *entries);
+static unsigned ifs_ext4_local_dx_get_limit(struct dx_entry *entries);
+static void ifs_ext4_local_dx_set_count(struct dx_entry *entries, unsigned value);
+static void ifs_ext4_local_dx_set_limit(struct dx_entry *entries, unsigned value);
+static unsigned ifs_ext4_local_dx_root_limit(struct inode *dir, unsigned infosize);
+static unsigned ifs_ext4_local_dx_node_limit(struct inode *dir);
+static struct dx_frame *ifs_ext4_local_dx_probe(struct ext4_filename *fname,
 				 struct inode *dir,
 				 struct dx_hash_info *hinfo,
 				 struct dx_frame *frame);
-static void dx_release(struct dx_frame *frames);
-static int dx_make_map(struct inode *dir, struct buffer_head *bh,
+static void ifs_ext4_local_dx_release(struct dx_frame *frames);
+static int ifs_ext4_local_dx_make_map(struct inode *dir, struct buffer_head *bh,
 		       struct dx_hash_info *hinfo,
 		       struct dx_map_entry *map_tail);
-static void dx_sort_map(struct dx_map_entry *map, unsigned count);
-static struct ext4_dir_entry_2 *dx_move_dirents(struct inode *dir, char *from,
+static void ifs_ext4_local_dx_sort_map(struct dx_map_entry *map, unsigned count);
+static struct ext4_dir_entry_2 *ifs_ext4_local_dx_move_dirents(struct inode *dir, char *from,
 					char *to, struct dx_map_entry *offsets,
 					int count, unsigned int blocksize);
 static struct ext4_dir_entry_2 *dx_pack_dirents(struct inode *dir, char *base,
 						unsigned int blocksize);
-static void dx_insert_block(struct dx_frame *frame,
+static void ifs_ext4_local_dx_insert_block(struct dx_frame *frame,
 					u32 hash, ext4_lblk_t block);
-static int ext4_htree_next_block(struct inode *dir, __u32 hash,
+static int ifs_ext4_local_ext4_htree_next_block(struct inode *dir, __u32 hash,
 				 struct dx_frame *frame,
 				 struct dx_frame *frames,
 				 __u32 *start_hash);
-static struct buffer_head * ext4_dx_find_entry(struct inode *dir,
+static struct buffer_head * ifs_ext4_local_ext4_dx_find_entry(struct inode *dir,
 		struct ext4_filename *fname,
 		struct ext4_dir_entry_2 **res_dir);
-static int ext4_dx_add_entry(handle_t *handle, struct ext4_filename *fname,
+static int ifs_ext4_local_ext4_dx_add_entry(handle_t *handle, struct ext4_filename *fname,
 			     struct inode *dir, struct inode *inode);
 
 
@@ -452,14 +459,14 @@ static struct ext4_dir_entry_tail *get_dirent_tail(struct inode *inode,
 
 
 /**
- * ext4_dirblock_csum - Implements the dirblock csum operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_dirblock_csum - Implements the dirblock csum operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static __le32 ext4_dirblock_csum(struct inode *inode, void *dirent, int size)
+static __le32 ifs_ext4_local_ext4_dirblock_csum(struct inode *inode, void *dirent, int size)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -470,18 +477,18 @@ static __le32 ext4_dirblock_csum(struct inode *inode, void *dirent, int size)
 }
 
 #define warn_no_space_for_csum(inode)					\
-	__warn_no_space_for_csum((inode), __func__, __LINE__)
+	ifs_ext4_local___warn_no_space_for_csum((inode), __func__, __LINE__)
 
 
 /**
- * __warn_no_space_for_csum - Implements the warn no space for csum operation within the namespace mutation subsystem.
+ * ifs_ext4_local___warn_no_space_for_csum - Implements the warn no space for csum operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __warn_no_space_for_csum(struct inode *inode, const char *func,
+static void ifs_ext4_local___warn_no_space_for_csum(struct inode *inode, const char *func,
 				     unsigned int line)
 {
 	__ext4_warning_inode(inode, func, line,
@@ -510,7 +517,7 @@ int ext4_dirblock_csum_verify(struct inode *inode, struct buffer_head *bh)
 		return 0;
 	}
 
-	if (t->det_checksum != ext4_dirblock_csum(inode, bh->b_data,
+	if (t->det_checksum != ifs_ext4_local_ext4_dirblock_csum(inode, bh->b_data,
 						  (char *)t - bh->b_data))
 		return 0;
 
@@ -519,14 +526,14 @@ int ext4_dirblock_csum_verify(struct inode *inode, struct buffer_head *bh)
 
 
 /**
- * ext4_dirblock_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_dirblock_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_dirblock_csum_set(struct inode *inode,
+static void ifs_ext4_local_ext4_dirblock_csum_set(struct inode *inode,
 				 struct buffer_head *bh)
 {
 	struct ext4_dir_entry_tail *t;
@@ -540,7 +547,7 @@ static void ext4_dirblock_csum_set(struct inode *inode,
 		return;
 	}
 
-	t->det_checksum = ext4_dirblock_csum(inode, bh->b_data,
+	t->det_checksum = ifs_ext4_local_ext4_dirblock_csum(inode, bh->b_data,
 					     (char *)t - bh->b_data);
 }
 
@@ -557,7 +564,7 @@ int ext4_handle_dirty_dirblock(handle_t *handle,
 			       struct inode *inode,
 			       struct buffer_head *bh)
 {
-	ext4_dirblock_csum_set(inode, bh);
+	ifs_ext4_local_ext4_dirblock_csum_set(inode, bh);
 	return ext4_handle_dirty_metadata(handle, inode, bh);
 }
 
@@ -601,14 +608,14 @@ static struct dx_countlimit *get_dx_countlimit(struct inode *inode,
 
 
 /**
- * ext4_dx_csum - Implements the dx csum operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_dx_csum - Implements the dx csum operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static __le32 ext4_dx_csum(struct inode *inode, struct ext4_dir_entry *dirent,
+static __le32 ifs_ext4_local_ext4_dx_csum(struct inode *inode, struct ext4_dir_entry *dirent,
 			   int count_offset, int count, struct dx_tail *t)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
@@ -628,14 +635,14 @@ static __le32 ext4_dx_csum(struct inode *inode, struct ext4_dir_entry *dirent,
 
 
 /**
- * ext4_dx_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_ext4_dx_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_dx_csum_verify(struct inode *inode,
+static int ifs_ext4_local_ext4_dx_csum_verify(struct inode *inode,
 			       struct ext4_dir_entry *dirent)
 {
 	struct dx_countlimit *c;
@@ -659,7 +666,7 @@ static int ext4_dx_csum_verify(struct inode *inode,
 	}
 	t = (struct dx_tail *)(((struct dx_entry *)c) + limit);
 
-	if (t->dt_checksum != ext4_dx_csum(inode, dirent, count_offset,
+	if (t->dt_checksum != ifs_ext4_local_ext4_dx_csum(inode, dirent, count_offset,
 					    count, t))
 		return 0;
 	return 1;
@@ -667,14 +674,14 @@ static int ext4_dx_csum_verify(struct inode *inode,
 
 
 /**
- * ext4_dx_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_dx_csum_set - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_dx_csum_set(struct inode *inode, struct ext4_dir_entry *dirent)
+static void ifs_ext4_local_ext4_dx_csum_set(struct inode *inode, struct ext4_dir_entry *dirent)
 {
 	struct dx_countlimit *c;
 	struct dx_tail *t;
@@ -697,29 +704,29 @@ static void ext4_dx_csum_set(struct inode *inode, struct ext4_dir_entry *dirent)
 	}
 	t = (struct dx_tail *)(((struct dx_entry *)c) + limit);
 
-	t->dt_checksum = ext4_dx_csum(inode, dirent, count_offset, count, t);
+	t->dt_checksum = ifs_ext4_local_ext4_dx_csum(inode, dirent, count_offset, count, t);
 }
 
 
 /**
- * ext4_handle_dirty_dx_node - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext4_local_ext4_handle_dirty_dx_node - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int ext4_handle_dirty_dx_node(handle_t *handle,
+static inline int ifs_ext4_local_ext4_handle_dirty_dx_node(handle_t *handle,
 					    struct inode *inode,
 					    struct buffer_head *bh)
 {
-	ext4_dx_csum_set(inode, (struct ext4_dir_entry *)bh->b_data);
+	ifs_ext4_local_ext4_dx_csum_set(inode, (struct ext4_dir_entry *)bh->b_data);
 	return ext4_handle_dirty_metadata(handle, inode, bh);
 }
 
 
 /**
- * ext4_next_entry - Implements the next entry operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_next_entry - Implements the next entry operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -727,7 +734,7 @@ static inline int ext4_handle_dirty_dx_node(handle_t *handle,
  * rollback, abort or retry policy.
  */
 static inline struct ext4_dir_entry_2 *
-ext4_next_entry(struct ext4_dir_entry_2 *p, unsigned long blocksize)
+ifs_ext4_local_ext4_next_entry(struct ext4_dir_entry_2 *p, unsigned long blocksize)
 {
 	return (struct ext4_dir_entry_2 *)((char *)p +
 		ext4_rec_len_from_disk(p->rec_len, blocksize));
@@ -735,126 +742,126 @@ ext4_next_entry(struct ext4_dir_entry_2 *p, unsigned long blocksize)
 
 
 /**
- * dx_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_dx_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline ext4_lblk_t dx_get_block(struct dx_entry *entry)
+static inline ext4_lblk_t ifs_ext4_local_dx_get_block(struct dx_entry *entry)
 {
 	return le32_to_cpu(entry->block) & 0x0fffffff;
 }
 
 
 /**
- * dx_set_block - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_dx_set_block - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void dx_set_block(struct dx_entry *entry, ext4_lblk_t value)
+static inline void ifs_ext4_local_dx_set_block(struct dx_entry *entry, ext4_lblk_t value)
 {
 	entry->block = cpu_to_le32(value);
 }
 
 
 /**
- * dx_get_hash - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_dx_get_hash - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline unsigned dx_get_hash(struct dx_entry *entry)
+static inline unsigned ifs_ext4_local_dx_get_hash(struct dx_entry *entry)
 {
 	return le32_to_cpu(entry->hash);
 }
 
 
 /**
- * dx_set_hash - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_dx_set_hash - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void dx_set_hash(struct dx_entry *entry, unsigned value)
+static inline void ifs_ext4_local_dx_set_hash(struct dx_entry *entry, unsigned value)
 {
 	entry->hash = cpu_to_le32(value);
 }
 
 
 /**
- * dx_get_count - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * ifs_ext4_local_dx_get_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline unsigned dx_get_count(struct dx_entry *entries)
+static inline unsigned ifs_ext4_local_dx_get_count(struct dx_entry *entries)
 {
 	return le16_to_cpu(((struct dx_countlimit *) entries)->count);
 }
 
 
 /**
- * dx_get_limit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_dx_get_limit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline unsigned dx_get_limit(struct dx_entry *entries)
+static inline unsigned ifs_ext4_local_dx_get_limit(struct dx_entry *entries)
 {
 	return le16_to_cpu(((struct dx_countlimit *) entries)->limit);
 }
 
 
 /**
- * dx_set_count - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * ifs_ext4_local_dx_set_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void dx_set_count(struct dx_entry *entries, unsigned value)
+static inline void ifs_ext4_local_dx_set_count(struct dx_entry *entries, unsigned value)
 {
 	((struct dx_countlimit *) entries)->count = cpu_to_le16(value);
 }
 
 
 /**
- * dx_set_limit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_dx_set_limit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void dx_set_limit(struct dx_entry *entries, unsigned value)
+static inline void ifs_ext4_local_dx_set_limit(struct dx_entry *entries, unsigned value)
 {
 	((struct dx_countlimit *) entries)->limit = cpu_to_le16(value);
 }
 
 
 /**
- * dx_root_limit - Implements the dx root limit operation within the namespace mutation subsystem.
+ * ifs_ext4_local_dx_root_limit - Implements the dx root limit operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline unsigned dx_root_limit(struct inode *dir, unsigned infosize)
+static inline unsigned ifs_ext4_local_dx_root_limit(struct inode *dir, unsigned infosize)
 {
 	unsigned int entry_space = dir->i_sb->s_blocksize -
 			ext4_dir_rec_len(1, NULL) -
@@ -867,14 +874,14 @@ static inline unsigned dx_root_limit(struct inode *dir, unsigned infosize)
 
 
 /**
- * dx_node_limit - Implements the dx node limit operation within the namespace mutation subsystem.
+ * ifs_ext4_local_dx_node_limit - Implements the dx node limit operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline unsigned dx_node_limit(struct inode *dir)
+static inline unsigned ifs_ext4_local_dx_node_limit(struct inode *dir)
 {
 	unsigned int entry_space = dir->i_sb->s_blocksize -
 			ext4_dir_rec_len(0, dir);
@@ -889,21 +896,21 @@ static inline unsigned dx_node_limit(struct inode *dir)
 
 
 /**
- * dx_show_index - Implements the dx show index operation within the namespace mutation subsystem.
+ * ifs_ext4_local_dx_show_index - Implements the dx show index operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void dx_show_index(char * label, struct dx_entry *entries)
+static void ifs_ext4_local_dx_show_index(char * label, struct dx_entry *entries)
 {
-	int i, n = dx_get_count (entries);
+	int i, n = ifs_ext4_local_dx_get_count (entries);
 	printk(KERN_DEBUG "%s index", label);
 	for (i = 0; i < n; i++) {
 		printk(KERN_CONT " %x->%lu",
-		       i ? dx_get_hash(entries + i) : 0,
-		       (unsigned long)dx_get_block(entries + i));
+		       i ? ifs_ext4_local_dx_get_hash(entries + i) : 0,
+		       (unsigned long)ifs_ext4_local_dx_get_block(entries + i));
 	}
 	printk(KERN_CONT "\n");
 }
@@ -924,14 +931,14 @@ struct stats
 
 
 /**
- * dx_show_leaf - Implements the dx show leaf operation within the namespace mutation subsystem.
+ * ifs_ext4_local_dx_show_leaf - Implements the dx show leaf operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static struct stats dx_show_leaf(struct inode *dir,
+static struct stats ifs_ext4_local_dx_show_leaf(struct inode *dir,
 				struct dx_hash_info *hinfo,
 				struct ext4_dir_entry_2 *de,
 				int size, int show_names)
@@ -1014,7 +1021,7 @@ static struct stats dx_show_leaf(struct inode *dir,
 			space += ext4_dir_rec_len(de->name_len, dir);
 			names++;
 		}
-		de = ext4_next_entry(de, size);
+		de = ifs_ext4_local_ext4_next_entry(de, size);
 	}
 	printk(KERN_CONT "(%i)\n", names);
 	return (struct stats) { names, space, 1 };
@@ -1033,15 +1040,15 @@ struct stats dx_show_entries(struct dx_hash_info *hinfo, struct inode *dir,
 			     struct dx_entry *entries, int levels)
 {
 	unsigned blocksize = dir->i_sb->s_blocksize;
-	unsigned count = dx_get_count(entries), names = 0, space = 0, i;
+	unsigned count = ifs_ext4_local_dx_get_count(entries), names = 0, space = 0, i;
 	unsigned bcount = 0;
 	struct buffer_head *bh;
 	printk("%i indexed blocks...\n", count);
 	for (i = 0; i < count; i++, entries++)
 	{
-		ext4_lblk_t block = dx_get_block(entries);
-		ext4_lblk_t hash  = i ? dx_get_hash(entries): 0;
-		u32 range = i < count - 1? (dx_get_hash(entries + 1) - hash): ~hash;
+		ext4_lblk_t block = ifs_ext4_local_dx_get_block(entries);
+		ext4_lblk_t hash  = i ? ifs_ext4_local_dx_get_hash(entries): 0;
+		u32 range = i < count - 1? (ifs_ext4_local_dx_get_hash(entries + 1) - hash): ~hash;
 		struct stats stats;
 		printk("%s%3u:%03u hash %8x/%8x ",levels?"":"   ", i, block, hash, range);
 		bh = ext4_bread(NULL,dir, block, 0);
@@ -1049,7 +1056,7 @@ struct stats dx_show_entries(struct dx_hash_info *hinfo, struct inode *dir,
 			continue;
 		stats = levels?
 		   dx_show_entries(hinfo, dir, ((struct dx_node *) bh->b_data)->entries, levels - 1):
-		   dx_show_leaf(dir, hinfo, (struct ext4_dir_entry_2 *)
+		   ifs_ext4_local_dx_show_leaf(dir, hinfo, (struct ext4_dir_entry_2 *)
 			bh->b_data, blocksize, 0);
 		names += stats.names;
 		space += stats.space;
@@ -1065,20 +1072,20 @@ struct stats dx_show_entries(struct dx_hash_info *hinfo, struct inode *dir,
 
 
 /**
- * htree_rep_invariant_check - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_htree_rep_invariant_check - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void htree_rep_invariant_check(struct dx_entry *at,
+static inline void ifs_ext4_local_htree_rep_invariant_check(struct dx_entry *at,
 					     struct dx_entry *target,
 					     u32 hash, unsigned int n)
 {
 	while (n--) {
 		dxtrace(printk(KERN_CONT ","));
-		if (dx_get_hash(++at) > hash) {
+		if (ifs_ext4_local_dx_get_hash(++at) > hash) {
 			at--;
 			break;
 		}
@@ -1089,14 +1096,14 @@ static inline void htree_rep_invariant_check(struct dx_entry *at,
 
 
 /**
- * htree_rep_invariant_check - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_htree_rep_invariant_check - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void htree_rep_invariant_check(struct dx_entry *at,
+static inline void ifs_ext4_local_htree_rep_invariant_check(struct dx_entry *at,
 					     struct dx_entry *target,
 					     u32 hash, unsigned int n)
 {
@@ -1105,7 +1112,7 @@ static inline void htree_rep_invariant_check(struct dx_entry *at,
 
 
 /**
- * dx_probe - Implements the dx probe operation within the namespace mutation subsystem.
+ * ifs_ext4_local_dx_probe - Implements the dx probe operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1113,7 +1120,7 @@ static inline void htree_rep_invariant_check(struct dx_entry *at,
  * rollback, abort or retry policy.
  */
 static struct dx_frame *
-dx_probe(struct ext4_filename *fname, struct inode *dir,
+ifs_ext4_local_dx_probe(struct ext4_filename *fname, struct inode *dir,
 	 struct dx_hash_info *hinfo, struct dx_frame *frame_in)
 {
 	unsigned count, indirect, level, i;
@@ -1192,11 +1199,11 @@ dx_probe(struct ext4_filename *fname, struct inode *dir,
 	entries = (struct dx_entry *)(((char *)&root->info) +
 				      root->info.info_length);
 
-	if (dx_get_limit(entries) != dx_root_limit(dir,
+	if (ifs_ext4_local_dx_get_limit(entries) != ifs_ext4_local_dx_root_limit(dir,
 						   root->info.info_length)) {
 		ext4_warning_inode(dir, "dx entry: limit %u != root limit %u",
-				   dx_get_limit(entries),
-				   dx_root_limit(dir, root->info.info_length));
+				   ifs_ext4_local_dx_get_limit(entries),
+				   ifs_ext4_local_dx_root_limit(dir, root->info.info_length));
 		goto fail;
 	}
 
@@ -1204,11 +1211,11 @@ dx_probe(struct ext4_filename *fname, struct inode *dir,
 	level = 0;
 	blocks[0] = 0;
 	while (1) {
-		count = dx_get_count(entries);
-		if (!count || count > dx_get_limit(entries)) {
+		count = ifs_ext4_local_dx_get_count(entries);
+		if (!count || count > ifs_ext4_local_dx_get_limit(entries)) {
 			ext4_warning_inode(dir,
 					   "dx entry: count %u beyond limit %u",
-					   count, dx_get_limit(entries));
+					   count, ifs_ext4_local_dx_get_limit(entries));
 			goto fail;
 		}
 
@@ -1217,22 +1224,22 @@ dx_probe(struct ext4_filename *fname, struct inode *dir,
 		while (p <= q) {
 			m = p + (q - p) / 2;
 			dxtrace(printk(KERN_CONT "."));
-			if (dx_get_hash(m) > hash)
+			if (ifs_ext4_local_dx_get_hash(m) > hash)
 				q = m - 1;
 			else
 				p = m + 1;
 		}
 
-		htree_rep_invariant_check(entries, p, hash, count - 1);
+		ifs_ext4_local_htree_rep_invariant_check(entries, p, hash, count - 1);
 
 		at = p - 1;
 		dxtrace(printk(KERN_CONT " %x->%u\n",
-			       at == entries ? 0 : dx_get_hash(at),
-			       dx_get_block(at)));
+			       at == entries ? 0 : ifs_ext4_local_dx_get_hash(at),
+			       ifs_ext4_local_dx_get_block(at)));
 		frame->entries = entries;
 		frame->at = at;
 
-		block = dx_get_block(at);
+		block = ifs_ext4_local_dx_get_block(at);
 		for (i = 0; i <= level; i++) {
 			if (blocks[i] == block) {
 				ext4_warning_inode(dir,
@@ -1254,10 +1261,10 @@ dx_probe(struct ext4_filename *fname, struct inode *dir,
 
 		entries = ((struct dx_node *) frame->bh->b_data)->entries;
 
-		if (dx_get_limit(entries) != dx_node_limit(dir)) {
+		if (ifs_ext4_local_dx_get_limit(entries) != ifs_ext4_local_dx_node_limit(dir)) {
 			ext4_warning_inode(dir,
 				"dx entry: limit %u != node limit %u",
-				dx_get_limit(entries), dx_node_limit(dir));
+				ifs_ext4_local_dx_get_limit(entries), ifs_ext4_local_dx_node_limit(dir));
 			goto fail;
 		}
 	}
@@ -1275,14 +1282,14 @@ fail:
 
 
 /**
- * dx_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_dx_release - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void dx_release(struct dx_frame *frames)
+static void ifs_ext4_local_dx_release(struct dx_frame *frames)
 {
 	struct dx_root_info *info;
 	int i;
@@ -1304,14 +1311,14 @@ static void dx_release(struct dx_frame *frames)
 
 
 /**
- * ext4_htree_next_block - Implements the htree next block operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_htree_next_block - Implements the htree next block operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_htree_next_block(struct inode *dir, __u32 hash,
+static int ifs_ext4_local_ext4_htree_next_block(struct inode *dir, __u32 hash,
 				 struct dx_frame *frame,
 				 struct dx_frame *frames,
 				 __u32 *start_hash)
@@ -1325,7 +1332,7 @@ static int ext4_htree_next_block(struct inode *dir, __u32 hash,
 
 
 	while (1) {
-		if (++(p->at) < p->entries + dx_get_count(p->entries))
+		if (++(p->at) < p->entries + ifs_ext4_local_dx_get_count(p->entries))
 			break;
 		if (p == frames)
 			return 0;
@@ -1334,7 +1341,7 @@ static int ext4_htree_next_block(struct inode *dir, __u32 hash,
 	}
 
 
-	bhash = dx_get_hash(p->at);
+	bhash = ifs_ext4_local_dx_get_hash(p->at);
 	if (start_hash)
 		*start_hash = bhash;
 	if ((hash & 1) == 0) {
@@ -1344,7 +1351,7 @@ static int ext4_htree_next_block(struct inode *dir, __u32 hash,
 
 
 	while (num_frames--) {
-		bh = ext4_read_dirblock(dir, dx_get_block(p->at), INDEX);
+		bh = ext4_read_dirblock(dir, ifs_ext4_local_dx_get_block(p->at), INDEX);
 		if (IS_ERR(bh))
 			return PTR_ERR(bh);
 		p++;
@@ -1357,14 +1364,14 @@ static int ext4_htree_next_block(struct inode *dir, __u32 hash,
 
 
 /**
- * htree_dirblock_to_tree - Implements the htree dirblock to tree operation within the namespace mutation subsystem.
+ * ifs_ext4_local_htree_dirblock_to_tree - Implements the htree dirblock to tree operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int htree_dirblock_to_tree(struct file *dir_file,
+static int ifs_ext4_local_htree_dirblock_to_tree(struct file *dir_file,
 				  struct inode *dir, ext4_lblk_t block,
 				  struct dx_hash_info *hinfo,
 				  __u32 start_hash, __u32 start_minor_hash)
@@ -1402,7 +1409,7 @@ static int htree_dirblock_to_tree(struct file *dir_file,
 		}
 	}
 
-	for (; de < top; de = ext4_next_entry(de, dir->i_sb->s_blocksize)) {
+	for (; de < top; de = ifs_ext4_local_ext4_next_entry(de, dir->i_sb->s_blocksize)) {
 		if (ext4_check_dir_entry(dir, NULL, de, bh,
 				bh->b_data, bh->b_size,
 				(block<<EXT4_BLOCK_SIZE_BITS(dir->i_sb))
@@ -1514,14 +1521,14 @@ int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 				return count;
 			}
 		}
-		count = htree_dirblock_to_tree(dir_file, dir, 0, &hinfo,
+		count = ifs_ext4_local_htree_dirblock_to_tree(dir_file, dir, 0, &hinfo,
 					       start_hash, start_minor_hash);
 		*next_hash = ~0;
 		return count;
 	}
 	hinfo.hash = start_hash;
 	hinfo.minor_hash = 0;
-	frame = dx_probe(NULL, dir, &hinfo, frames);
+	frame = ifs_ext4_local_dx_probe(NULL, dir, &hinfo, frames);
 	if (IS_ERR(frame))
 		return PTR_ERR(frame);
 
@@ -1538,7 +1545,7 @@ int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 	}
 	if (start_hash < 2 || (start_hash ==2 && start_minor_hash==0)) {
 		de = (struct ext4_dir_entry_2 *) frames[0].bh->b_data;
-		de = ext4_next_entry(de, dir->i_sb->s_blocksize);
+		de = ifs_ext4_local_ext4_next_entry(de, dir->i_sb->s_blocksize);
 		tmp_str.name = de->name;
 		tmp_str.len = de->name_len;
 		err = ext4_htree_store_dirent(dir_file, 2, 0,
@@ -1554,8 +1561,8 @@ int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 			goto errout;
 		}
 		cond_resched();
-		block = dx_get_block(frame->at);
-		ret = htree_dirblock_to_tree(dir_file, dir, block, &hinfo,
+		block = ifs_ext4_local_dx_get_block(frame->at);
+		ret = ifs_ext4_local_htree_dirblock_to_tree(dir_file, dir, block, &hinfo,
 					     start_hash, start_minor_hash);
 		if (ret < 0) {
 			err = ret;
@@ -1563,7 +1570,7 @@ int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 		}
 		count += ret;
 		hashval = ~0;
-		ret = ext4_htree_next_block(dir, HASH_NB_ALWAYS,
+		ret = ifs_ext4_local_ext4_htree_next_block(dir, HASH_NB_ALWAYS,
 					    frame, frames, &hashval);
 		*next_hash = hashval;
 		if (ret < 0) {
@@ -1576,25 +1583,25 @@ int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 		    (count && ((hashval & 1) == 0)))
 			break;
 	}
-	dx_release(frames);
+	ifs_ext4_local_dx_release(frames);
 	dxtrace(printk(KERN_DEBUG "Fill tree: returned %d entries, "
 		       "next hash: %x\n", count, *next_hash));
 	return count;
 errout:
-	dx_release(frames);
+	ifs_ext4_local_dx_release(frames);
 	return (err);
 }
 
 
 /**
- * search_dirblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_search_dirblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int search_dirblock(struct buffer_head *bh,
+static inline int ifs_ext4_local_search_dirblock(struct buffer_head *bh,
 				  struct inode *dir,
 				  struct ext4_filename *fname,
 				  unsigned int offset,
@@ -1606,14 +1613,14 @@ static inline int search_dirblock(struct buffer_head *bh,
 
 
 /**
- * dx_make_map - Implements the dx make map operation within the namespace mutation subsystem.
+ * ifs_ext4_local_dx_make_map - Implements the dx make map operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int dx_make_map(struct inode *dir, struct buffer_head *bh,
+static int ifs_ext4_local_dx_make_map(struct inode *dir, struct buffer_head *bh,
 		       struct dx_hash_info *hinfo,
 		       struct dx_map_entry *map_tail)
 {
@@ -1648,21 +1655,21 @@ static int dx_make_map(struct inode *dir, struct buffer_head *bh,
 			count++;
 			cond_resched();
 		}
-		de = ext4_next_entry(de, blocksize);
+		de = ifs_ext4_local_ext4_next_entry(de, blocksize);
 	}
 	return count;
 }
 
 
 /**
- * dx_sort_map - Implements the dx sort map operation within the namespace mutation subsystem.
+ * ifs_ext4_local_dx_sort_map - Implements the dx sort map operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void dx_sort_map (struct dx_map_entry *map, unsigned count)
+static void ifs_ext4_local_dx_sort_map (struct dx_map_entry *map, unsigned count)
 {
 	struct dx_map_entry *p, *q, *top = map + count - 1;
 	int more;
@@ -1690,25 +1697,25 @@ static void dx_sort_map (struct dx_map_entry *map, unsigned count)
 
 
 /**
- * dx_insert_block - Implements the dx insert block operation within the namespace mutation subsystem.
+ * ifs_ext4_local_dx_insert_block - Implements the dx insert block operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void dx_insert_block(struct dx_frame *frame, u32 hash, ext4_lblk_t block)
+static void ifs_ext4_local_dx_insert_block(struct dx_frame *frame, u32 hash, ext4_lblk_t block)
 {
 	struct dx_entry *entries = frame->entries;
 	struct dx_entry *old = frame->at, *new = old + 1;
-	int count = dx_get_count(entries);
+	int count = ifs_ext4_local_dx_get_count(entries);
 
-	ASSERT(count < dx_get_limit(entries));
+	ASSERT(count < ifs_ext4_local_dx_get_limit(entries));
 	ASSERT(old < entries + count);
 	memmove(new + 1, new, (char *)(entries + count) - (char *)(new));
-	dx_set_hash(new, hash);
-	dx_set_block(new, block);
-	dx_set_count(entries, count + 1);
+	ifs_ext4_local_dx_set_hash(new, hash);
+	ifs_ext4_local_dx_set_block(new, block);
+	ifs_ext4_local_dx_set_count(entries, count + 1);
 }
 
 #if IS_ENABLED(CONFIG_UNICODE)
@@ -1762,14 +1769,14 @@ int ext4_fname_setup_ci_filename(struct inode *dir, const struct qstr *iname,
 
 
 /**
- * ext4_match - Implements the match operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_match - Implements the match operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ext4_match(struct inode *parent,
+static bool ifs_ext4_local_ext4_match(struct inode *parent,
 			      const struct ext4_filename *fname,
 			      struct ext4_dir_entry_2 *de)
 {
@@ -1828,7 +1835,7 @@ int ext4_search_dir(struct buffer_head *bh, char *search_buf, int buf_size,
 
 
 		if (de->name + de->name_len <= dlimit &&
-		    ext4_match(dir, fname, de)) {
+		    ifs_ext4_local_ext4_match(dir, fname, de)) {
 
 
 			if (ext4_check_dir_entry(dir, NULL, de, bh, search_buf,
@@ -1850,14 +1857,14 @@ int ext4_search_dir(struct buffer_head *bh, char *search_buf, int buf_size,
 
 
 /**
- * is_dx_internal_node - Implements the is dx internal node operation within the namespace mutation subsystem.
+ * ifs_ext4_local_is_dx_internal_node - Implements the is dx internal node operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int is_dx_internal_node(struct inode *dir, ext4_lblk_t block,
+static int ifs_ext4_local_is_dx_internal_node(struct inode *dir, ext4_lblk_t block,
 			       struct ext4_dir_entry *de)
 {
 	struct super_block *sb = dir->i_sb;
@@ -1924,7 +1931,7 @@ static struct buffer_head *__ext4_find_entry(struct inode *dir,
 		goto restart;
 	}
 	if (is_dx(dir)) {
-		ret = ext4_dx_find_entry(dir, fname, res_dir);
+		ret = ifs_ext4_local_ext4_dx_find_entry(dir, fname, res_dir);
 
 
 		if (IS_ERR(ret) && PTR_ERR(ret) == ERR_BAD_DX_DIR)
@@ -1980,7 +1987,7 @@ restart:
 			goto cleanup_and_exit;
 		}
 		if (!buffer_verified(bh) &&
-		    !is_dx_internal_node(dir, block,
+		    !ifs_ext4_local_is_dx_internal_node(dir, block,
 					 (struct ext4_dir_entry *)bh->b_data) &&
 		    !ext4_dirblock_csum_verify(dir, bh)) {
 			EXT4_ERROR_INODE_ERR(dir, EFSBADCRC,
@@ -1991,7 +1998,7 @@ restart:
 			goto cleanup_and_exit;
 		}
 		set_buffer_verified(bh);
-		i = search_dirblock(bh, dir, fname,
+		i = ifs_ext4_local_search_dirblock(bh, dir, fname,
 			    block << EXT4_BLOCK_SIZE_BITS(sb), res_dir);
 		if (i == 1) {
 			EXT4_I(dir)->i_dir_start_lookup = block;
@@ -2085,14 +2092,14 @@ static struct buffer_head *ext4_lookup_entry(struct inode *dir,
 
 
 /**
- * ext4_dx_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_dx_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static struct buffer_head * ext4_dx_find_entry(struct inode *dir,
+static struct buffer_head * ifs_ext4_local_ext4_dx_find_entry(struct inode *dir,
 			struct ext4_filename *fname,
 			struct ext4_dir_entry_2 **res_dir)
 {
@@ -2105,16 +2112,16 @@ static struct buffer_head * ext4_dx_find_entry(struct inode *dir,
 #ifdef CONFIG_FS_ENCRYPTION
 	*res_dir = NULL;
 #endif
-	frame = dx_probe(fname, dir, NULL, frames);
+	frame = ifs_ext4_local_dx_probe(fname, dir, NULL, frames);
 	if (IS_ERR(frame))
 		return (struct buffer_head *) frame;
 	do {
-		block = dx_get_block(frame->at);
+		block = ifs_ext4_local_dx_get_block(frame->at);
 		bh = ext4_read_dirblock(dir, block, DIRENT_HTREE);
 		if (IS_ERR(bh))
 			goto errout;
 
-		retval = search_dirblock(bh, dir, fname,
+		retval = ifs_ext4_local_search_dirblock(bh, dir, fname,
 					 block << EXT4_BLOCK_SIZE_BITS(sb),
 					 res_dir);
 		if (retval == 1)
@@ -2126,7 +2133,7 @@ static struct buffer_head * ext4_dx_find_entry(struct inode *dir,
 		}
 
 
-		retval = ext4_htree_next_block(dir, fname->hinfo.hash, frame,
+		retval = ifs_ext4_local_ext4_htree_next_block(dir, fname->hinfo.hash, frame,
 					       frames, NULL);
 		if (retval < 0) {
 			ext4_warning_inode(dir,
@@ -2141,7 +2148,7 @@ static struct buffer_head * ext4_dx_find_entry(struct inode *dir,
 errout:
 	dxtrace(printk(KERN_DEBUG "%s not found\n", fname->usr_fname->name));
 success:
-	dx_release(frames);
+	ifs_ext4_local_dx_release(frames);
 	return bh;
 }
 
@@ -2240,7 +2247,7 @@ struct dentry *ext4_get_parent(struct dentry *child)
 
 
 /**
- * dx_move_dirents - Implements the dx move dirents operation within the namespace mutation subsystem.
+ * ifs_ext4_local_dx_move_dirents - Implements the dx move dirents operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2248,7 +2255,7 @@ struct dentry *ext4_get_parent(struct dentry *child)
  * rollback, abort or retry policy.
  */
 static struct ext4_dir_entry_2 *
-dx_move_dirents(struct inode *dir, char *from, char *to,
+ifs_ext4_local_dx_move_dirents(struct inode *dir, char *from, char *to,
 		struct dx_map_entry *map, int count,
 		unsigned blocksize)
 {
@@ -2293,7 +2300,7 @@ static struct ext4_dir_entry_2 *dx_pack_dirents(struct inode *dir, char *base,
 
 	prev = to = de;
 	while ((char*)de < base + blocksize) {
-		next = ext4_next_entry(de, blocksize);
+		next = ifs_ext4_local_ext4_next_entry(de, blocksize);
 		if (de->inode && de->name_len) {
 			rec_len = ext4_dir_rec_len(de->name_len, dir);
 			if (de > to)
@@ -2359,13 +2366,13 @@ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 
 
 	map = (struct dx_map_entry *) (data2 + blocksize);
-	count = dx_make_map(dir, *bh, hinfo, map);
+	count = ifs_ext4_local_dx_make_map(dir, *bh, hinfo, map);
 	if (count < 0) {
 		err = count;
 		goto journal_error;
 	}
 	map -= count;
-	dx_sort_map(map, count);
+	ifs_ext4_local_dx_sort_map(map, count);
 
 	size = 0;
 	move = 0;
@@ -2386,11 +2393,11 @@ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 	hash2 = map[split].hash;
 	continued = split > 0 ? hash2 == map[split - 1].hash : 0;
 	dxtrace(printk(KERN_INFO "Split block %lu at %x, %i/%i\n",
-			(unsigned long)dx_get_block(frame->at),
+			(unsigned long)ifs_ext4_local_dx_get_block(frame->at),
 					hash2, split, count-split));
 
 
-	de2 = dx_move_dirents(dir, data1, data2, map + split, count - split,
+	de2 = ifs_ext4_local_dx_move_dirents(dir, data1, data2, map + split, count - split,
 			      blocksize);
 	de = dx_pack_dirents(dir, data1, blocksize);
 	de->rec_len = ext4_rec_len_to_disk(data1 + (blocksize - csum_size) -
@@ -2404,9 +2411,9 @@ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 		ext4_initialize_dirent_tail(bh2, blocksize);
 	}
 
-	dxtrace(dx_show_leaf(dir, hinfo, (struct ext4_dir_entry_2 *) data1,
+	dxtrace(ifs_ext4_local_dx_show_leaf(dir, hinfo, (struct ext4_dir_entry_2 *) data1,
 			blocksize, 1));
-	dxtrace(dx_show_leaf(dir, hinfo, (struct ext4_dir_entry_2 *) data2,
+	dxtrace(ifs_ext4_local_dx_show_leaf(dir, hinfo, (struct ext4_dir_entry_2 *) data2,
 			blocksize, 1));
 
 
@@ -2414,15 +2421,15 @@ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 		swap(*bh, bh2);
 		de = de2;
 	}
-	dx_insert_block(frame, hash2 + continued, newblock);
+	ifs_ext4_local_dx_insert_block(frame, hash2 + continued, newblock);
 	err = ext4_handle_dirty_dirblock(handle, dir, bh2);
 	if (err)
 		goto journal_error;
-	err = ext4_handle_dirty_dx_node(handle, dir, frame->bh);
+	err = ifs_ext4_local_ext4_handle_dirty_dx_node(handle, dir, frame->bh);
 	if (err)
 		goto journal_error;
 	brelse(bh2);
-	dxtrace(dx_show_index("frame", frame->entries));
+	dxtrace(ifs_ext4_local_dx_show_index("frame", frame->entries));
 	return de;
 
 journal_error:
@@ -2460,7 +2467,7 @@ int ext4_find_dest_de(struct inode *dir, struct inode *inode,
 		if (ext4_check_dir_entry(dir, NULL, de, bh,
 					 buf, buf_size, offset))
 			return -EFSCORRUPTED;
-		if (ext4_match(dir, fname, de))
+		if (ifs_ext4_local_ext4_match(dir, fname, de))
 			return -EEXIST;
 		nlen = ext4_dir_rec_len(de->name_len, dir);
 		rlen = ext4_rec_len_from_disk(de->rec_len, buf_size);
@@ -2519,14 +2526,14 @@ void ext4_insert_dentry(struct inode *dir,
 
 
 /**
- * add_dirent_to_buf - Implements the add dirent to buf operation within the namespace mutation subsystem.
+ * ifs_ext4_local_add_dirent_to_buf - Implements the add dirent to buf operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int add_dirent_to_buf(handle_t *handle, struct ext4_filename *fname,
+static int ifs_ext4_local_add_dirent_to_buf(handle_t *handle, struct ext4_filename *fname,
 			     struct inode *dir,
 			     struct inode *inode, struct ext4_dir_entry_2 *de,
 			     struct buffer_head *bh)
@@ -2569,14 +2576,14 @@ static int add_dirent_to_buf(handle_t *handle, struct ext4_filename *fname,
 
 
 /**
- * ext4_check_dx_root - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_ext4_check_dx_root - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ext4_check_dx_root(struct inode *dir, struct dx_root *root)
+static bool ifs_ext4_local_ext4_check_dx_root(struct inode *dir, struct dx_root *root)
 {
 	struct fake_dirent *fde;
 	const char *error_msg;
@@ -2624,14 +2631,14 @@ corrupted:
 
 
 /**
- * make_indexed_dir - Implements the make indexed dir operation within the namespace mutation subsystem.
+ * ifs_ext4_local_make_indexed_dir - Implements the make indexed dir operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int make_indexed_dir(handle_t *handle, struct ext4_filename *fname,
+static int ifs_ext4_local_make_indexed_dir(handle_t *handle, struct ext4_filename *fname,
 			    struct inode *dir,
 			    struct inode *inode, struct buffer_head *bh)
 {
@@ -2663,7 +2670,7 @@ static int make_indexed_dir(handle_t *handle, struct ext4_filename *fname,
 	}
 
 	root = (struct dx_root *) bh->b_data;
-	if (!ext4_check_dx_root(dir, root)) {
+	if (!ifs_ext4_local_ext4_check_dx_root(dir, root)) {
 		brelse(bh);
 		return -EFSCORRUPTED;
 	}
@@ -2687,7 +2694,7 @@ static int make_indexed_dir(handle_t *handle, struct ext4_filename *fname,
 	memset(de, 0, len);
 	de = (struct ext4_dir_entry_2 *) data2;
 	top = data2 + len;
-	while ((char *)(de2 = ext4_next_entry(de, blocksize)) < top) {
+	while ((char *)(de2 = ifs_ext4_local_ext4_next_entry(de, blocksize)) < top) {
 		if (ext4_check_dir_entry(dir, NULL, de, bh2, data2, len,
 					(char *)de - data2)) {
 			brelse(bh2);
@@ -2715,9 +2722,9 @@ static int make_indexed_dir(handle_t *handle, struct ext4_filename *fname,
 				EXT4_SB(dir->i_sb)->s_def_hash_version;
 
 	entries = root->entries;
-	dx_set_block(entries, 1);
-	dx_set_count(entries, 1);
-	dx_set_limit(entries, dx_root_limit(dir, sizeof(root->info)));
+	ifs_ext4_local_dx_set_block(entries, 1);
+	ifs_ext4_local_dx_set_count(entries, 1);
+	ifs_ext4_local_dx_set_limit(entries, ifs_ext4_local_dx_root_limit(dir, sizeof(root->info)));
 
 
 	fname->hinfo.hash_version = root->info.hash_version;
@@ -2741,7 +2748,7 @@ static int make_indexed_dir(handle_t *handle, struct ext4_filename *fname,
 	frame->at = entries;
 	frame->bh = bh;
 
-	retval = ext4_handle_dirty_dx_node(handle, dir, frame->bh);
+	retval = ifs_ext4_local_ext4_handle_dirty_dx_node(handle, dir, frame->bh);
 	if (retval)
 		goto out_frames;
 	retval = ext4_handle_dirty_dirblock(handle, dir, bh2);
@@ -2754,27 +2761,27 @@ static int make_indexed_dir(handle_t *handle, struct ext4_filename *fname,
 		goto out_frames;
 	}
 
-	retval = add_dirent_to_buf(handle, fname, dir, inode, de, bh2);
+	retval = ifs_ext4_local_add_dirent_to_buf(handle, fname, dir, inode, de, bh2);
 out_frames:
 
 
 	if (retval)
 		ext4_mark_inode_dirty(handle, dir);
-	dx_release(frames);
+	ifs_ext4_local_dx_release(frames);
 	brelse(bh2);
 	return retval;
 }
 
 
 /**
- * ext4_add_entry - Implements the add entry operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_add_entry - Implements the add entry operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_add_entry(handle_t *handle, struct dentry *dentry,
+static int ifs_ext4_local_ext4_add_entry(handle_t *handle, struct dentry *dentry,
 			  struct inode *inode)
 {
 	struct inode *dir = d_inode(dentry->d_parent);
@@ -2818,7 +2825,7 @@ static int ext4_add_entry(handle_t *handle, struct dentry *dentry,
 	}
 
 	if (is_dx(dir)) {
-		retval = ext4_dx_add_entry(handle, &fname, dir, inode);
+		retval = ifs_ext4_local_ext4_dx_add_entry(handle, &fname, dir, inode);
 		if (!retval || (retval != ERR_BAD_DX_DIR))
 			goto out;
 
@@ -2847,14 +2854,14 @@ static int ext4_add_entry(handle_t *handle, struct dentry *dentry,
 			bh = NULL;
 			goto out;
 		}
-		retval = add_dirent_to_buf(handle, &fname, dir, inode,
+		retval = ifs_ext4_local_add_dirent_to_buf(handle, &fname, dir, inode,
 					   NULL, bh);
 		if (retval != -ENOSPC)
 			goto out;
 
 		if (blocks == 1 && !dx_fallback &&
 		    ext4_has_feature_dir_index(sb)) {
-			retval = make_indexed_dir(handle, &fname, dir,
+			retval = ifs_ext4_local_make_indexed_dir(handle, &fname, dir,
 						  inode, bh);
 			bh = NULL;
 			goto out;
@@ -2875,7 +2882,7 @@ add_to_new_block:
 	if (csum_size)
 		ext4_initialize_dirent_tail(bh, blocksize);
 
-	retval = add_dirent_to_buf(handle, &fname, dir, inode, de, bh);
+	retval = ifs_ext4_local_add_dirent_to_buf(handle, &fname, dir, inode, de, bh);
 out:
 	ext4_fname_free_filename(&fname);
 	brelse(bh);
@@ -2886,14 +2893,14 @@ out:
 
 
 /**
- * ext4_dx_add_entry - Implements the dx add entry operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_dx_add_entry - Implements the dx add entry operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_dx_add_entry(handle_t *handle, struct ext4_filename *fname,
+static int ifs_ext4_local_ext4_dx_add_entry(handle_t *handle, struct ext4_filename *fname,
 			     struct inode *dir, struct inode *inode)
 {
 	struct dx_frame frames[EXT4_HTREE_LEVEL], *frame;
@@ -2906,12 +2913,12 @@ static int ext4_dx_add_entry(handle_t *handle, struct ext4_filename *fname,
 
 again:
 	restart = 0;
-	frame = dx_probe(fname, dir, NULL, frames);
+	frame = ifs_ext4_local_dx_probe(fname, dir, NULL, frames);
 	if (IS_ERR(frame))
 		return PTR_ERR(frame);
 	entries = frame->entries;
 	at = frame->at;
-	bh = ext4_read_dirblock(dir, dx_get_block(frame->at), DIRENT_HTREE);
+	bh = ext4_read_dirblock(dir, ifs_ext4_local_dx_get_block(frame->at), DIRENT_HTREE);
 	if (IS_ERR(bh)) {
 		err = PTR_ERR(bh);
 		bh = NULL;
@@ -2923,16 +2930,16 @@ again:
 	if (err)
 		goto journal_error;
 
-	err = add_dirent_to_buf(handle, fname, dir, inode, NULL, bh);
+	err = ifs_ext4_local_add_dirent_to_buf(handle, fname, dir, inode, NULL, bh);
 	if (err != -ENOSPC)
 		goto cleanup;
 
 	err = 0;
 
 	dxtrace(printk(KERN_DEBUG "using %u of %u node entries\n",
-		       dx_get_count(entries), dx_get_limit(entries)));
+		       ifs_ext4_local_dx_get_count(entries), ifs_ext4_local_dx_get_limit(entries)));
 
-	if (dx_get_count(entries) == dx_get_limit(entries)) {
+	if (ifs_ext4_local_dx_get_count(entries) == ifs_ext4_local_dx_get_limit(entries)) {
 		ext4_lblk_t newblock;
 		int levels = frame - frames + 1;
 		unsigned int icount;
@@ -2942,8 +2949,8 @@ again:
 		struct buffer_head *bh2;
 
 		while (frame > frames) {
-			if (dx_get_count((frame - 1)->entries) <
-			    dx_get_limit((frame - 1)->entries)) {
+			if (ifs_ext4_local_dx_get_count((frame - 1)->entries) <
+			    ifs_ext4_local_dx_get_limit((frame - 1)->entries)) {
 				add_level = 0;
 				break;
 			}
@@ -2964,7 +2971,7 @@ again:
 			err = -ENOSPC;
 			goto cleanup;
 		}
-		icount = dx_get_count(entries);
+		icount = ifs_ext4_local_dx_get_count(entries);
 		bh2 = ext4_append(handle, dir, &newblock);
 		if (IS_ERR(bh2)) {
 			err = PTR_ERR(bh2);
@@ -2982,7 +2989,7 @@ again:
 			goto journal_error;
 		if (!add_level) {
 			unsigned icount1 = icount/2, icount2 = icount - icount1;
-			unsigned hash2 = dx_get_hash(entries + icount1);
+			unsigned hash2 = ifs_ext4_local_dx_get_hash(entries + icount1);
 			dxtrace(printk(KERN_DEBUG "Split index %i/%i\n",
 				       icount1, icount2));
 
@@ -2995,9 +3002,9 @@ again:
 
 			memcpy((char *) entries2, (char *) (entries + icount1),
 			       icount2 * sizeof(struct dx_entry));
-			dx_set_count(entries, icount1);
-			dx_set_count(entries2, icount2);
-			dx_set_limit(entries2, dx_node_limit(dir));
+			ifs_ext4_local_dx_set_count(entries, icount1);
+			ifs_ext4_local_dx_set_count(entries2, icount2);
+			ifs_ext4_local_dx_set_limit(entries2, ifs_ext4_local_dx_node_limit(dir));
 
 
 			if (at - entries >= icount1) {
@@ -3005,19 +3012,19 @@ again:
 				frame->entries = entries = entries2;
 				swap(frame->bh, bh2);
 			}
-			dx_insert_block((frame - 1), hash2, newblock);
-			dxtrace(dx_show_index("node", frame->entries));
-			dxtrace(dx_show_index("node",
+			ifs_ext4_local_dx_insert_block((frame - 1), hash2, newblock);
+			dxtrace(ifs_ext4_local_dx_show_index("node", frame->entries));
+			dxtrace(ifs_ext4_local_dx_show_index("node",
 			       ((struct dx_node *) bh2->b_data)->entries));
-			err = ext4_handle_dirty_dx_node(handle, dir, bh2);
+			err = ifs_ext4_local_ext4_handle_dirty_dx_node(handle, dir, bh2);
 			if (err)
 				goto journal_error;
 			brelse (bh2);
-			err = ext4_handle_dirty_dx_node(handle, dir,
+			err = ifs_ext4_local_ext4_handle_dirty_dx_node(handle, dir,
 						   (frame - 1)->bh);
 			if (err)
 				goto journal_error;
-			err = ext4_handle_dirty_dx_node(handle, dir,
+			err = ifs_ext4_local_ext4_handle_dirty_dx_node(handle, dir,
 							frame->bh);
 			if (restart || err)
 				goto journal_error;
@@ -3025,20 +3032,20 @@ again:
 			struct dx_root *dxroot;
 			memcpy((char *) entries2, (char *) entries,
 			       icount * sizeof(struct dx_entry));
-			dx_set_limit(entries2, dx_node_limit(dir));
+			ifs_ext4_local_dx_set_limit(entries2, ifs_ext4_local_dx_node_limit(dir));
 
 
-			dx_set_count(entries, 1);
-			dx_set_block(entries + 0, newblock);
+			ifs_ext4_local_dx_set_count(entries, 1);
+			ifs_ext4_local_dx_set_block(entries + 0, newblock);
 			dxroot = (struct dx_root *)frames[0].bh->b_data;
 			dxroot->info.indirect_levels += 1;
 			dxtrace(printk(KERN_DEBUG
 				       "Creating %d level index...\n",
 				       dxroot->info.indirect_levels));
-			err = ext4_handle_dirty_dx_node(handle, dir, frame->bh);
+			err = ifs_ext4_local_ext4_handle_dirty_dx_node(handle, dir, frame->bh);
 			if (err)
 				goto journal_error;
-			err = ext4_handle_dirty_dx_node(handle, dir, bh2);
+			err = ifs_ext4_local_ext4_handle_dirty_dx_node(handle, dir, bh2);
 			brelse(bh2);
 			restart = 1;
 			goto journal_error;
@@ -3049,14 +3056,14 @@ again:
 		err = PTR_ERR(de);
 		goto cleanup;
 	}
-	err = add_dirent_to_buf(handle, fname, dir, inode, de, bh);
+	err = ifs_ext4_local_add_dirent_to_buf(handle, fname, dir, inode, de, bh);
 	goto cleanup;
 
 journal_error:
 	ext4_std_error(dir->i_sb, err);
 cleanup:
 	brelse(bh);
-	dx_release(frames);
+	ifs_ext4_local_dx_release(frames);
 
 
 	if (restart && err == 0)
@@ -3118,21 +3125,21 @@ int ext4_generic_delete_entry(struct inode *dir,
 		}
 		i += ext4_rec_len_from_disk(de->rec_len, blocksize);
 		pde = de;
-		de = ext4_next_entry(de, blocksize);
+		de = ifs_ext4_local_ext4_next_entry(de, blocksize);
 	}
 	return -ENOENT;
 }
 
 
 /**
- * ext4_delete_entry - Implements the delete entry operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_delete_entry - Implements the delete entry operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_delete_entry(handle_t *handle,
+static int ifs_ext4_local_ext4_delete_entry(handle_t *handle,
 			     struct inode *dir,
 			     struct ext4_dir_entry_2 *de_del,
 			     struct buffer_head *bh)
@@ -3175,14 +3182,14 @@ out:
 
 
 /**
- * ext4_inc_count - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * ifs_ext4_local_ext4_inc_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_inc_count(struct inode *inode)
+static void ifs_ext4_local_ext4_inc_count(struct inode *inode)
 {
 	inc_nlink(inode);
 	if (is_dx(inode) &&
@@ -3192,14 +3199,14 @@ static void ext4_inc_count(struct inode *inode)
 
 
 /**
- * ext4_dec_count - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * ifs_ext4_local_ext4_dec_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_dec_count(struct inode *inode)
+static void ifs_ext4_local_ext4_dec_count(struct inode *inode)
 {
 	if (!S_ISDIR(inode->i_mode) || inode->i_nlink > 2)
 		drop_nlink(inode);
@@ -3207,19 +3214,19 @@ static void ext4_dec_count(struct inode *inode)
 
 
 /**
- * ext4_add_nondir - Implements the add nondir operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_add_nondir - Implements the add nondir operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_add_nondir(handle_t *handle,
+static int ifs_ext4_local_ext4_add_nondir(handle_t *handle,
 		struct dentry *dentry, struct inode **inodep)
 {
 	struct inode *dir = d_inode(dentry->d_parent);
 	struct inode *inode = *inodep;
-	int err = ext4_add_entry(handle, dentry, inode);
+	int err = ifs_ext4_local_ext4_add_entry(handle, dentry, inode);
 	if (!err) {
 		err = ext4_mark_inode_dirty(handle, inode);
 		if (IS_DIRSYNC(dir))
@@ -3237,14 +3244,14 @@ static int ext4_add_nondir(handle_t *handle,
 
 
 /**
- * ext4_create - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_create - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_create(struct mnt_idmap *idmap, struct inode *dir,
+static int ifs_ext4_local_ext4_create(struct mnt_idmap *idmap, struct inode *dir,
 		       struct dentry *dentry, umode_t mode, bool excl)
 {
 	handle_t *handle;
@@ -3266,7 +3273,7 @@ retry:
 		inode->i_op = &ext4_file_inode_operations;
 		inode->i_fop = &ext4_file_operations;
 		ext4_set_aops(inode);
-		err = ext4_add_nondir(handle, dentry, &inode);
+		err = ifs_ext4_local_ext4_add_nondir(handle, dentry, &inode);
 		if (!err)
 			ext4_fc_track_create(handle, dentry);
 	}
@@ -3281,14 +3288,14 @@ retry:
 
 
 /**
- * ext4_mknod - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_mknod - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mknod(struct mnt_idmap *idmap, struct inode *dir,
+static int ifs_ext4_local_ext4_mknod(struct mnt_idmap *idmap, struct inode *dir,
 		      struct dentry *dentry, umode_t mode, dev_t rdev)
 {
 	handle_t *handle;
@@ -3309,7 +3316,7 @@ retry:
 	if (!IS_ERR(inode)) {
 		init_special_inode(inode, inode->i_mode, rdev);
 		inode->i_op = &ext4_special_inode_operations;
-		err = ext4_add_nondir(handle, dentry, &inode);
+		err = ifs_ext4_local_ext4_add_nondir(handle, dentry, &inode);
 		if (!err)
 			ext4_fc_track_create(handle, dentry);
 	}
@@ -3324,14 +3331,14 @@ retry:
 
 
 /**
- * ext4_tmpfile - Implements the tmpfile operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_tmpfile - Implements the tmpfile operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
+static int ifs_ext4_local_ext4_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
 			struct file *file, umode_t mode)
 {
 	handle_t *handle;
@@ -3393,7 +3400,7 @@ struct ext4_dir_entry_2 *ext4_init_dot_dotdot(struct inode *inode,
 	strcpy(de->name, ".");
 	ext4_set_de_type(inode->i_sb, de, S_IFDIR);
 
-	de = ext4_next_entry(de, blocksize);
+	de = ifs_ext4_local_ext4_next_entry(de, blocksize);
 	de->inode = cpu_to_le32(parent_ino);
 	de->name_len = 2;
 	if (!dotdot_real_len)
@@ -3407,7 +3414,7 @@ struct ext4_dir_entry_2 *ext4_init_dot_dotdot(struct inode *inode,
 	strcpy(de->name, "..");
 	ext4_set_de_type(inode->i_sb, de, S_IFDIR);
 
-	return ext4_next_entry(de, blocksize);
+	return ifs_ext4_local_ext4_next_entry(de, blocksize);
 }
 
 
@@ -3462,14 +3469,14 @@ out:
 
 
 /**
- * ext4_mkdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_mkdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mkdir(struct mnt_idmap *idmap, struct inode *dir,
+static int ifs_ext4_local_ext4_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 		      struct dentry *dentry, umode_t mode)
 {
 	handle_t *handle;
@@ -3501,7 +3508,7 @@ retry:
 		goto out_clear_inode;
 	err = ext4_mark_inode_dirty(handle, inode);
 	if (!err)
-		err = ext4_add_entry(handle, dentry, inode);
+		err = ifs_ext4_local_ext4_add_entry(handle, dentry, inode);
 	if (err) {
 out_clear_inode:
 		clear_nlink(inode);
@@ -3514,7 +3521,7 @@ out_clear_inode:
 		iput(inode);
 		goto out_retry;
 	}
-	ext4_inc_count(dir);
+	ifs_ext4_local_ext4_inc_count(dir);
 
 	ext4_update_dx_flag(dir);
 	err = ext4_mark_inode_dirty(handle, dir);
@@ -3578,7 +3585,7 @@ bool ext4_empty_dir(struct inode *inode)
 		return false;
 	}
 	offset = ext4_rec_len_from_disk(de->rec_len, sb->s_blocksize);
-	de = ext4_next_entry(de, sb->s_blocksize);
+	de = ifs_ext4_local_ext4_next_entry(de, sb->s_blocksize);
 	if (ext4_check_dir_entry(inode, NULL, de, bh, bh->b_data, bh->b_size,
 				 offset) ||
 	    le32_to_cpu(de->inode) == 0 || strcmp("..", de->name)) {
@@ -3616,14 +3623,14 @@ bool ext4_empty_dir(struct inode *inode)
 
 
 /**
- * ext4_rmdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_rmdir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_rmdir(struct inode *dir, struct dentry *dentry)
+static int ifs_ext4_local_ext4_rmdir(struct inode *dir, struct dentry *dentry)
 {
 	int retval;
 	struct inode *inode;
@@ -3670,7 +3677,7 @@ static int ext4_rmdir(struct inode *dir, struct dentry *dentry)
 	if (IS_DIRSYNC(dir))
 		ext4_handle_sync(handle);
 
-	retval = ext4_delete_entry(handle, dir, de, bh);
+	retval = ifs_ext4_local_ext4_delete_entry(handle, dir, de, bh);
 	if (retval)
 		goto end_rmdir;
 	if (!EXT4_DIR_LINK_EMPTY(inode))
@@ -3689,7 +3696,7 @@ static int ext4_rmdir(struct inode *dir, struct dentry *dentry)
 	retval = ext4_mark_inode_dirty(handle, inode);
 	if (retval)
 		goto end_rmdir;
-	ext4_dec_count(dir);
+	ifs_ext4_local_ext4_dec_count(dir);
 	ext4_update_dx_flag(dir);
 	ext4_fc_track_unlink(handle, dentry);
 	retval = ext4_mark_inode_dirty(handle, dir);
@@ -3752,7 +3759,7 @@ int __ext4_unlink(struct inode *dir, const struct qstr *d_name,
 		ext4_handle_sync(handle);
 
 	if (!skip_remove_dentry) {
-		retval = ext4_delete_entry(handle, dir, de, bh);
+		retval = ifs_ext4_local_ext4_delete_entry(handle, dir, de, bh);
 		if (retval)
 			goto out_handle;
 		inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
@@ -3783,14 +3790,14 @@ out_bh:
 
 
 /**
- * ext4_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_unlink - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_unlink(struct inode *dir, struct dentry *dentry)
+static int ifs_ext4_local_ext4_unlink(struct inode *dir, struct dentry *dentry)
 {
 	int retval;
 
@@ -3820,14 +3827,14 @@ out_trace:
 
 
 /**
- * ext4_init_symlink_block - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext4_local_ext4_init_symlink_block - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_init_symlink_block(handle_t *handle, struct inode *inode,
+static int ifs_ext4_local_ext4_init_symlink_block(handle_t *handle, struct inode *inode,
 				   struct fscrypt_str *disk_link)
 {
 	struct buffer_head *bh;
@@ -3855,14 +3862,14 @@ out:
 
 
 /**
- * ext4_symlink - Implements the symlink operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_symlink - Implements the symlink operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_symlink(struct mnt_idmap *idmap, struct inode *dir,
+static int ifs_ext4_local_ext4_symlink(struct mnt_idmap *idmap, struct inode *dir,
 			struct dentry *dentry, const char *symname)
 {
 	handle_t *handle;
@@ -3915,7 +3922,7 @@ retry:
 
 	if ((disk_link.len > EXT4_N_BLOCKS * 4)) {
 
-		err = ext4_init_symlink_block(handle, inode, &disk_link);
+		err = ifs_ext4_local_ext4_init_symlink_block(handle, inode, &disk_link);
 		if (err)
 			goto err_drop_inode;
 	} else {
@@ -3926,7 +3933,7 @@ retry:
 		inode->i_size = disk_link.len - 1;
 		EXT4_I(inode)->i_disksize = inode->i_size;
 	}
-	err = ext4_add_nondir(handle, dentry, &inode);
+	err = ifs_ext4_local_ext4_add_nondir(handle, dentry, &inode);
 	if (handle)
 		ext4_journal_stop(handle);
 	iput(inode);
@@ -3972,10 +3979,10 @@ retry:
 		ext4_handle_sync(handle);
 
 	inode_set_ctime_current(inode);
-	ext4_inc_count(inode);
+	ifs_ext4_local_ext4_inc_count(inode);
 	ihold(inode);
 
-	err = ext4_add_entry(handle, dentry, inode);
+	err = ifs_ext4_local_ext4_add_entry(handle, dentry, inode);
 	if (!err) {
 		err = ext4_mark_inode_dirty(handle, inode);
 
@@ -3996,14 +4003,14 @@ retry:
 
 
 /**
- * ext4_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_link - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_link(struct dentry *old_dentry,
+static int ifs_ext4_local_ext4_link(struct dentry *old_dentry,
 		     struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(old_dentry);
@@ -4066,7 +4073,7 @@ static struct buffer_head *ext4_get_first_dir_block(handle_t *handle,
 		}
 		offset = ext4_rec_len_from_disk(de->rec_len,
 						inode->i_sb->s_blocksize);
-		de = ext4_next_entry(de, inode->i_sb->s_blocksize);
+		de = ifs_ext4_local_ext4_next_entry(de, inode->i_sb->s_blocksize);
 		if (ext4_check_dir_entry(inode, NULL, de, bh, bh->b_data,
 					 bh->b_size, offset) ||
 		    le32_to_cpu(de->inode) == 0 || strcmp("..", de->name)) {
@@ -4111,14 +4118,14 @@ struct ext4_renament {
 
 
 /**
- * ext4_rename_dir_prepare - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_rename_dir_prepare - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_rename_dir_prepare(handle_t *handle, struct ext4_renament *ent, bool is_cross)
+static int ifs_ext4_local_ext4_rename_dir_prepare(handle_t *handle, struct ext4_renament *ent, bool is_cross)
 {
 	int retval;
 
@@ -4140,14 +4147,14 @@ static int ext4_rename_dir_prepare(handle_t *handle, struct ext4_renament *ent, 
 
 
 /**
- * ext4_rename_dir_finish - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_rename_dir_finish - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_rename_dir_finish(handle_t *handle, struct ext4_renament *ent,
+static int ifs_ext4_local_ext4_rename_dir_finish(handle_t *handle, struct ext4_renament *ent,
 				  unsigned dir_ino)
 {
 	int retval;
@@ -4159,7 +4166,7 @@ static int ext4_rename_dir_finish(handle_t *handle, struct ext4_renament *ent,
 	BUFFER_TRACE(ent->dir_bh, "call ext4_handle_dirty_metadata");
 	if (!ent->dir_inlined) {
 		if (is_dx(ent->inode)) {
-			retval = ext4_handle_dirty_dx_node(handle,
+			retval = ifs_ext4_local_ext4_handle_dirty_dx_node(handle,
 							   ent->inode,
 							   ent->dir_bh);
 		} else {
@@ -4178,14 +4185,14 @@ static int ext4_rename_dir_finish(handle_t *handle, struct ext4_renament *ent,
 
 
 /**
- * ext4_setent - Implements the setent operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_setent - Implements the setent operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_setent(handle_t *handle, struct ext4_renament *ent,
+static int ifs_ext4_local_ext4_setent(handle_t *handle, struct ext4_renament *ent,
 		       unsigned ino, unsigned file_type)
 {
 	int retval, retval2;
@@ -4214,14 +4221,14 @@ static int ext4_setent(handle_t *handle, struct ext4_renament *ent,
 
 
 /**
- * ext4_resetent - Implements the resetent operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_resetent - Implements the resetent operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_resetent(handle_t *handle, struct ext4_renament *ent,
+static void ifs_ext4_local_ext4_resetent(handle_t *handle, struct ext4_renament *ent,
 			  unsigned ino, unsigned file_type)
 {
 	struct ext4_renament old = *ent;
@@ -4239,20 +4246,20 @@ static void ext4_resetent(handle_t *handle, struct ext4_renament *ent,
 		return;
 	}
 
-	ext4_setent(handle, &old, ino, file_type);
+	ifs_ext4_local_ext4_setent(handle, &old, ino, file_type);
 	brelse(old.bh);
 }
 
 
 /**
- * ext4_find_delete_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_find_delete_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_find_delete_entry(handle_t *handle, struct inode *dir,
+static int ifs_ext4_local_ext4_find_delete_entry(handle_t *handle, struct inode *dir,
 				  const struct qstr *d_name)
 {
 	int retval = -ENOENT;
@@ -4263,7 +4270,7 @@ static int ext4_find_delete_entry(handle_t *handle, struct inode *dir,
 	if (IS_ERR(bh))
 		return PTR_ERR(bh);
 	if (bh) {
-		retval = ext4_delete_entry(handle, dir, de, bh);
+		retval = ifs_ext4_local_ext4_delete_entry(handle, dir, de, bh);
 		brelse(bh);
 	}
 	return retval;
@@ -4271,14 +4278,14 @@ static int ext4_find_delete_entry(handle_t *handle, struct inode *dir,
 
 
 /**
- * ext4_rename_delete - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_rename_delete - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_rename_delete(handle_t *handle, struct ext4_renament *ent,
+static void ifs_ext4_local_ext4_rename_delete(handle_t *handle, struct ext4_renament *ent,
 			       int force_reread)
 {
 	int retval;
@@ -4289,12 +4296,12 @@ static void ext4_rename_delete(handle_t *handle, struct ext4_renament *ent,
 	    strncmp(ent->de->name, ent->dentry->d_name.name,
 		    ent->de->name_len) ||
 	    force_reread) {
-		retval = ext4_find_delete_entry(handle, ent->dir,
+		retval = ifs_ext4_local_ext4_find_delete_entry(handle, ent->dir,
 						&ent->dentry->d_name);
 	} else {
-		retval = ext4_delete_entry(handle, ent->dir, ent->de, ent->bh);
+		retval = ifs_ext4_local_ext4_delete_entry(handle, ent->dir, ent->de, ent->bh);
 		if (retval == -ENOENT) {
-			retval = ext4_find_delete_entry(handle, ent->dir,
+			retval = ifs_ext4_local_ext4_find_delete_entry(handle, ent->dir,
 							&ent->dentry->d_name);
 		}
 	}
@@ -4308,20 +4315,20 @@ static void ext4_rename_delete(handle_t *handle, struct ext4_renament *ent,
 
 
 /**
- * ext4_update_dir_count - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * ifs_ext4_local_ext4_update_dir_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_update_dir_count(handle_t *handle, struct ext4_renament *ent)
+static void ifs_ext4_local_ext4_update_dir_count(handle_t *handle, struct ext4_renament *ent)
 {
 	if (ent->dir_nlink_delta) {
 		if (ent->dir_nlink_delta == -1)
-			ext4_dec_count(ent->dir);
+			ifs_ext4_local_ext4_dec_count(ent->dir);
 		else
-			ext4_inc_count(ent->dir);
+			ifs_ext4_local_ext4_inc_count(ent->dir);
 		ext4_mark_inode_dirty(handle, ent->dir);
 	}
 }
@@ -4369,14 +4376,14 @@ retry:
 
 
 /**
- * ext4_rename - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_rename - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_rename(struct mnt_idmap *idmap, struct inode *old_dir,
+static int ifs_ext4_local_ext4_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 		       struct dentry *old_dentry, struct inode *new_dir,
 		       struct dentry *new_dentry, unsigned int flags)
 {
@@ -4481,7 +4488,7 @@ static int ext4_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 			if (new.dir != old.dir && EXT4_DIR_LINK_MAX(new.dir))
 				goto end_rename;
 		}
-		retval = ext4_rename_dir_prepare(handle, &old, new.dir != old.dir);
+		retval = ifs_ext4_local_ext4_rename_dir_prepare(handle, &old, new.dir != old.dir);
 		if (retval)
 			goto end_rename;
 	}
@@ -4493,7 +4500,7 @@ static int ext4_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	if (whiteout) {
 
 
-		retval = ext4_setent(handle, &old, whiteout->i_ino,
+		retval = ifs_ext4_local_ext4_setent(handle, &old, whiteout->i_ino,
 				     EXT4_FT_CHRDEV);
 		if (retval)
 			goto end_rename;
@@ -4503,11 +4510,11 @@ static int ext4_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 
 	}
 	if (!new.bh) {
-		retval = ext4_add_entry(handle, new.dentry, old.inode);
+		retval = ifs_ext4_local_ext4_add_entry(handle, new.dentry, old.inode);
 		if (retval)
 			goto end_rename;
 	} else {
-		retval = ext4_setent(handle, &new,
+		retval = ifs_ext4_local_ext4_setent(handle, &new,
 				     old.inode->i_ino, old_file_type);
 		if (retval)
 			goto end_rename;
@@ -4525,27 +4532,27 @@ static int ext4_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	if (!whiteout) {
 
 
-		ext4_rename_delete(handle, &old, force_reread);
+		ifs_ext4_local_ext4_rename_delete(handle, &old, force_reread);
 	}
 
 	if (new.inode) {
-		ext4_dec_count(new.inode);
+		ifs_ext4_local_ext4_dec_count(new.inode);
 		inode_set_ctime_current(new.inode);
 	}
 	inode_set_mtime_to_ts(old.dir, inode_set_ctime_current(old.dir));
 	ext4_update_dx_flag(old.dir);
 	if (old.is_dir) {
-		retval = ext4_rename_dir_finish(handle, &old, new.dir->i_ino);
+		retval = ifs_ext4_local_ext4_rename_dir_finish(handle, &old, new.dir->i_ino);
 		if (retval)
 			goto end_rename;
 
-		ext4_dec_count(old.dir);
+		ifs_ext4_local_ext4_dec_count(old.dir);
 		if (new.inode) {
 
 
 			clear_nlink(new.inode);
 		} else {
-			ext4_inc_count(new.dir);
+			ifs_ext4_local_ext4_inc_count(new.dir);
 			ext4_update_dx_flag(new.dir);
 			retval = ext4_mark_inode_dirty(handle, new.dir);
 			if (unlikely(retval))
@@ -4589,7 +4596,7 @@ static int ext4_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 end_rename:
 	if (whiteout) {
 		if (retval) {
-			ext4_resetent(handle, &old,
+			ifs_ext4_local_ext4_resetent(handle, &old,
 				      old.inode->i_ino, old_file_type);
 			drop_nlink(whiteout);
 			ext4_mark_inode_dirty(handle, whiteout);
@@ -4611,14 +4618,14 @@ release_bh:
 
 
 /**
- * ext4_cross_rename - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_cross_rename - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
+static int ifs_ext4_local_ext4_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 			     struct inode *new_dir, struct dentry *new_dentry)
 {
 	handle_t *handle = NULL;
@@ -4685,12 +4692,12 @@ static int ext4_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 		ext4_handle_sync(handle);
 
 	if (S_ISDIR(old.inode->i_mode)) {
-		retval = ext4_rename_dir_prepare(handle, &old, new.dir != old.dir);
+		retval = ifs_ext4_local_ext4_rename_dir_prepare(handle, &old, new.dir != old.dir);
 		if (retval)
 			goto end_rename;
 	}
 	if (S_ISDIR(new.inode->i_mode)) {
-		retval = ext4_rename_dir_prepare(handle, &new, new.dir != old.dir);
+		retval = ifs_ext4_local_ext4_rename_dir_prepare(handle, &new, new.dir != old.dir);
 		if (retval)
 			goto end_rename;
 	}
@@ -4706,11 +4713,11 @@ static int ext4_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 	}
 
 	new_file_type = new.de->file_type;
-	retval = ext4_setent(handle, &new, old.inode->i_ino, old.de->file_type);
+	retval = ifs_ext4_local_ext4_setent(handle, &new, old.inode->i_ino, old.de->file_type);
 	if (retval)
 		goto end_rename;
 
-	retval = ext4_setent(handle, &old, new.inode->i_ino, new_file_type);
+	retval = ifs_ext4_local_ext4_setent(handle, &old, new.inode->i_ino, new_file_type);
 	if (retval)
 		goto end_rename;
 
@@ -4726,17 +4733,17 @@ static int ext4_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 	ext4_fc_mark_ineligible(new.inode->i_sb,
 				EXT4_FC_REASON_CROSS_RENAME, handle);
 	if (old.dir_bh) {
-		retval = ext4_rename_dir_finish(handle, &old, new.dir->i_ino);
+		retval = ifs_ext4_local_ext4_rename_dir_finish(handle, &old, new.dir->i_ino);
 		if (retval)
 			goto end_rename;
 	}
 	if (new.dir_bh) {
-		retval = ext4_rename_dir_finish(handle, &new, old.dir->i_ino);
+		retval = ifs_ext4_local_ext4_rename_dir_finish(handle, &new, old.dir->i_ino);
 		if (retval)
 			goto end_rename;
 	}
-	ext4_update_dir_count(handle, &old);
-	ext4_update_dir_count(handle, &new);
+	ifs_ext4_local_ext4_update_dir_count(handle, &old);
+	ifs_ext4_local_ext4_update_dir_count(handle, &new);
 	retval = 0;
 
 end_rename:
@@ -4751,14 +4758,14 @@ end_rename:
 
 
 /**
- * ext4_rename2 - Implements the rename2 operation within the namespace mutation subsystem.
+ * ifs_ext4_local_ext4_rename2 - Implements the rename2 operation within the namespace mutation subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_rename2(struct mnt_idmap *idmap,
+static int ifs_ext4_local_ext4_rename2(struct mnt_idmap *idmap,
 			struct inode *old_dir, struct dentry *old_dentry,
 			struct inode *new_dir, struct dentry *new_dentry,
 			unsigned int flags)
@@ -4777,25 +4784,25 @@ static int ext4_rename2(struct mnt_idmap *idmap,
 		return err;
 
 	if (flags & RENAME_EXCHANGE) {
-		return ext4_cross_rename(old_dir, old_dentry,
+		return ifs_ext4_local_ext4_cross_rename(old_dir, old_dentry,
 					 new_dir, new_dentry);
 	}
 
-	return ext4_rename(idmap, old_dir, old_dentry, new_dir, new_dentry, flags);
+	return ifs_ext4_local_ext4_rename(idmap, old_dir, old_dentry, new_dir, new_dentry, flags);
 }
 
 
 const struct inode_operations ext4_dir_inode_operations = {
-	.create		= ext4_create,
+	.create		= ifs_ext4_local_ext4_create,
 	.lookup		= ext4_lookup,
-	.link		= ext4_link,
-	.unlink		= ext4_unlink,
-	.symlink	= ext4_symlink,
-	.mkdir		= ext4_mkdir,
-	.rmdir		= ext4_rmdir,
-	.mknod		= ext4_mknod,
-	.tmpfile	= ext4_tmpfile,
-	.rename		= ext4_rename2,
+	.link		= ifs_ext4_local_ext4_link,
+	.unlink		= ifs_ext4_local_ext4_unlink,
+	.symlink	= ifs_ext4_local_ext4_symlink,
+	.mkdir		= ifs_ext4_local_ext4_mkdir,
+	.rmdir		= ifs_ext4_local_ext4_rmdir,
+	.mknod		= ifs_ext4_local_ext4_mknod,
+	.tmpfile	= ifs_ext4_local_ext4_tmpfile,
+	.rename		= ifs_ext4_local_ext4_rename2,
 	.setattr	= ext4_setattr,
 	.getattr	= ext4_getattr,
 	.listxattr	= ext4_listxattr,

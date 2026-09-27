@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: multiblock_allocation.c.
+ * Project-maintained canonical implementation.
+ */
+
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2003-2006, Cluster File Systems, Inc, info@clusterfs.com
@@ -18,7 +25,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -52,14 +59,14 @@ static const char * const ext4_groupinfo_slab_names[NR_GRPINFO_CACHES] = {
 	"ext4_groupinfo_64k", "ext4_groupinfo_128k"
 };
 
-static void ext4_mb_generate_from_pa(struct super_block *sb, void *bitmap,
+static void ifs_ext4_local_ext4_mb_generate_from_pa(struct super_block *sb, void *bitmap,
 					ext4_group_t group);
-static void ext4_mb_new_preallocation(struct ext4_allocation_context *ac);
+static void ifs_ext4_local_ext4_mb_new_preallocation(struct ext4_allocation_context *ac);
 
-static int ext4_mb_scan_group(struct ext4_allocation_context *ac,
+static int ifs_ext4_local_ext4_mb_scan_group(struct ext4_allocation_context *ac,
 			      ext4_group_t group);
 
-static int ext4_try_to_trim_range(struct super_block *sb,
+static int ifs_ext4_local_ext4_try_to_trim_range(struct super_block *sb,
 		struct ext4_buddy *e4b, ext4_grpblk_t start,
 		ext4_grpblk_t max, ext4_grpblk_t minblocks);
 
@@ -68,14 +75,14 @@ static DEFINE_PER_CPU(u64, discard_pa_seq);
 
 
 /**
- * ext4_get_discard_pa_seq_sum - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * ifs_ext4_local_ext4_get_discard_pa_seq_sum - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline u64 ext4_get_discard_pa_seq_sum(void)
+static inline u64 ifs_ext4_local_ext4_get_discard_pa_seq_sum(void)
 {
 	int __cpu;
 	u64 __seq = 0;
@@ -110,14 +117,14 @@ static inline void *mb_correct_addr_and_bit(int *bit, void *addr)
 
 
 /**
- * mb_test_bit - Implements the mb test bit operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_mb_test_bit - Implements the mb test bit operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int mb_test_bit(int bit, void *addr)
+static inline int ifs_ext4_local_mb_test_bit(int bit, void *addr)
 {
 
 
@@ -127,14 +134,14 @@ static inline int mb_test_bit(int bit, void *addr)
 
 
 /**
- * mb_set_bit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_mb_set_bit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void mb_set_bit(int bit, void *addr)
+static inline void ifs_ext4_local_mb_set_bit(int bit, void *addr)
 {
 	addr = mb_correct_addr_and_bit(&bit, addr);
 	ext4_set_bit(bit, addr);
@@ -142,14 +149,14 @@ static inline void mb_set_bit(int bit, void *addr)
 
 
 /**
- * mb_clear_bit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_mb_clear_bit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void mb_clear_bit(int bit, void *addr)
+static inline void ifs_ext4_local_mb_clear_bit(int bit, void *addr)
 {
 	addr = mb_correct_addr_and_bit(&bit, addr);
 	ext4_clear_bit(bit, addr);
@@ -157,14 +164,14 @@ static inline void mb_clear_bit(int bit, void *addr)
 
 
 /**
- * mb_test_and_clear_bit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_mb_test_and_clear_bit - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int mb_test_and_clear_bit(int bit, void *addr)
+static inline int ifs_ext4_local_mb_test_and_clear_bit(int bit, void *addr)
 {
 	addr = mb_correct_addr_and_bit(&bit, addr);
 	return ext4_test_and_clear_bit(bit, addr);
@@ -172,14 +179,14 @@ static inline int mb_test_and_clear_bit(int bit, void *addr)
 
 
 /**
- * mb_find_next_zero_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_mb_find_next_zero_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int mb_find_next_zero_bit(void *addr, int max, int start)
+static inline int ifs_ext4_local_mb_find_next_zero_bit(void *addr, int max, int start)
 {
 	int fix = 0, ret, tmpmax;
 	addr = mb_correct_addr_and_bit(&fix, addr);
@@ -194,14 +201,14 @@ static inline int mb_find_next_zero_bit(void *addr, int max, int start)
 
 
 /**
- * mb_find_next_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_mb_find_next_bit - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int mb_find_next_bit(void *addr, int max, int start)
+static inline int ifs_ext4_local_mb_find_next_bit(void *addr, int max, int start)
 {
 	int fix = 0, ret, tmpmax;
 	addr = mb_correct_addr_and_bit(&fix, addr);
@@ -251,14 +258,14 @@ static void *mb_find_buddy(struct ext4_buddy *e4b, int order, int *max)
 
 
 /**
- * mb_free_blocks_double - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_mb_free_blocks_double - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_free_blocks_double(struct inode *inode, struct ext4_buddy *e4b,
+static void ifs_ext4_local_mb_free_blocks_double(struct inode *inode, struct ext4_buddy *e4b,
 			   int first, int count)
 {
 	int i;
@@ -268,7 +275,7 @@ static void mb_free_blocks_double(struct inode *inode, struct ext4_buddy *e4b,
 		return;
 	assert_spin_locked(ext4_group_lock_ptr(sb, e4b->bd_group));
 	for (i = 0; i < count; i++) {
-		if (!mb_test_bit(first + i, e4b->bd_info->bb_bitmap)) {
+		if (!ifs_ext4_local_mb_test_bit(first + i, e4b->bd_info->bb_bitmap)) {
 			ext4_fsblk_t blocknr;
 
 			blocknr = ext4_group_first_block_no(sb, e4b->bd_group);
@@ -282,20 +289,20 @@ static void mb_free_blocks_double(struct inode *inode, struct ext4_buddy *e4b,
 					      "(bit %u)",
 					      first + i);
 		}
-		mb_clear_bit(first + i, e4b->bd_info->bb_bitmap);
+		ifs_ext4_local_mb_clear_bit(first + i, e4b->bd_info->bb_bitmap);
 	}
 }
 
 
 /**
- * mb_mark_used_double - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_mb_mark_used_double - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_mark_used_double(struct ext4_buddy *e4b, int first, int count)
+static void ifs_ext4_local_mb_mark_used_double(struct ext4_buddy *e4b, int first, int count)
 {
 	int i;
 
@@ -303,21 +310,21 @@ static void mb_mark_used_double(struct ext4_buddy *e4b, int first, int count)
 		return;
 	assert_spin_locked(ext4_group_lock_ptr(e4b->bd_sb, e4b->bd_group));
 	for (i = 0; i < count; i++) {
-		BUG_ON(mb_test_bit(first + i, e4b->bd_info->bb_bitmap));
-		mb_set_bit(first + i, e4b->bd_info->bb_bitmap);
+		BUG_ON(ifs_ext4_local_mb_test_bit(first + i, e4b->bd_info->bb_bitmap));
+		ifs_ext4_local_mb_set_bit(first + i, e4b->bd_info->bb_bitmap);
 	}
 }
 
 
 /**
- * mb_cmp_bitmaps - Implements the mb cmp bitmaps operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_mb_cmp_bitmaps - Implements the mb cmp bitmaps operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_cmp_bitmaps(struct ext4_buddy *e4b, void *bitmap)
+static void ifs_ext4_local_mb_cmp_bitmaps(struct ext4_buddy *e4b, void *bitmap)
 {
 	if (unlikely(e4b->bd_info->bb_bitmap == NULL))
 		return;
@@ -341,14 +348,14 @@ static void mb_cmp_bitmaps(struct ext4_buddy *e4b, void *bitmap)
 
 
 /**
- * mb_group_bb_bitmap_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ifs_ext4_local_mb_group_bb_bitmap_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_group_bb_bitmap_alloc(struct super_block *sb,
+static void ifs_ext4_local_mb_group_bb_bitmap_alloc(struct super_block *sb,
 			struct ext4_group_info *grp, ext4_group_t group)
 {
 	struct buffer_head *bh;
@@ -370,14 +377,14 @@ static void mb_group_bb_bitmap_alloc(struct super_block *sb,
 
 
 /**
- * mb_group_bb_bitmap_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_mb_group_bb_bitmap_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_group_bb_bitmap_free(struct ext4_group_info *grp)
+static void ifs_ext4_local_mb_group_bb_bitmap_free(struct ext4_group_info *grp)
 {
 	kfree(grp->bb_bitmap);
 }
@@ -386,14 +393,14 @@ static void mb_group_bb_bitmap_free(struct ext4_group_info *grp)
 
 
 /**
- * mb_free_blocks_double - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_mb_free_blocks_double - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void mb_free_blocks_double(struct inode *inode,
+static inline void ifs_ext4_local_mb_free_blocks_double(struct inode *inode,
 				struct ext4_buddy *e4b, int first, int count)
 {
 	return;
@@ -401,14 +408,14 @@ static inline void mb_free_blocks_double(struct inode *inode,
 
 
 /**
- * mb_mark_used_double - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_mb_mark_used_double - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void mb_mark_used_double(struct ext4_buddy *e4b,
+static inline void ifs_ext4_local_mb_mark_used_double(struct ext4_buddy *e4b,
 						int first, int count)
 {
 	return;
@@ -416,28 +423,28 @@ static inline void mb_mark_used_double(struct ext4_buddy *e4b,
 
 
 /**
- * mb_cmp_bitmaps - Implements the mb cmp bitmaps operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_mb_cmp_bitmaps - Implements the mb cmp bitmaps operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void mb_cmp_bitmaps(struct ext4_buddy *e4b, void *bitmap)
+static inline void ifs_ext4_local_mb_cmp_bitmaps(struct ext4_buddy *e4b, void *bitmap)
 {
 	return;
 }
 
 
 /**
- * mb_group_bb_bitmap_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ifs_ext4_local_mb_group_bb_bitmap_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void mb_group_bb_bitmap_alloc(struct super_block *sb,
+static inline void ifs_ext4_local_mb_group_bb_bitmap_alloc(struct super_block *sb,
 			struct ext4_group_info *grp, ext4_group_t group)
 {
 	return;
@@ -445,14 +452,14 @@ static inline void mb_group_bb_bitmap_alloc(struct super_block *sb,
 
 
 /**
- * mb_group_bb_bitmap_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_mb_group_bb_bitmap_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void mb_group_bb_bitmap_free(struct ext4_group_info *grp)
+static inline void ifs_ext4_local_mb_group_bb_bitmap_free(struct ext4_group_info *grp)
 {
 	return;
 }
@@ -472,14 +479,14 @@ do {									\
 
 
 /**
- * __mb_check_buddy - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local___mb_check_buddy - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __mb_check_buddy(struct ext4_buddy *e4b, char *file,
+static void ifs_ext4_local___mb_check_buddy(struct ext4_buddy *e4b, char *file,
 				const char *function, int line)
 {
 	struct super_block *sb = e4b->bd_sb;
@@ -511,11 +518,11 @@ static void __mb_check_buddy(struct ext4_buddy *e4b, char *file,
 		count = 0;
 		for (i = 0; i < max; i++) {
 
-			if (mb_test_bit(i, buddy)) {
+			if (ifs_ext4_local_mb_test_bit(i, buddy)) {
 
-				if (!mb_test_bit(i << 1, buddy2)) {
+				if (!ifs_ext4_local_mb_test_bit(i << 1, buddy2)) {
 					MB_CHECK_ASSERT(
-						mb_test_bit((i<<1)+1, buddy2));
+						ifs_ext4_local_mb_test_bit((i<<1)+1, buddy2));
 				}
 				continue;
 			}
@@ -529,7 +536,7 @@ static void __mb_check_buddy(struct ext4_buddy *e4b, char *file,
 	fstart = -1;
 	buddy = mb_find_buddy(e4b, 0, &max);
 	for (i = 0; i < max; i++) {
-		if (!mb_test_bit(i, buddy)) {
+		if (!ifs_ext4_local_mb_test_bit(i, buddy)) {
 			MB_CHECK_ASSERT(i >= e4b->bd_info->bb_first_free);
 			if (fstart == -1) {
 				fragments++;
@@ -541,12 +548,12 @@ static void __mb_check_buddy(struct ext4_buddy *e4b, char *file,
 		if (!(i & 1)) {
 			int in_use, zero_bit_count = 0;
 
-			in_use = mb_test_bit(i, buddy) || mb_test_bit(i + 1, buddy);
+			in_use = ifs_ext4_local_mb_test_bit(i, buddy) || ifs_ext4_local_mb_test_bit(i + 1, buddy);
 			for (j = 1; j < e4b->bd_blkbits + 2; j++) {
 				buddy2 = mb_find_buddy(e4b, j, &max2);
 				k = i >> j;
 				MB_CHECK_ASSERT(k < max2);
-				if (!mb_test_bit(k, buddy2))
+				if (!ifs_ext4_local_mb_test_bit(k, buddy2))
 					zero_bit_count++;
 			}
 			MB_CHECK_ASSERT(zero_bit_count == !in_use);
@@ -567,11 +574,11 @@ static void __mb_check_buddy(struct ext4_buddy *e4b, char *file,
 		ext4_get_group_no_and_offset(sb, pa->pa_pstart, &groupnr, &k);
 		MB_CHECK_ASSERT(groupnr == e4b->bd_group);
 		for (i = 0; i < pa->pa_len; i++)
-			MB_CHECK_ASSERT(mb_test_bit(k + i, buddy));
+			MB_CHECK_ASSERT(ifs_ext4_local_mb_test_bit(k + i, buddy));
 	}
 }
 #undef MB_CHECK_ASSERT
-#define mb_check_buddy(e4b) __mb_check_buddy(e4b,	\
+#define mb_check_buddy(e4b) ifs_ext4_local___mb_check_buddy(e4b,	\
 					__FILE__, __func__, __LINE__)
 #else
 #define mb_check_buddy(e4b)
@@ -579,14 +586,14 @@ static void __mb_check_buddy(struct ext4_buddy *e4b, char *file,
 
 
 /**
- * ext4_mb_mark_free_simple - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_mark_free_simple - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_mark_free_simple(struct super_block *sb,
+static void ifs_ext4_local_ext4_mb_mark_free_simple(struct super_block *sb,
 				void *buddy, ext4_grpblk_t first, ext4_grpblk_t len,
 					struct ext4_group_info *grp)
 {
@@ -614,7 +621,7 @@ static void ext4_mb_mark_free_simple(struct super_block *sb,
 
 		grp->bb_counters[min]++;
 		if (min > 0)
-			mb_clear_bit(first >> min,
+			ifs_ext4_local_mb_clear_bit(first >> min,
 				     buddy + sbi->s_mb_offsets[min]);
 
 		len -= chunk;
@@ -624,14 +631,14 @@ static void ext4_mb_mark_free_simple(struct super_block *sb,
 
 
 /**
- * mb_avg_fragment_size_order - Implements the mb avg fragment size order operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_mb_avg_fragment_size_order - Implements the mb avg fragment size order operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int mb_avg_fragment_size_order(struct super_block *sb, ext4_grpblk_t len)
+static int ifs_ext4_local_mb_avg_fragment_size_order(struct super_block *sb, ext4_grpblk_t len)
 {
 	int order;
 
@@ -648,7 +655,7 @@ static int mb_avg_fragment_size_order(struct super_block *sb, ext4_grpblk_t len)
 
 
 /**
- * mb_update_avg_fragment_size - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_mb_update_avg_fragment_size - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -656,7 +663,7 @@ static int mb_avg_fragment_size_order(struct super_block *sb, ext4_grpblk_t len)
  * rollback, abort or retry policy.
  */
 static void
-mb_update_avg_fragment_size(struct super_block *sb, struct ext4_group_info *grp)
+ifs_ext4_local_mb_update_avg_fragment_size(struct super_block *sb, struct ext4_group_info *grp)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	int new, old;
@@ -666,7 +673,7 @@ mb_update_avg_fragment_size(struct super_block *sb, struct ext4_group_info *grp)
 
 	old = grp->bb_avg_fragment_size_order;
 	new = grp->bb_fragments == 0 ? -1 :
-	      mb_avg_fragment_size_order(sb, grp->bb_free / grp->bb_fragments);
+	      ifs_ext4_local_mb_avg_fragment_size_order(sb, grp->bb_free / grp->bb_fragments);
 	if (new == old)
 		return;
 
@@ -687,14 +694,14 @@ mb_update_avg_fragment_size(struct super_block *sb, struct ext4_group_info *grp)
 
 
 /**
- * ext4_get_allocation_groups_count - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * ifs_ext4_local_ext4_get_allocation_groups_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ext4_group_t ext4_get_allocation_groups_count(
+static ext4_group_t ifs_ext4_local_ext4_get_allocation_groups_count(
 				struct ext4_allocation_context *ac)
 {
 	ext4_group_t ngroups = ext4_get_groups_count(ac->ac_sb);
@@ -711,21 +718,21 @@ static ext4_group_t ext4_get_allocation_groups_count(
 
 
 /**
- * ext4_mb_scan_groups_xa_range - Implements the mb scan groups xa range operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_scan_groups_xa_range - Implements the mb scan groups xa range operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_scan_groups_xa_range(struct ext4_allocation_context *ac,
+static int ifs_ext4_local_ext4_mb_scan_groups_xa_range(struct ext4_allocation_context *ac,
 					struct xarray *xa,
 					ext4_group_t start, ext4_group_t end)
 {
 	struct super_block *sb = ac->ac_sb;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	enum criteria cr = ac->ac_criteria;
-	ext4_group_t ngroups = ext4_get_allocation_groups_count(ac);
+	ext4_group_t ngroups = ifs_ext4_local_ext4_get_allocation_groups_count(ac);
 	unsigned long group = start;
 	struct ext4_group_info *grp;
 
@@ -738,7 +745,7 @@ static int ext4_mb_scan_groups_xa_range(struct ext4_allocation_context *ac,
 		if (sbi->s_mb_stats)
 			atomic64_inc(&sbi->s_bal_cX_groups_considered[cr]);
 
-		err = ext4_mb_scan_group(ac, grp->bb_group);
+		err = ifs_ext4_local_ext4_mb_scan_group(ac, grp->bb_group);
 		if (err || ac->ac_status != AC_STATUS_CONTINUE)
 			return err;
 
@@ -750,7 +757,7 @@ static int ext4_mb_scan_groups_xa_range(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_scan_groups_largest_free_order_range - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_scan_groups_largest_free_order_range - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -758,7 +765,7 @@ static int ext4_mb_scan_groups_xa_range(struct ext4_allocation_context *ac,
  * rollback, abort or retry policy.
  */
 static inline int
-ext4_mb_scan_groups_largest_free_order_range(struct ext4_allocation_context *ac,
+ifs_ext4_local_ext4_mb_scan_groups_largest_free_order_range(struct ext4_allocation_context *ac,
 					     int order, ext4_group_t start,
 					     ext4_group_t end)
 {
@@ -767,19 +774,19 @@ ext4_mb_scan_groups_largest_free_order_range(struct ext4_allocation_context *ac,
 	if (xa_empty(xa))
 		return 0;
 
-	return ext4_mb_scan_groups_xa_range(ac, xa, start, end);
+	return ifs_ext4_local_ext4_mb_scan_groups_xa_range(ac, xa, start, end);
 }
 
 
 /**
- * ext4_mb_scan_groups_p2_aligned - Implements the mb scan groups p2 aligned operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_scan_groups_p2_aligned - Implements the mb scan groups p2 aligned operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_scan_groups_p2_aligned(struct ext4_allocation_context *ac,
+static int ifs_ext4_local_ext4_mb_scan_groups_p2_aligned(struct ext4_allocation_context *ac,
 					  ext4_group_t group)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
@@ -788,10 +795,10 @@ static int ext4_mb_scan_groups_p2_aligned(struct ext4_allocation_context *ac,
 	ext4_group_t start, end;
 
 	start = group;
-	end = ext4_get_allocation_groups_count(ac);
+	end = ifs_ext4_local_ext4_get_allocation_groups_count(ac);
 wrap_around:
 	for (i = ac->ac_2order; i < MB_NUM_ORDERS(ac->ac_sb); i++) {
-		ret = ext4_mb_scan_groups_largest_free_order_range(ac, i,
+		ret = ifs_ext4_local_ext4_mb_scan_groups_largest_free_order_range(ac, i,
 								   start, end);
 		if (ret || ac->ac_status != AC_STATUS_CONTINUE)
 			return ret;
@@ -812,7 +819,7 @@ wrap_around:
 
 
 /**
- * ext4_mb_scan_groups_avg_frag_order_range - Implements the mb scan groups avg frag order range operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_scan_groups_avg_frag_order_range - Implements the mb scan groups avg frag order range operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -820,7 +827,7 @@ wrap_around:
  * rollback, abort or retry policy.
  */
 static int
-ext4_mb_scan_groups_avg_frag_order_range(struct ext4_allocation_context *ac,
+ifs_ext4_local_ext4_mb_scan_groups_avg_frag_order_range(struct ext4_allocation_context *ac,
 					 int order, ext4_group_t start,
 					 ext4_group_t end)
 {
@@ -829,19 +836,19 @@ ext4_mb_scan_groups_avg_frag_order_range(struct ext4_allocation_context *ac,
 	if (xa_empty(xa))
 		return 0;
 
-	return ext4_mb_scan_groups_xa_range(ac, xa, start, end);
+	return ifs_ext4_local_ext4_mb_scan_groups_xa_range(ac, xa, start, end);
 }
 
 
 /**
- * ext4_mb_scan_groups_goal_fast - Implements the mb scan groups goal fast operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_scan_groups_goal_fast - Implements the mb scan groups goal fast operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_scan_groups_goal_fast(struct ext4_allocation_context *ac,
+static int ifs_ext4_local_ext4_mb_scan_groups_goal_fast(struct ext4_allocation_context *ac,
 					 ext4_group_t group)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
@@ -849,11 +856,11 @@ static int ext4_mb_scan_groups_goal_fast(struct ext4_allocation_context *ac,
 	ext4_group_t start, end;
 
 	start = group;
-	end = ext4_get_allocation_groups_count(ac);
+	end = ifs_ext4_local_ext4_get_allocation_groups_count(ac);
 wrap_around:
-	i = mb_avg_fragment_size_order(ac->ac_sb, ac->ac_g_ex.fe_len);
+	i = ifs_ext4_local_mb_avg_fragment_size_order(ac->ac_sb, ac->ac_g_ex.fe_len);
 	for (; i < MB_NUM_ORDERS(ac->ac_sb); i++) {
-		ret = ext4_mb_scan_groups_avg_frag_order_range(ac, i,
+		ret = ifs_ext4_local_ext4_mb_scan_groups_avg_frag_order_range(ac, i,
 							       start, end);
 		if (ret || ac->ac_status != AC_STATUS_CONTINUE)
 			return ret;
@@ -878,14 +885,14 @@ wrap_around:
 
 
 /**
- * ext4_mb_scan_groups_best_avail - Implements the mb scan groups best avail operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_scan_groups_best_avail - Implements the mb scan groups best avail operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_scan_groups_best_avail(struct ext4_allocation_context *ac,
+static int ifs_ext4_local_ext4_mb_scan_groups_best_avail(struct ext4_allocation_context *ac,
 					  ext4_group_t group)
 {
 	int ret = 0;
@@ -916,7 +923,7 @@ static int ext4_mb_scan_groups_best_avail(struct ext4_allocation_context *ac,
 		min_order = fls(ac->ac_o_ex.fe_len);
 
 	start = group;
-	end = ext4_get_allocation_groups_count(ac);
+	end = ifs_ext4_local_ext4_get_allocation_groups_count(ac);
 wrap_around:
 	for (i = order; i >= min_order; i--) {
 		int frag_order;
@@ -931,10 +938,10 @@ wrap_around:
 						     num_stripe_clusters);
 		}
 
-		frag_order = mb_avg_fragment_size_order(ac->ac_sb,
+		frag_order = ifs_ext4_local_mb_avg_fragment_size_order(ac->ac_sb,
 							ac->ac_g_ex.fe_len);
 
-		ret = ext4_mb_scan_groups_avg_frag_order_range(ac, frag_order,
+		ret = ifs_ext4_local_ext4_mb_scan_groups_avg_frag_order_range(ac, frag_order,
 							       start, end);
 		if (ret || ac->ac_status != AC_STATUS_CONTINUE)
 			return ret;
@@ -956,14 +963,14 @@ wrap_around:
 
 
 /**
- * should_optimize_scan - Implements the should optimize scan operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_should_optimize_scan - Implements the should optimize scan operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int should_optimize_scan(struct ext4_allocation_context *ac)
+static inline int ifs_ext4_local_should_optimize_scan(struct ext4_allocation_context *ac)
 {
 	if (unlikely(!test_opt2(ac->ac_sb, MB_OPTIMIZE_SCAN)))
 		return 0;
@@ -974,14 +981,14 @@ static inline int should_optimize_scan(struct ext4_allocation_context *ac)
 
 
 /**
- * next_linear_group - Implements the next linear group operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_next_linear_group - Implements the next linear group operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void next_linear_group(ext4_group_t *group, ext4_group_t ngroups)
+static void ifs_ext4_local_next_linear_group(ext4_group_t *group, ext4_group_t ngroups)
 {
 
 
@@ -990,14 +997,14 @@ static void next_linear_group(ext4_group_t *group, ext4_group_t ngroups)
 
 
 /**
- * ext4_mb_scan_groups_linear - Implements the mb scan groups linear operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_scan_groups_linear - Implements the mb scan groups linear operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_scan_groups_linear(struct ext4_allocation_context *ac,
+static int ifs_ext4_local_ext4_mb_scan_groups_linear(struct ext4_allocation_context *ac,
 		ext4_group_t ngroups, ext4_group_t *start, ext4_group_t count)
 {
 	int ret, i;
@@ -1006,8 +1013,8 @@ static int ext4_mb_scan_groups_linear(struct ext4_allocation_context *ac,
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	ext4_group_t group = *start;
 
-	for (i = 0; i < count; i++, next_linear_group(&group, ngroups)) {
-		ret = ext4_mb_scan_group(ac, group);
+	for (i = 0; i < count; i++, ifs_ext4_local_next_linear_group(&group, ngroups)) {
+		ret = ifs_ext4_local_ext4_mb_scan_group(ac, group);
 		if (ret || ac->ac_status != AC_STATUS_CONTINUE)
 			return ret;
 		cond_resched();
@@ -1026,19 +1033,19 @@ static int ext4_mb_scan_groups_linear(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_scan_groups - Implements the mb scan groups operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_scan_groups - Implements the mb scan groups operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_scan_groups(struct ext4_allocation_context *ac)
+static int ifs_ext4_local_ext4_mb_scan_groups(struct ext4_allocation_context *ac)
 {
 	int ret = 0;
 	ext4_group_t start;
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
-	ext4_group_t ngroups = ext4_get_allocation_groups_count(ac);
+	ext4_group_t ngroups = ifs_ext4_local_ext4_get_allocation_groups_count(ac);
 
 
 	start = ac->ac_g_ex.fe_group;
@@ -1047,23 +1054,23 @@ static int ext4_mb_scan_groups(struct ext4_allocation_context *ac)
 	ac->ac_prefetch_grp = start;
 	ac->ac_prefetch_nr = 0;
 
-	if (!should_optimize_scan(ac))
-		return ext4_mb_scan_groups_linear(ac, ngroups, &start, ngroups);
+	if (!ifs_ext4_local_should_optimize_scan(ac))
+		return ifs_ext4_local_ext4_mb_scan_groups_linear(ac, ngroups, &start, ngroups);
 
 
 	if (sbi->s_mb_max_linear_groups)
-		ret = ext4_mb_scan_groups_linear(ac, ngroups, &start,
+		ret = ifs_ext4_local_ext4_mb_scan_groups_linear(ac, ngroups, &start,
 						 sbi->s_mb_max_linear_groups);
 	if (ret || ac->ac_status != AC_STATUS_CONTINUE)
 		return ret;
 
 	switch (ac->ac_criteria) {
 	case CR_POWER2_ALIGNED:
-		return ext4_mb_scan_groups_p2_aligned(ac, start);
+		return ifs_ext4_local_ext4_mb_scan_groups_p2_aligned(ac, start);
 	case CR_GOAL_LEN_FAST:
-		return ext4_mb_scan_groups_goal_fast(ac, start);
+		return ifs_ext4_local_ext4_mb_scan_groups_goal_fast(ac, start);
 	case CR_BEST_AVAIL_LEN:
-		return ext4_mb_scan_groups_best_avail(ac, start);
+		return ifs_ext4_local_ext4_mb_scan_groups_best_avail(ac, start);
 	default:
 
 
@@ -1075,7 +1082,7 @@ static int ext4_mb_scan_groups(struct ext4_allocation_context *ac)
 
 
 /**
- * mb_set_largest_free_order - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_mb_set_largest_free_order - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1083,7 +1090,7 @@ static int ext4_mb_scan_groups(struct ext4_allocation_context *ac)
  * rollback, abort or retry policy.
  */
 static void
-mb_set_largest_free_order(struct super_block *sb, struct ext4_group_info *grp)
+ifs_ext4_local_mb_set_largest_free_order(struct super_block *sb, struct ext4_group_info *grp)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	int new, old = grp->bb_largest_free_order;
@@ -1117,7 +1124,7 @@ mb_set_largest_free_order(struct super_block *sb, struct ext4_group_info *grp)
 
 
 /**
- * ext4_mb_generate_buddy - Implements the mb generate buddy operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_generate_buddy - Implements the mb generate buddy operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1125,7 +1132,7 @@ mb_set_largest_free_order(struct super_block *sb, struct ext4_group_info *grp)
  * rollback, abort or retry policy.
  */
 static noinline_for_stack
-void ext4_mb_generate_buddy(struct super_block *sb,
+void ifs_ext4_local_ext4_mb_generate_buddy(struct super_block *sb,
 			    void *buddy, void *bitmap, ext4_group_t group,
 			    struct ext4_group_info *grp)
 {
@@ -1139,20 +1146,20 @@ void ext4_mb_generate_buddy(struct super_block *sb,
 	unsigned long long period = get_cycles();
 
 
-	i = mb_find_next_zero_bit(bitmap, max, 0);
+	i = ifs_ext4_local_mb_find_next_zero_bit(bitmap, max, 0);
 	grp->bb_first_free = i;
 	while (i < max) {
 		fragments++;
 		first = i;
-		i = mb_find_next_bit(bitmap, max, i);
+		i = ifs_ext4_local_mb_find_next_bit(bitmap, max, i);
 		len = i - first;
 		free += len;
 		if (len > 1)
-			ext4_mb_mark_free_simple(sb, buddy, first, len, grp);
+			ifs_ext4_local_ext4_mb_mark_free_simple(sb, buddy, first, len, grp);
 		else
 			grp->bb_counters[0]++;
 		if (i < max)
-			i = mb_find_next_zero_bit(bitmap, max, i);
+			i = ifs_ext4_local_mb_find_next_zero_bit(bitmap, max, i);
 	}
 	grp->bb_fragments = fragments;
 
@@ -1167,8 +1174,8 @@ void ext4_mb_generate_buddy(struct super_block *sb,
 		ext4_mark_group_bitmap_corrupted(sb, group,
 					EXT4_GROUP_INFO_BBITMAP_CORRUPT);
 	}
-	mb_set_largest_free_order(sb, grp);
-	mb_update_avg_fragment_size(sb, grp);
+	ifs_ext4_local_mb_set_largest_free_order(sb, grp);
+	ifs_ext4_local_mb_update_avg_fragment_size(sb, grp);
 
 	clear_bit(EXT4_GROUP_INFO_NEED_INIT_BIT, &(grp->bb_state));
 
@@ -1179,14 +1186,14 @@ void ext4_mb_generate_buddy(struct super_block *sb,
 
 
 /**
- * mb_regenerate_buddy - Implements the mb regenerate buddy operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_mb_regenerate_buddy - Implements the mb regenerate buddy operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_regenerate_buddy(struct ext4_buddy *e4b)
+static void ifs_ext4_local_mb_regenerate_buddy(struct ext4_buddy *e4b)
 {
 	int count;
 	int order = 1;
@@ -1200,20 +1207,20 @@ static void mb_regenerate_buddy(struct ext4_buddy *e4b)
 		sizeof(*e4b->bd_info->bb_counters) *
 		(e4b->bd_sb->s_blocksize_bits + 2));
 
-	ext4_mb_generate_buddy(e4b->bd_sb, e4b->bd_buddy,
+	ifs_ext4_local_ext4_mb_generate_buddy(e4b->bd_sb, e4b->bd_buddy,
 		e4b->bd_bitmap, e4b->bd_group, e4b->bd_info);
 }
 
 
 /**
- * ext4_mb_init_cache - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext4_local_ext4_mb_init_cache - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_init_cache(struct folio *folio, char *incore, gfp_t gfp)
+static int ifs_ext4_local_ext4_mb_init_cache(struct folio *folio, char *incore, gfp_t gfp)
 {
 	ext4_group_t ngroups;
 	unsigned int blocksize;
@@ -1329,7 +1336,7 @@ static int ext4_mb_init_cache(struct folio *folio, char *incore, gfp_t gfp)
 			ext4_lock_group(sb, group);
 
 			memset(data, 0xff, blocksize);
-			ext4_mb_generate_buddy(sb, data, incore, group, grinfo);
+			ifs_ext4_local_ext4_mb_generate_buddy(sb, data, incore, group, grinfo);
 			ext4_unlock_group(sb, group);
 			incore = NULL;
 		} else {
@@ -1344,7 +1351,7 @@ static int ext4_mb_init_cache(struct folio *folio, char *incore, gfp_t gfp)
 			memcpy(data, bitmap, blocksize);
 
 
-			ext4_mb_generate_from_pa(sb, data, group);
+			ifs_ext4_local_ext4_mb_generate_from_pa(sb, data, group);
 			WARN_ON_ONCE(!RB_EMPTY_ROOT(&grinfo->bb_free_root));
 			ext4_unlock_group(sb, group);
 
@@ -1366,14 +1373,14 @@ out:
 
 
 /**
- * ext4_mb_get_buddy_page_lock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_mb_get_buddy_page_lock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_get_buddy_page_lock(struct super_block *sb,
+static int ifs_ext4_local_ext4_mb_get_buddy_page_lock(struct super_block *sb,
 		ext4_group_t group, struct ext4_buddy *e4b, gfp_t gfp)
 {
 	struct inode *inode = EXT4_SB(sb)->s_buddy_cache;
@@ -1415,14 +1422,14 @@ static int ext4_mb_get_buddy_page_lock(struct super_block *sb,
 
 
 /**
- * ext4_mb_put_buddy_page_lock - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_put_buddy_page_lock - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_put_buddy_page_lock(struct ext4_buddy *e4b)
+static void ifs_ext4_local_ext4_mb_put_buddy_page_lock(struct ext4_buddy *e4b)
 {
 	if (e4b->bd_bitmap_folio) {
 		folio_unlock(e4b->bd_bitmap_folio);
@@ -1436,7 +1443,7 @@ static void ext4_mb_put_buddy_page_lock(struct ext4_buddy *e4b)
 
 
 /**
- * ext4_mb_init_group - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext4_local_ext4_mb_init_group - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1444,7 +1451,7 @@ static void ext4_mb_put_buddy_page_lock(struct ext4_buddy *e4b)
  * rollback, abort or retry policy.
  */
 static noinline_for_stack
-int ext4_mb_init_group(struct super_block *sb, ext4_group_t group, gfp_t gfp)
+int ifs_ext4_local_ext4_mb_init_group(struct super_block *sb, ext4_group_t group, gfp_t gfp)
 {
 
 	struct ext4_group_info *this_grp;
@@ -1459,7 +1466,7 @@ int ext4_mb_init_group(struct super_block *sb, ext4_group_t group, gfp_t gfp)
 		return -EFSCORRUPTED;
 
 
-	ret = ext4_mb_get_buddy_page_lock(sb, group, &e4b, gfp);
+	ret = ifs_ext4_local_ext4_mb_get_buddy_page_lock(sb, group, &e4b, gfp);
 	if (ret || !EXT4_MB_GRP_NEED_INIT(this_grp)) {
 
 
@@ -1467,7 +1474,7 @@ int ext4_mb_init_group(struct super_block *sb, ext4_group_t group, gfp_t gfp)
 	}
 
 	folio = e4b.bd_bitmap_folio;
-	ret = ext4_mb_init_cache(folio, NULL, gfp);
+	ret = ifs_ext4_local_ext4_mb_init_cache(folio, NULL, gfp);
 	if (ret)
 		goto err;
 	if (!folio_test_uptodate(folio)) {
@@ -1483,7 +1490,7 @@ int ext4_mb_init_group(struct super_block *sb, ext4_group_t group, gfp_t gfp)
 	}
 
 	folio = e4b.bd_buddy_folio;
-	ret = ext4_mb_init_cache(folio, e4b.bd_bitmap, gfp);
+	ret = ifs_ext4_local_ext4_mb_init_cache(folio, e4b.bd_bitmap, gfp);
 	if (ret)
 		goto err;
 	if (!folio_test_uptodate(folio)) {
@@ -1491,13 +1498,13 @@ int ext4_mb_init_group(struct super_block *sb, ext4_group_t group, gfp_t gfp)
 		goto err;
 	}
 err:
-	ext4_mb_put_buddy_page_lock(&e4b);
+	ifs_ext4_local_ext4_mb_put_buddy_page_lock(&e4b);
 	return ret;
 }
 
 
 /**
- * ext4_mb_load_buddy_gfp - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_mb_load_buddy_gfp - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1505,7 +1512,7 @@ err:
  * rollback, abort or retry policy.
  */
 static noinline_for_stack int
-ext4_mb_load_buddy_gfp(struct super_block *sb, ext4_group_t group,
+ifs_ext4_local_ext4_mb_load_buddy_gfp(struct super_block *sb, ext4_group_t group,
 		       struct ext4_buddy *e4b, gfp_t gfp)
 {
 	int blocks_per_page;
@@ -1536,7 +1543,7 @@ ext4_mb_load_buddy_gfp(struct super_block *sb, ext4_group_t group,
 	if (unlikely(EXT4_MB_GRP_NEED_INIT(grp))) {
 
 
-		ret = ext4_mb_init_group(sb, group, gfp);
+		ret = ifs_ext4_local_ext4_mb_init_group(sb, group, gfp);
 		if (ret)
 			return ret;
 	}
@@ -1564,12 +1571,12 @@ ext4_mb_load_buddy_gfp(struct super_block *sb, ext4_group_t group,
 				goto err;
 			}
 			if (!folio_test_uptodate(folio)) {
-				ret = ext4_mb_init_cache(folio, NULL, gfp);
+				ret = ifs_ext4_local_ext4_mb_init_cache(folio, NULL, gfp);
 				if (ret) {
 					folio_unlock(folio);
 					goto err;
 				}
-				mb_cmp_bitmaps(e4b, folio_address(folio) +
+				ifs_ext4_local_mb_cmp_bitmaps(e4b, folio_address(folio) +
 					       (poff * sb->s_blocksize));
 			}
 			folio_unlock(folio);
@@ -1607,7 +1614,7 @@ ext4_mb_load_buddy_gfp(struct super_block *sb, ext4_group_t group,
 				goto err;
 			}
 			if (!folio_test_uptodate(folio)) {
-				ret = ext4_mb_init_cache(folio, e4b->bd_bitmap,
+				ret = ifs_ext4_local_ext4_mb_init_cache(folio, e4b->bd_bitmap,
 							 gfp);
 				if (ret) {
 					folio_unlock(folio);
@@ -1645,29 +1652,29 @@ err:
 
 
 /**
- * ext4_mb_load_buddy - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_mb_load_buddy - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_load_buddy(struct super_block *sb, ext4_group_t group,
+static int ifs_ext4_local_ext4_mb_load_buddy(struct super_block *sb, ext4_group_t group,
 			      struct ext4_buddy *e4b)
 {
-	return ext4_mb_load_buddy_gfp(sb, group, e4b, GFP_NOFS);
+	return ifs_ext4_local_ext4_mb_load_buddy_gfp(sb, group, e4b, GFP_NOFS);
 }
 
 
 /**
- * ext4_mb_unload_buddy - Implements the mb unload buddy operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_unload_buddy - Implements the mb unload buddy operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_unload_buddy(struct ext4_buddy *e4b)
+static void ifs_ext4_local_ext4_mb_unload_buddy(struct ext4_buddy *e4b)
 {
 	if (e4b->bd_bitmap_folio)
 		folio_put(e4b->bd_bitmap_folio);
@@ -1677,14 +1684,14 @@ static void ext4_mb_unload_buddy(struct ext4_buddy *e4b)
 
 
 /**
- * mb_find_order_for_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_mb_find_order_for_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int mb_find_order_for_block(struct ext4_buddy *e4b, int block)
+static int ifs_ext4_local_mb_find_order_for_block(struct ext4_buddy *e4b, int block)
 {
 	int order = 1, max;
 	void *bb;
@@ -1694,7 +1701,7 @@ static int mb_find_order_for_block(struct ext4_buddy *e4b, int block)
 
 	while (order <= e4b->bd_blkbits + 1) {
 		bb = mb_find_buddy(e4b, order, &max);
-		if (!mb_test_bit(block >> order, bb)) {
+		if (!ifs_ext4_local_mb_test_bit(block >> order, bb)) {
 
 			return order;
 		}
@@ -1705,14 +1712,14 @@ static int mb_find_order_for_block(struct ext4_buddy *e4b, int block)
 
 
 /**
- * mb_clear_bits - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_mb_clear_bits - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_clear_bits(void *bm, int cur, int len)
+static void ifs_ext4_local_mb_clear_bits(void *bm, int cur, int len)
 {
 	__u32 *addr;
 
@@ -1725,21 +1732,21 @@ static void mb_clear_bits(void *bm, int cur, int len)
 			cur += 32;
 			continue;
 		}
-		mb_clear_bit(cur, bm);
+		ifs_ext4_local_mb_clear_bit(cur, bm);
 		cur++;
 	}
 }
 
 
 /**
- * mb_test_and_clear_bits - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_mb_test_and_clear_bits - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int mb_test_and_clear_bits(void *bm, int cur, int len)
+static int ifs_ext4_local_mb_test_and_clear_bits(void *bm, int cur, int len)
 {
 	__u32 *addr;
 	int zero_bit = -1;
@@ -1750,12 +1757,12 @@ static int mb_test_and_clear_bits(void *bm, int cur, int len)
 
 			addr = bm + (cur >> 3);
 			if (*addr != (__u32)(-1) && zero_bit == -1)
-				zero_bit = cur + mb_find_next_zero_bit(addr, 32, 0);
+				zero_bit = cur + ifs_ext4_local_mb_find_next_zero_bit(addr, 32, 0);
 			*addr = 0;
 			cur += 32;
 			continue;
 		}
-		if (!mb_test_and_clear_bit(cur, bm) && zero_bit == -1)
+		if (!ifs_ext4_local_mb_test_and_clear_bit(cur, bm) && zero_bit == -1)
 			zero_bit = cur;
 		cur++;
 	}
@@ -1785,44 +1792,44 @@ void mb_set_bits(void *bm, int cur, int len)
 			cur += 32;
 			continue;
 		}
-		mb_set_bit(cur, bm);
+		ifs_ext4_local_mb_set_bit(cur, bm);
 		cur++;
 	}
 }
 
 
 /**
- * mb_buddy_adjust_border - Implements the mb buddy adjust border operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_mb_buddy_adjust_border - Implements the mb buddy adjust border operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int mb_buddy_adjust_border(int* bit, void* bitmap, int side)
+static inline int ifs_ext4_local_mb_buddy_adjust_border(int* bit, void* bitmap, int side)
 {
-	if (mb_test_bit(*bit + side, bitmap)) {
-		mb_clear_bit(*bit, bitmap);
+	if (ifs_ext4_local_mb_test_bit(*bit + side, bitmap)) {
+		ifs_ext4_local_mb_clear_bit(*bit, bitmap);
 		(*bit) -= side;
 		return 1;
 	}
 	else {
 		(*bit) += side;
-		mb_set_bit(*bit, bitmap);
+		ifs_ext4_local_mb_set_bit(*bit, bitmap);
 		return -1;
 	}
 }
 
 
 /**
- * mb_buddy_mark_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_mb_buddy_mark_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_buddy_mark_free(struct ext4_buddy *e4b, int first, int last)
+static void ifs_ext4_local_mb_buddy_mark_free(struct ext4_buddy *e4b, int first, int last)
 {
 	int max;
 	int order = 1;
@@ -1833,16 +1840,16 @@ static void mb_buddy_mark_free(struct ext4_buddy *e4b, int first, int last)
 
 
 		if (first & 1)
-			e4b->bd_info->bb_counters[order] += mb_buddy_adjust_border(&first, buddy, -1);
+			e4b->bd_info->bb_counters[order] += ifs_ext4_local_mb_buddy_adjust_border(&first, buddy, -1);
 		if (!(last & 1))
-			e4b->bd_info->bb_counters[order] += mb_buddy_adjust_border(&last, buddy, 1);
+			e4b->bd_info->bb_counters[order] += ifs_ext4_local_mb_buddy_adjust_border(&last, buddy, 1);
 		if (first > last)
 			break;
 		order++;
 
 		buddy2 = mb_find_buddy(e4b, order, &max);
 		if (!buddy2) {
-			mb_clear_bits(buddy, first, last - first + 1);
+			ifs_ext4_local_mb_clear_bits(buddy, first, last - first + 1);
 			e4b->bd_info->bb_counters[order - 1] += last - first + 1;
 			break;
 		}
@@ -1854,14 +1861,14 @@ static void mb_buddy_mark_free(struct ext4_buddy *e4b, int first, int last)
 
 
 /**
- * mb_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_mb_free_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_free_blocks(struct inode *inode, struct ext4_buddy *e4b,
+static void ifs_ext4_local_mb_free_blocks(struct inode *inode, struct ext4_buddy *e4b,
 			   int first, int count)
 {
 	int left_is_free = 0;
@@ -1879,14 +1886,14 @@ static void mb_free_blocks(struct inode *inode, struct ext4_buddy *e4b,
 		return;
 
 	mb_check_buddy(e4b);
-	mb_free_blocks_double(inode, e4b, first, count);
+	ifs_ext4_local_mb_free_blocks_double(inode, e4b, first, count);
 
 
 	if (first != 0)
-		left_is_free = !mb_test_bit(first - 1, e4b->bd_bitmap);
-	block = mb_test_and_clear_bits(e4b->bd_bitmap, first, count);
+		left_is_free = !ifs_ext4_local_mb_test_bit(first - 1, e4b->bd_bitmap);
+	block = ifs_ext4_local_mb_test_and_clear_bits(e4b->bd_bitmap, first, count);
 	if (last + 1 < EXT4_SB(sb)->s_mb_maxs[0])
-		right_is_free = !mb_test_bit(last + 1, e4b->bd_bitmap);
+		right_is_free = !ifs_ext4_local_mb_test_bit(last + 1, e4b->bd_bitmap);
 
 	if (unlikely(block != -1)) {
 		struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -1894,7 +1901,7 @@ static void mb_free_blocks(struct inode *inode, struct ext4_buddy *e4b,
 
 
 		if (sbi->s_mount_state & EXT4_FC_REPLAY) {
-			mb_regenerate_buddy(e4b);
+			ifs_ext4_local_mb_regenerate_buddy(e4b);
 			goto check;
 		}
 
@@ -1931,24 +1938,24 @@ static void mb_free_blocks(struct inode *inode, struct ext4_buddy *e4b,
 	}
 
 	if (first <= last)
-		mb_buddy_mark_free(e4b, first >> 1, last >> 1);
+		ifs_ext4_local_mb_buddy_mark_free(e4b, first >> 1, last >> 1);
 
-	mb_set_largest_free_order(sb, e4b->bd_info);
-	mb_update_avg_fragment_size(sb, e4b->bd_info);
+	ifs_ext4_local_mb_set_largest_free_order(sb, e4b->bd_info);
+	ifs_ext4_local_mb_update_avg_fragment_size(sb, e4b->bd_info);
 check:
 	mb_check_buddy(e4b);
 }
 
 
 /**
- * mb_find_extent - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_mb_find_extent - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int mb_find_extent(struct ext4_buddy *e4b, int block,
+static int ifs_ext4_local_mb_find_extent(struct ext4_buddy *e4b, int block,
 				int needed, struct ext4_free_extent *ex)
 {
 	int max, order, next;
@@ -1960,7 +1967,7 @@ static int mb_find_extent(struct ext4_buddy *e4b, int block,
 	buddy = mb_find_buddy(e4b, 0, &max);
 	BUG_ON(buddy == NULL);
 	BUG_ON(block >= max);
-	if (mb_test_bit(block, buddy)) {
+	if (ifs_ext4_local_mb_test_bit(block, buddy)) {
 		ex->fe_len = 0;
 		ex->fe_start = 0;
 		ex->fe_group = 0;
@@ -1968,7 +1975,7 @@ static int mb_find_extent(struct ext4_buddy *e4b, int block,
 	}
 
 
-	order = mb_find_order_for_block(e4b, block);
+	order = ifs_ext4_local_mb_find_order_for_block(e4b, block);
 
 	ex->fe_len = (1 << order) - (block & ((1 << order) - 1));
 	ex->fe_start = block;
@@ -1983,10 +1990,10 @@ static int mb_find_extent(struct ext4_buddy *e4b, int block,
 			break;
 
 		next = (block + 1) * (1 << order);
-		if (mb_test_bit(next, e4b->bd_bitmap))
+		if (ifs_ext4_local_mb_test_bit(next, e4b->bd_bitmap))
 			break;
 
-		order = mb_find_order_for_block(e4b, next);
+		order = ifs_ext4_local_mb_find_order_for_block(e4b, next);
 
 		block = next >> order;
 		ex->fe_len += 1 << order;
@@ -1996,7 +2003,7 @@ static int mb_find_extent(struct ext4_buddy *e4b, int block,
 
 		WARN_ON(1);
 		ext4_grp_locked_error(e4b->bd_sb, e4b->bd_group, 0, 0,
-			"corruption or bug in mb_find_extent "
+			"corruption or bug in ifs_ext4_local_mb_find_extent "
 			"block=%d, order=%d needed=%d ex=%u/%d/%d@%u",
 			block, order, needed, ex->fe_group, ex->fe_start,
 			ex->fe_len, ex->fe_logical);
@@ -2009,14 +2016,14 @@ static int mb_find_extent(struct ext4_buddy *e4b, int block,
 
 
 /**
- * mb_mark_used - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_mb_mark_used - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
+static int ifs_ext4_local_mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 {
 	int ord;
 	int mlen = 0;
@@ -2032,7 +2039,7 @@ static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 	BUG_ON(e4b->bd_group != ex->fe_group);
 	assert_spin_locked(ext4_group_lock_ptr(e4b->bd_sb, e4b->bd_group));
 	mb_check_buddy(e4b);
-	mb_mark_used_double(e4b, start, len);
+	ifs_ext4_local_mb_mark_used_double(e4b, start, len);
 
 	this_cpu_inc(discard_pa_seq);
 	e4b->bd_info->bb_free -= len;
@@ -2041,9 +2048,9 @@ static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 
 
 	if (start != 0)
-		mlen = !mb_test_bit(start - 1, e4b->bd_bitmap);
+		mlen = !ifs_ext4_local_mb_test_bit(start - 1, e4b->bd_bitmap);
 	if (start + len < EXT4_SB(e4b->bd_sb)->s_mb_maxs[0])
-		max = !mb_test_bit(start + len, e4b->bd_bitmap);
+		max = !ifs_ext4_local_mb_test_bit(start + len, e4b->bd_bitmap);
 	if (mlen && max)
 		e4b->bd_info->bb_fragments++;
 	else if (!mlen && !max)
@@ -2051,14 +2058,14 @@ static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 
 
 	while (len) {
-		ord = mb_find_order_for_block(e4b, start);
+		ord = ifs_ext4_local_mb_find_order_for_block(e4b, start);
 
 		if (((start >> ord) << ord) == start && len >= (1 << ord)) {
 
 			mlen = 1 << ord;
 			buddy = mb_find_buddy(e4b, ord, &max);
 			BUG_ON((start >> ord) >= max);
-			mb_set_bit(start >> ord, buddy);
+			ifs_ext4_local_mb_set_bit(start >> ord, buddy);
 			e4b->bd_info->bb_counters[ord]--;
 			start += mlen;
 			len -= mlen;
@@ -2072,20 +2079,20 @@ static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 
 		BUG_ON(ord <= 0);
 		buddy = mb_find_buddy(e4b, ord, &max);
-		mb_set_bit(start >> ord, buddy);
+		ifs_ext4_local_mb_set_bit(start >> ord, buddy);
 		e4b->bd_info->bb_counters[ord]--;
 
 		ord_start = (start >> ord) << ord;
 		ord_end = ord_start + (1 << ord);
 
 		if (start > ord_start)
-			ext4_mb_mark_free_simple(e4b->bd_sb, e4b->bd_buddy,
+			ifs_ext4_local_ext4_mb_mark_free_simple(e4b->bd_sb, e4b->bd_buddy,
 						 ord_start, start - ord_start,
 						 e4b->bd_info);
 
 
 		if (start + len < ord_end) {
-			ext4_mb_mark_free_simple(e4b->bd_sb, e4b->bd_buddy,
+			ifs_ext4_local_ext4_mb_mark_free_simple(e4b->bd_sb, e4b->bd_buddy,
 						 start + len,
 						 ord_end - (start + len),
 						 e4b->bd_info);
@@ -2094,9 +2101,9 @@ static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 		len = start + len - ord_end;
 		start = ord_end;
 	}
-	mb_set_largest_free_order(e4b->bd_sb, e4b->bd_info);
+	ifs_ext4_local_mb_set_largest_free_order(e4b->bd_sb, e4b->bd_info);
 
-	mb_update_avg_fragment_size(e4b->bd_sb, e4b->bd_info);
+	ifs_ext4_local_mb_update_avg_fragment_size(e4b->bd_sb, e4b->bd_info);
 	mb_set_bits(e4b->bd_bitmap, ex->fe_start, len0);
 	mb_check_buddy(e4b);
 
@@ -2105,14 +2112,14 @@ static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 
 
 /**
- * ext4_mb_use_best_found - Implements the mb use best found operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_use_best_found - Implements the mb use best found operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_use_best_found(struct ext4_allocation_context *ac,
+static void ifs_ext4_local_ext4_mb_use_best_found(struct ext4_allocation_context *ac,
 					struct ext4_buddy *e4b)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
@@ -2123,7 +2130,7 @@ static void ext4_mb_use_best_found(struct ext4_allocation_context *ac,
 
 	ac->ac_b_ex.fe_len = min(ac->ac_b_ex.fe_len, ac->ac_g_ex.fe_len);
 	ac->ac_b_ex.fe_logical = ac->ac_g_ex.fe_logical;
-	ret = mb_mark_used(e4b, &ac->ac_b_ex);
+	ret = ifs_ext4_local_mb_mark_used(e4b, &ac->ac_b_ex);
 
 
 	ac->ac_f_ex = ac->ac_b_ex;
@@ -2147,20 +2154,20 @@ static void ext4_mb_use_best_found(struct ext4_allocation_context *ac,
 
 
 	if (ac->ac_o_ex.fe_len < ac->ac_b_ex.fe_len)
-		ext4_mb_new_preallocation(ac);
+		ifs_ext4_local_ext4_mb_new_preallocation(ac);
 
 }
 
 
 /**
- * ext4_mb_check_limits - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_ext4_mb_check_limits - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_check_limits(struct ext4_allocation_context *ac,
+static void ifs_ext4_local_ext4_mb_check_limits(struct ext4_allocation_context *ac,
 					struct ext4_buddy *e4b,
 					int finish_group)
 {
@@ -2183,19 +2190,19 @@ static void ext4_mb_check_limits(struct ext4_allocation_context *ac,
 		return;
 
 	if (finish_group || ac->ac_found > sbi->s_mb_min_to_scan)
-		ext4_mb_use_best_found(ac, e4b);
+		ifs_ext4_local_ext4_mb_use_best_found(ac, e4b);
 }
 
 
 /**
- * ext4_mb_measure_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ * ifs_ext4_local_ext4_mb_measure_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_measure_extent(struct ext4_allocation_context *ac,
+static void ifs_ext4_local_ext4_mb_measure_extent(struct ext4_allocation_context *ac,
 					struct ext4_free_extent *ex,
 					struct ext4_buddy *e4b)
 {
@@ -2213,14 +2220,14 @@ static void ext4_mb_measure_extent(struct ext4_allocation_context *ac,
 
 	if (unlikely(ac->ac_flags & EXT4_MB_HINT_FIRST)) {
 		*bex = *ex;
-		ext4_mb_use_best_found(ac, e4b);
+		ifs_ext4_local_ext4_mb_use_best_found(ac, e4b);
 		return;
 	}
 
 
 	if (ex->fe_len == gex->fe_len) {
 		*bex = *ex;
-		ext4_mb_use_best_found(ac, e4b);
+		ifs_ext4_local_ext4_mb_use_best_found(ac, e4b);
 		return;
 	}
 
@@ -2243,12 +2250,12 @@ static void ext4_mb_measure_extent(struct ext4_allocation_context *ac,
 			*bex = *ex;
 	}
 
-	ext4_mb_check_limits(ac, e4b, 0);
+	ifs_ext4_local_ext4_mb_check_limits(ac, e4b, 0);
 }
 
 
 /**
- * ext4_mb_try_best_found - Implements the mb try best found operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_try_best_found - Implements the mb try best found operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2256,7 +2263,7 @@ static void ext4_mb_measure_extent(struct ext4_allocation_context *ac,
  * rollback, abort or retry policy.
  */
 static noinline_for_stack
-void ext4_mb_try_best_found(struct ext4_allocation_context *ac,
+void ifs_ext4_local_ext4_mb_try_best_found(struct ext4_allocation_context *ac,
 					struct ext4_buddy *e4b)
 {
 	struct ext4_free_extent ex = ac->ac_b_ex;
@@ -2265,7 +2272,7 @@ void ext4_mb_try_best_found(struct ext4_allocation_context *ac,
 	int err;
 
 	BUG_ON(ex.fe_len <= 0);
-	err = ext4_mb_load_buddy(ac->ac_sb, group, e4b);
+	err = ifs_ext4_local_ext4_mb_load_buddy(ac->ac_sb, group, e4b);
 	if (err)
 		return;
 
@@ -2273,21 +2280,21 @@ void ext4_mb_try_best_found(struct ext4_allocation_context *ac,
 	if (unlikely(EXT4_MB_GRP_BBITMAP_CORRUPT(e4b->bd_info)))
 		goto out;
 
-	max = mb_find_extent(e4b, ex.fe_start, ex.fe_len, &ex);
+	max = ifs_ext4_local_mb_find_extent(e4b, ex.fe_start, ex.fe_len, &ex);
 
 	if (max > 0) {
 		ac->ac_b_ex = ex;
-		ext4_mb_use_best_found(ac, e4b);
+		ifs_ext4_local_ext4_mb_use_best_found(ac, e4b);
 	}
 
 out:
 	ext4_unlock_group(ac->ac_sb, group);
-	ext4_mb_unload_buddy(e4b);
+	ifs_ext4_local_ext4_mb_unload_buddy(e4b);
 }
 
 
 /**
- * ext4_mb_find_by_goal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_mb_find_by_goal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2295,7 +2302,7 @@ out:
  * rollback, abort or retry policy.
  */
 static noinline_for_stack
-int ext4_mb_find_by_goal(struct ext4_allocation_context *ac,
+int ifs_ext4_local_ext4_mb_find_by_goal(struct ext4_allocation_context *ac,
 				struct ext4_buddy *e4b)
 {
 	ext4_group_t group = ac->ac_g_ex.fe_group;
@@ -2312,7 +2319,7 @@ int ext4_mb_find_by_goal(struct ext4_allocation_context *ac,
 	if (grp->bb_free == 0)
 		return 0;
 
-	err = ext4_mb_load_buddy(ac->ac_sb, group, e4b);
+	err = ifs_ext4_local_ext4_mb_load_buddy(ac->ac_sb, group, e4b);
 	if (err) {
 		if (EXT4_MB_GRP_BBITMAP_CORRUPT(e4b->bd_info) &&
 		    !(ac->ac_flags & EXT4_MB_HINT_GOAL_ONLY))
@@ -2324,7 +2331,7 @@ int ext4_mb_find_by_goal(struct ext4_allocation_context *ac,
 	if (unlikely(EXT4_MB_GRP_BBITMAP_CORRUPT(e4b->bd_info)))
 		goto out;
 
-	max = mb_find_extent(e4b, ac->ac_g_ex.fe_start,
+	max = ifs_ext4_local_mb_find_extent(e4b, ac->ac_g_ex.fe_start,
 			     ac->ac_g_ex.fe_len, &ex);
 	ex.fe_logical = 0xDEADFA11;
 
@@ -2337,7 +2344,7 @@ int ext4_mb_find_by_goal(struct ext4_allocation_context *ac,
 		if (do_div(start, sbi->s_stripe) == 0) {
 			ac->ac_found++;
 			ac->ac_b_ex = ex;
-			ext4_mb_use_best_found(ac, e4b);
+			ifs_ext4_local_ext4_mb_use_best_found(ac, e4b);
 		}
 	} else if (max >= ac->ac_g_ex.fe_len) {
 		BUG_ON(ex.fe_len <= 0);
@@ -2345,7 +2352,7 @@ int ext4_mb_find_by_goal(struct ext4_allocation_context *ac,
 		BUG_ON(ex.fe_start != ac->ac_g_ex.fe_start);
 		ac->ac_found++;
 		ac->ac_b_ex = ex;
-		ext4_mb_use_best_found(ac, e4b);
+		ifs_ext4_local_ext4_mb_use_best_found(ac, e4b);
 	} else if (max > 0 && (ac->ac_flags & EXT4_MB_HINT_MERGE)) {
 
 
@@ -2354,18 +2361,18 @@ int ext4_mb_find_by_goal(struct ext4_allocation_context *ac,
 		BUG_ON(ex.fe_start != ac->ac_g_ex.fe_start);
 		ac->ac_found++;
 		ac->ac_b_ex = ex;
-		ext4_mb_use_best_found(ac, e4b);
+		ifs_ext4_local_ext4_mb_use_best_found(ac, e4b);
 	}
 out:
 	ext4_unlock_group(ac->ac_sb, group);
-	ext4_mb_unload_buddy(e4b);
+	ifs_ext4_local_ext4_mb_unload_buddy(e4b);
 
 	return 0;
 }
 
 
 /**
- * ext4_mb_simple_scan_group - Implements the mb simple scan group operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_simple_scan_group - Implements the mb simple scan group operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2373,7 +2380,7 @@ out:
  * rollback, abort or retry policy.
  */
 static noinline_for_stack
-void ext4_mb_simple_scan_group(struct ext4_allocation_context *ac,
+void ifs_ext4_local_ext4_mb_simple_scan_group(struct ext4_allocation_context *ac,
 					struct ext4_buddy *e4b)
 {
 	struct super_block *sb = ac->ac_sb;
@@ -2393,7 +2400,7 @@ void ext4_mb_simple_scan_group(struct ext4_allocation_context *ac,
 			 "ext4: mb_simple_scan_group: mb_find_buddy failed, (%d)\n", i))
 			continue;
 
-		k = mb_find_next_zero_bit(buddy, max, 0);
+		k = ifs_ext4_local_mb_find_next_zero_bit(buddy, max, 0);
 		if (k >= max) {
 			ext4_mark_group_bitmap_corrupted(ac->ac_sb,
 					e4b->bd_group,
@@ -2410,7 +2417,7 @@ void ext4_mb_simple_scan_group(struct ext4_allocation_context *ac,
 		ac->ac_b_ex.fe_start = k << i;
 		ac->ac_b_ex.fe_group = e4b->bd_group;
 
-		ext4_mb_use_best_found(ac, e4b);
+		ifs_ext4_local_ext4_mb_use_best_found(ac, e4b);
 
 		BUG_ON(ac->ac_f_ex.fe_len != ac->ac_g_ex.fe_len);
 
@@ -2423,7 +2430,7 @@ void ext4_mb_simple_scan_group(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_complex_scan_group - Implements the mb complex scan group operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_complex_scan_group - Implements the mb complex scan group operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2431,7 +2438,7 @@ void ext4_mb_simple_scan_group(struct ext4_allocation_context *ac,
  * rollback, abort or retry policy.
  */
 static noinline_for_stack
-void ext4_mb_complex_scan_group(struct ext4_allocation_context *ac,
+void ifs_ext4_local_ext4_mb_complex_scan_group(struct ext4_allocation_context *ac,
 					struct ext4_buddy *e4b)
 {
 	struct super_block *sb = ac->ac_sb;
@@ -2447,7 +2454,7 @@ void ext4_mb_complex_scan_group(struct ext4_allocation_context *ac,
 	i = e4b->bd_info->bb_first_free;
 
 	while (free && ac->ac_status == AC_STATUS_CONTINUE) {
-		i = mb_find_next_zero_bit(bitmap,
+		i = ifs_ext4_local_mb_find_next_zero_bit(bitmap,
 						EXT4_CLUSTERS_PER_GROUP(sb), i);
 		if (i >= EXT4_CLUSTERS_PER_GROUP(sb)) {
 
@@ -2464,7 +2471,7 @@ void ext4_mb_complex_scan_group(struct ext4_allocation_context *ac,
 		if (!ext4_mb_cr_expensive(ac->ac_criteria)) {
 
 
-			j = mb_find_next_bit(bitmap,
+			j = ifs_ext4_local_mb_find_next_bit(bitmap,
 						EXT4_CLUSTERS_PER_GROUP(sb), i);
 			freelen = j - i;
 
@@ -2475,7 +2482,7 @@ void ext4_mb_complex_scan_group(struct ext4_allocation_context *ac,
 			}
 		}
 
-		mb_find_extent(e4b, i, ac->ac_g_ex.fe_len, &ex);
+		ifs_ext4_local_mb_find_extent(e4b, i, ac->ac_g_ex.fe_len, &ex);
 		if (WARN_ON(ex.fe_len <= 0))
 			break;
 		if (free < ex.fe_len) {
@@ -2490,18 +2497,18 @@ void ext4_mb_complex_scan_group(struct ext4_allocation_context *ac,
 			break;
 		}
 		ex.fe_logical = 0xDEADC0DE;
-		ext4_mb_measure_extent(ac, &ex, e4b);
+		ifs_ext4_local_ext4_mb_measure_extent(ac, &ex, e4b);
 
 		i += ex.fe_len;
 		free -= ex.fe_len;
 	}
 
-	ext4_mb_check_limits(ac, e4b, 1);
+	ifs_ext4_local_ext4_mb_check_limits(ac, e4b, 1);
 }
 
 
 /**
- * ext4_mb_scan_aligned - Implements the mb scan aligned operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_scan_aligned - Implements the mb scan aligned operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2509,7 +2516,7 @@ void ext4_mb_complex_scan_group(struct ext4_allocation_context *ac,
  * rollback, abort or retry policy.
  */
 static noinline_for_stack
-void ext4_mb_scan_aligned(struct ext4_allocation_context *ac,
+void ifs_ext4_local_ext4_mb_scan_aligned(struct ext4_allocation_context *ac,
 				 struct ext4_buddy *e4b)
 {
 	struct super_block *sb = ac->ac_sb;
@@ -2533,14 +2540,14 @@ void ext4_mb_scan_aligned(struct ext4_allocation_context *ac,
 	stripe = EXT4_NUM_B2C(sbi, sbi->s_stripe);
 	i = EXT4_B2C(sbi, i);
 	while (i < EXT4_CLUSTERS_PER_GROUP(sb)) {
-		if (!mb_test_bit(i, bitmap)) {
-			max = mb_find_extent(e4b, i, stripe, &ex);
+		if (!ifs_ext4_local_mb_test_bit(i, bitmap)) {
+			max = ifs_ext4_local_mb_find_extent(e4b, i, stripe, &ex);
 			if (max >= stripe) {
 				ac->ac_found++;
 				ac->ac_cX_found[ac->ac_criteria]++;
 				ex.fe_logical = 0xDEADF00D;
 				ac->ac_b_ex = ex;
-				ext4_mb_use_best_found(ac, e4b);
+				ifs_ext4_local_ext4_mb_use_best_found(ac, e4b);
 				break;
 			}
 		}
@@ -2550,14 +2557,14 @@ void ext4_mb_scan_aligned(struct ext4_allocation_context *ac,
 
 
 /**
- * __ext4_mb_scan_group - Implements the mb scan group operation within the multiblock allocator subsystem.
+ * ifs_ext4_local___ext4_mb_scan_group - Implements the mb scan group operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __ext4_mb_scan_group(struct ext4_allocation_context *ac)
+static void ifs_ext4_local___ext4_mb_scan_group(struct ext4_allocation_context *ac)
 {
 	bool is_stripe_aligned;
 	struct ext4_sb_info *sbi;
@@ -2565,7 +2572,7 @@ static void __ext4_mb_scan_group(struct ext4_allocation_context *ac)
 
 	ac->ac_groups_scanned++;
 	if (cr == CR_POWER2_ALIGNED)
-		return ext4_mb_simple_scan_group(ac, ac->ac_e4b);
+		return ifs_ext4_local_ext4_mb_simple_scan_group(ac, ac->ac_e4b);
 
 	sbi = EXT4_SB(ac->ac_sb);
 	is_stripe_aligned = false;
@@ -2575,22 +2582,22 @@ static void __ext4_mb_scan_group(struct ext4_allocation_context *ac)
 
 	if ((cr == CR_GOAL_LEN_FAST || cr == CR_BEST_AVAIL_LEN) &&
 	    is_stripe_aligned)
-		ext4_mb_scan_aligned(ac, ac->ac_e4b);
+		ifs_ext4_local_ext4_mb_scan_aligned(ac, ac->ac_e4b);
 
 	if (ac->ac_status == AC_STATUS_CONTINUE)
-		ext4_mb_complex_scan_group(ac, ac->ac_e4b);
+		ifs_ext4_local_ext4_mb_complex_scan_group(ac, ac->ac_e4b);
 }
 
 
 /**
- * ext4_mb_good_group - Implements the mb good group operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_good_group - Implements the mb good group operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ext4_mb_good_group(struct ext4_allocation_context *ac,
+static bool ifs_ext4_local_ext4_mb_good_group(struct ext4_allocation_context *ac,
 				ext4_group_t group, enum criteria cr)
 {
 	ext4_grpblk_t free, fragments;
@@ -2650,14 +2657,14 @@ static bool ext4_mb_good_group(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_good_group_nolock - Implements the mb good group nolock operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_good_group_nolock - Implements the mb good group nolock operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_good_group_nolock(struct ext4_allocation_context *ac,
+static int ifs_ext4_local_ext4_mb_good_group_nolock(struct ext4_allocation_context *ac,
 				     ext4_group_t group, enum criteria cr)
 {
 	struct ext4_group_info *grp = ext4_get_group_info(ac->ac_sb, group);
@@ -2702,7 +2709,7 @@ static int ext4_mb_good_group_nolock(struct ext4_allocation_context *ac,
 		    !(ext4_has_group_desc_csum(sb) &&
 		      (gdp->bg_flags & cpu_to_le16(EXT4_BG_BLOCK_UNINIT))))
 			return 0;
-		ret = ext4_mb_init_group(sb, group, GFP_NOFS);
+		ret = ifs_ext4_local_ext4_mb_init_group(sb, group, GFP_NOFS);
 		if (ret)
 			return ret;
 	}
@@ -2711,7 +2718,7 @@ static int ext4_mb_good_group_nolock(struct ext4_allocation_context *ac,
 		ext4_lock_group(sb, group);
 		__release(ext4_group_lock_ptr(sb, group));
 	}
-	ret = ext4_mb_good_group(ac, group, cr);
+	ret = ifs_ext4_local_ext4_mb_good_group(ac, group, cr);
 out:
 	if (should_lock) {
 		__acquire(ext4_group_lock_ptr(sb, group));
@@ -2762,14 +2769,14 @@ ext4_group_t ext4_mb_prefetch(struct super_block *sb, ext4_group_t group,
 
 
 /**
- * ext4_mb_might_prefetch - Implements the mb might prefetch operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_might_prefetch - Implements the mb might prefetch operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_might_prefetch(struct ext4_allocation_context *ac,
+static void ifs_ext4_local_ext4_mb_might_prefetch(struct ext4_allocation_context *ac,
 				   ext4_group_t group)
 {
 	struct ext4_sb_info *sbi;
@@ -2818,7 +2825,7 @@ void ext4_mb_prefetch_fini(struct super_block *sb, ext4_group_t group,
 
 		if (grp && gdp && EXT4_MB_GRP_NEED_INIT(grp) &&
 		    ext4_free_group_clusters(sb, gdp) > 0) {
-			if (ext4_mb_init_group(sb, group, GFP_NOFS))
+			if (ifs_ext4_local_ext4_mb_init_group(sb, group, GFP_NOFS))
 				break;
 		}
 	}
@@ -2826,35 +2833,35 @@ void ext4_mb_prefetch_fini(struct super_block *sb, ext4_group_t group,
 
 
 /**
- * ext4_mb_scan_group - Implements the mb scan group operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_scan_group - Implements the mb scan group operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_scan_group(struct ext4_allocation_context *ac,
+static int ifs_ext4_local_ext4_mb_scan_group(struct ext4_allocation_context *ac,
 			      ext4_group_t group)
 {
 	int ret;
 	struct super_block *sb = ac->ac_sb;
 	enum criteria cr = ac->ac_criteria;
 
-	ext4_mb_might_prefetch(ac, group);
+	ifs_ext4_local_ext4_mb_might_prefetch(ac, group);
 
 
 	if (cr < CR_ANY_FREE && spin_is_locked(ext4_group_lock_ptr(sb, group)))
 		return 0;
 
 
-	ret = ext4_mb_good_group_nolock(ac, group, cr);
+	ret = ifs_ext4_local_ext4_mb_good_group_nolock(ac, group, cr);
 	if (ret <= 0) {
 		if (!ac->ac_first_err)
 			ac->ac_first_err = ret;
 		return 0;
 	}
 
-	ret = ext4_mb_load_buddy(sb, group, ac->ac_e4b);
+	ret = ifs_ext4_local_ext4_mb_load_buddy(sb, group, ac->ac_e4b);
 	if (ret)
 		return ret;
 
@@ -2865,21 +2872,21 @@ static int ext4_mb_scan_group(struct ext4_allocation_context *ac,
 		goto out_unload;
 
 
-	if (unlikely(!ext4_mb_good_group(ac, group, cr)))
+	if (unlikely(!ifs_ext4_local_ext4_mb_good_group(ac, group, cr)))
 		goto out_unlock;
 
-	__ext4_mb_scan_group(ac);
+	ifs_ext4_local___ext4_mb_scan_group(ac);
 
 out_unlock:
 	ext4_unlock_group(sb, group);
 out_unload:
-	ext4_mb_unload_buddy(ac->ac_e4b);
+	ifs_ext4_local_ext4_mb_unload_buddy(ac->ac_e4b);
 	return ret;
 }
 
 
 /**
- * ext4_mb_regular_allocator - Implements the mb regular allocator operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_regular_allocator - Implements the mb regular allocator operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2887,7 +2894,7 @@ out_unload:
  * rollback, abort or retry policy.
  */
 static noinline_for_stack int
-ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
+ifs_ext4_local_ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 {
 	ext4_group_t i;
 	int err = 0;
@@ -2898,7 +2905,7 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 	BUG_ON(ac->ac_status == AC_STATUS_FOUND);
 
 
-	err = ext4_mb_find_by_goal(ac, &e4b);
+	err = ifs_ext4_local_ext4_mb_find_by_goal(ac, &e4b);
 	if (err || ac->ac_status == AC_STATUS_FOUND)
 		goto out;
 
@@ -2935,7 +2942,7 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 	ac->ac_first_err = 0;
 repeat:
 	while (ac->ac_criteria < EXT4_MB_NUM_CRS) {
-		err = ext4_mb_scan_groups(ac);
+		err = ifs_ext4_local_ext4_mb_scan_groups(ac);
 		if (err)
 			goto out;
 
@@ -2947,7 +2954,7 @@ repeat:
 	    !(ac->ac_flags & EXT4_MB_HINT_FIRST)) {
 
 
-		ext4_mb_try_best_found(ac, &e4b);
+		ifs_ext4_local_ext4_mb_try_best_found(ac, &e4b);
 		if (ac->ac_status != AC_STATUS_FOUND) {
 			int lost;
 
@@ -3026,14 +3033,14 @@ static void *ext4_mb_seq_groups_next(struct seq_file *seq, void *v, loff_t *pos)
 
 
 /**
- * ext4_mb_seq_groups_show - Implements the mb seq groups show operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_seq_groups_show - Implements the mb seq groups show operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_seq_groups_show(struct seq_file *seq, void *v)
+static int ifs_ext4_local_ext4_mb_seq_groups_show(struct seq_file *seq, void *v)
 {
 	struct super_block *sb = pde_data(file_inode(seq->file));
 	ext4_group_t group = (ext4_group_t) ((unsigned long) v);
@@ -3063,12 +3070,12 @@ static int ext4_mb_seq_groups_show(struct seq_file *seq, void *v)
 		return 0;
 
 	if (unlikely(EXT4_MB_GRP_NEED_INIT(grinfo))) {
-		err = ext4_mb_load_buddy(sb, group, &e4b);
+		err = ifs_ext4_local_ext4_mb_load_buddy(sb, group, &e4b);
 		if (err) {
 			seq_printf(seq, "#%-5u: %s\n", group, ext4_decode_error(NULL, err, nbuf));
 			return 0;
 		}
-		ext4_mb_unload_buddy(&e4b);
+		ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 	}
 
 
@@ -3087,22 +3094,22 @@ static int ext4_mb_seq_groups_show(struct seq_file *seq, void *v)
 
 
 /**
- * ext4_mb_seq_groups_stop - Implements the mb seq groups stop operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_seq_groups_stop - Implements the mb seq groups stop operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_seq_groups_stop(struct seq_file *seq, void *v)
+static void ifs_ext4_local_ext4_mb_seq_groups_stop(struct seq_file *seq, void *v)
 {
 }
 
 const struct seq_operations ext4_mb_seq_groups_ops = {
 	.start  = ext4_mb_seq_groups_start,
 	.next   = ext4_mb_seq_groups_next,
-	.stop   = ext4_mb_seq_groups_stop,
-	.show   = ext4_mb_seq_groups_show,
+	.stop   = ifs_ext4_local_ext4_mb_seq_groups_stop,
+	.show   = ifs_ext4_local_ext4_mb_seq_groups_show,
 };
 
 
@@ -3258,14 +3265,14 @@ static void *ext4_mb_seq_structs_summary_next(struct seq_file *seq, void *v, lof
 
 
 /**
- * ext4_mb_seq_structs_summary_show - Implements the mb seq structs summary show operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_seq_structs_summary_show - Implements the mb seq structs summary show operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_seq_structs_summary_show(struct seq_file *seq, void *v)
+static int ifs_ext4_local_ext4_mb_seq_structs_summary_show(struct seq_file *seq, void *v)
 {
 	struct super_block *sb = pde_data(file_inode(seq->file));
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -3304,22 +3311,22 @@ static int ext4_mb_seq_structs_summary_show(struct seq_file *seq, void *v)
 
 
 /**
- * ext4_mb_seq_structs_summary_stop - Implements the mb seq structs summary stop operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_seq_structs_summary_stop - Implements the mb seq structs summary stop operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_seq_structs_summary_stop(struct seq_file *seq, void *v)
+static void ifs_ext4_local_ext4_mb_seq_structs_summary_stop(struct seq_file *seq, void *v)
 {
 }
 
 const struct seq_operations ext4_mb_seq_structs_summary_ops = {
 	.start  = ext4_mb_seq_structs_summary_start,
 	.next   = ext4_mb_seq_structs_summary_next,
-	.stop   = ext4_mb_seq_structs_summary_stop,
-	.show   = ext4_mb_seq_structs_summary_show,
+	.stop   = ifs_ext4_local_ext4_mb_seq_structs_summary_stop,
+	.show   = ifs_ext4_local_ext4_mb_seq_structs_summary_show,
 };
 
 
@@ -3443,7 +3450,7 @@ int ext4_mb_add_groupinfo(struct super_block *sb, ext4_group_t group,
 	meta_group_info[i]->bb_avg_fragment_size_order = -1;
 	meta_group_info[i]->bb_group = group;
 
-	mb_group_bb_bitmap_alloc(sb, meta_group_info[i], group);
+	ifs_ext4_local_mb_group_bb_bitmap_alloc(sb, meta_group_info[i], group);
 	return 0;
 
 exit_group_info:
@@ -3462,14 +3469,14 @@ exit_group_info:
 
 
 /**
- * ext4_mb_init_backend - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext4_local_ext4_mb_init_backend - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_init_backend(struct super_block *sb)
+static int ifs_ext4_local_ext4_mb_init_backend(struct super_block *sb)
 {
 	ext4_group_t ngroups = ext4_get_groups_count(sb);
 	ext4_group_t i;
@@ -3548,14 +3555,14 @@ err_freesgi:
 
 
 /**
- * ext4_groupinfo_destroy_slabs - Tears down subsystem state after users have been quiesced.
+ * ifs_ext4_local_ext4_groupinfo_destroy_slabs - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_groupinfo_destroy_slabs(void)
+static void ifs_ext4_local_ext4_groupinfo_destroy_slabs(void)
 {
 	int i;
 
@@ -3567,14 +3574,14 @@ static void ext4_groupinfo_destroy_slabs(void)
 
 
 /**
- * ext4_groupinfo_create_slab - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext4_local_ext4_groupinfo_create_slab - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_groupinfo_create_slab(size_t size)
+static int ifs_ext4_local_ext4_groupinfo_create_slab(size_t size)
 {
 	static DEFINE_MUTEX(ext4_grpinfo_slab_create_mutex);
 	int slab_size;
@@ -3615,14 +3622,14 @@ static int ext4_groupinfo_create_slab(size_t size)
 
 
 /**
- * ext4_discard_work - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_discard_work - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_discard_work(struct work_struct *work)
+static void ifs_ext4_local_ext4_discard_work(struct work_struct *work)
 {
 	struct ext4_sb_info *sbi = container_of(work,
 			struct ext4_sb_info, s_discard_work);
@@ -3646,9 +3653,9 @@ static void ext4_discard_work(struct work_struct *work)
 			grp = fd->efd_group;
 			if (grp != load_grp) {
 				if (load_grp != UINT_MAX)
-					ext4_mb_unload_buddy(&e4b);
+					ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 
-				err = ext4_mb_load_buddy(sb, grp, &e4b);
+				err = ifs_ext4_local_ext4_mb_load_buddy(sb, grp, &e4b);
 				if (err) {
 					kmem_cache_free(ext4_free_data_cachep, fd);
 					load_grp = UINT_MAX;
@@ -3659,7 +3666,7 @@ static void ext4_discard_work(struct work_struct *work)
 			}
 
 			ext4_lock_group(sb, grp);
-			ext4_try_to_trim_range(sb, &e4b, fd->efd_start_cluster,
+			ifs_ext4_local_ext4_try_to_trim_range(sb, &e4b, fd->efd_start_cluster,
 						fd->efd_start_cluster + fd->efd_count - 1, 1);
 			ext4_unlock_group(sb, grp);
 		}
@@ -3667,19 +3674,19 @@ static void ext4_discard_work(struct work_struct *work)
 	}
 
 	if (load_grp != UINT_MAX)
-		ext4_mb_unload_buddy(&e4b);
+		ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 }
 
 
 /**
- * ext4_mb_avg_fragment_size_destroy - Tears down subsystem state after users have been quiesced.
+ * ifs_ext4_local_ext4_mb_avg_fragment_size_destroy - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ext4_mb_avg_fragment_size_destroy(struct ext4_sb_info *sbi)
+static inline void ifs_ext4_local_ext4_mb_avg_fragment_size_destroy(struct ext4_sb_info *sbi)
 {
 	if (!sbi->s_mb_avg_fragment_size)
 		return;
@@ -3693,14 +3700,14 @@ static inline void ext4_mb_avg_fragment_size_destroy(struct ext4_sb_info *sbi)
 
 
 /**
- * ext4_mb_largest_free_orders_destroy - Tears down subsystem state after users have been quiesced.
+ * ifs_ext4_local_ext4_mb_largest_free_orders_destroy - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ext4_mb_largest_free_orders_destroy(struct ext4_sb_info *sbi)
+static inline void ifs_ext4_local_ext4_mb_largest_free_orders_destroy(struct ext4_sb_info *sbi)
 {
 	if (!sbi->s_mb_largest_free_orders)
 		return;
@@ -3744,7 +3751,7 @@ int ext4_mb_init(struct super_block *sb)
 		goto out;
 	}
 
-	ret = ext4_groupinfo_create_slab(sb->s_blocksize);
+	ret = ifs_ext4_local_ext4_groupinfo_create_slab(sb->s_blocksize);
 	if (ret < 0)
 		goto out;
 
@@ -3790,7 +3797,7 @@ int ext4_mb_init(struct super_block *sb)
 	INIT_LIST_HEAD(&sbi->s_freed_data_list[0]);
 	INIT_LIST_HEAD(&sbi->s_freed_data_list[1]);
 	INIT_LIST_HEAD(&sbi->s_discard_list);
-	INIT_WORK(&sbi->s_discard_work, ext4_discard_work);
+	INIT_WORK(&sbi->s_discard_work, ifs_ext4_local_ext4_discard_work);
 	atomic_set(&sbi->s_retry_alloc_pending, 0);
 
 	sbi->s_mb_max_to_scan = MB_DEFAULT_MAX_TO_SCAN;
@@ -3829,7 +3836,7 @@ int ext4_mb_init(struct super_block *sb)
 	else
 		sbi->s_mb_max_linear_groups = MB_DEFAULT_LINEAR_LIMIT;
 
-	ret = ext4_mb_init_backend(sb);
+	ret = ifs_ext4_local_ext4_mb_init_backend(sb);
 	if (ret != 0)
 		goto out_free_locality_groups;
 
@@ -3839,8 +3846,8 @@ out_free_locality_groups:
 	free_percpu(sbi->s_locality_groups);
 	sbi->s_locality_groups = NULL;
 out:
-	ext4_mb_avg_fragment_size_destroy(sbi);
-	ext4_mb_largest_free_orders_destroy(sbi);
+	ifs_ext4_local_ext4_mb_avg_fragment_size_destroy(sbi);
+	ifs_ext4_local_ext4_mb_largest_free_orders_destroy(sbi);
 	kfree(sbi->s_mb_offsets);
 	sbi->s_mb_offsets = NULL;
 	kfree(sbi->s_mb_maxs);
@@ -3850,14 +3857,14 @@ out:
 
 
 /**
- * ext4_mb_cleanup_pa - Implements the mb cleanup pa operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_cleanup_pa - Implements the mb cleanup pa operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_cleanup_pa(struct ext4_group_info *grp)
+static int ifs_ext4_local_ext4_mb_cleanup_pa(struct ext4_group_info *grp)
 {
 	struct ext4_prealloc_space *pa;
 	struct list_head *cur, *tmp;
@@ -3902,9 +3909,9 @@ void ext4_mb_release(struct super_block *sb)
 			grinfo = ext4_get_group_info(sb, i);
 			if (!grinfo)
 				continue;
-			mb_group_bb_bitmap_free(grinfo);
+			ifs_ext4_local_mb_group_bb_bitmap_free(grinfo);
 			ext4_lock_group(sb, i);
-			count = ext4_mb_cleanup_pa(grinfo);
+			count = ifs_ext4_local_ext4_mb_cleanup_pa(grinfo);
 			if (count)
 				mb_debug(sb, "mballoc: %d PAs left\n",
 					 count);
@@ -3918,8 +3925,8 @@ void ext4_mb_release(struct super_block *sb)
 			kfree(group_info[i]);
 		kvfree(group_info);
 	}
-	ext4_mb_avg_fragment_size_destroy(sbi);
-	ext4_mb_largest_free_orders_destroy(sbi);
+	ifs_ext4_local_ext4_mb_avg_fragment_size_destroy(sbi);
+	ifs_ext4_local_ext4_mb_largest_free_orders_destroy(sbi);
 	kfree(sbi->s_mb_offsets);
 	kfree(sbi->s_mb_maxs);
 	iput(sbi->s_buddy_cache);
@@ -3953,14 +3960,14 @@ void ext4_mb_release(struct super_block *sb)
 
 
 /**
- * ext4_issue_discard - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_issue_discard - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int ext4_issue_discard(struct super_block *sb,
+static inline int ifs_ext4_local_ext4_issue_discard(struct super_block *sb,
 		ext4_group_t block_group, ext4_grpblk_t cluster, int count)
 {
 	ext4_fsblk_t discard_block;
@@ -3976,14 +3983,14 @@ static inline int ext4_issue_discard(struct super_block *sb,
 
 
 /**
- * ext4_free_data_in_buddy - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_free_data_in_buddy - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_free_data_in_buddy(struct super_block *sb,
+static void ifs_ext4_local_ext4_free_data_in_buddy(struct super_block *sb,
 				    struct ext4_free_data *entry)
 {
 	struct ext4_buddy e4b;
@@ -3993,7 +4000,7 @@ static void ext4_free_data_in_buddy(struct super_block *sb,
 	mb_debug(sb, "gonna free %u blocks in group %u (0x%p):",
 		 entry->efd_count, entry->efd_group, entry);
 
-	err = ext4_mb_load_buddy(sb, entry->efd_group, &e4b);
+	err = ifs_ext4_local_ext4_mb_load_buddy(sb, entry->efd_group, &e4b);
 
 	BUG_ON(err != 0);
 
@@ -4007,7 +4014,7 @@ static void ext4_free_data_in_buddy(struct super_block *sb,
 	ext4_lock_group(sb, entry->efd_group);
 
 	rb_erase(&entry->efd_node, &(db->bb_free_root));
-	mb_free_blocks(NULL, &e4b, entry->efd_start_cluster, entry->efd_count);
+	ifs_ext4_local_mb_free_blocks(NULL, &e4b, entry->efd_start_cluster, entry->efd_count);
 
 
 	EXT4_MB_GRP_CLEAR_TRIMMED(db);
@@ -4019,7 +4026,7 @@ static void ext4_free_data_in_buddy(struct super_block *sb,
 		folio_put(e4b.bd_bitmap_folio);
 	}
 	ext4_unlock_group(sb, entry->efd_group);
-	ext4_mb_unload_buddy(&e4b);
+	ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 
 	mb_debug(sb, "freed %d blocks in 1 structures\n", count);
 }
@@ -4044,7 +4051,7 @@ void ext4_process_freed_data(struct super_block *sb, tid_t commit_tid)
 	list_replace_init(s_freed_head, &freed_data_list);
 
 	list_for_each_entry(entry, &freed_data_list, efd_list)
-		ext4_free_data_in_buddy(sb, entry);
+		ifs_ext4_local_ext4_free_data_in_buddy(sb, entry);
 
 	if (test_opt(sb, DISCARD)) {
 		spin_lock(&sbi->s_md_lock);
@@ -4112,7 +4119,7 @@ void ext4_exit_mballoc(void)
 	kmem_cache_destroy(ext4_pspace_cachep);
 	kmem_cache_destroy(ext4_ac_cachep);
 	kmem_cache_destroy(ext4_free_data_cachep);
-	ext4_groupinfo_destroy_slabs();
+	ifs_ext4_local_ext4_groupinfo_destroy_slabs();
 }
 
 #define EXT4_MB_BITMAP_MARKED_CHECK 0x0001
@@ -4120,7 +4127,7 @@ void ext4_exit_mballoc(void)
 
 
 /**
- * ext4_mb_mark_context - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_mb_mark_context - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4128,7 +4135,7 @@ void ext4_exit_mballoc(void)
  * rollback, abort or retry policy.
  */
 static int
-ext4_mb_mark_context(handle_t *handle, struct super_block *sb, bool state,
+ifs_ext4_local_ext4_mb_mark_context(handle_t *handle, struct super_block *sb, bool state,
 		     ext4_group_t group, ext4_grpblk_t blkoff,
 		     ext4_grpblk_t len, int flags, ext4_grpblk_t *ret_changed)
 {
@@ -4139,7 +4146,7 @@ ext4_mb_mark_context(handle_t *handle, struct super_block *sb, bool state,
 	int err;
 	unsigned int i, already, changed = len;
 
-	KUNIT_STATIC_STUB_REDIRECT(ext4_mb_mark_context,
+	KUNIT_STATIC_STUB_REDIRECT(ifs_ext4_local_ext4_mb_mark_context,
 				   handle, sb, state, group, blkoff, len,
 				   flags, ret_changed);
 
@@ -4181,7 +4188,7 @@ ext4_mb_mark_context(handle_t *handle, struct super_block *sb, bool state,
 	if (flags & EXT4_MB_BITMAP_MARKED_CHECK) {
 		already = 0;
 		for (i = 0; i < len; i++)
-			if (mb_test_bit(blkoff + i, bitmap_bh->b_data) ==
+			if (ifs_ext4_local_mb_test_bit(blkoff + i, bitmap_bh->b_data) ==
 					state)
 				already++;
 		changed = len - already;
@@ -4192,7 +4199,7 @@ ext4_mb_mark_context(handle_t *handle, struct super_block *sb, bool state,
 		ext4_free_group_clusters_set(sb, gdp,
 			ext4_free_group_clusters(sb, gdp) - changed);
 	} else {
-		mb_clear_bits(bitmap_bh->b_data, blkoff, len);
+		ifs_ext4_local_mb_clear_bits(bitmap_bh->b_data, blkoff, len);
 		ext4_free_group_clusters_set(sb, gdp,
 			ext4_free_group_clusters(sb, gdp) + changed);
 	}
@@ -4233,7 +4240,7 @@ out_err:
 
 
 /**
- * ext4_mb_mark_diskspace_used - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_mb_mark_diskspace_used - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4241,7 +4248,7 @@ out_err:
  * rollback, abort or retry policy.
  */
 static noinline_for_stack int
-ext4_mb_mark_diskspace_used(struct ext4_allocation_context *ac, handle_t *handle)
+ifs_ext4_local_ext4_mb_mark_diskspace_used(struct ext4_allocation_context *ac, handle_t *handle)
 {
 	struct ext4_group_desc *gdp;
 	struct ext4_sb_info *sbi;
@@ -4270,7 +4277,7 @@ ext4_mb_mark_diskspace_used(struct ext4_allocation_context *ac, handle_t *handle
 			   "fs metadata", block, block+len);
 
 
-		err = ext4_mb_mark_context(handle, sb, true,
+		err = ifs_ext4_local_ext4_mb_mark_context(handle, sb, true,
 					   ac->ac_b_ex.fe_group,
 					   ac->ac_b_ex.fe_start,
 					   ac->ac_b_ex.fe_len,
@@ -4283,7 +4290,7 @@ ext4_mb_mark_diskspace_used(struct ext4_allocation_context *ac, handle_t *handle
 #ifdef AGGRESSIVE_CHECK
 	flags |= EXT4_MB_BITMAP_MARKED_CHECK;
 #endif
-	err = ext4_mb_mark_context(handle, sb, true, ac->ac_b_ex.fe_group,
+	err = ifs_ext4_local_ext4_mb_mark_context(handle, sb, true, ac->ac_b_ex.fe_group,
 				   ac->ac_b_ex.fe_start, ac->ac_b_ex.fe_len,
 				   flags, &changed);
 
@@ -4331,7 +4338,7 @@ void ext4_mb_mark_bb(struct super_block *sb, ext4_fsblk_t block,
 			break;
 		}
 
-		err = ext4_mb_mark_context(NULL, sb, state,
+		err = ifs_ext4_local_ext4_mb_mark_context(NULL, sb, state,
 					   group, blkoff, clen,
 					   EXT4_MB_BITMAP_MARKED_CHECK |
 					   EXT4_MB_SYNC_UPDATE,
@@ -4347,14 +4354,14 @@ void ext4_mb_mark_bb(struct super_block *sb, ext4_fsblk_t block,
 
 
 /**
- * ext4_mb_normalize_group_request - Implements the mb normalize group request operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_normalize_group_request - Implements the mb normalize group request operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_normalize_group_request(struct ext4_allocation_context *ac)
+static void ifs_ext4_local_ext4_mb_normalize_group_request(struct ext4_allocation_context *ac)
 {
 	struct super_block *sb = ac->ac_sb;
 	struct ext4_locality_group *lg = ac->ac_lg;
@@ -4366,7 +4373,7 @@ static void ext4_mb_normalize_group_request(struct ext4_allocation_context *ac)
 
 
 /**
- * ext4_mb_pa_rb_next_iter - Implements the mb pa rb next iter operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_pa_rb_next_iter - Implements the mb pa rb next iter operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4374,7 +4381,7 @@ static void ext4_mb_normalize_group_request(struct ext4_allocation_context *ac)
  * rollback, abort or retry policy.
  */
 static inline struct rb_node*
-ext4_mb_pa_rb_next_iter(ext4_lblk_t new_start, ext4_lblk_t cur_start, struct rb_node *node)
+ifs_ext4_local_ext4_mb_pa_rb_next_iter(ext4_lblk_t new_start, ext4_lblk_t cur_start, struct rb_node *node)
 {
 	if (new_start < cur_start)
 		return node->rb_left;
@@ -4384,7 +4391,7 @@ ext4_mb_pa_rb_next_iter(ext4_lblk_t new_start, ext4_lblk_t cur_start, struct rb_
 
 
 /**
- * ext4_mb_pa_assert_overlap - Implements the mb pa assert overlap operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_pa_assert_overlap - Implements the mb pa assert overlap operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4392,7 +4399,7 @@ ext4_mb_pa_rb_next_iter(ext4_lblk_t new_start, ext4_lblk_t cur_start, struct rb_
  * rollback, abort or retry policy.
  */
 static inline void
-ext4_mb_pa_assert_overlap(struct ext4_allocation_context *ac,
+ifs_ext4_local_ext4_mb_pa_assert_overlap(struct ext4_allocation_context *ac,
 			  ext4_lblk_t start, loff_t end)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
@@ -4404,7 +4411,7 @@ ext4_mb_pa_assert_overlap(struct ext4_allocation_context *ac,
 
 	read_lock(&ei->i_prealloc_lock);
 	for (iter = ei->i_prealloc_node.rb_node; iter;
-	     iter = ext4_mb_pa_rb_next_iter(start, tmp_pa_start, iter)) {
+	     iter = ifs_ext4_local_ext4_mb_pa_rb_next_iter(start, tmp_pa_start, iter)) {
 		tmp_pa = rb_entry(iter, struct ext4_prealloc_space,
 				  pa_node.inode_node);
 		tmp_pa_start = tmp_pa->pa_lstart;
@@ -4420,7 +4427,7 @@ ext4_mb_pa_assert_overlap(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_pa_adjust_overlap - Implements the mb pa adjust overlap operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_pa_adjust_overlap - Implements the mb pa adjust overlap operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4428,7 +4435,7 @@ ext4_mb_pa_assert_overlap(struct ext4_allocation_context *ac,
  * rollback, abort or retry policy.
  */
 static inline void
-ext4_mb_pa_adjust_overlap(struct ext4_allocation_context *ac,
+ifs_ext4_local_ext4_mb_pa_adjust_overlap(struct ext4_allocation_context *ac,
 			  ext4_lblk_t *start, loff_t *end)
 {
 	struct ext4_inode_info *ei = EXT4_I(ac->ac_inode);
@@ -4446,7 +4453,7 @@ ext4_mb_pa_adjust_overlap(struct ext4_allocation_context *ac,
 
 
 	for (iter = ei->i_prealloc_node.rb_node; iter;
-	     iter = ext4_mb_pa_rb_next_iter(ac->ac_o_ex.fe_logical,
+	     iter = ifs_ext4_local_ext4_mb_pa_rb_next_iter(ac->ac_o_ex.fe_logical,
 					    tmp_pa_start, iter)) {
 		tmp_pa = rb_entry(iter, struct ext4_prealloc_space,
 				  pa_node.inode_node);
@@ -4550,7 +4557,7 @@ ext4_mb_pa_adjust_overlap(struct ext4_allocation_context *ac,
 	read_unlock(&ei->i_prealloc_lock);
 
 
-	ext4_mb_pa_assert_overlap(ac, new_start, new_end);
+	ifs_ext4_local_ext4_mb_pa_assert_overlap(ac, new_start, new_end);
 
 	*start = new_start;
 	*end = new_end;
@@ -4558,7 +4565,7 @@ ext4_mb_pa_adjust_overlap(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_normalize_request - Implements the mb normalize request operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_normalize_request - Implements the mb normalize request operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4566,7 +4573,7 @@ ext4_mb_pa_adjust_overlap(struct ext4_allocation_context *ac,
  * rollback, abort or retry policy.
  */
 static noinline_for_stack void
-ext4_mb_normalize_request(struct ext4_allocation_context *ac,
+ifs_ext4_local_ext4_mb_normalize_request(struct ext4_allocation_context *ac,
 				struct ext4_allocation_request *ar)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
@@ -4589,7 +4596,7 @@ ext4_mb_normalize_request(struct ext4_allocation_context *ac,
 		return;
 
 	if (ac->ac_flags & EXT4_MB_HINT_GROUP_ALLOC) {
-		ext4_mb_normalize_group_request(ac);
+		ifs_ext4_local_ext4_mb_normalize_group_request(ac);
 		return ;
 	}
 
@@ -4667,7 +4674,7 @@ ext4_mb_normalize_request(struct ext4_allocation_context *ac,
 
 	end = start + size;
 
-	ext4_mb_pa_adjust_overlap(ac, &start, &end);
+	ifs_ext4_local_ext4_mb_pa_adjust_overlap(ac, &start, &end);
 
 	size = end - start;
 
@@ -4712,14 +4719,14 @@ ext4_mb_normalize_request(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_collect_stats - Implements the mb collect stats operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_collect_stats - Implements the mb collect stats operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_collect_stats(struct ext4_allocation_context *ac)
+static void ifs_ext4_local_ext4_mb_collect_stats(struct ext4_allocation_context *ac)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
 
@@ -4754,14 +4761,14 @@ static void ext4_mb_collect_stats(struct ext4_allocation_context *ac)
 
 
 /**
- * ext4_discard_allocated_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_discard_allocated_blocks - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_discard_allocated_blocks(struct ext4_allocation_context *ac)
+static void ifs_ext4_local_ext4_discard_allocated_blocks(struct ext4_allocation_context *ac)
 {
 	struct ext4_prealloc_space *pa = ac->ac_pa;
 	struct ext4_buddy e4b;
@@ -4770,17 +4777,17 @@ static void ext4_discard_allocated_blocks(struct ext4_allocation_context *ac)
 	if (pa == NULL) {
 		if (ac->ac_f_ex.fe_len == 0)
 			return;
-		err = ext4_mb_load_buddy(ac->ac_sb, ac->ac_f_ex.fe_group, &e4b);
+		err = ifs_ext4_local_ext4_mb_load_buddy(ac->ac_sb, ac->ac_f_ex.fe_group, &e4b);
 		if (WARN_RATELIMIT(err,
 				   "ext4: mb_load_buddy failed (%d)", err))
 
 
 			return;
 		ext4_lock_group(ac->ac_sb, ac->ac_f_ex.fe_group);
-		mb_free_blocks(ac->ac_inode, &e4b, ac->ac_f_ex.fe_start,
+		ifs_ext4_local_mb_free_blocks(ac->ac_inode, &e4b, ac->ac_f_ex.fe_start,
 			       ac->ac_f_ex.fe_len);
 		ext4_unlock_group(ac->ac_sb, ac->ac_f_ex.fe_group);
-		ext4_mb_unload_buddy(&e4b);
+		ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 		return;
 	}
 	if (pa->pa_type == MB_INODE_PA) {
@@ -4792,14 +4799,14 @@ static void ext4_discard_allocated_blocks(struct ext4_allocation_context *ac)
 
 
 /**
- * ext4_mb_use_inode_pa - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ifs_ext4_local_ext4_mb_use_inode_pa - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_use_inode_pa(struct ext4_allocation_context *ac,
+static void ifs_ext4_local_ext4_mb_use_inode_pa(struct ext4_allocation_context *ac,
 				struct ext4_prealloc_space *pa)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
@@ -4829,14 +4836,14 @@ static void ext4_mb_use_inode_pa(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_use_group_pa - Implements the mb use group pa operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_use_group_pa - Implements the mb use group pa operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_use_group_pa(struct ext4_allocation_context *ac,
+static void ifs_ext4_local_ext4_mb_use_group_pa(struct ext4_allocation_context *ac,
 				struct ext4_prealloc_space *pa)
 {
 	unsigned int len = ac->ac_o_ex.fe_len;
@@ -4855,7 +4862,7 @@ static void ext4_mb_use_group_pa(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_check_group_pa - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_ext4_mb_check_group_pa - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4863,7 +4870,7 @@ static void ext4_mb_use_group_pa(struct ext4_allocation_context *ac,
  * rollback, abort or retry policy.
  */
 static struct ext4_prealloc_space *
-ext4_mb_check_group_pa(ext4_fsblk_t goal_block,
+ifs_ext4_local_ext4_mb_check_group_pa(ext4_fsblk_t goal_block,
 			struct ext4_prealloc_space *pa,
 			struct ext4_prealloc_space *cpa)
 {
@@ -4887,7 +4894,7 @@ ext4_mb_check_group_pa(ext4_fsblk_t goal_block,
 
 
 /**
- * ext4_mb_pa_goal_check - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_ext4_mb_pa_goal_check - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4895,7 +4902,7 @@ ext4_mb_check_group_pa(ext4_fsblk_t goal_block,
  * rollback, abort or retry policy.
  */
 static bool
-ext4_mb_pa_goal_check(struct ext4_allocation_context *ac,
+ifs_ext4_local_ext4_mb_pa_goal_check(struct ext4_allocation_context *ac,
 		      struct ext4_prealloc_space *pa)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
@@ -4919,7 +4926,7 @@ ext4_mb_pa_goal_check(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_use_preallocated - Implements the mb use preallocated operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_use_preallocated - Implements the mb use preallocated operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4927,7 +4934,7 @@ ext4_mb_pa_goal_check(struct ext4_allocation_context *ac,
  * rollback, abort or retry policy.
  */
 static noinline_for_stack bool
-ext4_mb_use_preallocated(struct ext4_allocation_context *ac)
+ifs_ext4_local_ext4_mb_use_preallocated(struct ext4_allocation_context *ac)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
 	int order, i;
@@ -4950,7 +4957,7 @@ ext4_mb_use_preallocated(struct ext4_allocation_context *ac)
 
 
 	for (iter = ei->i_prealloc_node.rb_node; iter;
-	     iter = ext4_mb_pa_rb_next_iter(ac->ac_o_ex.fe_logical,
+	     iter = ifs_ext4_local_ext4_mb_pa_rb_next_iter(ac->ac_o_ex.fe_logical,
 					    tmp_pa->pa_lstart, iter)) {
 		tmp_pa = rb_entry(iter, struct ext4_prealloc_space,
 				  pa_node.inode_node);
@@ -5011,9 +5018,9 @@ ext4_mb_use_preallocated(struct ext4_allocation_context *ac)
 		goto try_group_pa;
 	}
 
-	if (tmp_pa->pa_free && likely(ext4_mb_pa_goal_check(ac, tmp_pa))) {
+	if (tmp_pa->pa_free && likely(ifs_ext4_local_ext4_mb_pa_goal_check(ac, tmp_pa))) {
 		atomic_inc(&tmp_pa->pa_count);
-		ext4_mb_use_inode_pa(ac, tmp_pa);
+		ifs_ext4_local_ext4_mb_use_inode_pa(ac, tmp_pa);
 		spin_unlock(&tmp_pa->pa_lock);
 		read_unlock(&ei->i_prealloc_lock);
 		return true;
@@ -5050,7 +5057,7 @@ try_group_pa:
 			if (tmp_pa->pa_deleted == 0 &&
 					tmp_pa->pa_free >= ac->ac_o_ex.fe_len) {
 
-				cpa = ext4_mb_check_group_pa(goal_block,
+				cpa = ifs_ext4_local_ext4_mb_check_group_pa(goal_block,
 								tmp_pa, cpa);
 			}
 			spin_unlock(&tmp_pa->pa_lock);
@@ -5058,7 +5065,7 @@ try_group_pa:
 		rcu_read_unlock();
 	}
 	if (cpa) {
-		ext4_mb_use_group_pa(ac, cpa);
+		ifs_ext4_local_ext4_mb_use_group_pa(ac, cpa);
 		return true;
 	}
 	return false;
@@ -5066,7 +5073,7 @@ try_group_pa:
 
 
 /**
- * ext4_mb_generate_from_pa - Implements the mb generate from pa operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_generate_from_pa - Implements the mb generate from pa operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -5074,7 +5081,7 @@ try_group_pa:
  * rollback, abort or retry policy.
  */
 static noinline_for_stack
-void ext4_mb_generate_from_pa(struct super_block *sb, void *bitmap,
+void ifs_ext4_local_ext4_mb_generate_from_pa(struct super_block *sb, void *bitmap,
 					ext4_group_t group)
 {
 	struct ext4_group_info *grp = ext4_get_group_info(sb, group);
@@ -5107,14 +5114,14 @@ void ext4_mb_generate_from_pa(struct super_block *sb, void *bitmap,
 
 
 /**
- * ext4_mb_mark_pa_deleted - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_mb_mark_pa_deleted - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_mark_pa_deleted(struct super_block *sb,
+static void ifs_ext4_local_ext4_mb_mark_pa_deleted(struct super_block *sb,
 				    struct ext4_prealloc_space *pa)
 {
 	struct ext4_inode_info *ei;
@@ -5136,14 +5143,14 @@ static void ext4_mb_mark_pa_deleted(struct super_block *sb,
 
 
 /**
- * ext4_mb_pa_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_pa_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ext4_mb_pa_free(struct ext4_prealloc_space *pa)
+static inline void ifs_ext4_local_ext4_mb_pa_free(struct ext4_prealloc_space *pa)
 {
 	BUG_ON(!pa);
 	BUG_ON(atomic_read(&pa->pa_count));
@@ -5153,31 +5160,31 @@ static inline void ext4_mb_pa_free(struct ext4_prealloc_space *pa)
 
 
 /**
- * ext4_mb_pa_callback - Implements the mb pa callback operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_pa_callback - Implements the mb pa callback operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_pa_callback(struct rcu_head *head)
+static void ifs_ext4_local_ext4_mb_pa_callback(struct rcu_head *head)
 {
 	struct ext4_prealloc_space *pa;
 
 	pa = container_of(head, struct ext4_prealloc_space, u.pa_rcu);
-	ext4_mb_pa_free(pa);
+	ifs_ext4_local_ext4_mb_pa_free(pa);
 }
 
 
 /**
- * ext4_mb_put_pa - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_put_pa - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_put_pa(struct ext4_allocation_context *ac,
+static void ifs_ext4_local_ext4_mb_put_pa(struct ext4_allocation_context *ac,
 			struct super_block *sb, struct ext4_prealloc_space *pa)
 {
 	ext4_group_t grp;
@@ -5196,7 +5203,7 @@ static void ext4_mb_put_pa(struct ext4_allocation_context *ac,
 		return;
 	}
 
-	ext4_mb_mark_pa_deleted(sb, pa);
+	ifs_ext4_local_ext4_mb_mark_pa_deleted(sb, pa);
 	spin_unlock(&pa->pa_lock);
 
 	grp_blk = pa->pa_pstart;
@@ -5216,25 +5223,25 @@ static void ext4_mb_put_pa(struct ext4_allocation_context *ac,
 		write_lock(pa->pa_node_lock.inode_lock);
 		rb_erase(&pa->pa_node.inode_node, &ei->i_prealloc_node);
 		write_unlock(pa->pa_node_lock.inode_lock);
-		ext4_mb_pa_free(pa);
+		ifs_ext4_local_ext4_mb_pa_free(pa);
 	} else {
 		spin_lock(pa->pa_node_lock.lg_lock);
 		list_del_rcu(&pa->pa_node.lg_list);
 		spin_unlock(pa->pa_node_lock.lg_lock);
-		call_rcu(&(pa)->u.pa_rcu, ext4_mb_pa_callback);
+		call_rcu(&(pa)->u.pa_rcu, ifs_ext4_local_ext4_mb_pa_callback);
 	}
 }
 
 
 /**
- * ext4_mb_pa_rb_insert - Implements the mb pa rb insert operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_pa_rb_insert - Implements the mb pa rb insert operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_pa_rb_insert(struct rb_root *root, struct rb_node *new)
+static void ifs_ext4_local_ext4_mb_pa_rb_insert(struct rb_root *root, struct rb_node *new)
 {
 	struct rb_node **iter = &root->rb_node, *parent = NULL;
 	struct ext4_prealloc_space *iter_pa, *new_pa;
@@ -5261,7 +5268,7 @@ static void ext4_mb_pa_rb_insert(struct rb_root *root, struct rb_node *new)
 
 
 /**
- * ext4_mb_new_inode_pa - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ifs_ext4_local_ext4_mb_new_inode_pa - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -5269,7 +5276,7 @@ static void ext4_mb_pa_rb_insert(struct rb_root *root, struct rb_node *new)
  * rollback, abort or retry policy.
  */
 static noinline_for_stack void
-ext4_mb_new_inode_pa(struct ext4_allocation_context *ac)
+ifs_ext4_local_ext4_mb_new_inode_pa(struct ext4_allocation_context *ac)
 {
 	struct super_block *sb = ac->ac_sb;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -5330,7 +5337,7 @@ adjust_bex:
 	trace_ext4_mb_new_inode_pa(ac, pa);
 
 	atomic_add(pa->pa_free, &sbi->s_mb_preallocated);
-	ext4_mb_use_inode_pa(ac, pa);
+	ifs_ext4_local_ext4_mb_use_inode_pa(ac, pa);
 
 	ei = EXT4_I(ac->ac_inode);
 	grp = ext4_get_group_info(sb, ac->ac_b_ex.fe_group);
@@ -5343,14 +5350,14 @@ adjust_bex:
 	list_add(&pa->pa_group_list, &grp->bb_prealloc_list);
 
 	write_lock(pa->pa_node_lock.inode_lock);
-	ext4_mb_pa_rb_insert(&ei->i_prealloc_node, &pa->pa_node.inode_node);
+	ifs_ext4_local_ext4_mb_pa_rb_insert(&ei->i_prealloc_node, &pa->pa_node.inode_node);
 	write_unlock(pa->pa_node_lock.inode_lock);
 	atomic_inc(&ei->i_prealloc_active);
 }
 
 
 /**
- * ext4_mb_new_group_pa - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ifs_ext4_local_ext4_mb_new_group_pa - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -5358,7 +5365,7 @@ adjust_bex:
  * rollback, abort or retry policy.
  */
 static noinline_for_stack void
-ext4_mb_new_group_pa(struct ext4_allocation_context *ac)
+ifs_ext4_local_ext4_mb_new_group_pa(struct ext4_allocation_context *ac)
 {
 	struct super_block *sb = ac->ac_sb;
 	struct ext4_locality_group *lg;
@@ -5387,7 +5394,7 @@ ext4_mb_new_group_pa(struct ext4_allocation_context *ac)
 		 pa->pa_len, pa->pa_lstart);
 	trace_ext4_mb_new_group_pa(ac, pa);
 
-	ext4_mb_use_group_pa(ac, pa);
+	ifs_ext4_local_ext4_mb_use_group_pa(ac, pa);
 	atomic_add(pa->pa_free, &EXT4_SB(sb)->s_mb_preallocated);
 
 	grp = ext4_get_group_info(sb, ac->ac_b_ex.fe_group);
@@ -5406,24 +5413,24 @@ ext4_mb_new_group_pa(struct ext4_allocation_context *ac)
 
 
 /**
- * ext4_mb_new_preallocation - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ifs_ext4_local_ext4_mb_new_preallocation - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_new_preallocation(struct ext4_allocation_context *ac)
+static void ifs_ext4_local_ext4_mb_new_preallocation(struct ext4_allocation_context *ac)
 {
 	if (ac->ac_flags & EXT4_MB_HINT_GROUP_ALLOC)
-		ext4_mb_new_group_pa(ac);
+		ifs_ext4_local_ext4_mb_new_group_pa(ac);
 	else
-		ext4_mb_new_inode_pa(ac);
+		ifs_ext4_local_ext4_mb_new_inode_pa(ac);
 }
 
 
 /**
- * ext4_mb_release_inode_pa - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_release_inode_pa - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -5431,7 +5438,7 @@ static void ext4_mb_new_preallocation(struct ext4_allocation_context *ac)
  * rollback, abort or retry policy.
  */
 static noinline_for_stack void
-ext4_mb_release_inode_pa(struct ext4_buddy *e4b, struct buffer_head *bitmap_bh,
+ifs_ext4_local_ext4_mb_release_inode_pa(struct ext4_buddy *e4b, struct buffer_head *bitmap_bh,
 			struct ext4_prealloc_space *pa)
 {
 	struct super_block *sb = e4b->bd_sb;
@@ -5450,10 +5457,10 @@ ext4_mb_release_inode_pa(struct ext4_buddy *e4b, struct buffer_head *bitmap_bh,
 	end = bit + pa->pa_len;
 
 	while (bit < end) {
-		bit = mb_find_next_zero_bit(bitmap_bh->b_data, end, bit);
+		bit = ifs_ext4_local_mb_find_next_zero_bit(bitmap_bh->b_data, end, bit);
 		if (bit >= end)
 			break;
-		next = mb_find_next_bit(bitmap_bh->b_data, end, bit);
+		next = ifs_ext4_local_mb_find_next_bit(bitmap_bh->b_data, end, bit);
 		mb_debug(sb, "free preallocated %u/%u in group %u\n",
 			 (unsigned) ext4_group_first_block_no(sb, group) + bit,
 			 (unsigned) next - bit, (unsigned) group);
@@ -5463,7 +5470,7 @@ ext4_mb_release_inode_pa(struct ext4_buddy *e4b, struct buffer_head *bitmap_bh,
 		trace_ext4_mb_release_inode_pa(pa, (grp_blk_start +
 						    EXT4_C2B(sbi, bit)),
 					       next - bit);
-		mb_free_blocks(pa->pa_inode, e4b, bit, next - bit);
+		ifs_ext4_local_mb_free_blocks(pa->pa_inode, e4b, bit, next - bit);
 		bit = next + 1;
 	}
 	if (free != pa->pa_free) {
@@ -5482,7 +5489,7 @@ ext4_mb_release_inode_pa(struct ext4_buddy *e4b, struct buffer_head *bitmap_bh,
 
 
 /**
- * ext4_mb_release_group_pa - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_release_group_pa - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -5490,7 +5497,7 @@ ext4_mb_release_inode_pa(struct ext4_buddy *e4b, struct buffer_head *bitmap_bh,
  * rollback, abort or retry policy.
  */
 static noinline_for_stack void
-ext4_mb_release_group_pa(struct ext4_buddy *e4b,
+ifs_ext4_local_ext4_mb_release_group_pa(struct ext4_buddy *e4b,
 				struct ext4_prealloc_space *pa)
 {
 	struct super_block *sb = e4b->bd_sb;
@@ -5505,14 +5512,14 @@ ext4_mb_release_group_pa(struct ext4_buddy *e4b,
 			     e4b->bd_group, group, pa->pa_pstart);
 		return;
 	}
-	mb_free_blocks(pa->pa_inode, e4b, bit, pa->pa_len);
+	ifs_ext4_local_mb_free_blocks(pa->pa_inode, e4b, bit, pa->pa_len);
 	atomic_add(pa->pa_len, &EXT4_SB(sb)->s_mb_discarded);
 	trace_ext4_mballoc_discard(sb, NULL, group, bit, pa->pa_len);
 }
 
 
 /**
- * ext4_mb_discard_group_preallocations - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_discard_group_preallocations - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -5520,7 +5527,7 @@ ext4_mb_release_group_pa(struct ext4_buddy *e4b,
  * rollback, abort or retry policy.
  */
 static noinline_for_stack int
-ext4_mb_discard_group_preallocations(struct super_block *sb,
+ifs_ext4_local_ext4_mb_discard_group_preallocations(struct super_block *sb,
 				     ext4_group_t group, int *busy)
 {
 	struct ext4_group_info *grp = ext4_get_group_info(sb, group);
@@ -5547,7 +5554,7 @@ ext4_mb_discard_group_preallocations(struct super_block *sb,
 		goto out_dbg;
 	}
 
-	err = ext4_mb_load_buddy(sb, group, &e4b);
+	err = ifs_ext4_local_ext4_mb_load_buddy(sb, group, &e4b);
 	if (err) {
 		ext4_warning(sb, "Error %d loading buddy information for %u",
 			     err, group);
@@ -5570,7 +5577,7 @@ ext4_mb_discard_group_preallocations(struct super_block *sb,
 		}
 
 
-		ext4_mb_mark_pa_deleted(sb, pa);
+		ifs_ext4_local_ext4_mb_mark_pa_deleted(sb, pa);
 
 		if (!free)
 			this_cpu_inc(discard_pa_seq);
@@ -5602,16 +5609,16 @@ ext4_mb_discard_group_preallocations(struct super_block *sb,
 		list_del(&pa->u.pa_tmp_list);
 
 		if (pa->pa_type == MB_GROUP_PA) {
-			ext4_mb_release_group_pa(&e4b, pa);
-			call_rcu(&(pa)->u.pa_rcu, ext4_mb_pa_callback);
+			ifs_ext4_local_ext4_mb_release_group_pa(&e4b, pa);
+			call_rcu(&(pa)->u.pa_rcu, ifs_ext4_local_ext4_mb_pa_callback);
 		} else {
-			ext4_mb_release_inode_pa(&e4b, bitmap_bh, pa);
-			ext4_mb_pa_free(pa);
+			ifs_ext4_local_ext4_mb_release_inode_pa(&e4b, bitmap_bh, pa);
+			ifs_ext4_local_ext4_mb_pa_free(pa);
 		}
 	}
 
 	ext4_unlock_group(sb, group);
-	ext4_mb_unload_buddy(&e4b);
+	ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 	put_bh(bitmap_bh);
 out_dbg:
 	mb_debug(sb, "discarded (%d) blocks preallocated for group %u bb_free (%d)\n",
@@ -5674,7 +5681,7 @@ repeat:
 
 		}
 		if (pa->pa_deleted == 0) {
-			ext4_mb_mark_pa_deleted(sb, pa);
+			ifs_ext4_local_ext4_mb_mark_pa_deleted(sb, pa);
 			spin_unlock(&pa->pa_lock);
 			rb_erase(&pa->pa_node.inode_node, &ei->i_prealloc_node);
 			list_add(&pa->u.pa_tmp_list, &list);
@@ -5695,7 +5702,7 @@ repeat:
 		BUG_ON(pa->pa_type != MB_INODE_PA);
 		group = ext4_get_group_number(sb, pa->pa_pstart);
 
-		err = ext4_mb_load_buddy_gfp(sb, group, &e4b,
+		err = ifs_ext4_local_ext4_mb_load_buddy_gfp(sb, group, &e4b,
 					     GFP_NOFS|__GFP_NOFAIL);
 		if (err) {
 			ext4_error_err(sb, -err, "Error %d loading buddy information for %u",
@@ -5708,33 +5715,33 @@ repeat:
 			err = PTR_ERR(bitmap_bh);
 			ext4_error_err(sb, -err, "Error %d reading block bitmap for %u",
 				       err, group);
-			ext4_mb_unload_buddy(&e4b);
+			ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 			continue;
 		}
 
 		ext4_lock_group(sb, group);
 		list_del(&pa->pa_group_list);
-		ext4_mb_release_inode_pa(&e4b, bitmap_bh, pa);
+		ifs_ext4_local_ext4_mb_release_inode_pa(&e4b, bitmap_bh, pa);
 		ext4_unlock_group(sb, group);
 
-		ext4_mb_unload_buddy(&e4b);
+		ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 		put_bh(bitmap_bh);
 
 		list_del(&pa->u.pa_tmp_list);
-		ext4_mb_pa_free(pa);
+		ifs_ext4_local_ext4_mb_pa_free(pa);
 	}
 }
 
 
 /**
- * ext4_mb_pa_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ifs_ext4_local_ext4_mb_pa_alloc - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_pa_alloc(struct ext4_allocation_context *ac)
+static int ifs_ext4_local_ext4_mb_pa_alloc(struct ext4_allocation_context *ac)
 {
 	struct ext4_prealloc_space *pa;
 
@@ -5749,14 +5756,14 @@ static int ext4_mb_pa_alloc(struct ext4_allocation_context *ac)
 
 
 /**
- * ext4_mb_pa_put_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_pa_put_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_pa_put_free(struct ext4_allocation_context *ac)
+static void ifs_ext4_local_ext4_mb_pa_put_free(struct ext4_allocation_context *ac)
 {
 	struct ext4_prealloc_space *pa = ac->ac_pa;
 
@@ -5766,21 +5773,21 @@ static void ext4_mb_pa_put_free(struct ext4_allocation_context *ac)
 
 
 	pa->pa_deleted = 1;
-	ext4_mb_pa_free(pa);
+	ifs_ext4_local_ext4_mb_pa_free(pa);
 }
 
 #ifdef CONFIG_EXT4_DEBUG
 
 
 /**
- * ext4_mb_show_pa - Implements the mb show pa operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_show_pa - Implements the mb show pa operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ext4_mb_show_pa(struct super_block *sb)
+static inline void ifs_ext4_local_ext4_mb_show_pa(struct super_block *sb)
 {
 	ext4_group_t i, ngroups;
 
@@ -5816,14 +5823,14 @@ static inline void ext4_mb_show_pa(struct super_block *sb)
 
 
 /**
- * ext4_mb_show_ac - Implements the mb show ac operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_show_ac - Implements the mb show ac operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_show_ac(struct ext4_allocation_context *ac)
+static void ifs_ext4_local_ext4_mb_show_ac(struct ext4_allocation_context *ac)
 {
 	struct super_block *sb = ac->ac_sb;
 
@@ -5855,48 +5862,48 @@ static void ext4_mb_show_ac(struct ext4_allocation_context *ac)
 	if (ac->ac_pa)
 		mb_debug(sb, "pa_type %s\n", ac->ac_pa->pa_type == MB_GROUP_PA ?
 			 "group pa" : "inode pa");
-	ext4_mb_show_pa(sb);
+	ifs_ext4_local_ext4_mb_show_pa(sb);
 }
 #else
 
 
 /**
- * ext4_mb_show_pa - Implements the mb show pa operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_show_pa - Implements the mb show pa operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ext4_mb_show_pa(struct super_block *sb)
+static inline void ifs_ext4_local_ext4_mb_show_pa(struct super_block *sb)
 {
 }
 
 
 /**
- * ext4_mb_show_ac - Implements the mb show ac operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_show_ac - Implements the mb show ac operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ext4_mb_show_ac(struct ext4_allocation_context *ac)
+static inline void ifs_ext4_local_ext4_mb_show_ac(struct ext4_allocation_context *ac)
 {
-	ext4_mb_show_pa(ac->ac_sb);
+	ifs_ext4_local_ext4_mb_show_pa(ac->ac_sb);
 }
 #endif
 
 
 /**
- * ext4_mb_group_or_file - Implements the mb group or file operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_group_or_file - Implements the mb group or file operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_group_or_file(struct ext4_allocation_context *ac)
+static void ifs_ext4_local_ext4_mb_group_or_file(struct ext4_allocation_context *ac)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
 	int bsbits = ac->ac_sb->s_blocksize_bits;
@@ -5947,7 +5954,7 @@ static void ext4_mb_group_or_file(struct ext4_allocation_context *ac)
 
 
 /**
- * ext4_mb_initialize_context - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext4_local_ext4_mb_initialize_context - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -5955,7 +5962,7 @@ static void ext4_mb_group_or_file(struct ext4_allocation_context *ac)
  * rollback, abort or retry policy.
  */
 static noinline_for_stack void
-ext4_mb_initialize_context(struct ext4_allocation_context *ac,
+ifs_ext4_local_ext4_mb_initialize_context(struct ext4_allocation_context *ac,
 				struct ext4_allocation_request *ar)
 {
 	struct super_block *sb = ar->inode->i_sb;
@@ -5994,7 +6001,7 @@ ext4_mb_initialize_context(struct ext4_allocation_context *ac,
 	ac->ac_flags = ar->flags;
 
 
-	ext4_mb_group_or_file(ac);
+	ifs_ext4_local_ext4_mb_group_or_file(ac);
 
 	mb_debug(sb, "init ac: %u blocks @ %u, goal %u, flags 0x%x, 2^%d, "
 			"left: %u/%u, right %u/%u to %swritable\n",
@@ -6007,7 +6014,7 @@ ext4_mb_initialize_context(struct ext4_allocation_context *ac,
 
 
 /**
- * ext4_mb_discard_lg_preallocations - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_discard_lg_preallocations - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -6015,7 +6022,7 @@ ext4_mb_initialize_context(struct ext4_allocation_context *ac,
  * rollback, abort or retry policy.
  */
 static noinline_for_stack void
-ext4_mb_discard_lg_preallocations(struct super_block *sb,
+ifs_ext4_local_ext4_mb_discard_lg_preallocations(struct super_block *sb,
 					struct ext4_locality_group *lg,
 					int order, int total_entries)
 {
@@ -6045,7 +6052,7 @@ ext4_mb_discard_lg_preallocations(struct super_block *sb,
 		BUG_ON(pa->pa_type != MB_GROUP_PA);
 
 
-		ext4_mb_mark_pa_deleted(sb, pa);
+		ifs_ext4_local_ext4_mb_mark_pa_deleted(sb, pa);
 		spin_unlock(&pa->pa_lock);
 
 		list_del_rcu(&pa->pa_node.lg_list);
@@ -6064,7 +6071,7 @@ ext4_mb_discard_lg_preallocations(struct super_block *sb,
 		int err;
 
 		group = ext4_get_group_number(sb, pa->pa_pstart);
-		err = ext4_mb_load_buddy_gfp(sb, group, &e4b,
+		err = ifs_ext4_local_ext4_mb_load_buddy_gfp(sb, group, &e4b,
 					     GFP_NOFS|__GFP_NOFAIL);
 		if (err) {
 			ext4_error_err(sb, -err, "Error %d loading buddy information for %u",
@@ -6073,25 +6080,25 @@ ext4_mb_discard_lg_preallocations(struct super_block *sb,
 		}
 		ext4_lock_group(sb, group);
 		list_del(&pa->pa_group_list);
-		ext4_mb_release_group_pa(&e4b, pa);
+		ifs_ext4_local_ext4_mb_release_group_pa(&e4b, pa);
 		ext4_unlock_group(sb, group);
 
-		ext4_mb_unload_buddy(&e4b);
+		ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 		list_del(&pa->u.pa_tmp_list);
-		call_rcu(&(pa)->u.pa_rcu, ext4_mb_pa_callback);
+		call_rcu(&(pa)->u.pa_rcu, ifs_ext4_local_ext4_mb_pa_callback);
 	}
 }
 
 
 /**
- * ext4_mb_add_n_trim - Implements the mb add n trim operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_mb_add_n_trim - Implements the mb add n trim operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_add_n_trim(struct ext4_allocation_context *ac)
+static void ifs_ext4_local_ext4_mb_add_n_trim(struct ext4_allocation_context *ac)
 {
 	int order, added = 0, lg_prealloc_count = 1;
 	struct super_block *sb = ac->ac_sb;
@@ -6130,20 +6137,20 @@ static void ext4_mb_add_n_trim(struct ext4_allocation_context *ac)
 
 
 	if (lg_prealloc_count > 8)
-		ext4_mb_discard_lg_preallocations(sb, lg,
+		ifs_ext4_local_ext4_mb_discard_lg_preallocations(sb, lg,
 						  order, lg_prealloc_count);
 }
 
 
 /**
- * ext4_mb_release_context - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_release_context - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_release_context(struct ext4_allocation_context *ac)
+static void ifs_ext4_local_ext4_mb_release_context(struct ext4_allocation_context *ac)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(ac->ac_sb);
 	struct ext4_prealloc_space *pa = ac->ac_pa;
@@ -6162,11 +6169,11 @@ static void ext4_mb_release_context(struct ext4_allocation_context *ac)
 				spin_lock(pa->pa_node_lock.lg_lock);
 				list_del_rcu(&pa->pa_node.lg_list);
 				spin_unlock(pa->pa_node_lock.lg_lock);
-				ext4_mb_add_n_trim(ac);
+				ifs_ext4_local_ext4_mb_add_n_trim(ac);
 			}
 		}
 
-		ext4_mb_put_pa(ac, ac->ac_sb, pa);
+		ifs_ext4_local_ext4_mb_put_pa(ac, ac->ac_sb, pa);
 	}
 	if (ac->ac_bitmap_folio)
 		folio_put(ac->ac_bitmap_folio);
@@ -6174,19 +6181,19 @@ static void ext4_mb_release_context(struct ext4_allocation_context *ac)
 		folio_put(ac->ac_buddy_folio);
 	if (ac->ac_flags & EXT4_MB_HINT_GROUP_ALLOC)
 		mutex_unlock(&ac->ac_lg->lg_mutex);
-	ext4_mb_collect_stats(ac);
+	ifs_ext4_local_ext4_mb_collect_stats(ac);
 }
 
 
 /**
- * ext4_mb_discard_preallocations - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_discard_preallocations - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_mb_discard_preallocations(struct super_block *sb, int needed)
+static int ifs_ext4_local_ext4_mb_discard_preallocations(struct super_block *sb, int needed)
 {
 	ext4_group_t i, ngroups = ext4_get_groups_count(sb);
 	int ret;
@@ -6199,7 +6206,7 @@ static int ext4_mb_discard_preallocations(struct super_block *sb, int needed)
 		needed = EXT4_CLUSTERS_PER_GROUP(sb) + 1;
  repeat:
 	for (i = 0; i < ngroups && needed > 0; i++) {
-		ret = ext4_mb_discard_group_preallocations(sb, i, &busy);
+		ret = ifs_ext4_local_ext4_mb_discard_group_preallocations(sb, i, &busy);
 		freed += ret;
 		needed -= ret;
 		cond_resched();
@@ -6215,26 +6222,26 @@ static int ext4_mb_discard_preallocations(struct super_block *sb, int needed)
 
 
 /**
- * ext4_mb_discard_preallocations_should_retry - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_discard_preallocations_should_retry - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ext4_mb_discard_preallocations_should_retry(struct super_block *sb,
+static bool ifs_ext4_local_ext4_mb_discard_preallocations_should_retry(struct super_block *sb,
 			struct ext4_allocation_context *ac, u64 *seq)
 {
 	int freed;
 	u64 seq_retry = 0;
 	bool ret = false;
 
-	freed = ext4_mb_discard_preallocations(sb, ac->ac_o_ex.fe_len);
+	freed = ifs_ext4_local_ext4_mb_discard_preallocations(sb, ac->ac_o_ex.fe_len);
 	if (freed) {
 		ret = true;
 		goto out_dbg;
 	}
-	seq_retry = ext4_get_discard_pa_seq_sum();
+	seq_retry = ifs_ext4_local_ext4_get_discard_pa_seq_sum();
 	if (!(ac->ac_flags & EXT4_MB_STRICT_CHECK) || seq_retry != *seq) {
 		ac->ac_flags |= EXT4_MB_STRICT_CHECK;
 		*seq = seq_retry;
@@ -6248,7 +6255,7 @@ out_dbg:
 
 
 /**
- * ext4_mb_new_blocks_simple - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ifs_ext4_local_ext4_mb_new_blocks_simple - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -6256,7 +6263,7 @@ out_dbg:
  * rollback, abort or retry policy.
  */
 static ext4_fsblk_t
-ext4_mb_new_blocks_simple(struct ext4_allocation_request *ar, int *errp)
+ifs_ext4_local_ext4_mb_new_blocks_simple(struct ext4_allocation_request *ar, int *errp)
 {
 	struct buffer_head *bitmap_bh;
 	struct super_block *sb = ar->inode->i_sb;
@@ -6284,7 +6291,7 @@ ext4_mb_new_blocks_simple(struct ext4_allocation_request *ar, int *errp)
 		}
 
 		while (1) {
-			i = mb_find_next_zero_bit(bitmap_bh->b_data, max,
+			i = ifs_ext4_local_mb_find_next_zero_bit(bitmap_bh->b_data, max,
 						blkoff);
 			if (i >= max)
 				break;
@@ -6345,7 +6352,7 @@ ext4_fsblk_t ext4_mb_new_blocks(handle_t *handle,
 
 	trace_ext4_request_blocks(ar);
 	if (sbi->s_mount_state & EXT4_FC_REPLAY)
-		return ext4_mb_new_blocks_simple(ar, errp);
+		return ifs_ext4_local_ext4_mb_new_blocks_simple(ar, errp);
 
 
 	if (ext4_is_quota_file(ar->inode))
@@ -6362,7 +6369,7 @@ ext4_fsblk_t ext4_mb_new_blocks(handle_t *handle,
 			ar->len = ar->len >> 1;
 		}
 		if (!ar->len) {
-			ext4_mb_show_pa(sb);
+			ifs_ext4_local_ext4_mb_show_pa(sb);
 			*errp = -ENOSPC;
 			return 0;
 		}
@@ -6393,35 +6400,35 @@ ext4_fsblk_t ext4_mb_new_blocks(handle_t *handle,
 		goto out;
 	}
 
-	ext4_mb_initialize_context(ac, ar);
+	ifs_ext4_local_ext4_mb_initialize_context(ac, ar);
 
 	ac->ac_op = EXT4_MB_HISTORY_PREALLOC;
 	seq = this_cpu_read(discard_pa_seq);
-	if (!ext4_mb_use_preallocated(ac)) {
+	if (!ifs_ext4_local_ext4_mb_use_preallocated(ac)) {
 		ac->ac_op = EXT4_MB_HISTORY_ALLOC;
-		ext4_mb_normalize_request(ac, ar);
+		ifs_ext4_local_ext4_mb_normalize_request(ac, ar);
 
-		*errp = ext4_mb_pa_alloc(ac);
+		*errp = ifs_ext4_local_ext4_mb_pa_alloc(ac);
 		if (*errp)
 			goto errout;
 repeat:
 
-		*errp = ext4_mb_regular_allocator(ac);
+		*errp = ifs_ext4_local_ext4_mb_regular_allocator(ac);
 
 
 		if (*errp) {
-			ext4_mb_pa_put_free(ac);
-			ext4_discard_allocated_blocks(ac);
+			ifs_ext4_local_ext4_mb_pa_put_free(ac);
+			ifs_ext4_local_ext4_discard_allocated_blocks(ac);
 			goto errout;
 		}
 		if (ac->ac_status == AC_STATUS_FOUND &&
 			ac->ac_o_ex.fe_len >= ac->ac_f_ex.fe_len)
-			ext4_mb_pa_put_free(ac);
+			ifs_ext4_local_ext4_mb_pa_put_free(ac);
 	}
 	if (likely(ac->ac_status == AC_STATUS_FOUND)) {
-		*errp = ext4_mb_mark_diskspace_used(ac, handle);
+		*errp = ifs_ext4_local_ext4_mb_mark_diskspace_used(ac, handle);
 		if (*errp) {
-			ext4_discard_allocated_blocks(ac);
+			ifs_ext4_local_ext4_discard_allocated_blocks(ac);
 			goto errout;
 		} else {
 			block = ext4_grp_offs_to_block(sb, &ac->ac_b_ex);
@@ -6429,11 +6436,11 @@ repeat:
 		}
 	} else {
 		if (++retries < 3 &&
-		    ext4_mb_discard_preallocations_should_retry(sb, ac, &seq))
+		    ifs_ext4_local_ext4_mb_discard_preallocations_should_retry(sb, ac, &seq))
 			goto repeat;
 
 
-		ext4_mb_pa_put_free(ac);
+		ifs_ext4_local_ext4_mb_pa_put_free(ac);
 		*errp = -ENOSPC;
 	}
 
@@ -6441,9 +6448,9 @@ repeat:
 errout:
 		ac->ac_b_ex.fe_len = 0;
 		ar->len = 0;
-		ext4_mb_show_ac(ac);
+		ifs_ext4_local_ext4_mb_show_ac(ac);
 	}
-	ext4_mb_release_context(ac);
+	ifs_ext4_local_ext4_mb_release_context(ac);
 	kmem_cache_free(ext4_ac_cachep, ac);
 out:
 	if (inquota && ar->len < inquota)
@@ -6459,14 +6466,14 @@ out:
 
 
 /**
- * ext4_try_merge_freed_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ * ifs_ext4_local_ext4_try_merge_freed_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_try_merge_freed_extent(struct ext4_sb_info *sbi,
+static void ifs_ext4_local_ext4_try_merge_freed_extent(struct ext4_sb_info *sbi,
 					struct ext4_free_data *entry,
 					struct ext4_free_data *new_entry,
 					struct rb_root *entry_rb_root)
@@ -6492,7 +6499,7 @@ static void ext4_try_merge_freed_extent(struct ext4_sb_info *sbi,
 
 
 /**
- * ext4_mb_free_metadata - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_mb_free_metadata - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -6500,7 +6507,7 @@ static void ext4_try_merge_freed_extent(struct ext4_sb_info *sbi,
  * rollback, abort or retry policy.
  */
 static noinline_for_stack void
-ext4_mb_free_metadata(handle_t *handle, struct ext4_buddy *e4b,
+ifs_ext4_local_ext4_mb_free_metadata(handle_t *handle, struct ext4_buddy *e4b,
 		      struct ext4_free_data *new_entry)
 {
 	ext4_group_t group = e4b->bd_group;
@@ -6550,14 +6557,14 @@ ext4_mb_free_metadata(handle_t *handle, struct ext4_buddy *e4b,
 	node = rb_prev(new_node);
 	if (node) {
 		entry = rb_entry(node, struct ext4_free_data, efd_node);
-		ext4_try_merge_freed_extent(sbi, entry, new_entry,
+		ifs_ext4_local_ext4_try_merge_freed_extent(sbi, entry, new_entry,
 					    &(db->bb_free_root));
 	}
 
 	node = rb_next(new_node);
 	if (node) {
 		entry = rb_entry(node, struct ext4_free_data, efd_node);
-		ext4_try_merge_freed_extent(sbi, entry, new_entry,
+		ifs_ext4_local_ext4_try_merge_freed_extent(sbi, entry, new_entry,
 					    &(db->bb_free_root));
 	}
 
@@ -6569,14 +6576,14 @@ ext4_mb_free_metadata(handle_t *handle, struct ext4_buddy *e4b,
 
 
 /**
- * ext4_free_blocks_simple - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_free_blocks_simple - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_free_blocks_simple(struct inode *inode, ext4_fsblk_t block,
+static void ifs_ext4_local_ext4_free_blocks_simple(struct inode *inode, ext4_fsblk_t block,
 					unsigned long count)
 {
 	struct super_block *sb = inode->i_sb;
@@ -6584,7 +6591,7 @@ static void ext4_free_blocks_simple(struct inode *inode, ext4_fsblk_t block,
 	ext4_grpblk_t blkoff;
 
 	ext4_get_group_no_and_offset(sb, block, &group, &blkoff);
-	ext4_mb_mark_context(NULL, sb, false, group, blkoff, count,
+	ifs_ext4_local_ext4_mb_mark_context(NULL, sb, false, group, blkoff, count,
 			     EXT4_MB_BITMAP_MARKED_CHECK |
 			     EXT4_MB_SYNC_UPDATE,
 			     NULL);
@@ -6592,14 +6599,14 @@ static void ext4_free_blocks_simple(struct inode *inode, ext4_fsblk_t block,
 
 
 /**
- * ext4_mb_clear_bb - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_mb_clear_bb - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_mb_clear_bb(handle_t *handle, struct inode *inode,
+static void ifs_ext4_local_ext4_mb_clear_bb(handle_t *handle, struct inode *inode,
 			       ext4_fsblk_t block, unsigned long count,
 			       int flags)
 {
@@ -6646,7 +6653,7 @@ do_more:
 	trace_ext4_mballoc_free(sb, inode, block_group, bit, count_clusters);
 
 
-	err = ext4_mb_load_buddy_gfp(sb, block_group, &e4b,
+	err = ifs_ext4_local_ext4_mb_load_buddy_gfp(sb, block_group, &e4b,
 				     GFP_NOFS|__GFP_NOFAIL);
 	if (err)
 		goto error_out;
@@ -6662,7 +6669,7 @@ do_more:
 #ifdef AGGRESSIVE_CHECK
 	mark_flags |= EXT4_MB_BITMAP_MARKED_CHECK;
 #endif
-	err = ext4_mb_mark_context(handle, sb, false, block_group, bit,
+	err = ifs_ext4_local_ext4_mb_mark_context(handle, sb, false, block_group, bit,
 				   count_clusters, mark_flags, &changed);
 
 
@@ -6688,10 +6695,10 @@ do_more:
 		new_entry->efd_tid = handle->h_transaction->t_tid;
 
 		ext4_lock_group(sb, block_group);
-		ext4_mb_free_metadata(handle, &e4b, new_entry);
+		ifs_ext4_local_ext4_mb_free_metadata(handle, &e4b, new_entry);
 	} else {
 		if (test_opt(sb, DISCARD)) {
-			err = ext4_issue_discard(sb, block_group, bit,
+			err = ifs_ext4_local_ext4_issue_discard(sb, block_group, bit,
 						 count_clusters);
 
 
@@ -6707,7 +6714,7 @@ do_more:
 		EXT4_MB_GRP_CLEAR_TRIMMED(e4b.bd_info);
 
 		ext4_lock_group(sb, block_group);
-		mb_free_blocks(inode, &e4b, bit, count_clusters);
+		ifs_ext4_local_mb_free_blocks(inode, &e4b, bit, count_clusters);
 	}
 
 	ext4_unlock_group(sb, block_group);
@@ -6723,14 +6730,14 @@ do_more:
 	if (overflow && !err) {
 		block += count;
 		count = overflow;
-		ext4_mb_unload_buddy(&e4b);
+		ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 
 		flags &= ~EXT4_FREE_BLOCKS_VALIDATED;
 		goto do_more;
 	}
 
 error_clean:
-	ext4_mb_unload_buddy(&e4b);
+	ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 error_out:
 	ext4_std_error(sb, err);
 }
@@ -6762,7 +6769,7 @@ void ext4_free_blocks(handle_t *handle, struct inode *inode,
 	}
 
 	if (sbi->s_mount_state & EXT4_FC_REPLAY) {
-		ext4_free_blocks_simple(inode, block, EXT4_NUM_B2C(sbi, count));
+		ifs_ext4_local_ext4_free_blocks_simple(inode, block, EXT4_NUM_B2C(sbi, count));
 		return;
 	}
 
@@ -6829,7 +6836,7 @@ void ext4_free_blocks(handle_t *handle, struct inode *inode,
 		}
 	}
 
-	ext4_mb_clear_bb(handle, inode, block, count, flags);
+	ifs_ext4_local_ext4_mb_clear_bb(handle, inode, block, count, flags);
 }
 
 
@@ -6869,7 +6876,7 @@ int ext4_group_add_blocks(handle_t *handle, struct super_block *sb,
 		goto error_out;
 	}
 
-	err = ext4_mb_load_buddy(sb, block_group, &e4b);
+	err = ifs_ext4_local_ext4_mb_load_buddy(sb, block_group, &e4b);
 	if (err)
 		goto error_out;
 
@@ -6881,7 +6888,7 @@ int ext4_group_add_blocks(handle_t *handle, struct super_block *sb,
 		goto error_clean;
 	}
 
-	err = ext4_mb_mark_context(handle, sb, false, block_group, bit,
+	err = ifs_ext4_local_ext4_mb_mark_context(handle, sb, false, block_group, bit,
 				   cluster_count, EXT4_MB_BITMAP_MARKED_CHECK,
 				   &changed);
 	if (err && changed == 0)
@@ -6891,13 +6898,13 @@ int ext4_group_add_blocks(handle_t *handle, struct super_block *sb,
 		ext4_error(sb, "bit already cleared in group %u", block_group);
 
 	ext4_lock_group(sb, block_group);
-	mb_free_blocks(NULL, &e4b, bit, cluster_count);
+	ifs_ext4_local_mb_free_blocks(NULL, &e4b, bit, cluster_count);
 	ext4_unlock_group(sb, block_group);
 	percpu_counter_add(&sbi->s_freeclusters_counter,
 			   changed);
 
 error_clean:
-	ext4_mb_unload_buddy(&e4b);
+	ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 error_out:
 	ext4_std_error(sb, err);
 	return err;
@@ -6912,7 +6919,7 @@ error_out:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_trim_extent(struct super_block *sb,
+static int ifs_ext4_local_ext4_trim_extent(struct super_block *sb,
 		int start, int count, struct ext4_buddy *e4b)
 __releases(bitlock)
 __acquires(bitlock)
@@ -6930,24 +6937,24 @@ __acquires(bitlock)
 	ex.fe_len = count;
 
 
-	mb_mark_used(e4b, &ex);
+	ifs_ext4_local_mb_mark_used(e4b, &ex);
 	ext4_unlock_group(sb, group);
-	ret = ext4_issue_discard(sb, group, start, count);
+	ret = ifs_ext4_local_ext4_issue_discard(sb, group, start, count);
 	ext4_lock_group(sb, group);
-	mb_free_blocks(NULL, e4b, start, ex.fe_len);
+	ifs_ext4_local_mb_free_blocks(NULL, e4b, start, ex.fe_len);
 	return ret;
 }
 
 
 /**
- * ext4_last_grp_cluster - Implements the last grp cluster operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_last_grp_cluster - Implements the last grp cluster operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ext4_grpblk_t ext4_last_grp_cluster(struct super_block *sb,
+static ext4_grpblk_t ifs_ext4_local_ext4_last_grp_cluster(struct super_block *sb,
 					   ext4_group_t grp)
 {
 	unsigned long nr_clusters_in_group;
@@ -6964,14 +6971,14 @@ static ext4_grpblk_t ext4_last_grp_cluster(struct super_block *sb,
 
 
 /**
- * ext4_trim_interrupted - Implements the trim interrupted operation within the multiblock allocator subsystem.
+ * ifs_ext4_local_ext4_trim_interrupted - Implements the trim interrupted operation within the multiblock allocator subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ext4_trim_interrupted(void)
+static bool ifs_ext4_local_ext4_trim_interrupted(void)
 {
 	return fatal_signal_pending(current) || freezing(current);
 }
@@ -6985,7 +6992,7 @@ static bool ext4_trim_interrupted(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_try_to_trim_range(struct super_block *sb,
+static int ifs_ext4_local_ext4_try_to_trim_range(struct super_block *sb,
 		struct ext4_buddy *e4b, ext4_grpblk_t start,
 		ext4_grpblk_t max, ext4_grpblk_t minblocks)
 __acquires(ext4_group_lock_ptr(sb, e4b->bd_group))
@@ -6998,7 +7005,7 @@ __releases(ext4_group_lock_ptr(sb, e4b->bd_group))
 	if (unlikely(EXT4_MB_GRP_BBITMAP_CORRUPT(e4b->bd_info)))
 		return 0;
 
-	last = ext4_last_grp_cluster(sb, e4b->bd_group);
+	last = ifs_ext4_local_ext4_last_grp_cluster(sb, e4b->bd_group);
 	bitmap = e4b->bd_bitmap;
 	if (start == 0 && max >= last)
 		set_trimmed = true;
@@ -7008,16 +7015,16 @@ __releases(ext4_group_lock_ptr(sb, e4b->bd_group))
 	free_count = 0;
 
 	while (start <= max) {
-		start = mb_find_next_zero_bit(bitmap, max + 1, start);
+		start = ifs_ext4_local_mb_find_next_zero_bit(bitmap, max + 1, start);
 		if (start > max)
 			break;
 
-		next = mb_find_next_bit(bitmap, last + 1, start);
+		next = ifs_ext4_local_mb_find_next_bit(bitmap, last + 1, start);
 		if (origin_start == 0 && next >= last)
 			set_trimmed = true;
 
 		if ((next - start) >= minblocks) {
-			int ret = ext4_trim_extent(sb, start, next - start, e4b);
+			int ret = ifs_ext4_local_ext4_trim_extent(sb, start, next - start, e4b);
 
 			if (ret && ret != -EOPNOTSUPP)
 				return count;
@@ -7026,7 +7033,7 @@ __releases(ext4_group_lock_ptr(sb, e4b->bd_group))
 		free_count += next - start;
 		start = next + 1;
 
-		if (ext4_trim_interrupted())
+		if (ifs_ext4_local_ext4_trim_interrupted())
 			return count;
 
 		if (need_resched()) {
@@ -7047,7 +7054,7 @@ __releases(ext4_group_lock_ptr(sb, e4b->bd_group))
 
 
 /**
- * ext4_trim_all_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_trim_all_free - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -7055,7 +7062,7 @@ __releases(ext4_group_lock_ptr(sb, e4b->bd_group))
  * rollback, abort or retry policy.
  */
 static ext4_grpblk_t
-ext4_trim_all_free(struct super_block *sb, ext4_group_t group,
+ifs_ext4_local_ext4_trim_all_free(struct super_block *sb, ext4_group_t group,
 		   ext4_grpblk_t start, ext4_grpblk_t max,
 		   ext4_grpblk_t minblocks)
 {
@@ -7064,7 +7071,7 @@ ext4_trim_all_free(struct super_block *sb, ext4_group_t group,
 
 	trace_ext4_trim_all_free(sb, group, start, max);
 
-	ret = ext4_mb_load_buddy(sb, group, &e4b);
+	ret = ifs_ext4_local_ext4_mb_load_buddy(sb, group, &e4b);
 	if (ret) {
 		ext4_warning(sb, "Error %d loading buddy information for %u",
 			     ret, group);
@@ -7075,12 +7082,12 @@ ext4_trim_all_free(struct super_block *sb, ext4_group_t group,
 
 	if (!EXT4_MB_GRP_WAS_TRIMMED(e4b.bd_info) ||
 	    minblocks < EXT4_SB(sb)->s_last_trim_minblks)
-		ret = ext4_try_to_trim_range(sb, &e4b, start, max, minblocks);
+		ret = ifs_ext4_local_ext4_try_to_trim_range(sb, &e4b, start, max, minblocks);
 	else
 		ret = 0;
 
 	ext4_unlock_group(sb, group);
-	ext4_mb_unload_buddy(&e4b);
+	ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 
 	ext4_debug("trimmed %d blocks in the group %d\n",
 		ret, group);
@@ -7142,14 +7149,14 @@ int ext4_trim_fs(struct super_block *sb, struct fstrim_range *range)
 	end = EXT4_CLUSTERS_PER_GROUP(sb) - 1;
 
 	for (group = first_group; group <= last_group; group++) {
-		if (ext4_trim_interrupted())
+		if (ifs_ext4_local_ext4_trim_interrupted())
 			break;
 		grp = ext4_get_group_info(sb, group);
 		if (!grp)
 			continue;
 
 		if (unlikely(EXT4_MB_GRP_NEED_INIT(grp))) {
-			ret = ext4_mb_init_group(sb, group, GFP_NOFS);
+			ret = ifs_ext4_local_ext4_mb_init_group(sb, group, GFP_NOFS);
 			if (ret)
 				break;
 		}
@@ -7158,7 +7165,7 @@ int ext4_trim_fs(struct super_block *sb, struct fstrim_range *range)
 		if (group == last_group)
 			end = last_cluster;
 		if (grp->bb_free >= minlen) {
-			cnt = ext4_trim_all_free(sb, group, first_cluster,
+			cnt = ifs_ext4_local_ext4_trim_all_free(sb, group, first_cluster,
 						 end, minlen);
 			if (cnt < 0) {
 				ret = cnt;
@@ -7203,7 +7210,7 @@ ext4_mballoc_query_range(
 	struct ext4_buddy		e4b;
 	int				error;
 
-	error = ext4_mb_load_buddy(sb, group, &e4b);
+	error = ifs_ext4_local_ext4_mb_load_buddy(sb, group, &e4b);
 	if (error)
 		return error;
 	bitmap = e4b.bd_bitmap;
@@ -7224,10 +7231,10 @@ ext4_mballoc_query_range(
 		ext4_lock_group(sb, group);
 	}
 	while (start <= end) {
-		start = mb_find_next_zero_bit(bitmap, end + 1, start);
+		start = ifs_ext4_local_mb_find_next_zero_bit(bitmap, end + 1, start);
 		if (start > end)
 			break;
-		next = mb_find_next_bit(bitmap, end + 1, start);
+		next = ifs_ext4_local_mb_find_next_bit(bitmap, end + 1, start);
 
 		ext4_unlock_group(sb, group);
 		error = formatter(sb, group, start, next - start, priv);
@@ -7240,7 +7247,7 @@ ext4_mballoc_query_range(
 
 	ext4_unlock_group(sb, group);
 out_unload:
-	ext4_mb_unload_buddy(&e4b);
+	ifs_ext4_local_ext4_mb_unload_buddy(&e4b);
 
 	return error;
 }
