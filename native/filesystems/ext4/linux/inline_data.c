@@ -994,7 +994,7 @@ out:
 }
 
 #ifdef INLINE_DIR_DEBUG
-static void ext4_show_inline_dir(struct inode *dir,
+static void __maybe_unused ext4_show_inline_dir(struct inode *dir,
 			  struct buffer_head *bh,
 			  void *start,
 			  int size)
@@ -1018,7 +1018,7 @@ static void ext4_show_inline_dir(struct inode *dir,
 	}
 }
 #else
-static void ext4_show_inline_dir(struct inode *dir,
+static void __maybe_unused ext4_show_inline_dir(struct inode *dir,
 			  struct buffer_head *bh,
 			  void *start,
 			  int size)
