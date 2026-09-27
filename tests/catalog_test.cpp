@@ -57,6 +57,16 @@ int main(int argc, char** argv)
             return fail("fuse2fs must not be exposed alongside canonical EXT2/EXT3/EXT4");
         }
 
+        if (entry.id == std::string_view("ext2") ||
+            entry.id == std::string_view("ext3") ||
+            entry.id == std::string_view("ext4")) {
+            if (entry.provider != filesystem_support::SupportProvider::Kernel ||
+                !entry.packages.empty() ||
+                !entry.project_native_linux) {
+                return fail("EXT2/EXT3/EXT4 must remain project-native kernel-only providers");
+            }
+        }
+
         if (entry.id == std::string_view("ofs")) {
             found_ofs = true;
         } else if (entry.id == std::string_view("ffs")) {
@@ -149,11 +159,12 @@ int main(int argc, char** argv)
     if (hfs_uses_removed_package) {
         return fail("HFS still references hfsutils, which is not in Debian trixie stable");
     }
-    if (kernel_only != 19U || kernel_with_userspace != 29U ||
+    if (kernel_only != 22U || kernel_with_userspace != 26U ||
         dkms != 3U || userspace != 52U || tools_only != 4U) {
         return fail("support-provider classification counts changed unexpectedly");
     }
-    if (!filesystem_support::package_is_catalogued("zfs-dkms") ||
+    if (filesystem_support::package_is_catalogued("e2fsprogs") ||
+        !filesystem_support::package_is_catalogued("zfs-dkms") ||
         filesystem_support::package_is_catalogued("definitely-not-a-package")) {
         return fail("catalogue package allowlist is inconsistent");
     }
