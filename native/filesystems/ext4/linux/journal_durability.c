@@ -1,7 +1,8 @@
-/* Infiltrator Filesystem Support — EXT4 journal durability adapter.
- * EXT4-to-journal glue plus checkpoint, commit, recovery and revoke semantics
- * are one crash-consistency responsibility. The journal core/transaction
- * engine remains isolated until its inherited implementation is replaced.
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: journal_durability.c.
+ * Project-maintained canonical implementation.
  */
 
 #include "ext4_jbd2.h"
@@ -41,7 +42,7 @@ static handle_t *ext4_nojournal_get(void)
 	return (handle_t *)refs;
 }
 
-static void ext4_nojournal_put(handle_t *handle)
+static void ifs_ext4_local_ext4_nojournal_put(handle_t *handle)
 {
 	unsigned long refs = (unsigned long)handle;
 
@@ -49,7 +50,7 @@ static void ext4_nojournal_put(handle_t *handle)
 	current->journal_info = (handle_t *)(refs - 1);
 }
 
-static int ext4_journal_can_start(struct super_block *sb)
+static int ifs_ext4_local_ext4_journal_can_start(struct super_block *sb)
 {
 	journal_t *journal;
 
@@ -87,7 +88,7 @@ handle_t *__ext4_journal_start_sb(struct inode *inode,
 			sb, blocks, reserved_blocks,
 			revoke_credits, type, _RET_IP_);
 
-	err = ext4_journal_can_start(sb);
+	err = ifs_ext4_local_ext4_journal_can_start(sb);
 	if (err)
 		return ERR_PTR(err);
 
@@ -108,7 +109,7 @@ int __ext4_journal_stop(const char *where, unsigned int line,
 	int stop_err;
 
 	if (!ext4_handle_valid(handle)) {
-		ext4_nojournal_put(handle);
+		ifs_ext4_local_ext4_nojournal_put(handle);
 		return 0;
 	}
 
@@ -140,7 +141,7 @@ handle_t *__ext4_journal_start_reserved(handle_t *handle,
 	trace_ext4_journal_start_reserved(
 		sb, jbd2_handle_buffer_credits(handle), _RET_IP_);
 
-	err = ext4_journal_can_start(sb);
+	err = ifs_ext4_local_ext4_journal_can_start(sb);
 	if (err) {
 		jbd2_journal_free_reserved(handle);
 		return ERR_PTR(err);
@@ -169,7 +170,7 @@ int __ext4_journal_ensure_credits(handle_t *handle, int check_credits,
 		handle, extend_credits, revoke_credits);
 }
 
-static void ext4_abort_handle(const char *where, unsigned int line,
+static void ifs_ext4_local_ext4_abort_handle(const char *where, unsigned int line,
 			      const char *operation,
 			      struct buffer_head *bh,
 			      handle_t *handle, int err)
@@ -190,7 +191,7 @@ static void ext4_abort_handle(const char *where, unsigned int line,
 	jbd2_journal_abort_handle(handle);
 }
 
-static void ext4_check_device_writeback(struct super_block *sb)
+static void ifs_ext4_local_ext4_check_device_writeback(struct super_block *sb)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct address_space *mapping = sb->s_bdev->bd_mapping;
@@ -209,7 +210,7 @@ static void ext4_check_device_writeback(struct super_block *sb)
 			sb, -err, "asynchronous metadata writeback failed");
 }
 
-static void ext4_set_journal_trigger(struct super_block *sb,
+static void ifs_ext4_local_ext4_set_journal_trigger(struct super_block *sb,
 				     struct buffer_head *bh,
 				     enum ext4_journal_trigger_type type)
 {
@@ -233,15 +234,15 @@ int __ext4_journal_get_write_access(const char *where, unsigned int line,
 	if (ext4_handle_valid(handle)) {
 		err = jbd2_journal_get_write_access(handle, bh);
 		if (err) {
-			ext4_abort_handle(
+			ifs_ext4_local_ext4_abort_handle(
 				where, line, __func__, bh, handle, err);
 			return err;
 		}
 	} else {
-		ext4_check_device_writeback(sb);
+		ifs_ext4_local_ext4_check_device_writeback(sb);
 	}
 
-	ext4_set_journal_trigger(sb, bh, type);
+	ifs_ext4_local_ext4_set_journal_trigger(sb, bh, type);
 	return 0;
 }
 
@@ -269,14 +270,14 @@ int __ext4_forget(const char *where, unsigned int line, handle_t *handle,
 			return 0;
 		err = jbd2_journal_forget(handle, bh);
 		if (err)
-			ext4_abort_handle(
+			ifs_ext4_local_ext4_abort_handle(
 				where, line, __func__, bh, handle, err);
 		return err;
 	}
 
 	err = jbd2_journal_revoke(handle, block, bh);
 	if (err) {
-		ext4_abort_handle(
+		ifs_ext4_local_ext4_abort_handle(
 			where, line, __func__, bh, handle, err);
 		__ext4_error(
 			inode->i_sb, where, line, true, -err, 0,
@@ -298,12 +299,12 @@ int __ext4_journal_get_create_access(
 
 	err = jbd2_journal_get_create_access(handle, bh);
 	if (err) {
-		ext4_abort_handle(
+		ifs_ext4_local_ext4_abort_handle(
 			where, line, __func__, bh, handle, err);
 		return err;
 	}
 
-	ext4_set_journal_trigger(sb, bh, type);
+	ifs_ext4_local_ext4_set_journal_trigger(sb, bh, type);
 	return 0;
 }
 
@@ -321,7 +322,7 @@ int __ext4_handle_dirty_metadata(const char *where, unsigned int line,
 	if (ext4_handle_valid(handle)) {
 		err = jbd2_journal_dirty_metadata(handle, bh);
 		if (!is_handle_aborted(handle) && WARN_ON_ONCE(err)) {
-			ext4_abort_handle(
+			ifs_ext4_local_ext4_abort_handle(
 				where, line, __func__, bh, handle, err);
 			if (inode)
 				ext4_error_inode(
@@ -370,7 +371,7 @@ int __ext4_handle_dirty_metadata(const char *where, unsigned int line,
 #include <linux/sched.h>
 #include <trace/events/jbd2.h>
 
-static void ifs_jbd2_unlink_checkpoint_head(struct journal_head *jh)
+static void ifs_ext4_local_ifs_jbd2_unlink_checkpoint_head(struct journal_head *jh)
 {
 	transaction_t *transaction = jh->b_cp_transaction;
 	struct journal_head *next = jh->b_cpnext;
@@ -385,7 +386,7 @@ static void ifs_jbd2_unlink_checkpoint_head(struct journal_head *jh)
 	transaction->t_checkpoint_list = next == jh ? NULL : next;
 }
 
-static void ifs_jbd2_flush_checkpoint_batch(journal_t *journal,
+static void ifs_ext4_local_ifs_jbd2_flush_checkpoint_batch(journal_t *journal,
 					    int *batch_count)
 {
 	struct blk_plug plug;
@@ -470,7 +471,7 @@ __releases(&journal->j_state_lock)
 	}
 }
 
-static bool ifs_jbd2_checkpoint_transaction_changed(
+static bool ifs_ext4_local_ifs_jbd2_checkpoint_transaction_changed(
 	const journal_t *journal,
 	const transaction_t *transaction,
 	const tid_t tid)
@@ -479,7 +480,7 @@ static bool ifs_jbd2_checkpoint_transaction_changed(
 	       transaction->t_tid != tid;
 }
 
-static int ifs_jbd2_checkpoint_queue_buffer(
+static int ifs_ext4_local_ifs_jbd2_checkpoint_queue_buffer(
 	journal_t *journal,
 	transaction_t *transaction,
 	struct journal_head *jh,
@@ -523,7 +524,7 @@ int jbd2_log_do_checkpoint(journal_t *journal)
 		struct journal_head *jh;
 		struct buffer_head *bh;
 
-		if (ifs_jbd2_checkpoint_transaction_changed(
+		if (ifs_ext4_local_ifs_jbd2_checkpoint_transaction_changed(
 			    journal, transaction, transaction_tid))
 			break;
 
@@ -538,7 +539,7 @@ int jbd2_log_do_checkpoint(journal_t *journal)
 			transaction->t_chp_stats.cs_forced_to_close++;
 			spin_unlock(&journal->j_list_lock);
 			if (batch_count)
-				ifs_jbd2_flush_checkpoint_batch(
+				ifs_ext4_local_ifs_jbd2_flush_checkpoint_batch(
 					journal, &batch_count);
 
 			jbd2_log_start_commit(journal, wait_tid);
@@ -553,7 +554,7 @@ int jbd2_log_do_checkpoint(journal_t *journal)
 			get_bh(bh);
 			spin_unlock(&journal->j_list_lock);
 			if (batch_count)
-				ifs_jbd2_flush_checkpoint_batch(
+				ifs_ext4_local_ifs_jbd2_flush_checkpoint_batch(
 					journal, &batch_count);
 			wait_on_buffer(bh);
 			__brelse(bh);
@@ -571,11 +572,11 @@ int jbd2_log_do_checkpoint(journal_t *journal)
 		}
 
 		unlock_buffer(bh);
-		result = ifs_jbd2_checkpoint_queue_buffer(
+		result = ifs_ext4_local_ifs_jbd2_checkpoint_queue_buffer(
 			journal, transaction, jh, &batch_count);
 		if (result) {
 			spin_unlock(&journal->j_list_lock);
-			ifs_jbd2_flush_checkpoint_batch(
+			ifs_ext4_local_ifs_jbd2_flush_checkpoint_batch(
 				journal, &batch_count);
 			jbd2_journal_abort(journal, result);
 			return result;
@@ -587,7 +588,7 @@ int jbd2_log_do_checkpoint(journal_t *journal)
 		    jh2bh(transaction->t_checkpoint_list) ==
 			    journal->j_chkpt_bhs[0]) {
 			spin_unlock(&journal->j_list_lock);
-			ifs_jbd2_flush_checkpoint_batch(
+			ifs_ext4_local_ifs_jbd2_flush_checkpoint_batch(
 				journal, &batch_count);
 			cond_resched();
 			spin_lock(&journal->j_list_lock);
@@ -597,7 +598,7 @@ int jbd2_log_do_checkpoint(journal_t *journal)
 out_unlock:
 	spin_unlock(&journal->j_list_lock);
 	if (batch_count)
-		ifs_jbd2_flush_checkpoint_batch(journal, &batch_count);
+		ifs_ext4_local_ifs_jbd2_flush_checkpoint_batch(journal, &batch_count);
 
 	result = jbd2_cleanup_journal_tail(journal);
 	return result < 0 ? result : 0;
@@ -627,7 +628,7 @@ int jbd2_cleanup_journal_tail(journal_t *journal)
 		journal, oldest_tid, oldest_block);
 }
 
-static unsigned long ifs_jbd2_shrink_checkpoint_ring(
+static unsigned long ifs_ext4_local_ifs_jbd2_shrink_checkpoint_ring(
 	struct journal_head *first,
 	enum jbd2_shrink_type type,
 	bool *transaction_released)
@@ -708,7 +709,7 @@ unsigned long jbd2_journal_shrink_checkpoint_list(
 			unsigned long removed;
 
 			current_tid = transaction->t_tid;
-			removed = ifs_jbd2_shrink_checkpoint_ring(
+			removed = ifs_ext4_local_ifs_jbd2_shrink_checkpoint_ring(
 				transaction->t_checkpoint_list,
 				JBD2_SHRINK_BUSY_SKIP, &released);
 			removed_total += removed;
@@ -763,7 +764,7 @@ void __jbd2_journal_clean_checkpoint_list(
 		transaction_t *next = transaction->t_cpnext;
 		bool released;
 
-		ifs_jbd2_shrink_checkpoint_ring(
+		ifs_ext4_local_ifs_jbd2_shrink_checkpoint_ring(
 			transaction->t_checkpoint_list, type, &released);
 
 		if (need_resched() || !released ||
@@ -799,7 +800,7 @@ int __jbd2_journal_remove_checkpoint(struct journal_head *jh)
 		return 0;
 
 	journal = transaction->t_journal;
-	ifs_jbd2_unlink_checkpoint_head(jh);
+	ifs_ext4_local_ifs_jbd2_unlink_checkpoint_head(jh);
 	jh->b_cp_transaction = NULL;
 	percpu_counter_dec(&journal->j_checkpoint_jh_count);
 	jbd2_journal_put_journal_head(jh);
@@ -927,7 +928,7 @@ void __jbd2_journal_drop_transaction(
 #include <linux/writeback.h>
 #include <trace/events/jbd2.h>
 
-static void ifs_jbd2_commit_end_io(
+static void ifs_ext4_local_ifs_jbd2_commit_end_io(
 	struct buffer_head *bh, int uptodate)
 {
 	struct buffer_head *source = bh->b_private;
@@ -945,7 +946,7 @@ static void ifs_jbd2_commit_end_io(
 	unlock_buffer(bh);
 }
 
-static void ifs_jbd2_release_buffer(struct buffer_head *bh)
+static void ifs_ext4_local_ifs_jbd2_release_buffer(struct buffer_head *bh)
 {
 	struct folio *folio;
 
@@ -968,7 +969,7 @@ static void ifs_jbd2_release_buffer(struct buffer_head *bh)
 	folio_put(folio);
 }
 
-static void ifs_jbd2_commit_checksum(
+static void ifs_ext4_local_ifs_jbd2_commit_checksum(
 	journal_t *journal, struct buffer_head *bh)
 {
 	struct commit_header *header;
@@ -987,7 +988,7 @@ static void ifs_jbd2_commit_checksum(
 	header->h_chksum[0] = cpu_to_be32(checksum);
 }
 
-static int ifs_jbd2_submit_commit_record(
+static int ifs_ext4_local_ifs_jbd2_submit_commit_record(
 	journal_t *journal,
 	transaction_t *transaction,
 	struct buffer_head **result,
@@ -1020,12 +1021,12 @@ static int ifs_jbd2_submit_commit_record(
 		header->h_chksum[0] =
 			cpu_to_be32(legacy_checksum);
 	}
-	ifs_jbd2_commit_checksum(journal, bh);
+	ifs_ext4_local_ifs_jbd2_commit_checksum(journal, bh);
 
 	lock_buffer(bh);
 	clear_buffer_dirty(bh);
 	set_buffer_uptodate(bh);
-	bh->b_end_io = ifs_jbd2_commit_end_io;
+	bh->b_end_io = ifs_ext4_local_ifs_jbd2_commit_end_io;
 
 	if ((journal->j_flags & JBD2_BARRIER) &&
 	    !jbd2_has_feature_async_commit(journal))
@@ -1036,7 +1037,7 @@ static int ifs_jbd2_submit_commit_record(
 	return 0;
 }
 
-static int ifs_jbd2_wait_commit_record(
+static int ifs_ext4_local_ifs_jbd2_wait_commit_record(
 	struct buffer_head *bh)
 {
 	int error = 0;
@@ -1085,7 +1086,7 @@ int jbd2_journal_finish_inode_data_buffers(
 		jinode->i_dirty_end);
 }
 
-static int ifs_jbd2_submit_transaction_data(
+static int ifs_ext4_local_ifs_jbd2_submit_transaction_data(
 	journal_t *journal,
 	transaction_t *transaction)
 {
@@ -1124,7 +1125,7 @@ static int ifs_jbd2_submit_transaction_data(
 	return first_error;
 }
 
-static int ifs_jbd2_finish_transaction_data(
+static int ifs_ext4_local_ifs_jbd2_finish_transaction_data(
 	journal_t *journal,
 	transaction_t *transaction)
 {
@@ -1179,7 +1180,7 @@ static int ifs_jbd2_finish_transaction_data(
 	return first_error;
 }
 
-static __u32 ifs_jbd2_legacy_checksum(
+static __u32 ifs_ext4_local_ifs_jbd2_legacy_checksum(
 	__u32 checksum, struct buffer_head *bh)
 {
 	void *address;
@@ -1193,7 +1194,7 @@ static __u32 ifs_jbd2_legacy_checksum(
 	return result;
 }
 
-static void ifs_jbd2_set_tag_block(
+static void ifs_ext4_local_ifs_jbd2_set_tag_block(
 	journal_t *journal,
 	journal_block_tag_t *tag,
 	unsigned long long block)
@@ -1204,7 +1205,7 @@ static void ifs_jbd2_set_tag_block(
 			cpu_to_be32((u32)(block >> 32));
 }
 
-static void ifs_jbd2_set_tag_checksum(
+static void ifs_ext4_local_ifs_jbd2_set_tag_checksum(
 	journal_t *journal,
 	journal_block_tag_t *tag,
 	struct buffer_head *bh,
@@ -1237,7 +1238,7 @@ static void ifs_jbd2_set_tag_checksum(
 			cpu_to_be16(checksum);
 }
 
-static void ifs_jbd2_wait_fast_commit_idle(
+static void ifs_ext4_local_ifs_jbd2_wait_fast_commit_idle(
 	journal_t *journal)
 {
 	write_lock(&journal->j_state_lock);
@@ -1311,7 +1312,7 @@ static transaction_t *ifs_jbd2_lock_running_transaction(
 	return transaction;
 }
 
-static void ifs_jbd2_publish_committing_transaction(
+static void ifs_ext4_local_ifs_jbd2_publish_committing_transaction(
 	journal_t *journal,
 	transaction_t *transaction,
 	struct transaction_stats_s *stats,
@@ -1339,7 +1340,7 @@ static void ifs_jbd2_publish_committing_transaction(
 	write_unlock(&journal->j_state_lock);
 }
 
-static int ifs_jbd2_submit_metadata_batch(
+static int ifs_ext4_local_ifs_jbd2_submit_metadata_batch(
 	journal_t *journal,
 	struct buffer_head **buffers,
 	int count,
@@ -1352,13 +1353,13 @@ static int ifs_jbd2_submit_metadata_batch(
 
 		if (jbd2_has_feature_checksum(journal))
 			*legacy_checksum =
-				ifs_jbd2_legacy_checksum(
+				ifs_ext4_local_ifs_jbd2_legacy_checksum(
 					*legacy_checksum, bh);
 
 		lock_buffer(bh);
 		clear_buffer_dirty(bh);
 		set_buffer_uptodate(bh);
-		bh->b_end_io = ifs_jbd2_commit_end_io;
+		bh->b_end_io = ifs_ext4_local_ifs_jbd2_commit_end_io;
 		submit_bh(
 			REQ_OP_WRITE | JBD2_JOURNAL_REQ_FLAGS,
 			bh);
@@ -1366,7 +1367,7 @@ static int ifs_jbd2_submit_metadata_batch(
 	return 0;
 }
 
-static int ifs_jbd2_log_transaction_buffers(
+static int ifs_ext4_local_ifs_jbd2_log_transaction_buffers(
 	journal_t *journal,
 	transaction_t *transaction,
 	struct list_head *io_buffers,
@@ -1457,12 +1458,12 @@ static int ifs_jbd2_log_transaction_buffers(
 
 		last_tag =
 			(journal_block_tag_t *)tag_cursor;
-		ifs_jbd2_set_tag_block(
+		ifs_ext4_local_ifs_jbd2_set_tag_block(
 			journal, last_tag,
 			jh2bh(jh)->b_blocknr);
 		last_tag->t_flags =
 			cpu_to_be16(tag_flags);
-		ifs_jbd2_set_tag_checksum(
+		ifs_ext4_local_ifs_jbd2_set_tag_checksum(
 			journal, last_tag,
 			write_buffers[buffer_count],
 			transaction->t_tid);
@@ -1489,7 +1490,7 @@ static int ifs_jbd2_log_transaction_buffers(
 						JBD2_FLAG_LAST_TAG);
 			jbd2_descriptor_block_csum_set(
 				journal, descriptor);
-			ifs_jbd2_submit_metadata_batch(
+			ifs_ext4_local_ifs_jbd2_submit_metadata_batch(
 				journal, write_buffers,
 				buffer_count,
 				legacy_checksum);
@@ -1502,7 +1503,7 @@ static int ifs_jbd2_log_transaction_buffers(
 	return error;
 }
 
-static int ifs_jbd2_wait_logged_metadata(
+static int ifs_ext4_local_ifs_jbd2_wait_logged_metadata(
 	transaction_t *transaction,
 	struct list_head *io_buffers,
 	struct transaction_stats_s *stats)
@@ -1547,7 +1548,7 @@ static int ifs_jbd2_wait_logged_metadata(
 	return error;
 }
 
-static int ifs_jbd2_wait_control_buffers(
+static int ifs_ext4_local_ifs_jbd2_wait_control_buffers(
 	struct list_head *log_buffers,
 	struct transaction_stats_s *stats)
 {
@@ -1574,7 +1575,7 @@ static int ifs_jbd2_wait_control_buffers(
 	return error;
 }
 
-static void ifs_jbd2_finish_forget_list(
+static void ifs_ext4_local_ifs_jbd2_finish_forget_list(
 	journal_t *journal,
 	transaction_t *transaction)
 {
@@ -1657,7 +1658,7 @@ restart:
 		if (drop_jh)
 			jbd2_journal_put_journal_head(jh);
 		if (free_page)
-			ifs_jbd2_release_buffer(bh);
+			ifs_ext4_local_ifs_jbd2_release_buffer(bh);
 		else
 			__brelse(bh);
 
@@ -1692,7 +1693,7 @@ restart:
 	write_unlock(&journal->j_state_lock);
 }
 
-static void ifs_jbd2_publish_commit_complete(
+static void ifs_ext4_local_ifs_jbd2_publish_commit_complete(
 	journal_t *journal,
 	transaction_t *transaction,
 	struct transaction_stats_s *stats,
@@ -1810,7 +1811,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 		mutex_unlock(&journal->j_checkpoint_mutex);
 	}
 
-	ifs_jbd2_wait_fast_commit_idle(journal);
+	ifs_ext4_local_ifs_jbd2_wait_fast_commit_idle(journal);
 	transaction =
 		ifs_jbd2_lock_running_transaction(
 			journal, &stats);
@@ -1826,11 +1827,11 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	jbd2_clear_buffer_revoked_flags(journal);
 	jbd2_journal_switch_revoke_table(journal);
 
-	ifs_jbd2_publish_committing_transaction(
+	ifs_ext4_local_ifs_jbd2_publish_committing_transaction(
 		journal, transaction,
 		&stats, &start_time);
 
-	error = ifs_jbd2_submit_transaction_data(
+	error = ifs_ext4_local_ifs_jbd2_submit_transaction_data(
 		journal, transaction);
 	if (error)
 		jbd2_journal_abort(journal, error);
@@ -1856,14 +1857,14 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	stats.run.rs_blocks =
 		transaction->t_nr_buffers;
 
-	error = ifs_jbd2_log_transaction_buffers(
+	error = ifs_ext4_local_ifs_jbd2_log_transaction_buffers(
 		journal, transaction,
 		&io_buffers, &log_buffers,
 		&legacy_checksum);
 	if (error)
 		jbd2_journal_abort(journal, error);
 
-	error = ifs_jbd2_finish_transaction_data(
+	error = ifs_ext4_local_ifs_jbd2_finish_transaction_data(
 		journal, transaction);
 	if (error &&
 	    (journal->j_flags &
@@ -1897,7 +1898,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 		blkdev_issue_flush(journal->j_fs_dev);
 
 	if (jbd2_has_feature_async_commit(journal)) {
-		error = ifs_jbd2_submit_commit_record(
+		error = ifs_ext4_local_ifs_jbd2_submit_commit_record(
 			journal, transaction,
 			&commit_bh, legacy_checksum);
 		if (error)
@@ -1906,12 +1907,12 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 
 	blk_finish_plug(&plug);
 
-	error = ifs_jbd2_wait_logged_metadata(
+	error = ifs_ext4_local_ifs_jbd2_wait_logged_metadata(
 		transaction, &io_buffers, &stats);
 	if (error)
 		jbd2_journal_abort(journal, error);
 
-	error = ifs_jbd2_wait_control_buffers(
+	error = ifs_ext4_local_ifs_jbd2_wait_control_buffers(
 		&log_buffers, &stats);
 	if (error)
 		jbd2_journal_abort(journal, error);
@@ -1921,7 +1922,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	write_unlock(&journal->j_state_lock);
 
 	if (!jbd2_has_feature_async_commit(journal)) {
-		error = ifs_jbd2_submit_commit_record(
+		error = ifs_ext4_local_ifs_jbd2_submit_commit_record(
 			journal, transaction,
 			&commit_bh, legacy_checksum);
 		if (error)
@@ -1930,7 +1931,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 
 	if (commit_bh) {
 		error =
-			ifs_jbd2_wait_commit_record(
+			ifs_ext4_local_ifs_jbd2_wait_commit_record(
 				commit_bh);
 		if (error)
 			jbd2_journal_abort(journal, error);
@@ -1954,9 +1955,9 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	J_ASSERT(!transaction->t_checkpoint_list);
 	J_ASSERT(!transaction->t_shadow_list);
 
-	ifs_jbd2_finish_forget_list(
+	ifs_ext4_local_ifs_jbd2_finish_forget_list(
 		journal, transaction);
-	ifs_jbd2_publish_commit_complete(
+	ifs_ext4_local_ifs_jbd2_publish_commit_complete(
 		journal, transaction,
 		&stats, start_time);
 }
@@ -1994,7 +1995,7 @@ struct recovery_info {
 
 #define IFS_JBD2_READAHEAD_BATCH 8
 
-static unsigned long ifs_jbd2_wrap_log_block(
+static unsigned long ifs_ext4_local_ifs_jbd2_wrap_log_block(
 	journal_t *journal, unsigned long block)
 {
 	if (block >= journal->j_last)
@@ -2003,14 +2004,14 @@ static unsigned long ifs_jbd2_wrap_log_block(
 }
 
 #ifdef __KERNEL__
-static void ifs_jbd2_release_buffers(
+static void ifs_ext4_local_ifs_jbd2_release_buffers(
 	struct buffer_head **buffers, int count)
 {
 	while (count > 0)
 		brelse(buffers[--count]);
 }
 
-static int ifs_jbd2_readahead(
+static int ifs_ext4_local_ifs_jbd2_readahead(
 	journal_t *journal, unsigned int start)
 {
 	struct buffer_head *buffers[IFS_JBD2_READAHEAD_BATCH];
@@ -2046,21 +2047,21 @@ static int ifs_jbd2_readahead(
 		buffers[count++] = bh;
 		if (count == IFS_JBD2_READAHEAD_BATCH) {
 			bh_readahead_batch(count, buffers, 0);
-			ifs_jbd2_release_buffers(buffers, count);
+			ifs_ext4_local_ifs_jbd2_release_buffers(buffers, count);
 			count = 0;
 		}
 	}
 
 	if (count) {
 		bh_readahead_batch(count, buffers, 0);
-		ifs_jbd2_release_buffers(buffers, count);
+		ifs_ext4_local_ifs_jbd2_release_buffers(buffers, count);
 	}
 
 	return error;
 }
 #endif
 
-static int ifs_jbd2_read_log_block(
+static int ifs_ext4_local_ifs_jbd2_read_log_block(
 	journal_t *journal,
 	unsigned int offset,
 	struct buffer_head **result)
@@ -2089,7 +2090,7 @@ static int ifs_jbd2_read_log_block(
 		bh_read_nowait(bh, 0);
 #ifdef __KERNEL__
 		if (readahead)
-			ifs_jbd2_readahead(journal, offset);
+			ifs_ext4_local_ifs_jbd2_readahead(journal, offset);
 #endif
 		wait_on_buffer(bh);
 	}
@@ -2103,7 +2104,7 @@ static int ifs_jbd2_read_log_block(
 	return 0;
 }
 
-static bool ifs_jbd2_block_checksum_valid(
+static bool ifs_ext4_local_ifs_jbd2_block_checksum_valid(
 	journal_t *journal, void *data)
 {
 	struct jbd2_journal_block_tail *tail;
@@ -2125,7 +2126,7 @@ static bool ifs_jbd2_block_checksum_valid(
 	return stored == cpu_to_be32(calculated);
 }
 
-static int ifs_jbd2_descriptor_tag_count(
+static int ifs_ext4_local_ifs_jbd2_descriptor_tag_count(
 	journal_t *journal, struct buffer_head *bh)
 {
 	const int tag_bytes = journal_tag_bytes(journal);
@@ -2152,7 +2153,7 @@ static int ifs_jbd2_descriptor_tag_count(
 	return count;
 }
 
-static unsigned long long ifs_jbd2_tag_block(
+static unsigned long long ifs_ext4_local_ifs_jbd2_tag_block(
 	journal_t *journal, const journal_block_tag_t *tag)
 {
 	unsigned long long block = be32_to_cpu(tag->t_blocknr);
@@ -2163,7 +2164,7 @@ static unsigned long long ifs_jbd2_tag_block(
 	return block;
 }
 
-static bool ifs_jbd2_tag_checksum_valid(
+static bool ifs_ext4_local_ifs_jbd2_tag_checksum_valid(
 	journal_t *journal,
 	journal_block_tag_t *tag,
 	journal_block_tag3_t *tag3,
@@ -2188,7 +2189,7 @@ static bool ifs_jbd2_tag_checksum_valid(
 	return tag->t_checksum == cpu_to_be16(checksum);
 }
 
-static bool ifs_jbd2_commit_checksum_valid(
+static bool ifs_ext4_local_ifs_jbd2_commit_checksum_valid(
 	journal_t *journal, void *data)
 {
 	struct commit_header *header;
@@ -2208,7 +2209,7 @@ static bool ifs_jbd2_commit_checksum_valid(
 	return stored == cpu_to_be32(calculated);
 }
 
-static bool ifs_jbd2_partial_commit_checksum_valid(
+static bool ifs_ext4_local_ifs_jbd2_partial_commit_checksum_valid(
 	journal_t *journal, const void *data)
 {
 	struct commit_header *header;
@@ -2231,13 +2232,13 @@ static bool ifs_jbd2_partial_commit_checksum_valid(
 	return stored == cpu_to_be32(calculated);
 }
 
-static int ifs_jbd2_accumulate_legacy_checksum(
+static int ifs_ext4_local_ifs_jbd2_accumulate_legacy_checksum(
 	journal_t *journal,
 	struct buffer_head *descriptor,
 	unsigned long *next_log_block,
 	__u32 *checksum)
 {
-	int count = ifs_jbd2_descriptor_tag_count(
+	int count = ifs_ext4_local_ifs_jbd2_descriptor_tag_count(
 		journal, descriptor);
 	int index;
 
@@ -2249,9 +2250,9 @@ static int ifs_jbd2_accumulate_legacy_checksum(
 		unsigned long block = *next_log_block;
 		int error;
 
-		*next_log_block = ifs_jbd2_wrap_log_block(
+		*next_log_block = ifs_ext4_local_ifs_jbd2_wrap_log_block(
 			journal, block + 1U);
-		error = ifs_jbd2_read_log_block(
+		error = ifs_ext4_local_ifs_jbd2_read_log_block(
 			journal, block, &data);
 		if (error)
 			return error;
@@ -2264,7 +2265,7 @@ static int ifs_jbd2_accumulate_legacy_checksum(
 	return 0;
 }
 
-static int ifs_jbd2_scan_revoke_block(
+static int ifs_ext4_local_ifs_jbd2_scan_revoke_block(
 	journal_t *journal,
 	struct buffer_head *bh,
 	tid_t sequence,
@@ -2312,7 +2313,7 @@ static int ifs_jbd2_scan_revoke_block(
 	return 0;
 }
 
-static int ifs_jbd2_replay_descriptor(
+static int ifs_ext4_local_ifs_jbd2_replay_descriptor(
 	journal_t *journal,
 	struct recovery_info *info,
 	struct buffer_head *descriptor,
@@ -2342,13 +2343,13 @@ static int ifs_jbd2_replay_descriptor(
 
 		memcpy(&tag, cursor, sizeof(tag));
 		flags = be16_to_cpu(tag.t_flags);
-		home_block = ifs_jbd2_tag_block(journal, &tag);
+		home_block = ifs_ext4_local_ifs_jbd2_tag_block(journal, &tag);
 
 		log_block = *next_log_block;
-		*next_log_block = ifs_jbd2_wrap_log_block(
+		*next_log_block = ifs_ext4_local_ifs_jbd2_wrap_log_block(
 			journal, log_block + 1U);
 
-		error = ifs_jbd2_read_log_block(
+		error = ifs_ext4_local_ifs_jbd2_read_log_block(
 			journal, log_block, &logged);
 		if (error) {
 			status = error;
@@ -2361,7 +2362,7 @@ static int ifs_jbd2_replay_descriptor(
 			goto next_tag;
 		}
 
-		if (!ifs_jbd2_tag_checksum_valid(
+		if (!ifs_ext4_local_ifs_jbd2_tag_checksum_valid(
 			    journal, &tag, tag3,
 			    logged->b_data, sequence)) {
 			status = -EFSBADCRC;
@@ -2402,7 +2403,7 @@ next_tag:
 	return status;
 }
 
-static int ifs_jbd2_fast_commit_pass(
+static int ifs_ext4_local_ifs_jbd2_fast_commit_pass(
 	journal_t *journal,
 	struct recovery_info *info,
 	enum passtype pass)
@@ -2419,7 +2420,7 @@ static int ifs_jbd2_fast_commit_pass(
 		struct buffer_head *bh;
 		int error;
 
-		error = ifs_jbd2_read_log_block(
+		error = ifs_ext4_local_ifs_jbd2_read_log_block(
 			journal, block, &bh);
 		if (error)
 			return error;
@@ -2439,7 +2440,7 @@ static int ifs_jbd2_fast_commit_pass(
 	return 0;
 }
 
-static int ifs_jbd2_recovery_pass(
+static int ifs_ext4_local_ifs_jbd2_recovery_pass(
 	journal_t *journal,
 	struct recovery_info *info,
 	enum passtype pass)
@@ -2472,12 +2473,12 @@ static int ifs_jbd2_recovery_pass(
 		    tid_geq(transaction, info->end_transaction))
 			break;
 
-		error = ifs_jbd2_read_log_block(
+		error = ifs_ext4_local_ifs_jbd2_read_log_block(
 			journal, next, &bh);
 		if (error)
 			return error;
 
-		next = ifs_jbd2_wrap_log_block(
+		next = ifs_ext4_local_ifs_jbd2_wrap_log_block(
 			journal, next + 1U);
 		header = (journal_header_t *)bh->b_data;
 
@@ -2496,7 +2497,7 @@ static int ifs_jbd2_recovery_pass(
 
 		if (type == JBD2_DESCRIPTOR_BLOCK) {
 			const bool checksum_ok =
-				ifs_jbd2_block_checksum_valid(
+				ifs_ext4_local_ifs_jbd2_block_checksum_valid(
 					journal, bh->b_data);
 
 			if (!checksum_ok) {
@@ -2508,7 +2509,7 @@ static int ifs_jbd2_recovery_pass(
 			}
 
 			if (pass == PASS_REPLAY) {
-				error = ifs_jbd2_replay_descriptor(
+				error = ifs_ext4_local_ifs_jbd2_replay_descriptor(
 					journal, info, bh, &next,
 					sequence);
 				if (error && !replay_error)
@@ -2522,7 +2523,7 @@ static int ifs_jbd2_recovery_pass(
 			    !descriptor_checksum_failed &&
 			    !info->end_transaction) {
 				error =
-					ifs_jbd2_accumulate_legacy_checksum(
+					ifs_ext4_local_ifs_jbd2_accumulate_legacy_checksum(
 						journal, bh, &next,
 						&legacy_checksum);
 				brelse(bh);
@@ -2531,10 +2532,10 @@ static int ifs_jbd2_recovery_pass(
 				continue;
 			}
 
-			next = ifs_jbd2_wrap_log_block(
+			next = ifs_ext4_local_ifs_jbd2_wrap_log_block(
 				journal,
 				next +
-				ifs_jbd2_descriptor_tag_count(
+				ifs_ext4_local_ifs_jbd2_descriptor_tag_count(
 					journal, bh));
 			brelse(bh);
 			continue;
@@ -2542,12 +2543,12 @@ static int ifs_jbd2_recovery_pass(
 
 		if (type == JBD2_REVOKE_BLOCK) {
 			if (pass == PASS_SCAN &&
-			    !ifs_jbd2_block_checksum_valid(
+			    !ifs_ext4_local_ifs_jbd2_block_checksum_valid(
 				    journal, bh->b_data))
 				descriptor_checksum_failed = true;
 
 			if (pass == PASS_REVOKE) {
-				error = ifs_jbd2_scan_revoke_block(
+				error = ifs_ext4_local_ifs_jbd2_scan_revoke_block(
 					journal, bh, transaction,
 					info);
 				brelse(bh);
@@ -2599,9 +2600,9 @@ static int ifs_jbd2_recovery_pass(
 
 			if (pass == PASS_SCAN &&
 			    valid &&
-			    !ifs_jbd2_commit_checksum_valid(
+			    !ifs_ext4_local_ifs_jbd2_commit_checksum_valid(
 				    journal, bh->b_data)) {
-				if (!ifs_jbd2_partial_commit_checksum_valid(
+				if (!ifs_ext4_local_ifs_jbd2_partial_commit_checksum_valid(
 					    journal, bh->b_data))
 					valid = false;
 			}
@@ -2649,7 +2650,7 @@ static int ifs_jbd2_recovery_pass(
 
 	if (jbd2_has_feature_fast_commit(journal) &&
 	    pass != PASS_REVOKE) {
-		int error = ifs_jbd2_fast_commit_pass(
+		int error = ifs_ext4_local_ifs_jbd2_fast_commit_pass(
 			journal, info, pass);
 		if (error)
 			replay_error = error;
@@ -2679,13 +2680,13 @@ int jbd2_journal_recover(journal_t *journal)
 		return 0;
 	}
 
-	error = ifs_jbd2_recovery_pass(
+	error = ifs_ext4_local_ifs_jbd2_recovery_pass(
 		journal, &info, PASS_SCAN);
 	if (!error)
-		error = ifs_jbd2_recovery_pass(
+		error = ifs_ext4_local_ifs_jbd2_recovery_pass(
 			journal, &info, PASS_REVOKE);
 	if (!error)
-		error = ifs_jbd2_recovery_pass(
+		error = ifs_ext4_local_ifs_jbd2_recovery_pass(
 			journal, &info, PASS_REPLAY);
 
 	journal->j_transaction_sequence =
@@ -2716,7 +2717,7 @@ int jbd2_journal_skip_recovery(journal_t *journal)
 	int error;
 
 	memset(&info, 0, sizeof(info));
-	error = ifs_jbd2_recovery_pass(
+	error = ifs_ext4_local_ifs_jbd2_recovery_pass(
 		journal, &info, PASS_SCAN);
 
 	if (error) {
@@ -2771,7 +2772,7 @@ struct jbd2_revoke_table_s {
 	struct list_head *hash_table;
 };
 
-static unsigned int ifs_jbd2_revoke_bucket(
+static unsigned int ifs_ext4_local_ifs_jbd2_revoke_bucket(
 	const journal_t *journal,
 	const unsigned long long block)
 {
@@ -2779,7 +2780,7 @@ static unsigned int ifs_jbd2_revoke_bucket(
 }
 
 static struct jbd2_revoke_record_s *
-ifs_jbd2_find_revoke_record(
+ifs_ext4_local_ifs_jbd2_find_revoke_record(
 	journal_t *journal,
 	unsigned long long blocknr)
 {
@@ -2787,7 +2788,7 @@ ifs_jbd2_find_revoke_record(
 	struct jbd2_revoke_record_s *record;
 
 	bucket = &journal->j_revoke->hash_table[
-		ifs_jbd2_revoke_bucket(journal, blocknr)];
+		ifs_ext4_local_ifs_jbd2_revoke_bucket(journal, blocknr)];
 
 	spin_lock(&journal->j_revoke_lock);
 	list_for_each_entry(record, bucket, hash) {
@@ -2800,7 +2801,7 @@ ifs_jbd2_find_revoke_record(
 	return NULL;
 }
 
-static int ifs_jbd2_insert_revoke_record(
+static int ifs_ext4_local_ifs_jbd2_insert_revoke_record(
 	journal_t *journal,
 	unsigned long long blocknr,
 	tid_t sequence)
@@ -2820,7 +2821,7 @@ static int ifs_jbd2_insert_revoke_record(
 	record->blocknr = blocknr;
 	record->sequence = sequence;
 	bucket = &journal->j_revoke->hash_table[
-		ifs_jbd2_revoke_bucket(journal, blocknr)];
+		ifs_ext4_local_ifs_jbd2_revoke_bucket(journal, blocknr)];
 
 	spin_lock(&journal->j_revoke_lock);
 	list_add(&record->hash, bucket);
@@ -2829,7 +2830,7 @@ static int ifs_jbd2_insert_revoke_record(
 }
 
 static struct jbd2_revoke_table_s *
-ifs_jbd2_alloc_revoke_table(int hash_size)
+ifs_ext4_local_ifs_jbd2_alloc_revoke_table(int hash_size)
 {
 	struct jbd2_revoke_table_s *table;
 	int index;
@@ -2855,7 +2856,7 @@ ifs_jbd2_alloc_revoke_table(int hash_size)
 	return table;
 }
 
-static void ifs_jbd2_free_revoke_table(
+static void ifs_ext4_local_ifs_jbd2_free_revoke_table(
 	struct jbd2_revoke_table_s *table)
 {
 	int index;
@@ -2911,14 +2912,14 @@ int jbd2_journal_init_revoke(
 	J_ASSERT(is_power_of_2(hash_size));
 
 	journal->j_revoke_table[0] =
-		ifs_jbd2_alloc_revoke_table(hash_size);
+		ifs_ext4_local_ifs_jbd2_alloc_revoke_table(hash_size);
 	if (!journal->j_revoke_table[0])
 		return -ENOMEM;
 
 	journal->j_revoke_table[1] =
-		ifs_jbd2_alloc_revoke_table(hash_size);
+		ifs_ext4_local_ifs_jbd2_alloc_revoke_table(hash_size);
 	if (!journal->j_revoke_table[1]) {
-		ifs_jbd2_free_revoke_table(
+		ifs_ext4_local_ifs_jbd2_free_revoke_table(
 			journal->j_revoke_table[0]);
 		journal->j_revoke_table[0] = NULL;
 		return -ENOMEM;
@@ -2932,9 +2933,9 @@ int jbd2_journal_init_revoke(
 void jbd2_journal_destroy_revoke(journal_t *journal)
 {
 	journal->j_revoke = NULL;
-	ifs_jbd2_free_revoke_table(
+	ifs_ext4_local_ifs_jbd2_free_revoke_table(
 		journal->j_revoke_table[0]);
-	ifs_jbd2_free_revoke_table(
+	ifs_ext4_local_ifs_jbd2_free_revoke_table(
 		journal->j_revoke_table[1]);
 	journal->j_revoke_table[0] = NULL;
 	journal->j_revoke_table[1] = NULL;
@@ -2986,7 +2987,7 @@ int jbd2_journal_revoke(
 	}
 
 	handle->h_revoke_credits--;
-	error = ifs_jbd2_insert_revoke_record(
+	error = ifs_ext4_local_ifs_jbd2_insert_revoke_record(
 		journal, blocknr, transaction->t_tid);
 	return error;
 }
@@ -3011,7 +3012,7 @@ int jbd2_journal_cancel_revoke(
 	if (!cancel)
 		return 0;
 
-	record = ifs_jbd2_find_revoke_record(
+	record = ifs_ext4_local_ifs_jbd2_find_revoke_record(
 		journal, bh->b_blocknr);
 	if (!record)
 		return 0;
@@ -3083,7 +3084,7 @@ void jbd2_journal_switch_revoke_table(
 		INIT_LIST_HEAD(&next->hash_table[index]);
 }
 
-static void ifs_jbd2_flush_revoke_descriptor(
+static void ifs_ext4_local_ifs_jbd2_flush_revoke_descriptor(
 	journal_t *journal,
 	struct buffer_head *descriptor,
 	int used)
@@ -3107,7 +3108,7 @@ static void ifs_jbd2_flush_revoke_descriptor(
 		descriptor, JBD2_JOURNAL_REQ_FLAGS);
 }
 
-static bool ifs_jbd2_append_revoke_record(
+static bool ifs_ext4_local_ifs_jbd2_append_revoke_record(
 	transaction_t *transaction,
 	struct list_head *log_bufs,
 	struct buffer_head **descriptor,
@@ -3127,7 +3128,7 @@ static bool ifs_jbd2_append_revoke_record(
 	if (*descriptor &&
 	    *offset + record_bytes >
 		    journal->j_blocksize - checksum_bytes) {
-		ifs_jbd2_flush_revoke_descriptor(
+		ifs_ext4_local_ifs_jbd2_flush_revoke_descriptor(
 			journal, *descriptor, *offset);
 		*descriptor = NULL;
 	}
@@ -3181,7 +3182,7 @@ void jbd2_journal_write_revoke_records(
 					struct jbd2_revoke_record_s,
 					hash);
 
-			ifs_jbd2_append_revoke_record(
+			ifs_ext4_local_ifs_jbd2_append_revoke_record(
 				transaction, log_bufs,
 				&descriptor, &offset, record);
 
@@ -3192,7 +3193,7 @@ void jbd2_journal_write_revoke_records(
 		}
 	}
 
-	ifs_jbd2_flush_revoke_descriptor(
+	ifs_ext4_local_ifs_jbd2_flush_revoke_descriptor(
 		journal, descriptor, offset);
 }
 
@@ -3205,7 +3206,7 @@ int jbd2_journal_set_revoke(
 {
 	struct jbd2_revoke_record_s *record;
 
-	record = ifs_jbd2_find_revoke_record(
+	record = ifs_ext4_local_ifs_jbd2_find_revoke_record(
 		journal, blocknr);
 	if (record) {
 		if (tid_gt(sequence, record->sequence))
@@ -3213,7 +3214,7 @@ int jbd2_journal_set_revoke(
 		return 0;
 	}
 
-	return ifs_jbd2_insert_revoke_record(
+	return ifs_ext4_local_ifs_jbd2_insert_revoke_record(
 		journal, blocknr, sequence);
 }
 
@@ -3224,7 +3225,7 @@ int jbd2_journal_test_revoke(
 {
 	struct jbd2_revoke_record_s *record;
 
-	record = ifs_jbd2_find_revoke_record(
+	record = ifs_ext4_local_ifs_jbd2_find_revoke_record(
 		journal, blocknr);
 	if (!record)
 		return 0;

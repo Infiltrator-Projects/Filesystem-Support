@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: journal_transactions.c.
+ * Project-maintained canonical implementation.
+ */
+
 // SPDX-License-Identifier: GPL-2.0+
 /*
  * linux/fs/jbd2/transaction.c
@@ -28,7 +35,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -52,8 +59,8 @@
 
 #include <trace/events/jbd2.h>
 
-static void __jbd2_journal_temp_unlink_buffer(struct journal_head *jh);
-static void __jbd2_journal_unfile_buffer(struct journal_head *jh);
+static void ifs_ext4_local___jbd2_journal_temp_unlink_buffer(struct journal_head *jh);
+static void ifs_ext4_local___jbd2_journal_unfile_buffer(struct journal_head *jh);
 
 static struct kmem_cache *transaction_cache;
 
@@ -114,14 +121,14 @@ void jbd2_journal_free_transaction(transaction_t *transaction)
 
 
 /**
- * jbd2_get_transaction - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_jbd2_get_transaction - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void jbd2_get_transaction(journal_t *journal,
+static void ifs_ext4_local_jbd2_get_transaction(journal_t *journal,
 				transaction_t *transaction)
 {
 	transaction->t_journal = journal;
@@ -151,14 +158,14 @@ static void jbd2_get_transaction(journal_t *journal,
 
 
 /**
- * update_t_max_wait - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_update_t_max_wait - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void update_t_max_wait(transaction_t *transaction,
+static inline void ifs_ext4_local_update_t_max_wait(transaction_t *transaction,
 				     unsigned long ts)
 {
 	unsigned long oldts, newts;
@@ -180,7 +187,7 @@ static inline void update_t_max_wait(transaction_t *transaction,
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void wait_transaction_locked(journal_t *journal)
+static void ifs_ext4_local_wait_transaction_locked(journal_t *journal)
 	__releases(journal->j_state_lock)
 {
 	DEFINE_WAIT(wait);
@@ -207,7 +214,7 @@ static void wait_transaction_locked(journal_t *journal)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void wait_transaction_switching(journal_t *journal)
+static void ifs_ext4_local_wait_transaction_switching(journal_t *journal)
 	__releases(journal->j_state_lock)
 {
 	DEFINE_WAIT(wait);
@@ -228,14 +235,14 @@ static void wait_transaction_switching(journal_t *journal)
 
 
 /**
- * sub_reserved_credits - Implements the sub reserved credits operation within the jbd2 transaction api subsystem.
+ * ifs_ext4_local_sub_reserved_credits - Implements the sub reserved credits operation within the jbd2 transaction api subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void sub_reserved_credits(journal_t *journal, int blocks)
+static void ifs_ext4_local_sub_reserved_credits(journal_t *journal, int blocks)
 {
 	atomic_sub(blocks, &journal->j_reserved_credits);
 	wake_up(&journal->j_wait_reserved);
@@ -243,14 +250,14 @@ static void sub_reserved_credits(journal_t *journal, int blocks)
 
 
 /**
- * jbd2_max_user_trans_buffers - Implements the max user trans buffers operation within the jbd2 transaction api subsystem.
+ * ifs_ext4_local_jbd2_max_user_trans_buffers - Implements the max user trans buffers operation within the jbd2 transaction api subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int jbd2_max_user_trans_buffers(journal_t *journal)
+static int ifs_ext4_local_jbd2_max_user_trans_buffers(journal_t *journal)
 {
 	return journal->j_max_transaction_buffers -
 				journal->j_transaction_overhead_buffers;
@@ -265,7 +272,7 @@ static int jbd2_max_user_trans_buffers(journal_t *journal)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int add_transaction_credits(journal_t *journal, int blocks,
+static int ifs_ext4_local_add_transaction_credits(journal_t *journal, int blocks,
 				   int rsv_blocks)
 __must_hold(&journal->j_state_lock)
 {
@@ -276,7 +283,7 @@ __must_hold(&journal->j_state_lock)
 
 	if (t->t_state != T_RUNNING) {
 		WARN_ON_ONCE(t->t_state >= T_FLUSH);
-		wait_transaction_locked(journal);
+		ifs_ext4_local_wait_transaction_locked(journal);
 		__acquire(&journal->j_state_lock);
 		return 1;
 	}
@@ -290,17 +297,17 @@ __must_hold(&journal->j_state_lock)
 
 
 		if (atomic_read(&journal->j_reserved_credits) + total >
-		    jbd2_max_user_trans_buffers(journal)) {
+		    ifs_ext4_local_jbd2_max_user_trans_buffers(journal)) {
 			read_unlock(&journal->j_state_lock);
 			jbd2_might_wait_for_commit(journal);
 			wait_event(journal->j_wait_reserved,
 				   atomic_read(&journal->j_reserved_credits) + total <=
-				   jbd2_max_user_trans_buffers(journal));
+				   ifs_ext4_local_jbd2_max_user_trans_buffers(journal));
 			__acquire(&journal->j_state_lock);
 			return 1;
 		}
 
-		wait_transaction_locked(journal);
+		ifs_ext4_local_wait_transaction_locked(journal);
 		__acquire(&journal->j_state_lock);
 		return 1;
 	}
@@ -325,14 +332,14 @@ __must_hold(&journal->j_state_lock)
 
 	needed = atomic_add_return(rsv_blocks, &journal->j_reserved_credits);
 
-	if (needed > jbd2_max_user_trans_buffers(journal) / 2) {
-		sub_reserved_credits(journal, rsv_blocks);
+	if (needed > ifs_ext4_local_jbd2_max_user_trans_buffers(journal) / 2) {
+		ifs_ext4_local_sub_reserved_credits(journal, rsv_blocks);
 		atomic_sub(total, &t->t_outstanding_credits);
 		read_unlock(&journal->j_state_lock);
 		jbd2_might_wait_for_commit(journal);
 		wait_event(journal->j_wait_reserved,
 			 atomic_read(&journal->j_reserved_credits) + rsv_blocks
-			 <= jbd2_max_user_trans_buffers(journal) / 2);
+			 <= ifs_ext4_local_jbd2_max_user_trans_buffers(journal) / 2);
 		__acquire(&journal->j_state_lock);
 		return 1;
 	}
@@ -341,14 +348,14 @@ __must_hold(&journal->j_state_lock)
 
 
 /**
- * start_this_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext4_local_start_this_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int start_this_handle(journal_t *journal, handle_t *handle,
+static int ifs_ext4_local_start_this_handle(journal_t *journal, handle_t *handle,
 			     gfp_t gfp_mask)
 {
 	transaction_t	*transaction, *new_transaction = NULL;
@@ -360,12 +367,12 @@ static int start_this_handle(journal_t *journal, handle_t *handle,
 		rsv_blocks = handle->h_rsv_handle->h_total_credits;
 
 
-	if (rsv_blocks > jbd2_max_user_trans_buffers(journal) / 2 ||
-	    rsv_blocks + blocks > jbd2_max_user_trans_buffers(journal)) {
+	if (rsv_blocks > ifs_ext4_local_jbd2_max_user_trans_buffers(journal) / 2 ||
+	    rsv_blocks + blocks > ifs_ext4_local_jbd2_max_user_trans_buffers(journal)) {
 		printk(KERN_ERR "JBD2: %s wants too many credits "
 		       "credits:%d rsv_credits:%d max:%d\n",
 		       current->comm, blocks, rsv_blocks,
-		       jbd2_max_user_trans_buffers(journal));
+		       ifs_ext4_local_jbd2_max_user_trans_buffers(journal));
 		WARN_ON(1);
 		return -ENOSPC;
 	}
@@ -412,7 +419,7 @@ repeat:
 		write_lock(&journal->j_state_lock);
 		if (!journal->j_running_transaction &&
 		    (handle->h_reserved || !journal->j_barrier_count)) {
-			jbd2_get_transaction(journal, new_transaction);
+			ifs_ext4_local_jbd2_get_transaction(journal, new_transaction);
 			new_transaction = NULL;
 		}
 		write_unlock(&journal->j_state_lock);
@@ -423,7 +430,7 @@ repeat:
 
 	if (!handle->h_reserved) {
 
-		if (add_transaction_credits(journal, blocks, rsv_blocks)) {
+		if (ifs_ext4_local_add_transaction_credits(journal, blocks, rsv_blocks)) {
 
 
 			__release(&journal->j_state_lock);
@@ -433,15 +440,15 @@ repeat:
 
 
 		if (transaction->t_state == T_SWITCH) {
-			wait_transaction_switching(journal);
+			ifs_ext4_local_wait_transaction_switching(journal);
 			goto repeat;
 		}
-		sub_reserved_credits(journal, blocks);
+		ifs_ext4_local_sub_reserved_credits(journal, blocks);
 		handle->h_reserved = 0;
 	}
 
 
-	update_t_max_wait(transaction, ts);
+	ifs_ext4_local_update_t_max_wait(transaction, ts);
 	handle->h_transaction = transaction;
 	handle->h_requested_credits = blocks;
 	handle->h_revoke_credits_requested = handle->h_revoke_credits;
@@ -527,7 +534,7 @@ handle_t *jbd2__journal_start(journal_t *journal, int nblocks, int rsv_blocks,
 	}
 	handle->h_revoke_credits = revoke_records;
 
-	err = start_this_handle(journal, handle, gfp_mask);
+	err = ifs_ext4_local_start_this_handle(journal, handle, gfp_mask);
 	if (err < 0) {
 		if (handle->h_rsv_handle)
 			jbd2_free_handle(handle->h_rsv_handle);
@@ -559,19 +566,19 @@ handle_t *jbd2_journal_start(journal_t *journal, int nblocks)
 
 
 /**
- * __jbd2_journal_unreserve_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext4_local___jbd2_journal_unreserve_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __jbd2_journal_unreserve_handle(handle_t *handle, transaction_t *t)
+static void ifs_ext4_local___jbd2_journal_unreserve_handle(handle_t *handle, transaction_t *t)
 {
 	journal_t *journal = handle->h_journal;
 
 	WARN_ON(!handle->h_reserved);
-	sub_reserved_credits(journal, handle->h_total_credits);
+	ifs_ext4_local_sub_reserved_credits(journal, handle->h_total_credits);
 	if (t)
 		atomic_sub(handle->h_total_credits, &t->t_outstanding_credits);
 }
@@ -591,7 +598,7 @@ void jbd2_journal_free_reserved(handle_t *handle)
 
 
 	read_lock(&journal->j_state_lock);
-	__jbd2_journal_unreserve_handle(handle, journal->j_running_transaction);
+	ifs_ext4_local___jbd2_journal_unreserve_handle(handle, journal->j_running_transaction);
 	read_unlock(&journal->j_state_lock);
 	jbd2_free_handle(handle);
 }
@@ -626,7 +633,7 @@ int jbd2_journal_start_reserved(handle_t *handle, unsigned int type,
 	handle->h_journal = NULL;
 
 
-	ret = start_this_handle(journal, handle, GFP_NOFS);
+	ret = ifs_ext4_local_start_this_handle(journal, handle, GFP_NOFS);
 	if (ret < 0) {
 		handle->h_journal = journal;
 		jbd2_journal_free_reserved(handle);
@@ -707,14 +714,14 @@ error_out:
 
 
 /**
- * stop_this_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext4_local_stop_this_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void stop_this_handle(handle_t *handle)
+static void ifs_ext4_local_stop_this_handle(handle_t *handle)
 {
 	transaction_t *transaction = handle->h_transaction;
 	journal_t *journal = transaction->t_journal;
@@ -742,7 +749,7 @@ static void stop_this_handle(handle_t *handle)
 	atomic_sub(handle->h_total_credits,
 		   &transaction->t_outstanding_credits);
 	if (handle->h_rsv_handle)
-		__jbd2_journal_unreserve_handle(handle->h_rsv_handle,
+		ifs_ext4_local___jbd2_journal_unreserve_handle(handle->h_rsv_handle,
 						transaction);
 	if (atomic_dec_and_test(&transaction->t_updates))
 		wake_up(&journal->j_wait_updates);
@@ -779,7 +786,7 @@ int jbd2__journal_restart(handle_t *handle, int nblocks, int revoke_records,
 
 
 	jbd2_debug(2, "restarting handle %p\n", handle);
-	stop_this_handle(handle);
+	ifs_ext4_local_stop_this_handle(handle);
 	handle->h_transaction = NULL;
 
 
@@ -792,7 +799,7 @@ int jbd2__journal_restart(handle_t *handle, int nblocks, int revoke_records,
 		DIV_ROUND_UP(revoke_records,
 			     journal->j_revoke_records_per_block);
 	handle->h_revoke_credits = revoke_records;
-	ret = start_this_handle(journal, handle, gfp_mask);
+	ret = ifs_ext4_local_start_this_handle(journal, handle, gfp_mask);
 	trace_jbd2_handle_restart(journal->j_fs_dev->bd_dev,
 				 ret ? 0 : handle->h_transaction->t_tid,
 				 handle->h_type, handle->h_line_no,
@@ -903,14 +910,14 @@ void jbd2_journal_unlock_updates (journal_t *journal)
 
 
 /**
- * warn_dirty_buffer - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_warn_dirty_buffer - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void warn_dirty_buffer(struct buffer_head *bh)
+static void ifs_ext4_local_warn_dirty_buffer(struct buffer_head *bh)
 {
 	printk(KERN_WARNING
 	       "JBD2: Spotted dirty metadata buffer (dev = %pg, blocknr = %llu). "
@@ -921,14 +928,14 @@ static void warn_dirty_buffer(struct buffer_head *bh)
 
 
 /**
- * jbd2_freeze_jh_data - Implements the freeze jh data operation within the jbd2 transaction api subsystem.
+ * ifs_ext4_local_jbd2_freeze_jh_data - Implements the freeze jh data operation within the jbd2 transaction api subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void jbd2_freeze_jh_data(struct journal_head *jh)
+static void ifs_ext4_local_jbd2_freeze_jh_data(struct journal_head *jh)
 {
 	char *source;
 	struct buffer_head *bh = jh2bh(jh);
@@ -946,7 +953,7 @@ static void jbd2_freeze_jh_data(struct journal_head *jh)
 
 
 /**
- * do_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_do_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -954,7 +961,7 @@ static void jbd2_freeze_jh_data(struct journal_head *jh)
  * rollback, abort or retry policy.
  */
 static int
-do_get_write_access(handle_t *handle, struct journal_head *jh,
+ifs_ext4_local_do_get_write_access(handle_t *handle, struct journal_head *jh,
 			int force_copy)
 {
 	struct buffer_head *bh;
@@ -985,7 +992,7 @@ repeat:
 
 
 	if (buffer_dirty(bh) && jh->b_transaction) {
-		warn_dirty_buffer(bh);
+		ifs_ext4_local_warn_dirty_buffer(bh);
 
 
 		JBUFFER_TRACE(jh, "Journalling dirty buffer");
@@ -1066,7 +1073,7 @@ repeat:
 		}
 		jh->b_frozen_data = frozen_buffer;
 		frozen_buffer = NULL;
-		jbd2_freeze_jh_data(jh);
+		ifs_ext4_local_jbd2_freeze_jh_data(jh);
 	}
 attach_next:
 
@@ -1090,14 +1097,14 @@ out:
 
 
 /**
- * jbd2_write_access_granted - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_jbd2_write_access_granted - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool jbd2_write_access_granted(handle_t *handle, struct buffer_head *bh,
+static bool ifs_ext4_local_jbd2_write_access_granted(handle_t *handle, struct buffer_head *bh,
 							bool undo)
 {
 	struct journal_head *jh;
@@ -1158,13 +1165,13 @@ int jbd2_journal_get_write_access(handle_t *handle, struct buffer_head *bh)
 		return -EIO;
 	}
 
-	if (jbd2_write_access_granted(handle, bh, false))
+	if (ifs_ext4_local_jbd2_write_access_granted(handle, bh, false))
 		return 0;
 
 	jh = jbd2_journal_add_journal_head(bh);
 
 
-	rc = do_get_write_access(handle, jh, 0);
+	rc = ifs_ext4_local_do_get_write_access(handle, jh, 0);
 	jbd2_journal_put_journal_head(jh);
 	return rc;
 }
@@ -1255,14 +1262,14 @@ int jbd2_journal_get_undo_access(handle_t *handle, struct buffer_head *bh)
 	if (is_handle_aborted(handle))
 		return -EROFS;
 
-	if (jbd2_write_access_granted(handle, bh, true))
+	if (ifs_ext4_local_jbd2_write_access_granted(handle, bh, true))
 		return 0;
 
 	jh = jbd2_journal_add_journal_head(bh);
 	JBUFFER_TRACE(jh, "entry");
 
 
-	err = do_get_write_access(handle, jh, 1);
+	err = ifs_ext4_local_do_get_write_access(handle, jh, 1);
 	if (err)
 		goto out;
 
@@ -1551,10 +1558,10 @@ int jbd2_journal_forget(handle_t *handle, struct buffer_head *bh)
 
 		spin_lock(&journal->j_list_lock);
 		if (jh->b_cp_transaction) {
-			__jbd2_journal_temp_unlink_buffer(jh);
+			ifs_ext4_local___jbd2_journal_temp_unlink_buffer(jh);
 			__jbd2_journal_file_buffer(jh, transaction, BJ_Forget);
 		} else {
-			__jbd2_journal_unfile_buffer(jh);
+			ifs_ext4_local___jbd2_journal_unfile_buffer(jh);
 			jbd2_journal_put_journal_head(jh);
 		}
 		spin_unlock(&journal->j_list_lock);
@@ -1705,7 +1712,7 @@ int jbd2_journal_stop(handle_t *handle)
 	}
 
 
-	stop_this_handle(handle);
+	ifs_ext4_local_stop_this_handle(handle);
 
 	if (wait_for_commit)
 		err = jbd2_log_wait_commit(journal, tid);
@@ -1719,7 +1726,7 @@ free_and_exit:
 
 
 /**
- * __blist_add_buffer - Implements the blist add buffer operation within the jbd2 transaction api subsystem.
+ * ifs_ext4_local___blist_add_buffer - Implements the blist add buffer operation within the jbd2 transaction api subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1727,7 +1734,7 @@ free_and_exit:
  * rollback, abort or retry policy.
  */
 static inline void
-__blist_add_buffer(struct journal_head **list, struct journal_head *jh)
+ifs_ext4_local___blist_add_buffer(struct journal_head **list, struct journal_head *jh)
 {
 	if (!*list) {
 		jh->b_tnext = jh->b_tprev = jh;
@@ -1743,7 +1750,7 @@ __blist_add_buffer(struct journal_head **list, struct journal_head *jh)
 
 
 /**
- * __blist_del_buffer - Implements the blist del buffer operation within the jbd2 transaction api subsystem.
+ * ifs_ext4_local___blist_del_buffer - Implements the blist del buffer operation within the jbd2 transaction api subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1751,7 +1758,7 @@ __blist_add_buffer(struct journal_head **list, struct journal_head *jh)
  * rollback, abort or retry policy.
  */
 static inline void
-__blist_del_buffer(struct journal_head **list, struct journal_head *jh)
+ifs_ext4_local___blist_del_buffer(struct journal_head **list, struct journal_head *jh)
 {
 	if (*list == jh) {
 		*list = jh->b_tnext;
@@ -1764,14 +1771,14 @@ __blist_del_buffer(struct journal_head **list, struct journal_head *jh)
 
 
 /**
- * __jbd2_journal_temp_unlink_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext4_local___jbd2_journal_temp_unlink_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __jbd2_journal_temp_unlink_buffer(struct journal_head *jh)
+static void ifs_ext4_local___jbd2_journal_temp_unlink_buffer(struct journal_head *jh)
 {
 	struct journal_head **list = NULL;
 	transaction_t *transaction;
@@ -1805,7 +1812,7 @@ static void __jbd2_journal_temp_unlink_buffer(struct journal_head *jh)
 		break;
 	}
 
-	__blist_del_buffer(list, jh);
+	ifs_ext4_local___blist_del_buffer(list, jh);
 	jh->b_jlist = BJ_None;
 	if (transaction && is_journal_aborted(transaction->t_journal))
 		clear_buffer_jbddirty(bh);
@@ -1815,19 +1822,19 @@ static void __jbd2_journal_temp_unlink_buffer(struct journal_head *jh)
 
 
 /**
- * __jbd2_journal_unfile_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext4_local___jbd2_journal_unfile_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __jbd2_journal_unfile_buffer(struct journal_head *jh)
+static void ifs_ext4_local___jbd2_journal_unfile_buffer(struct journal_head *jh)
 {
 	J_ASSERT_JH(jh, jh->b_transaction != NULL);
 	J_ASSERT_JH(jh, jh->b_next_transaction == NULL);
 
-	__jbd2_journal_temp_unlink_buffer(jh);
+	ifs_ext4_local___jbd2_journal_temp_unlink_buffer(jh);
 	jh->b_transaction = NULL;
 }
 
@@ -1848,7 +1855,7 @@ void jbd2_journal_unfile_buffer(journal_t *journal, struct journal_head *jh)
 	get_bh(bh);
 	spin_lock(&jh->b_state_lock);
 	spin_lock(&journal->j_list_lock);
-	__jbd2_journal_unfile_buffer(jh);
+	ifs_ext4_local___jbd2_journal_unfile_buffer(jh);
 	spin_unlock(&journal->j_list_lock);
 	spin_unlock(&jh->b_state_lock);
 	jbd2_journal_put_journal_head(jh);
@@ -1903,21 +1910,21 @@ busy:
 
 
 /**
- * __dispose_buffer - Implements the dispose buffer operation within the jbd2 transaction api subsystem.
+ * ifs_ext4_local___dispose_buffer - Implements the dispose buffer operation within the jbd2 transaction api subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int __dispose_buffer(struct journal_head *jh, transaction_t *transaction)
+static int ifs_ext4_local___dispose_buffer(struct journal_head *jh, transaction_t *transaction)
 {
 	int may_free = 1;
 	struct buffer_head *bh = jh2bh(jh);
 
 	if (jh->b_cp_transaction) {
 		JBUFFER_TRACE(jh, "on running+cp transaction");
-		__jbd2_journal_temp_unlink_buffer(jh);
+		ifs_ext4_local___jbd2_journal_temp_unlink_buffer(jh);
 
 
 		clear_buffer_dirty(bh);
@@ -1925,7 +1932,7 @@ static int __dispose_buffer(struct journal_head *jh, transaction_t *transaction)
 		may_free = 0;
 	} else {
 		JBUFFER_TRACE(jh, "on running transaction");
-		__jbd2_journal_unfile_buffer(jh);
+		ifs_ext4_local___jbd2_journal_unfile_buffer(jh);
 		jbd2_journal_put_journal_head(jh);
 	}
 	return may_free;
@@ -1933,14 +1940,14 @@ static int __dispose_buffer(struct journal_head *jh, transaction_t *transaction)
 
 
 /**
- * journal_unmap_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext4_local_journal_unmap_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int journal_unmap_buffer(journal_t *journal, struct buffer_head *bh,
+static int ifs_ext4_local_journal_unmap_buffer(journal_t *journal, struct buffer_head *bh,
 				int partial_page)
 {
 	transaction_t *transaction;
@@ -1980,7 +1987,7 @@ static int journal_unmap_buffer(journal_t *journal, struct buffer_head *bh,
 
 
 			JBUFFER_TRACE(jh, "checkpointed: add to BJ_Forget");
-			may_free = __dispose_buffer(jh,
+			may_free = ifs_ext4_local___dispose_buffer(jh,
 					journal->j_running_transaction);
 			goto zap_buffer;
 		} else {
@@ -1988,7 +1995,7 @@ static int journal_unmap_buffer(journal_t *journal, struct buffer_head *bh,
 
 			if (journal->j_committing_transaction) {
 				JBUFFER_TRACE(jh, "give to committing trans");
-				may_free = __dispose_buffer(jh,
+				may_free = ifs_ext4_local___dispose_buffer(jh,
 					journal->j_committing_transaction);
 				goto zap_buffer;
 			} else {
@@ -2029,7 +2036,7 @@ static int journal_unmap_buffer(journal_t *journal, struct buffer_head *bh,
 
 		J_ASSERT_JH(jh, transaction == journal->j_running_transaction);
 		JBUFFER_TRACE(jh, "on running transaction");
-		may_free = __dispose_buffer(jh, transaction);
+		may_free = ifs_ext4_local___dispose_buffer(jh, transaction);
 	}
 
 zap_buffer:
@@ -2091,7 +2098,7 @@ int jbd2_journal_invalidate_folio(journal_t *journal, struct folio *folio,
 		if (offset <= curr_off) {
 
 			lock_buffer(bh);
-			ret = journal_unmap_buffer(journal, bh, partial_page);
+			ret = ifs_ext4_local_journal_unmap_buffer(journal, bh, partial_page);
 			unlock_buffer(bh);
 			if (ret < 0)
 				return ret;
@@ -2140,14 +2147,14 @@ void __jbd2_journal_file_buffer(struct journal_head *jh,
 
 
 		if (buffer_dirty(bh))
-			warn_dirty_buffer(bh);
+			ifs_ext4_local_warn_dirty_buffer(bh);
 		if (test_clear_buffer_dirty(bh) ||
 		    test_clear_buffer_jbddirty(bh))
 			was_dirty = 1;
 	}
 
 	if (jh->b_transaction)
-		__jbd2_journal_temp_unlink_buffer(jh);
+		ifs_ext4_local___jbd2_journal_temp_unlink_buffer(jh);
 	else
 		jbd2_journal_grab_journal_head(bh);
 	jh->b_transaction = transaction;
@@ -2172,7 +2179,7 @@ void __jbd2_journal_file_buffer(struct journal_head *jh,
 		break;
 	}
 
-	__blist_add_buffer(list, jh);
+	ifs_ext4_local___blist_add_buffer(list, jh);
 	jh->b_jlist = jlist;
 
 	if (was_dirty)
@@ -2218,13 +2225,13 @@ bool __jbd2_journal_refile_buffer(struct journal_head *jh)
 
 
 	if (jh->b_next_transaction == NULL) {
-		__jbd2_journal_unfile_buffer(jh);
+		ifs_ext4_local___jbd2_journal_unfile_buffer(jh);
 		return true;
 	}
 
 
 	was_dirty = test_clear_buffer_jbddirty(bh);
-	__jbd2_journal_temp_unlink_buffer(jh);
+	ifs_ext4_local___jbd2_journal_temp_unlink_buffer(jh);
 
 
 	J_ASSERT_JH(jh, jh->b_transaction != NULL);
@@ -2270,14 +2277,14 @@ void jbd2_journal_refile_buffer(journal_t *journal, struct journal_head *jh)
 
 
 /**
- * jbd2_journal_file_inode - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext4_local_jbd2_journal_file_inode - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int jbd2_journal_file_inode(handle_t *handle, struct jbd2_inode *jinode,
+static int ifs_ext4_local_jbd2_journal_file_inode(handle_t *handle, struct jbd2_inode *jinode,
 		unsigned long flags, loff_t start_byte, loff_t end_byte)
 {
 	transaction_t *transaction = handle->h_transaction;
@@ -2340,7 +2347,7 @@ done:
 int jbd2_journal_inode_ranged_write(handle_t *handle,
 		struct jbd2_inode *jinode, loff_t start_byte, loff_t length)
 {
-	return jbd2_journal_file_inode(handle, jinode,
+	return ifs_ext4_local_jbd2_journal_file_inode(handle, jinode,
 			JI_WRITE_DATA | JI_WAIT_DATA, start_byte,
 			start_byte + length - 1);
 }
@@ -2357,7 +2364,7 @@ int jbd2_journal_inode_ranged_write(handle_t *handle,
 int jbd2_journal_inode_ranged_wait(handle_t *handle, struct jbd2_inode *jinode,
 		loff_t start_byte, loff_t length)
 {
-	return jbd2_journal_file_inode(handle, jinode, JI_WAIT_DATA,
+	return ifs_ext4_local_jbd2_journal_file_inode(handle, jinode, JI_WAIT_DATA,
 			start_byte, start_byte + length - 1);
 }
 
