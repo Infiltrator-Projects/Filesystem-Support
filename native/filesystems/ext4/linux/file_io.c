@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: file_io.c.
+ * Project-maintained canonical implementation.
+ */
+
 // SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/ext4/file.c
@@ -33,7 +40,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -59,14 +66,14 @@
 
 
 /**
- * ext4_should_use_dio - Implements the should use dio operation within the regular-file vfs operations subsystem.
+ * ifs_ext4_local_ext4_should_use_dio - Implements the should use dio operation within the regular-file vfs operations subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ext4_should_use_dio(struct kiocb *iocb, struct iov_iter *iter)
+static bool ifs_ext4_local_ext4_should_use_dio(struct kiocb *iocb, struct iov_iter *iter)
 {
 	struct inode *inode = file_inode(iocb->ki_filp);
 	u32 dio_align = ext4_dio_alignment(inode);
@@ -82,14 +89,14 @@ static bool ext4_should_use_dio(struct kiocb *iocb, struct iov_iter *iter)
 
 
 /**
- * ext4_dio_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_dio_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
+static ssize_t ifs_ext4_local_ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	ssize_t ret;
 	struct inode *inode = file_inode(iocb->ki_filp);
@@ -101,7 +108,7 @@ static ssize_t ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		inode_lock_shared(inode);
 	}
 
-	if (!ext4_should_use_dio(iocb, to)) {
+	if (!ifs_ext4_local_ext4_should_use_dio(iocb, to)) {
 		inode_unlock_shared(inode);
 
 
@@ -120,14 +127,14 @@ static ssize_t ext4_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 
 /**
- * ext4_dax_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_dax_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
+static ssize_t ifs_ext4_local_ext4_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct inode *inode = file_inode(iocb->ki_filp);
 	ssize_t ret;
@@ -155,14 +162,14 @@ static ssize_t ext4_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 
 /**
- * ext4_file_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_file_read_iter - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
+static ssize_t ifs_ext4_local_ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct inode *inode = file_inode(iocb->ki_filp);
 
@@ -174,24 +181,24 @@ static ssize_t ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 #ifdef CONFIG_FS_DAX
 	if (IS_DAX(inode))
-		return ext4_dax_read_iter(iocb, to);
+		return ifs_ext4_local_ext4_dax_read_iter(iocb, to);
 #endif
 	if (iocb->ki_flags & IOCB_DIRECT)
-		return ext4_dio_read_iter(iocb, to);
+		return ifs_ext4_local_ext4_dio_read_iter(iocb, to);
 
 	return generic_file_read_iter(iocb, to);
 }
 
 
 /**
- * ext4_file_splice_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_file_splice_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_file_splice_read(struct file *in, loff_t *ppos,
+static ssize_t ifs_ext4_local_ext4_file_splice_read(struct file *in, loff_t *ppos,
 				     struct pipe_inode_info *pipe,
 				     size_t len, unsigned int flags)
 {
@@ -204,14 +211,14 @@ static ssize_t ext4_file_splice_read(struct file *in, loff_t *ppos,
 
 
 /**
- * ext4_release_file - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_release_file - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_release_file(struct inode *inode, struct file *filp)
+static int ifs_ext4_local_ext4_release_file(struct inode *inode, struct file *filp)
 {
 	if (ext4_test_inode_state(inode, EXT4_STATE_DA_ALLOC_CLOSE)) {
 		ext4_alloc_da_blocks(inode);
@@ -233,7 +240,7 @@ static int ext4_release_file(struct inode *inode, struct file *filp)
 
 
 /**
- * ext4_unaligned_io - Implements the unaligned io operation within the regular-file vfs operations subsystem.
+ * ifs_ext4_local_ext4_unaligned_io - Implements the unaligned io operation within the regular-file vfs operations subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -241,7 +248,7 @@ static int ext4_release_file(struct inode *inode, struct file *filp)
  * rollback, abort or retry policy.
  */
 static bool
-ext4_unaligned_io(struct inode *inode, struct iov_iter *from, loff_t pos)
+ifs_ext4_local_ext4_unaligned_io(struct inode *inode, struct iov_iter *from, loff_t pos)
 {
 	struct super_block *sb = inode->i_sb;
 	unsigned long blockmask = sb->s_blocksize - 1;
@@ -254,7 +261,7 @@ ext4_unaligned_io(struct inode *inode, struct iov_iter *from, loff_t pos)
 
 
 /**
- * ext4_extending_io - Implements the extending io operation within the regular-file vfs operations subsystem.
+ * ifs_ext4_local_ext4_extending_io - Implements the extending io operation within the regular-file vfs operations subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -262,7 +269,7 @@ ext4_unaligned_io(struct inode *inode, struct iov_iter *from, loff_t pos)
  * rollback, abort or retry policy.
  */
 static bool
-ext4_extending_io(struct inode *inode, loff_t offset, size_t len)
+ifs_ext4_local_ext4_extending_io(struct inode *inode, loff_t offset, size_t len)
 {
 	if (offset + len > i_size_read(inode) ||
 	    offset + len > EXT4_I(inode)->i_disksize)
@@ -272,14 +279,14 @@ ext4_extending_io(struct inode *inode, loff_t offset, size_t len)
 
 
 /**
- * ext4_overwrite_io - Implements the overwrite io operation within the regular-file vfs operations subsystem.
+ * ifs_ext4_local_ext4_overwrite_io - Implements the overwrite io operation within the regular-file vfs operations subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ext4_overwrite_io(struct inode *inode,
+static bool ifs_ext4_local_ext4_overwrite_io(struct inode *inode,
 			      loff_t pos, loff_t len, bool *unwritten)
 {
 	struct ext4_map_blocks map;
@@ -304,14 +311,14 @@ static bool ext4_overwrite_io(struct inode *inode,
 
 
 /**
- * ext4_generic_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_generic_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_generic_write_checks(struct kiocb *iocb,
+static ssize_t ifs_ext4_local_ext4_generic_write_checks(struct kiocb *iocb,
 					 struct iov_iter *from)
 {
 	struct inode *inode = file_inode(iocb->ki_filp);
@@ -338,18 +345,18 @@ static ssize_t ext4_generic_write_checks(struct kiocb *iocb,
 
 
 /**
- * ext4_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_write_checks(struct kiocb *iocb, struct iov_iter *from)
+static ssize_t ifs_ext4_local_ext4_write_checks(struct kiocb *iocb, struct iov_iter *from)
 {
 	ssize_t ret, count;
 
-	count = ext4_generic_write_checks(iocb, from);
+	count = ifs_ext4_local_ext4_generic_write_checks(iocb, from);
 	if (count <= 0)
 		return count;
 
@@ -361,14 +368,14 @@ static ssize_t ext4_write_checks(struct kiocb *iocb, struct iov_iter *from)
 
 
 /**
- * ext4_buffered_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_buffered_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_buffered_write_iter(struct kiocb *iocb,
+static ssize_t ifs_ext4_local_ext4_buffered_write_iter(struct kiocb *iocb,
 					struct iov_iter *from)
 {
 	ssize_t ret;
@@ -378,7 +385,7 @@ static ssize_t ext4_buffered_write_iter(struct kiocb *iocb,
 		return -EOPNOTSUPP;
 
 	inode_lock(inode);
-	ret = ext4_write_checks(iocb, from);
+	ret = ifs_ext4_local_ext4_write_checks(iocb, from);
 	if (ret <= 0)
 		goto out;
 
@@ -393,14 +400,14 @@ out:
 
 
 /**
- * ext4_handle_inode_extension - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext4_local_ext4_handle_inode_extension - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_handle_inode_extension(struct inode *inode, loff_t offset,
+static ssize_t ifs_ext4_local_ext4_handle_inode_extension(struct inode *inode, loff_t offset,
 					   ssize_t written, ssize_t count)
 {
 	handle_t *handle;
@@ -427,14 +434,14 @@ static ssize_t ext4_handle_inode_extension(struct inode *inode, loff_t offset,
 
 
 /**
- * ext4_inode_extension_cleanup - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ifs_ext4_local_ext4_inode_extension_cleanup - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_inode_extension_cleanup(struct inode *inode, bool need_trunc)
+static void ifs_ext4_local_ext4_inode_extension_cleanup(struct inode *inode, bool need_trunc)
 {
 	lockdep_assert_held_write(&inode->i_rwsem);
 	if (need_trunc) {
@@ -463,14 +470,14 @@ static void ext4_inode_extension_cleanup(struct inode *inode, bool need_trunc)
 
 
 /**
- * ext4_dio_write_end_io - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_dio_write_end_io - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_dio_write_end_io(struct kiocb *iocb, ssize_t size,
+static int ifs_ext4_local_ext4_dio_write_end_io(struct kiocb *iocb, ssize_t size,
 				 int error, unsigned int flags)
 {
 	loff_t pos = iocb->ki_pos;
@@ -485,23 +492,23 @@ static int ext4_dio_write_end_io(struct kiocb *iocb, ssize_t size,
 	if (pos + size <= READ_ONCE(EXT4_I(inode)->i_disksize) &&
 	    pos + size <= i_size_read(inode))
 		return size;
-	return ext4_handle_inode_extension(inode, pos, size, size);
+	return ifs_ext4_local_ext4_handle_inode_extension(inode, pos, size, size);
 }
 
 static const struct iomap_dio_ops ext4_dio_write_ops = {
-	.end_io = ext4_dio_write_end_io,
+	.end_io = ifs_ext4_local_ext4_dio_write_end_io,
 };
 
 
 /**
- * ext4_dio_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_dio_write_checks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_dio_write_checks(struct kiocb *iocb, struct iov_iter *from,
+static ssize_t ifs_ext4_local_ext4_dio_write_checks(struct kiocb *iocb, struct iov_iter *from,
 				     bool *ilock_shared, bool *extend,
 				     bool *unwritten, int *dio_flags)
 {
@@ -513,16 +520,16 @@ static ssize_t ext4_dio_write_checks(struct kiocb *iocb, struct iov_iter *from,
 	bool overwrite, unaligned_io;
 
 restart:
-	ret = ext4_generic_write_checks(iocb, from);
+	ret = ifs_ext4_local_ext4_generic_write_checks(iocb, from);
 	if (ret <= 0)
 		goto out;
 
 	offset = iocb->ki_pos;
 	count = ret;
 
-	unaligned_io = ext4_unaligned_io(inode, from, offset);
-	*extend = ext4_extending_io(inode, offset, count);
-	overwrite = ext4_overwrite_io(inode, offset, count, unwritten);
+	unaligned_io = ifs_ext4_local_ext4_unaligned_io(inode, from, offset);
+	*extend = ifs_ext4_local_ext4_extending_io(inode, offset, count);
+	overwrite = ifs_ext4_local_ext4_overwrite_io(inode, offset, count, unwritten);
 
 
 	if (*ilock_shared &&
@@ -564,14 +571,14 @@ out:
 
 
 /**
- * ext4_dio_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_dio_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
+static ssize_t ifs_ext4_local_ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 	ssize_t ret;
 	handle_t *handle;
@@ -603,18 +610,18 @@ static ssize_t ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	}
 
 
-	if (!ext4_should_use_dio(iocb, from)) {
+	if (!ifs_ext4_local_ext4_should_use_dio(iocb, from)) {
 		if (ilock_shared)
 			inode_unlock_shared(inode);
 		else
 			inode_unlock(inode);
-		return ext4_buffered_write_iter(iocb, from);
+		return ifs_ext4_local_ext4_buffered_write_iter(iocb, from);
 	}
 
 
 	ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
 
-	ret = ext4_dio_write_checks(iocb, from, &ilock_shared, &extend,
+	ret = ifs_ext4_local_ext4_dio_write_checks(iocb, from, &ilock_shared, &extend,
 				    &unwritten, &dio_flags);
 	if (ret <= 0)
 		return ret;
@@ -648,7 +655,7 @@ static ssize_t ext4_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 
 		WARN_ON_ONCE(ret == -EIOCBQUEUED);
-		ext4_inode_extension_cleanup(inode, ret < 0);
+		ifs_ext4_local_ext4_inode_extension_cleanup(inode, ret < 0);
 	}
 
 out:
@@ -662,7 +669,7 @@ out:
 		loff_t endbyte;
 
 		offset = iocb->ki_pos;
-		err = ext4_buffered_write_iter(iocb, from);
+		err = ifs_ext4_local_ext4_buffered_write_iter(iocb, from);
 		if (err < 0)
 			return err;
 
@@ -684,7 +691,7 @@ out:
 
 
 /**
- * ext4_dax_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_dax_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -692,7 +699,7 @@ out:
  * rollback, abort or retry policy.
  */
 static ssize_t
-ext4_dax_write_iter(struct kiocb *iocb, struct iov_iter *from)
+ifs_ext4_local_ext4_dax_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 	ssize_t ret;
 	size_t count;
@@ -708,7 +715,7 @@ ext4_dax_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		inode_lock(inode);
 	}
 
-	ret = ext4_write_checks(iocb, from);
+	ret = ifs_ext4_local_ext4_write_checks(iocb, from);
 	if (ret <= 0)
 		goto out;
 
@@ -735,8 +742,8 @@ ext4_dax_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	ret = dax_iomap_rw(iocb, from, &ext4_iomap_ops);
 
 	if (extend) {
-		ret = ext4_handle_inode_extension(inode, offset, ret, count);
-		ext4_inode_extension_cleanup(inode, ret < (ssize_t)count);
+		ret = ifs_ext4_local_ext4_handle_inode_extension(inode, offset, ret, count);
+		ifs_ext4_local_ext4_inode_extension_cleanup(inode, ret < (ssize_t)count);
 	}
 out:
 	inode_unlock(inode);
@@ -748,7 +755,7 @@ out:
 
 
 /**
- * ext4_file_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext4_local_ext4_file_write_iter - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -756,7 +763,7 @@ out:
  * rollback, abort or retry policy.
  */
 static ssize_t
-ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
+ifs_ext4_local_ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 	struct inode *inode = file_inode(iocb->ki_filp);
 
@@ -765,26 +772,26 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 #ifdef CONFIG_FS_DAX
 	if (IS_DAX(inode))
-		return ext4_dax_write_iter(iocb, from);
+		return ifs_ext4_local_ext4_dax_write_iter(iocb, from);
 #endif
 	if (iocb->ki_flags & IOCB_DIRECT)
-		return ext4_dio_write_iter(iocb, from);
+		return ifs_ext4_local_ext4_dio_write_iter(iocb, from);
 	else
-		return ext4_buffered_write_iter(iocb, from);
+		return ifs_ext4_local_ext4_buffered_write_iter(iocb, from);
 }
 
 #ifdef CONFIG_FS_DAX
 
 
 /**
- * ext4_dax_huge_fault - Implements the dax huge fault operation within the regular-file vfs operations subsystem.
+ * ifs_ext4_local_ext4_dax_huge_fault - Implements the dax huge fault operation within the regular-file vfs operations subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static vm_fault_t ext4_dax_huge_fault(struct vm_fault *vmf, unsigned int order)
+static vm_fault_t ifs_ext4_local_ext4_dax_huge_fault(struct vm_fault *vmf, unsigned int order)
 {
 	int error = 0;
 	vm_fault_t result;
@@ -835,23 +842,23 @@ retry:
 
 
 /**
- * ext4_dax_fault - Implements the dax fault operation within the regular-file vfs operations subsystem.
+ * ifs_ext4_local_ext4_dax_fault - Implements the dax fault operation within the regular-file vfs operations subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static vm_fault_t ext4_dax_fault(struct vm_fault *vmf)
+static vm_fault_t ifs_ext4_local_ext4_dax_fault(struct vm_fault *vmf)
 {
-	return ext4_dax_huge_fault(vmf, 0);
+	return ifs_ext4_local_ext4_dax_huge_fault(vmf, 0);
 }
 
 static const struct vm_operations_struct ext4_dax_vm_ops = {
-	.fault		= ext4_dax_fault,
-	.huge_fault	= ext4_dax_huge_fault,
-	.page_mkwrite	= ext4_dax_fault,
-	.pfn_mkwrite	= ext4_dax_fault,
+	.fault		= ifs_ext4_local_ext4_dax_fault,
+	.huge_fault	= ifs_ext4_local_ext4_dax_huge_fault,
+	.page_mkwrite	= ifs_ext4_local_ext4_dax_fault,
+	.pfn_mkwrite	= ifs_ext4_local_ext4_dax_fault,
 };
 #else
 #define ext4_dax_vm_ops	ext4_file_vm_ops
@@ -865,14 +872,14 @@ static const struct vm_operations_struct ext4_file_vm_ops = {
 
 
 /**
- * ext4_file_mmap - Implements the file mmap operation within the regular-file vfs operations subsystem.
+ * ifs_ext4_local_ext4_file_mmap - Implements the file mmap operation within the regular-file vfs operations subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
+static int ifs_ext4_local_ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct inode *inode = file->f_mapping->host;
 	struct dax_device *dax_dev = EXT4_SB(inode->i_sb)->s_daxdev;
@@ -896,14 +903,14 @@ static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 
 
 /**
- * ext4_sample_last_mounted - Implements the sample last mounted operation within the regular-file vfs operations subsystem.
+ * ifs_ext4_local_ext4_sample_last_mounted - Implements the sample last mounted operation within the regular-file vfs operations subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_sample_last_mounted(struct super_block *sb,
+static int ifs_ext4_local_ext4_sample_last_mounted(struct super_block *sb,
 				    struct vfsmount *mnt)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -952,21 +959,21 @@ out:
 
 
 /**
- * ext4_file_open - Implements the file open operation within the regular-file vfs operations subsystem.
+ * ifs_ext4_local_ext4_file_open - Implements the file open operation within the regular-file vfs operations subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_file_open(struct inode *inode, struct file *filp)
+static int ifs_ext4_local_ext4_file_open(struct inode *inode, struct file *filp)
 {
 	int ret;
 
 	if (unlikely(ext4_forced_shutdown(inode->i_sb)))
 		return -EIO;
 
-	ret = ext4_sample_last_mounted(inode->i_sb, filp->f_path.mnt);
+	ret = ifs_ext4_local_ext4_sample_last_mounted(inode->i_sb, filp->f_path.mnt);
 	if (ret)
 		return ret;
 
@@ -1028,19 +1035,19 @@ loff_t ext4_llseek(struct file *file, loff_t offset, int whence)
 
 const struct file_operations ext4_file_operations = {
 	.llseek		= ext4_llseek,
-	.read_iter	= ext4_file_read_iter,
-	.write_iter	= ext4_file_write_iter,
+	.read_iter	= ifs_ext4_local_ext4_file_read_iter,
+	.write_iter	= ifs_ext4_local_ext4_file_write_iter,
 	.iopoll		= iocb_bio_iopoll,
 	.unlocked_ioctl = ext4_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= ext4_compat_ioctl,
 #endif
-	.mmap		= ext4_file_mmap,
-	.open		= ext4_file_open,
-	.release	= ext4_release_file,
+	.mmap		= ifs_ext4_local_ext4_file_mmap,
+	.open		= ifs_ext4_local_ext4_file_open,
+	.release	= ifs_ext4_local_ext4_release_file,
 	.fsync		= ext4_sync_file,
 	.get_unmapped_area = thp_get_unmapped_area,
-	.splice_read	= ext4_file_splice_read,
+	.splice_read	= ifs_ext4_local_ext4_file_splice_read,
 	.splice_write	= iter_file_splice_write,
 	.fallocate	= ext4_fallocate,
 	.fop_flags	= FOP_MMAP_SYNC | FOP_BUFFER_RASYNC |
@@ -1060,14 +1067,14 @@ const struct inode_operations ext4_file_inode_operations = {
 
 
 /**
- * ext4_sync_parent - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ * ifs_ext4_local_ext4_sync_parent - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_sync_parent(struct inode *inode)
+static int ifs_ext4_local_ext4_sync_parent(struct inode *inode)
 {
 	struct dentry *dentry, *next;
 	int ret = 0;
@@ -1099,14 +1106,14 @@ static int ext4_sync_parent(struct inode *inode)
 
 
 /**
- * ext4_fsync_nojournal - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ * ifs_ext4_local_ext4_fsync_nojournal - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
+static int ifs_ext4_local_ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
 				int datasync, bool *needs_barrier)
 {
 	struct inode *inode = file->f_inode;
@@ -1125,7 +1132,7 @@ static int ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
 	if (ret)
 		return ret;
 
-	ret = ext4_sync_parent(inode);
+	ret = ifs_ext4_local_ext4_sync_parent(inode);
 
 	if (test_opt(inode->i_sb, BARRIER))
 		*needs_barrier = true;
@@ -1135,14 +1142,14 @@ static int ext4_fsync_nojournal(struct file *file, loff_t start, loff_t end,
 
 
 /**
- * ext4_fsync_journal - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ * ifs_ext4_local_ext4_fsync_journal - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_fsync_journal(struct inode *inode, bool datasync,
+static int ifs_ext4_local_ext4_fsync_journal(struct inode *inode, bool datasync,
 			     bool *needs_barrier)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -1194,14 +1201,14 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 		goto out;
 
 	if (!EXT4_SB(inode->i_sb)->s_journal) {
-		ret = ext4_fsync_nojournal(file, start, end, datasync,
+		ret = ifs_ext4_local_ext4_fsync_nojournal(file, start, end, datasync,
 					   &needs_barrier);
 		if (needs_barrier)
 			goto issue_flush;
 		goto out;
 	}
 
-	ret = ext4_fsync_journal(inode, datasync, &needs_barrier);
+	ret = ifs_ext4_local_ext4_fsync_journal(inode, datasync, &needs_barrier);
 
 issue_flush:
 	if (needs_barrier) {

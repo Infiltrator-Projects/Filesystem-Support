@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: fsmap.h.
+ * Project-maintained canonical implementation.
+ */
+
 #ifndef INFILTRATR_EXT4_FSMAP_H
 #define INFILTRATR_EXT4_FSMAP_H
 
