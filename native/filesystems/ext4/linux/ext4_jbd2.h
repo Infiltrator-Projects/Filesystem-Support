@@ -12,7 +12,6 @@
 #include <linux/jbd2.h>
 
 #include "ext4.h"
-#include "embedded_jbd2.h"
 
 #define EXT4_JOURNAL(inode) (EXT4_SB((inode)->i_sb)->s_journal)
 

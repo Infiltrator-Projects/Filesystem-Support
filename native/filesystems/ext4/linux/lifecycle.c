@@ -8495,8 +8495,6 @@ MODULE_LICENSE("GPL");
 MODULE_SOFTDEP("pre: crc32c");
 int infiltratr_mbcache_init(void);
 void infiltratr_mbcache_exit(void);
-int infiltratr_jbd2_init(void);
-void infiltratr_jbd2_exit(void);
 
 
 /**
@@ -8510,18 +8508,14 @@ void infiltratr_jbd2_exit(void);
 static int __init ifs_ext4_local_ext4_init_fs(void)
 {
 	int err = infiltratr_mbcache_init();
+
 	if (err)
 		return err;
-	err = infiltratr_jbd2_init();
-	if (err) {
-		infiltratr_mbcache_exit();
-		return err;
-	}
+
 	err = ifs_ext4_local_ext4_core_init_fs();
-	if (err) {
-		infiltratr_jbd2_exit();
+	if (err)
 		infiltratr_mbcache_exit();
-	}
+
 	return err;
 }
 
@@ -8537,7 +8531,6 @@ static int __init ifs_ext4_local_ext4_init_fs(void)
 static void __exit ifs_ext4_local_ext4_exit_fs(void)
 {
 	ifs_ext4_local_ext4_core_exit_fs();
-	infiltratr_jbd2_exit();
 	infiltratr_mbcache_exit();
 }
 
