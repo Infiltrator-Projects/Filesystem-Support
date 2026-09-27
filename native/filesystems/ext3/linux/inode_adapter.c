@@ -215,7 +215,7 @@ static handle_t *start_transaction(struct inode *inode)
  */
 static int ifs_ext3_local_try_to_extend_transaction(handle_t *handle, struct inode *inode)
 {
-	if (handle->h_buffer_credits > EXT3_RESERVE_TRANS_BLOCKS)
+	if (handle->h_total_credits > EXT3_RESERVE_TRANS_BLOCKS)
 		return 0;
 	if (!ext3_journal_extend(handle, ifs_ext3_local_blocks_for_truncate(inode)))
 		return 0;
