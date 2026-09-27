@@ -1491,7 +1491,7 @@ GtkWidget* build_home_page(AppState* state)
 
     gtk_box_pack_start(
         GTK_BOX(features),
-        make_feature("system-search-symbolic", "Discover", "108 support definitions"),
+        make_feature("system-search-symbolic", "Discover", "Complete support catalogue"),
         TRUE, TRUE, 0);
     gtk_box_pack_start(
         GTK_BOX(features),

@@ -26,8 +26,8 @@ int main(int argc, char** argv)
         return fail("catalogue validation failed");
     }
 
-    if (catalog().size() != 108U) {
-        return fail("catalogue size is not the documented 108 entries");
+    if (catalog().size() != 107U) {
+        return fail("catalogue size is not the documented 107 entries");
     }
 
     bool found_ofs = false;
@@ -53,6 +53,10 @@ int main(int argc, char** argv)
     std::size_t tools_only = 0U;
 
     for (const auto& entry : catalog()) {
+        if (entry.id == std::string_view("fuse2fs")) {
+            return fail("fuse2fs must not be exposed alongside canonical EXT2/EXT3/EXT4");
+        }
+
         if (entry.id == std::string_view("ofs")) {
             found_ofs = true;
         } else if (entry.id == std::string_view("ffs")) {
