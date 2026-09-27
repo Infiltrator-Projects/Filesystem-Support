@@ -1,37 +1,37 @@
-#ifndef __LINUX_AMIGASFS_H
-#define __LINUX_AMIGASFS_H
+#ifndef __LINUX_AMIGIFS_SFS_H
+#define __LINUX_AMIGIFS_SFS_H
 
 #include <linux/types.h>
 
 /* some helper macros... */
-#define ASFS_MAKE_ID(a,b,c,d) (((a)&0xff)<<24|((b)&0xff)<<16|((c)&0xff)<<8|((d)&0xff))
+#define IFS_SFS_MAKE_ID(a,b,c,d) (((a)&0xff)<<24|((b)&0xff)<<16|((c)&0xff)<<8|((d)&0xff))
 
 /* Amiga SFS block IDs */
-#define ASFS_ROOTID                 ASFS_MAKE_ID('S','F','S','\0')
-#define ASFS_OBJECTCONTAINER_ID     ASFS_MAKE_ID('O','B','J','C')
-#define ASFS_BNODECONTAINER_ID      ASFS_MAKE_ID('B','N','D','C')
-#define ASFS_NODECONTAINER_ID       ASFS_MAKE_ID('N','D','C',' ')
-#define ASFS_HASHTABLE_ID           ASFS_MAKE_ID('H','T','A','B')
-#define ASFS_SOFTLINK_ID            ASFS_MAKE_ID('S','L','N','K')
-#define ASFS_ADMINSPACECONTAINER_ID ASFS_MAKE_ID('A','D','M','C')
-#define ASFS_BITMAP_ID              ASFS_MAKE_ID('B','T','M','P')
-#define ASFS_TRANSACTIONFAILURE_ID  ASFS_MAKE_ID('T','R','F','A')
+#define IFS_SFS_ROOTID                 IFS_SFS_MAKE_ID('S','F','S','\0')
+#define IFS_SFS_OBJECTCONTAINER_ID     IFS_SFS_MAKE_ID('O','B','J','C')
+#define IFS_SFS_BNODECONTAINER_ID      IFS_SFS_MAKE_ID('B','N','D','C')
+#define IFS_SFS_NODECONTAINER_ID       IFS_SFS_MAKE_ID('N','D','C',' ')
+#define IFS_SFS_HASHTABLE_ID           IFS_SFS_MAKE_ID('H','T','A','B')
+#define IFS_SFS_SOFTLINK_ID            IFS_SFS_MAKE_ID('S','L','N','K')
+#define IFS_SFS_ADMINSPACECONTAINER_ID IFS_SFS_MAKE_ID('A','D','M','C')
+#define IFS_SFS_BITMAP_ID              IFS_SFS_MAKE_ID('B','T','M','P')
+#define IFS_SFS_TRANSACTIONFAILURE_ID  IFS_SFS_MAKE_ID('T','R','F','A')
 
 /* Amiga SFS defines and magic values */
 
-#define ASFS_MAGIC 0xa0ff
-#define ASFS_MAXFN (107u)
-#define ASFS_MAXFILESIZE 0x8FFFFFFE
+#define IFS_SFS_MAGIC 0xa0ff
+#define IFS_SFS_MAXFN (107u)
+#define IFS_SFS_MAXFILESIZE 0x8FFFFFFE
 
-#define ASFS_STRUCTURE_VERISON (3)
-#define ASFS_BLCKFACCURACY	(5)
+#define IFS_SFS_STRUCTURE_VERISON (3)
+#define IFS_SFS_BLCKFACCURACY	(5)
 
-#define ASFS_ROOTBITS_CASESENSITIVE (128)
-#define ASFS_READONLY (512)
-#define ASFS_VOL_LOWERCASE (1024)
+#define IFS_SFS_ROOTBITS_CASESENSITIVE (128)
+#define IFS_SFS_READONLY (512)
+#define IFS_SFS_VOL_LOWERCASE (1024)
 
-#define ASFS_ROOTNODE   (1)
-#define ASFS_RECYCLEDNODE (2)
+#define IFS_SFS_ROOTNODE   (1)
+#define IFS_SFS_RECYCLEDNODE (2)
 
 #define OTYPE_HIDDEN      (1)
 #define OTYPE_HARDLINK    (32)
@@ -43,9 +43,9 @@
 #define NODE_STRUCT_SIZE (10)	/* (sizeof(struct fsObjectNode)) */
 #define NODECONT_BLOCK_COUNT ((sb->s_blocksize - sizeof(struct fsNodeContainer)) / sizeof(u32))
 
-#define ASFS_ALWAYSFREE (16)		/* keep this amount of blocks free */
+#define IFS_SFS_ALWAYSFREE (16)		/* keep this amount of blocks free */
 
-#define ASFS_BLOCKCHUNKS (16)		/* try to allocate this number of blocks in one request */
+#define IFS_SFS_BLOCKCHUNKS (16)		/* try to allocate this number of blocks in one request */
 
 #ifndef TRUE
 #define TRUE		1

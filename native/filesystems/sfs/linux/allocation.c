@@ -9,7 +9,7 @@
 #include "linux_adapter.h"
 #include "linux_adapter.h"
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 
 static int sfs_set_free_block_count(
     struct super_block *sb,
@@ -21,9 +21,9 @@ static int sfs_set_free_block_count(
     if (sb->s_blocksize < sizeof(struct fsRootInfo))
         return -EUCLEAN;
 
-    bh = asfs_breadcheck(
-        sb, ASFS_SB(sb)->rootobjectcontainer,
-        ASFS_OBJECTCONTAINER_ID);
+    bh = ifs_sfs_breadcheck(
+        sb, IFS_SFS_SB(sb)->rootobjectcontainer,
+        IFS_SFS_OBJECTCONTAINER_ID);
     if (!bh)
         return -EIO;
 
@@ -31,18 +31,18 @@ static int sfs_set_free_block_count(
         ((u8 *)bh->b_data +
          sb->s_blocksize - sizeof(struct fsRootInfo));
     root_info->freeblocks = cpu_to_be32(free_blocks);
-    ASFS_SB(sb)->freeblocks = free_blocks;
-    asfs_bstore(sb, bh);
-    asfs_brelse(bh);
+    IFS_SFS_SB(sb)->freeblocks = free_blocks;
+    ifs_sfs_bstore(sb, bh);
+    ifs_sfs_brelse(bh);
     return 0;
 }
 
 static bool sfs_has_space(struct super_block *sb, u32 blocks)
 {
     return ifs_sfs_has_allocation_headroom(
-        ASFS_SB(sb)->freeblocks,
+        IFS_SFS_SB(sb)->freeblocks,
         blocks,
-        ASFS_ALWAYSFREE) != 0;
+        IFS_SFS_ALWAYSFREE) != 0;
 }
 
 static int sfs_scan_free_range(
@@ -53,14 +53,14 @@ static int sfs_scan_free_range(
     u32 *best_start,
     u32 *best_length)
 {
-    const u32 bits_per_bitmap = ASFS_SB(sb)->blocks_inbitmap;
+    const u32 bits_per_bitmap = IFS_SFS_SB(sb)->blocks_inbitmap;
     const int words = (int)(bits_per_bitmap >> 5);
     u32 scan_block = start;
     u32 run_start = 0U;
     u32 run_length = 0U;
 
     if (bits_per_bitmap == 0U || words <= 0 ||
-        start > end || end > ASFS_SB(sb)->totalblocks)
+        start > end || end > IFS_SFS_SB(sb)->totalblocks)
         return -EINVAL;
 
     while (scan_block < end) {
@@ -73,12 +73,12 @@ static int sfs_scan_free_range(
         struct fsBitmap *bitmap;
         u32 cursor = local_start;
 
-        if (bitmap_index >= ASFS_SB(sb)->blocks_bitmap)
+        if (bitmap_index >= IFS_SFS_SB(sb)->blocks_bitmap)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
-            sb, ASFS_SB(sb)->bitmapbase + bitmap_index,
-            ASFS_BITMAP_ID);
+        bh = ifs_sfs_breadcheck(
+            sb, IFS_SFS_SB(sb)->bitmapbase + bitmap_index,
+            IFS_SFS_BITMAP_ID);
         if (!bh)
             return -EIO;
 
@@ -119,7 +119,7 @@ static int sfs_scan_free_range(
                 *best_length = run_length;
                 if (*best_length >= requested) {
                     *best_length = requested;
-                    asfs_brelse(bh);
+                    ifs_sfs_brelse(bh);
                     return 1;
                 }
             }
@@ -132,7 +132,7 @@ static int sfs_scan_free_range(
             }
         }
 
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
 
         if (local_end != bits_per_bitmap)
             run_length = 0U;
@@ -142,7 +142,7 @@ static int sfs_scan_free_range(
     return 0;
 }
 
-int asfs_findspace(
+int ifs_sfs_findspace(
     struct super_block *sb,
     u32 maxneeded,
     u32 start,
@@ -150,7 +150,7 @@ int asfs_findspace(
     u32 *returned_block,
     u32 *returned_blocks)
 {
-    const u32 total = ASFS_SB(sb)->totalblocks;
+    const u32 total = IFS_SFS_SB(sb)->totalblocks;
     u32 best_start = 0U;
     u32 best_length = 0U;
     int result;
@@ -214,7 +214,7 @@ static int sfs_update_bitmap_range(
     u32 blocks,
     bool allocate)
 {
-    const u32 bits_per_bitmap = ASFS_SB(sb)->blocks_inbitmap;
+    const u32 bits_per_bitmap = IFS_SFS_SB(sb)->blocks_inbitmap;
     struct buffer_head **buffers;
     u32 first_bitmap;
     u32 last_bitmap;
@@ -224,13 +224,13 @@ static int sfs_update_bitmap_range(
     int result = 0;
 
     if (blocks == 0U || bits_per_bitmap == 0U ||
-        block >= ASFS_SB(sb)->totalblocks ||
-        blocks > ASFS_SB(sb)->totalblocks - block)
+        block >= IFS_SFS_SB(sb)->totalblocks ||
+        blocks > IFS_SFS_SB(sb)->totalblocks - block)
         return -EINVAL;
 
     first_bitmap = block / bits_per_bitmap;
     last_bitmap = (block + blocks - 1U) / bits_per_bitmap;
-    if (last_bitmap >= ASFS_SB(sb)->blocks_bitmap)
+    if (last_bitmap >= IFS_SFS_SB(sb)->blocks_bitmap)
         return -EUCLEAN;
 
     buffer_count = last_bitmap - first_bitmap + 1U;
@@ -240,11 +240,11 @@ static int sfs_update_bitmap_range(
         return -ENOMEM;
 
     for (index = 0U; index < buffer_count; ++index) {
-        buffers[index] = asfs_breadcheck(
+        buffers[index] = ifs_sfs_breadcheck(
             sb,
-            ASFS_SB(sb)->bitmapbase +
+            IFS_SFS_SB(sb)->bitmapbase +
                 first_bitmap + index,
-            ASFS_BITMAP_ID);
+            IFS_SFS_BITMAP_ID);
         if (!buffers[index]) {
             result = -EIO;
             goto out;
@@ -273,16 +273,16 @@ static int sfs_update_bitmap_range(
 
     if (allocate) {
         if (ifs_sfs_free_count_after_allocate(
-                ASFS_SB(sb)->freeblocks,
+                IFS_SFS_SB(sb)->freeblocks,
                 blocks, &new_free) != 0) {
             result = -EUCLEAN;
             goto out;
         }
     } else {
         if (ifs_sfs_free_count_after_release(
-                ASFS_SB(sb)->freeblocks,
+                IFS_SFS_SB(sb)->freeblocks,
                 blocks,
-                ASFS_SB(sb)->totalblocks,
+                IFS_SFS_SB(sb)->totalblocks,
                 &new_free) != 0) {
             result = -EUCLEAN;
             goto out;
@@ -306,7 +306,7 @@ static int sfs_update_bitmap_range(
     }
 
     for (index = 0U; index < buffer_count; ++index)
-        asfs_bstore(sb, buffers[index]);
+        ifs_sfs_bstore(sb, buffers[index]);
 
     result = sfs_set_free_block_count(sb, new_free);
     if (result != 0) {
@@ -328,17 +328,17 @@ static int sfs_update_bitmap_range(
                 cpu_to_be32(word);
         }
         for (index = 0U; index < buffer_count; ++index)
-            asfs_bstore(sb, buffers[index]);
+            ifs_sfs_bstore(sb, buffers[index]);
     }
 
 out:
     for (index = 0U; index < buffer_count; ++index)
-        asfs_brelse(buffers[index]);
+        ifs_sfs_brelse(buffers[index]);
     kfree(buffers);
     return result;
 }
 
-int asfs_markspace(
+int ifs_sfs_markspace(
     struct super_block *sb,
     u32 block,
     u32 blocks)
@@ -350,7 +350,7 @@ int asfs_markspace(
         sb, block, blocks, true);
 }
 
-int asfs_freespace(
+int ifs_sfs_freespace(
     struct super_block *sb,
     u32 block,
     u32 blocks)
@@ -370,16 +370,16 @@ static int sfs_find_and_mark(
     if (!start || !sfs_has_space(sb, blocks))
         return -ENOSPC;
 
-    result = asfs_findspace(
+    result = ifs_sfs_findspace(
         sb, blocks, 0U,
-        ASFS_SB(sb)->totalblocks,
+        IFS_SFS_SB(sb)->totalblocks,
         start, &found);
     if (result != 0)
         return result;
     if (found != blocks)
         return -ENOSPC;
 
-    return asfs_markspace(sb, *start, blocks);
+    return ifs_sfs_markspace(sb, *start, blocks);
 }
 
 static u32 sfs_admin_entries_per_container(
@@ -400,8 +400,8 @@ static int sfs_find_admin_descriptor_slot(
     struct fsAdminSpace **returned_entry,
     u32 *tail_block)
 {
-    u32 block = ASFS_SB(sb)->adminspacecontainer;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 block = IFS_SFS_SB(sb)->adminspacecontainer;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
     u32 last = 0U;
 
     if (!returned_bh || !returned_entry || !tail_block)
@@ -421,8 +421,8 @@ static int sfs_find_admin_descriptor_slot(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
-            sb, block, ASFS_ADMINSPACECONTAINER_ID);
+        bh = ifs_sfs_breadcheck(
+            sb, block, IFS_SFS_ADMINSPACECONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -441,7 +441,7 @@ static int sfs_find_admin_descriptor_slot(
 
         next = be32_to_cpu(container->next);
         last = block;
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         block = next;
     }
 
@@ -449,13 +449,13 @@ static int sfs_find_admin_descriptor_slot(
     return -ENOSPC;
 }
 
-int asfs_allocadminspace(
+int ifs_sfs_allocadminspace(
     struct super_block *sb,
     u32 *returned_block)
 {
     u32 container_block =
-        ASFS_SB(sb)->adminspacecontainer;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+        IFS_SFS_SB(sb)->adminspacecontainer;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     if (!returned_block)
         return -EINVAL;
@@ -471,9 +471,9 @@ int asfs_allocadminspace(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
+        bh = ifs_sfs_breadcheck(
             sb, container_block,
-            ASFS_ADMINSPACECONTAINER_ID);
+            IFS_SFS_ADMINSPACECONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -495,21 +495,21 @@ int asfs_allocadminspace(
                     1U << (31U - (u32)bit);
                 const u32 block = area + (u32)bit;
 
-                if (block >= ASFS_SB(sb)->totalblocks) {
-                    asfs_brelse(bh);
+                if (block >= IFS_SFS_SB(sb)->totalblocks) {
+                    ifs_sfs_brelse(bh);
                     return -EUCLEAN;
                 }
 
                 entry->bits = cpu_to_be32(bits | mask);
-                asfs_bstore(sb, bh);
-                asfs_brelse(bh);
+                ifs_sfs_bstore(sb, bh);
+                ifs_sfs_brelse(bh);
                 *returned_block = block;
                 return 0;
             }
         }
 
         next = be32_to_cpu(container->next);
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         container_block = next;
     }
 
@@ -530,14 +530,14 @@ int asfs_allocadminspace(
         if (result == 0) {
             slot->space = cpu_to_be32(area_start);
             slot->bits = cpu_to_be32(0x80000000U);
-            asfs_bstore(sb, slot_bh);
-            asfs_brelse(slot_bh);
+            ifs_sfs_bstore(sb, slot_bh);
+            ifs_sfs_brelse(slot_bh);
             *returned_block = area_start;
             return 0;
         }
 
         if (result != -ENOSPC || tail_block == 0U) {
-            (void)asfs_freespace(sb, area_start, 32U);
+            (void)ifs_sfs_freespace(sb, area_start, 32U);
             return result;
         }
 
@@ -547,9 +547,9 @@ int asfs_allocadminspace(
             struct fsAdminSpaceContainer *new_container;
             struct fsAdminSpaceContainer *tail;
 
-            new_bh = asfs_getzeroblk(sb, area_start);
+            new_bh = ifs_sfs_getzeroblk(sb, area_start);
             if (!new_bh) {
-                (void)asfs_freespace(
+                (void)ifs_sfs_freespace(
                     sb, area_start, 32U);
                 return -EIO;
             }
@@ -559,7 +559,7 @@ int asfs_allocadminspace(
                     new_bh->b_data;
             new_container->bheader.id =
                 cpu_to_be32(
-                    ASFS_ADMINSPACECONTAINER_ID);
+                    IFS_SFS_ADMINSPACECONTAINER_ID);
             new_container->bheader.ownblock =
                 cpu_to_be32(area_start);
             new_container->previous =
@@ -569,14 +569,14 @@ int asfs_allocadminspace(
                 cpu_to_be32(area_start);
             new_container->adminspace[0].bits =
                 cpu_to_be32(0x80000000U);
-            asfs_bstore(sb, new_bh);
-            asfs_brelse(new_bh);
+            ifs_sfs_bstore(sb, new_bh);
+            ifs_sfs_brelse(new_bh);
 
-            tail_bh = asfs_breadcheck(
+            tail_bh = ifs_sfs_breadcheck(
                 sb, tail_block,
-                ASFS_ADMINSPACECONTAINER_ID);
+                IFS_SFS_ADMINSPACECONTAINER_ID);
             if (!tail_bh) {
-                (void)asfs_freespace(
+                (void)ifs_sfs_freespace(
                     sb, area_start, 32U);
                 return -EIO;
             }
@@ -585,28 +585,28 @@ int asfs_allocadminspace(
                 (struct fsAdminSpaceContainer *)
                     tail_bh->b_data;
             if (tail->next != 0U) {
-                asfs_brelse(tail_bh);
-                (void)asfs_freespace(
+                ifs_sfs_brelse(tail_bh);
+                (void)ifs_sfs_freespace(
                     sb, area_start, 32U);
                 return -EUCLEAN;
             }
 
             tail->next = cpu_to_be32(area_start);
-            asfs_bstore(sb, tail_bh);
-            asfs_brelse(tail_bh);
+            ifs_sfs_bstore(sb, tail_bh);
+            ifs_sfs_brelse(tail_bh);
             *returned_block = area_start;
             return 0;
         }
     }
 }
 
-int asfs_freeadminspace(
+int ifs_sfs_freeadminspace(
     struct super_block *sb,
     u32 block)
 {
     u32 container_block =
-        ASFS_SB(sb)->adminspacecontainer;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+        IFS_SFS_SB(sb)->adminspacecontainer;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     while (container_block != 0U) {
         struct buffer_head *bh;
@@ -618,9 +618,9 @@ int asfs_freeadminspace(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
+        bh = ifs_sfs_breadcheck(
             sb, container_block,
-            ASFS_ADMINSPACECONTAINER_ID);
+            IFS_SFS_ADMINSPACECONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -640,20 +640,20 @@ int asfs_freeadminspace(
                     be32_to_cpu(entry->bits);
 
                 if ((bits & mask) == 0U) {
-                    asfs_brelse(bh);
+                    ifs_sfs_brelse(bh);
                     return -EUCLEAN;
                 }
 
                 entry->bits =
                     cpu_to_be32(bits & ~mask);
-                asfs_bstore(sb, bh);
-                asfs_brelse(bh);
+                ifs_sfs_bstore(sb, bh);
+                ifs_sfs_brelse(bh);
                 return 0;
             }
         }
 
         next = be32_to_cpu(container->next);
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         container_block = next;
     }
 

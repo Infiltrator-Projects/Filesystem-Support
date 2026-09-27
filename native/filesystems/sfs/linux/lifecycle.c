@@ -5,7 +5,7 @@
  * owns only Linux mount lifecycle, option handling and VFS publication.
  */
 
-#define ASFS_VERSION "Infiltrator"
+#define IFS_SFS_VERSION "Infiltrator"
 
 #include <linux/module.h>
 #include <linux/types.h>
@@ -29,10 +29,10 @@
 
 static struct kmem_cache *sfs_inode_cache;
 
-static char sfs_default_codepage[] = CONFIG_ASFS_DEFAULT_CODEPAGE;
+static char sfs_default_codepage[] = CONFIG_IFS_SFS_DEFAULT_CODEPAGE;
 static char sfs_default_iocharset[] = CONFIG_NLS_DEFAULT;
 
-u32 asfs_calcchecksum(void *block, u32 blocksize)
+u32 ifs_sfs_calcchecksum(void *block, u32 blocksize)
 {
 	return ifs_sfs_calculate_block_checksum(block, blocksize);
 }
@@ -76,7 +76,7 @@ static void sfs_replace_option_string(char **slot, char *replacement,
 
 static int sfs_parse_mount_options(char *options, struct super_block *sb)
 {
-	struct asfs_sb_info *sbi = ASFS_SB(sb);
+	struct ifs_sfs_sb_info *sbi = IFS_SFS_SB(sb);
 	char *entry;
 
 	if (!options)
@@ -121,7 +121,7 @@ static int sfs_parse_mount_options(char *options, struct super_block *sb)
 			sfs_replace_option_string(&sbi->root_volume, value, NULL);
 			break;
 		case SFS_OPT_LOWERCASE_VOLUME:
-			sbi->flags |= ASFS_VOL_LOWERCASE;
+			sbi->flags |= IFS_SFS_VOL_LOWERCASE;
 			break;
 		case SFS_OPT_IOCHARSET:
 			value = match_strdup(&args[0]);
@@ -164,7 +164,7 @@ static IfsSfsRootStatus sfs_root_status(const struct fsRootBlock *root)
 static int sfs_apply_root(struct super_block *sb,
 			  const struct fsRootBlock *root)
 {
-	struct asfs_sb_info *sbi = ASFS_SB(sb);
+	struct ifs_sfs_sb_info *sbi = IFS_SFS_SB(sb);
 	u32 bitmap_blocks;
 	u32 blocks_per_bitmap;
 	IfsSfsRootStatus status;
@@ -194,7 +194,7 @@ static int sfs_apply_root(struct super_block *sb,
 
 static int sfs_load_root_pair(struct super_block *sb, int silent)
 {
-	struct asfs_sb_info *sbi = ASFS_SB(sb);
+	struct ifs_sfs_sb_info *sbi = IFS_SFS_SB(sb);
 	struct buffer_head *probe_bh = NULL;
 	struct buffer_head *primary_bh = NULL;
 	struct buffer_head *backup_bh = NULL;
@@ -237,12 +237,12 @@ static int sfs_load_root_pair(struct super_block *sb, int silent)
 	backup = backup_bh ? (struct fsRootBlock *)backup_bh->b_data : NULL;
 
 	primary_valid = primary &&
-		asfs_check_block((struct fsBlockHeader *)primary, block_size,
-				 0, ASFS_ROOTID) &&
+		ifs_sfs_check_block((struct fsBlockHeader *)primary, block_size,
+				 0, IFS_SFS_ROOTID) &&
 		sfs_root_status(primary) == IFS_SFS_ROOT_OK;
 	backup_valid = backup &&
-		asfs_check_block((struct fsBlockHeader *)backup, block_size,
-				 total_blocks - 1U, ASFS_ROOTID) &&
+		ifs_sfs_check_block((struct fsBlockHeader *)backup, block_size,
+				 total_blocks - 1U, IFS_SFS_ROOTID) &&
 		sfs_root_status(backup) == IFS_SFS_ROOT_OK;
 
 	selected = ifs_sfs_select_root_copy(
@@ -258,7 +258,7 @@ static int sfs_load_root_pair(struct super_block *sb, int silent)
 		goto out;
 
 	if (!primary_valid || !backup_valid)
-		sbi->flags |= ASFS_READONLY;
+		sbi->flags |= IFS_SFS_READONLY;
 
 	result = 0;
 out:
@@ -271,38 +271,38 @@ out:
 
 static int sfs_load_runtime_state(struct super_block *sb)
 {
-	struct asfs_sb_info *sbi = ASFS_SB(sb);
+	struct ifs_sfs_sb_info *sbi = IFS_SFS_SB(sb);
 	struct buffer_head *bh;
 
-	bh = asfs_breadcheck(
-		sb, sbi->rootobjectcontainer, ASFS_OBJECTCONTAINER_ID);
+	bh = ifs_sfs_breadcheck(
+		sb, sbi->rootobjectcontainer, IFS_SFS_OBJECTCONTAINER_ID);
 	if (!bh) {
 		sbi->freeblocks = 0;
-		sbi->flags |= ASFS_READONLY;
+		sbi->flags |= IFS_SFS_READONLY;
 	} else {
 		struct fsRootInfo *root_info =
 			(struct fsRootInfo *)((u8 *)bh->b_data +
 				sb->s_blocksize - sizeof(struct fsRootInfo));
 
 		sbi->freeblocks = be32_to_cpu(root_info->freeblocks);
-		asfs_brelse(bh);
+		ifs_sfs_brelse(bh);
 	}
 
-#ifdef CONFIG_ASFS_RW
-	bh = asfs_breadcheck(
+#ifdef CONFIG_IFS_SFS_RW
+	bh = ifs_sfs_breadcheck(
 		sb, sbi->rootobjectcontainer + 2U,
-		ASFS_TRANSACTIONFAILURE_ID);
+		IFS_SFS_TRANSACTIONFAILURE_ID);
 	if (bh) {
-		sbi->flags |= ASFS_READONLY;
-		asfs_brelse(bh);
+		sbi->flags |= IFS_SFS_READONLY;
+		ifs_sfs_brelse(bh);
 	}
 #else
-	sbi->flags |= ASFS_READONLY;
+	sbi->flags |= IFS_SFS_READONLY;
 #endif
 	return 0;
 }
 
-static int sfs_load_nls(struct asfs_sb_info *sbi)
+static int sfs_load_nls(struct ifs_sfs_sb_info *sbi)
 {
 	if (!sbi->codepage[0] || strcmp(sbi->codepage, "none") == 0)
 		return 0;
@@ -320,7 +320,7 @@ static int sfs_load_nls(struct asfs_sb_info *sbi)
 	return 0;
 }
 
-static void sfs_release_options(struct asfs_sb_info *sbi)
+static void sfs_release_options(struct ifs_sfs_sb_info *sbi)
 {
 	if (!sbi)
 		return;
@@ -340,7 +340,7 @@ static void sfs_release_options(struct asfs_sb_info *sbi)
 
 static void sfs_put_super(struct super_block *sb)
 {
-	struct asfs_sb_info *sbi = ASFS_SB(sb);
+	struct ifs_sfs_sb_info *sbi = IFS_SFS_SB(sb);
 
 	sfs_release_options(sbi);
 	kfree(sbi);
@@ -350,21 +350,21 @@ static void sfs_put_super(struct super_block *sb)
 static int sfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	struct super_block *sb = dentry->d_sb;
-	struct asfs_sb_info *sbi = ASFS_SB(sb);
+	struct ifs_sfs_sb_info *sbi = IFS_SFS_SB(sb);
 
-	buf->f_type = ASFS_MAGIC;
+	buf->f_type = IFS_SFS_MAGIC;
 	buf->f_bsize = sb->s_blocksize;
 	buf->f_blocks = sbi->totalblocks;
 	buf->f_bfree = sbi->freeblocks;
 	buf->f_bavail = sbi->freeblocks;
-	buf->f_namelen = ASFS_MAXFN;
+	buf->f_namelen = IFS_SFS_MAXFN;
 	return 0;
 }
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 static int sfs_remount(struct super_block *sb, int *flags, char *data)
 {
-	struct asfs_sb_info *sbi = ASFS_SB(sb);
+	struct ifs_sfs_sb_info *sbi = IFS_SFS_SB(sb);
 	int result = sfs_parse_mount_options(data, sb);
 
 	if (result)
@@ -375,7 +375,7 @@ static int sfs_remount(struct super_block *sb, int *flags, char *data)
 		return 0;
 	}
 
-	if (sbi->flags & ASFS_READONLY)
+	if (sbi->flags & IFS_SFS_READONLY)
 		return -EROFS;
 
 	sb->s_flags &= ~SB_RDONLY;
@@ -385,7 +385,7 @@ static int sfs_remount(struct super_block *sb, int *flags, char *data)
 
 static struct inode *sfs_alloc_inode(struct super_block *sb)
 {
-	struct asfs_inode_info *info =
+	struct ifs_sfs_inode_info *info =
 		alloc_inode_sb(sb, sfs_inode_cache, GFP_KERNEL);
 
 	if (!info)
@@ -397,12 +397,12 @@ static struct inode *sfs_alloc_inode(struct super_block *sb)
 
 static void sfs_free_inode(struct inode *inode)
 {
-	kmem_cache_free(sfs_inode_cache, ASFS_I(inode));
+	kmem_cache_free(sfs_inode_cache, IFS_SFS_I(inode));
 }
 
 static void sfs_inode_init_once(void *object)
 {
-	struct asfs_inode_info *info = object;
+	struct ifs_sfs_inode_info *info = object;
 
 	inode_init_once(&info->vfs_inode);
 }
@@ -410,7 +410,7 @@ static void sfs_inode_init_once(void *object)
 static int sfs_init_inode_cache(void)
 {
 	sfs_inode_cache = kmem_cache_create(
-		"sfs_inode_cache", sizeof(struct asfs_inode_info),
+		"sfs_inode_cache", sizeof(struct ifs_sfs_inode_info),
 		0, SLAB_RECLAIM_ACCOUNT | SLAB_ACCOUNT,
 		sfs_inode_init_once);
 	return sfs_inode_cache ? 0 : -ENOMEM;
@@ -428,16 +428,16 @@ static const struct super_operations sfs_super_operations = {
 	.free_inode = sfs_free_inode,
 	.put_super = sfs_put_super,
 	.statfs = sfs_statfs,
-#if defined(CONFIG_ASFS_RW) && LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
+#if defined(CONFIG_IFS_SFS_RW) && LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
 	.remount_fs = sfs_remount,
 #endif
 };
 
-extern const struct dentry_operations asfs_dentry_operations;
+extern const struct dentry_operations ifs_sfs_dentry_operations;
 
 static int sfs_fill_super_data(struct super_block *sb, void *data, int silent)
 {
-	struct asfs_sb_info *sbi;
+	struct ifs_sfs_sb_info *sbi;
 	struct inode *root_inode;
 	int result;
 
@@ -447,9 +447,9 @@ static int sfs_fill_super_data(struct super_block *sb, void *data, int silent)
 
 	sb->s_fs_info = sbi;
 	mutex_init(&sbi->lock);
-	sbi->uid = ASFS_DEFAULT_UID;
-	sbi->gid = ASFS_DEFAULT_GID;
-	sbi->mode = ASFS_DEFAULT_MODE;
+	sbi->uid = IFS_SFS_DEFAULT_UID;
+	sbi->gid = IFS_SFS_DEFAULT_GID;
+	sbi->mode = IFS_SFS_DEFAULT_MODE;
 	sbi->iocharset = sfs_default_iocharset;
 	sbi->codepage = sfs_default_codepage;
 
@@ -457,7 +457,7 @@ static int sfs_fill_super_data(struct super_block *sb, void *data, int silent)
 	if (result)
 		goto fail;
 
-	sb->s_maxbytes = ASFS_MAXFILESIZE;
+	sb->s_maxbytes = IFS_SFS_MAXFILESIZE;
 	result = sfs_load_root_pair(sb, silent);
 	if (result)
 		goto fail;
@@ -470,20 +470,20 @@ static int sfs_fill_super_data(struct super_block *sb, void *data, int silent)
 	if (result)
 		goto fail;
 
-	sb->s_magic = ASFS_MAGIC;
+	sb->s_magic = IFS_SFS_MAGIC;
 	sb->s_flags |= SB_NODEV | SB_NOSUID;
-	if (sbi->flags & ASFS_READONLY)
+	if (sbi->flags & IFS_SFS_READONLY)
 		sb->s_flags |= SB_RDONLY;
 	sb->s_op = &sfs_super_operations;
 
-	root_inode = asfs_get_root_inode(sb);
+	root_inode = ifs_sfs_get_root_inode(sb);
 	if (!root_inode) {
 		result = -EIO;
 		goto fail_after_ops;
 	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
-	set_default_d_op(sb, &asfs_dentry_operations);
+	set_default_d_op(sb, &ifs_sfs_dentry_operations);
 #endif
 	sb->s_root = d_make_root(root_inode);
 	if (!sb->s_root) {
@@ -492,7 +492,7 @@ static int sfs_fill_super_data(struct super_block *sb, void *data, int silent)
 	}
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
-	d_set_d_op(sb->s_root, &asfs_dentry_operations);
+	d_set_d_op(sb->s_root, &ifs_sfs_dentry_operations);
 #endif
 	return 0;
 
@@ -555,7 +555,7 @@ static int sfs_get_tree(struct fs_context *fc)
 	return get_tree_bdev(fc, sfs_fill_super);
 }
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 static int sfs_reconfigure(struct fs_context *fc)
 {
 	struct ifs_sfs_fs_context *context = fc->fs_private;
@@ -591,7 +591,7 @@ static void sfs_free_fs_context(struct fs_context *fc)
 static const struct fs_context_operations sfs_context_operations = {
 	.parse_monolithic = sfs_parse_monolithic,
 	.get_tree = sfs_get_tree,
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 	.reconfigure = sfs_reconfigure,
 #endif
 	.free = sfs_free_fs_context,

@@ -10,7 +10,7 @@
 #include <linux/string.h>
 #include "linux_adapter.h"
 
-extern const struct dentry_operations asfs_dentry_operations;
+extern const struct dentry_operations ifs_sfs_dentry_operations;
 
 static unsigned int sfs_object_dtype(const struct fsObject *object)
 {
@@ -28,24 +28,24 @@ static struct fsObject *sfs_find_translated_object(
     const u8 *name)
 {
     struct fsObject *object = &container->object[0];
-    u8 translated[ASFS_MAXFN_BUF];
+    u8 translated[IFS_SFS_MAXFN_BUF];
 
-    while (asfs_object_slot_fits(sb, container, object) &&
+    while (ifs_sfs_object_slot_fits(sb, container, object) &&
            be32_to_cpu(object->objectnode) != 0U) {
-        struct fsObject *next = asfs_nextobject(sb, container, object);
+        struct fsObject *next = ifs_sfs_nextobject(sb, container, object);
 
         if (!next)
             return ERR_PTR(-EUCLEAN);
 
-        asfs_translate(
+        ifs_sfs_translate(
             translated, object->name,
-            ASFS_SB(sb)->nls_io, ASFS_SB(sb)->nls_disk,
+            IFS_SFS_SB(sb)->nls_io, IFS_SFS_SB(sb)->nls_disk,
             sizeof(translated));
 
-        if (asfs_namecmp(
+        if (ifs_sfs_namecmp(
                 translated, (u8 *)name,
-                (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) != 0,
-                ASFS_SB(sb)->nls_io) == 0)
+                (IFS_SFS_SB(sb)->flags & IFS_SFS_ROOTBITS_CASESENSITIVE) != 0,
+                IFS_SFS_SB(sb)->nls_io) == 0)
             return object;
 
         object = next;
@@ -54,7 +54,7 @@ static struct fsObject *sfs_find_translated_object(
     return NULL;
 }
 
-int asfs_readdir(struct file *file, struct dir_context *ctx)
+int ifs_sfs_readdir(struct file *file, struct dir_context *ctx)
 {
     struct inode *dir = file_inode(file);
     struct super_block *sb = dir->i_sb;
@@ -63,28 +63,28 @@ int asfs_readdir(struct file *file, struct dir_context *ctx)
     u32 visited = 0U;
     bool emit_entries;
 
-    if (ctx->pos >= ASFS_SB(sb)->totalblocks)
+    if (ctx->pos >= IFS_SFS_SB(sb)->totalblocks)
         return 0;
     if (!dir_emit_dots(file, ctx))
         return 0;
 
-    if (ASFS_I(dir)->firstblock == 0U) {
-        ctx->pos = ASFS_SB(sb)->totalblocks;
-        ASFS_I(dir)->modified = 0;
+    if (IFS_SFS_I(dir)->firstblock == 0U) {
+        ctx->pos = IFS_SFS_SB(sb)->totalblocks;
+        IFS_SFS_I(dir)->modified = 0;
         file->private_data = NULL;
         return 0;
     }
 
     if (ctx->pos == 2) {
-        block = ASFS_I(dir)->firstblock;
+        block = IFS_SFS_I(dir)->firstblock;
         resume_node = 0U;
         emit_entries = true;
     } else {
         resume_node = (u32)(unsigned long)file->private_data;
         emit_entries = false;
-        block = ASFS_I(dir)->modified == 0
+        block = IFS_SFS_I(dir)->modified == 0
             ? (u32)ctx->pos
-            : ASFS_I(dir)->firstblock;
+            : IFS_SFS_I(dir)->firstblock;
     }
 
     while (block != 0U) {
@@ -93,24 +93,24 @@ int asfs_readdir(struct file *file, struct dir_context *ctx)
         struct fsObject *object;
         u32 next_block;
 
-        if (++visited > ASFS_SB(sb)->totalblocks)
+        if (++visited > IFS_SFS_SB(sb)->totalblocks)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(sb, block, ASFS_OBJECTCONTAINER_ID);
+        bh = ifs_sfs_breadcheck(sb, block, IFS_SFS_OBJECTCONTAINER_ID);
         if (!bh)
             return -EIO;
 
         container = (struct fsObjectContainer *)bh->b_data;
         object = &container->object[0];
 
-        while (asfs_object_slot_fits(sb, container, object) &&
+        while (ifs_sfs_object_slot_fits(sb, container, object) &&
                be32_to_cpu(object->objectnode) != 0U) {
             struct fsObject *next =
-                asfs_nextobject(sb, container, object);
+                ifs_sfs_nextobject(sb, container, object);
             const u32 object_node = be32_to_cpu(object->objectnode);
 
             if (!next) {
-                asfs_brelse(bh);
+                ifs_sfs_brelse(bh);
                 return -EUCLEAN;
             }
 
@@ -118,11 +118,11 @@ int asfs_readdir(struct file *file, struct dir_context *ctx)
                 emit_entries = true;
 
             if (emit_entries && (object->bits & OTYPE_HIDDEN) == 0U) {
-                u8 display_name[ASFS_MAXFN_BUF];
+                u8 display_name[IFS_SFS_MAXFN_BUF];
 
-                asfs_translate(
+                ifs_sfs_translate(
                     display_name, object->name,
-                    ASFS_SB(sb)->nls_io, ASFS_SB(sb)->nls_disk,
+                    IFS_SFS_SB(sb)->nls_io, IFS_SFS_SB(sb)->nls_disk,
                     sizeof(display_name));
                 ctx->pos = block;
 
@@ -133,8 +133,8 @@ int asfs_readdir(struct file *file, struct dir_context *ctx)
                         object_node, sfs_object_dtype(object))) {
                     file->private_data =
                         (void *)(unsigned long)object_node;
-                    ASFS_I(dir)->modified = 0;
-                    asfs_brelse(bh);
+                    IFS_SFS_I(dir)->modified = 0;
+                    ifs_sfs_brelse(bh);
                     return 0;
                 }
             }
@@ -143,12 +143,12 @@ int asfs_readdir(struct file *file, struct dir_context *ctx)
         }
 
         next_block = be32_to_cpu(container->next);
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         block = next_block;
     }
 
-    ctx->pos = ASFS_SB(sb)->totalblocks;
-    ASFS_I(dir)->modified = 0;
+    ctx->pos = IFS_SFS_SB(sb)->totalblocks;
+    IFS_SFS_I(dir)->modified = 0;
     file->private_data = NULL;
     return 0;
 }
@@ -167,13 +167,13 @@ static int sfs_instantiate_lookup(
         return -ENOMEM;
 
     if (IFS_SFS_INODE_IS_NEW(inode)) {
-        asfs_read_locked_inode(inode, object);
+        ifs_sfs_read_locked_inode(inode, object);
         unlock_new_inode(inode);
     }
 
-    asfs_brelse(object_bh);
+    ifs_sfs_brelse(object_bh);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
-    d_set_d_op(dentry, &asfs_dentry_operations);
+    d_set_d_op(dentry, &ifs_sfs_dentry_operations);
 #endif
     d_add(dentry, inode);
     return 0;
@@ -188,20 +188,20 @@ static int sfs_lookup_hashed(
     struct buffer_head *hash_bh;
     u16 hash;
     u32 node;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
-    hash_bh = asfs_breadcheck(
-        sb, ASFS_I(dir)->hashtable, ASFS_HASHTABLE_ID);
+    hash_bh = ifs_sfs_breadcheck(
+        sb, IFS_SFS_I(dir)->hashtable, IFS_SFS_HASHTABLE_ID);
     if (!hash_bh)
         return -EIO;
 
-    hash = asfs_hash(
+    hash = ifs_sfs_hash(
         disk_name,
-        (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) != 0);
+        (IFS_SFS_SB(sb)->flags & IFS_SFS_ROOTBITS_CASESENSITIVE) != 0);
     node = be32_to_cpu(
         ((struct fsHashTable *)hash_bh->b_data)->
             hashentry[HASHCHAIN(hash)]);
-    asfs_brelse(hash_bh);
+    ifs_sfs_brelse(hash_bh);
 
     while (node != 0U) {
         struct buffer_head *node_bh = NULL;
@@ -214,40 +214,40 @@ static int sfs_lookup_hashed(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        result = asfs_getnode(sb, node, &node_bh, &node_entry);
+        result = ifs_sfs_getnode(sb, node, &node_bh, &node_entry);
         if (result != 0)
             return result;
 
         next_node = be32_to_cpu(node_entry->next);
         if (be16_to_cpu(node_entry->hash16) == hash) {
-            object_bh = asfs_breadcheck(
+            object_bh = ifs_sfs_breadcheck(
                 sb, be32_to_cpu(node_entry->node.data),
-                ASFS_OBJECTCONTAINER_ID);
+                IFS_SFS_OBJECTCONTAINER_ID);
             if (!object_bh) {
-                asfs_brelse(node_bh);
+                ifs_sfs_brelse(node_bh);
                 return -EIO;
             }
 
-            object = asfs_find_obj_by_name(
+            object = ifs_sfs_find_obj_by_name(
                 sb, (struct fsObjectContainer *)object_bh->b_data,
                 disk_name);
             if (IS_ERR(object)) {
                 result = PTR_ERR(object);
-                asfs_brelse(object_bh);
-                asfs_brelse(node_bh);
+                ifs_sfs_brelse(object_bh);
+                ifs_sfs_brelse(node_bh);
                 return result;
             }
 
             if (object) {
-                asfs_brelse(node_bh);
+                ifs_sfs_brelse(node_bh);
                 return sfs_instantiate_lookup(
                     sb, dentry, object_bh, object);
             }
 
-            asfs_brelse(object_bh);
+            ifs_sfs_brelse(object_bh);
         }
 
-        asfs_brelse(node_bh);
+        ifs_sfs_brelse(node_bh);
         node = next_node;
     }
 
@@ -260,8 +260,8 @@ static int sfs_lookup_linear(
     const u8 *io_name)
 {
     struct super_block *sb = dir->i_sb;
-    u32 block = ASFS_I(dir)->firstblock;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 block = IFS_SFS_I(dir)->firstblock;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     while (block != 0U) {
         struct buffer_head *bh;
@@ -272,7 +272,7 @@ static int sfs_lookup_linear(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(sb, block, ASFS_OBJECTCONTAINER_ID);
+        bh = ifs_sfs_breadcheck(sb, block, IFS_SFS_OBJECTCONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -280,49 +280,49 @@ static int sfs_lookup_linear(
         object = sfs_find_translated_object(sb, container, io_name);
         if (IS_ERR(object)) {
             int result = PTR_ERR(object);
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return result;
         }
         if (object)
             return sfs_instantiate_lookup(sb, dentry, bh, object);
 
         next_block = be32_to_cpu(container->next);
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         block = next_block;
     }
 
     return -ENOENT;
 }
 
-struct dentry *asfs_lookup(
+struct dentry *ifs_sfs_lookup(
     struct inode *dir,
     struct dentry *dentry,
     unsigned int flags)
 {
     struct super_block *sb = dir->i_sb;
-    u8 disk_name[ASFS_MAXFN_BUF];
+    u8 disk_name[IFS_SFS_MAXFN_BUF];
     int result;
 
     (void)flags;
 
-    result = asfs_check_name(
+    result = ifs_sfs_check_name(
         dentry->d_name.name, (int)dentry->d_name.len);
     if (result != 0)
         return ERR_PTR(result);
 
-    asfs_translate(
+    ifs_sfs_translate(
         disk_name, (u8 *)dentry->d_name.name,
-        ASFS_SB(sb)->nls_disk, ASFS_SB(sb)->nls_io,
+        IFS_SFS_SB(sb)->nls_disk, IFS_SFS_SB(sb)->nls_io,
         sizeof(disk_name));
 
-    mutex_lock(&ASFS_SB(sb)->lock);
-    if (ASFS_I(dir)->hashtable != 0U &&
+    mutex_lock(&IFS_SFS_SB(sb)->lock);
+    if (IFS_SFS_I(dir)->hashtable != 0U &&
         strchr((const char *)disk_name, '?') == NULL)
         result = sfs_lookup_hashed(dir, dentry, disk_name);
     else
         result = sfs_lookup_linear(
             dir, dentry, dentry->d_name.name);
-    mutex_unlock(&ASFS_SB(sb)->lock);
+    mutex_unlock(&IFS_SFS_SB(sb)->lock);
 
     if (result == 0)
         return NULL;
@@ -330,7 +330,7 @@ struct dentry *asfs_lookup(
         return ERR_PTR(result);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
-    d_set_d_op(dentry, &asfs_dentry_operations);
+    d_set_d_op(dentry, &ifs_sfs_dentry_operations);
 #endif
     d_add(dentry, NULL);
     return NULL;
@@ -354,12 +354,12 @@ static u8 sfs_linux_upper_character(u8 character, struct nls_table *table)
     return ifs_sfs_fold_character(character);
 }
 
-u8 asfs_lowerchar(u8 character)
+u8 ifs_sfs_lowerchar(u8 character)
 {
     return ifs_sfs_lower_character(character);
 }
 
-int asfs_check_name(const u8 *name, int length)
+int ifs_sfs_check_name(const u8 *name, int length)
 {
     IfsSfsNameStatus status;
 
@@ -381,15 +381,15 @@ int asfs_check_name(const u8 *name, int length)
 static int sfs_hash_dentry(const struct dentry *parent, struct qstr *name)
 {
     struct super_block *sb = d_inode(parent)->i_sb;
-    struct nls_table *nls = ASFS_SB(sb)->nls_io;
+    struct nls_table *nls = IFS_SFS_SB(sb)->nls_io;
     const bool case_sensitive =
-        (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) != 0;
+        (IFS_SFS_SB(sb)->flags & IFS_SFS_ROOTBITS_CASESENSITIVE) != 0;
     const u8 *cursor = name->name;
     unsigned long hash;
     unsigned int index;
     int result;
 
-    result = asfs_check_name(name->name, (int)name->len);
+    result = ifs_sfs_check_name(name->name, (int)name->len);
     if (result != 0)
         return result;
 
@@ -412,12 +412,12 @@ static int sfs_compare_dentry(
     const struct qstr *candidate)
 {
     struct super_block *sb = d_inode(parent)->i_sb;
-    struct nls_table *nls = ASFS_SB(sb)->nls_io;
+    struct nls_table *nls = IFS_SFS_SB(sb)->nls_io;
     const bool case_sensitive =
-        (ASFS_SB(sb)->flags & ASFS_ROOTBITS_CASESENSITIVE) != 0;
+        (IFS_SFS_SB(sb)->flags & IFS_SFS_ROOTBITS_CASESENSITIVE) != 0;
     unsigned int index;
 
-    if (asfs_check_name(candidate->name, (int)candidate->len) != 0 ||
+    if (ifs_sfs_check_name(candidate->name, (int)candidate->len) != 0 ||
         existing_length != candidate->len)
         return 1;
 
@@ -433,12 +433,12 @@ static int sfs_compare_dentry(
     return 0;
 }
 
-const struct dentry_operations asfs_dentry_operations = {
+const struct dentry_operations ifs_sfs_dentry_operations = {
     .d_hash = sfs_hash_dentry,
     .d_compare = sfs_compare_dentry,
 };
 
-int asfs_namecmp(
+int ifs_sfs_namecmp(
     u8 *disk_name,
     u8 *component,
     int case_sensitive,
@@ -468,12 +468,12 @@ int asfs_namecmp(
     return (int)*component - (int)*disk_name;
 }
 
-u16 asfs_hash(u8 *name, int case_sensitive)
+u16 ifs_sfs_hash(u8 *name, int case_sensitive)
 {
     return ifs_sfs_component_hash(name, case_sensitive);
 }
 
-void asfs_translate(
+void ifs_sfs_translate(
     u8 *destination,
     u8 *source,
     struct nls_table *destination_nls,
@@ -587,7 +587,7 @@ static int sfs_link_convert_one(
     if (!source_nls || !destination_nls) {
         raw = (unsigned char)source[0];
         if (lower)
-            raw = asfs_lowerchar(raw);
+            raw = ifs_sfs_lowerchar(raw);
         *consumed = 1U;
         return sfs_link_append_byte(writer, (char)raw);
     }
@@ -606,7 +606,7 @@ static int sfs_link_convert_one(
         return sfs_link_append_byte(writer, '?');
 
     if (lower && output_count == 1)
-        temporary[0] = (char)asfs_lowerchar((u8)temporary[0]);
+        temporary[0] = (char)ifs_sfs_lowerchar((u8)temporary[0]);
 
     return sfs_link_append_bytes(
         writer, temporary, (size_t)output_count);
@@ -617,7 +617,7 @@ static void sfs_free_link(void *link)
     kfree(link);
 }
 
-const char *asfs_get_link(
+const char *ifs_sfs_get_link(
     struct dentry *dentry,
     struct inode *inode,
     struct delayed_call *done)
@@ -639,13 +639,13 @@ const char *asfs_get_link(
         return ERR_PTR(-ECHILD);
 
     sb = inode->i_sb;
-    bh = asfs_breadcheck(
-        sb, ASFS_I(inode)->firstblock, ASFS_SOFTLINK_ID);
+    bh = ifs_sfs_breadcheck(
+        sb, IFS_SFS_I(inode)->firstblock, IFS_SFS_SOFTLINK_ID);
     if (!bh)
         return ERR_PTR(-EIO);
 
     if (sb->s_blocksize <= sizeof(struct fsSoftLink)) {
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         return ERR_PTR(-EUCLEAN);
     }
 
@@ -655,14 +655,14 @@ const char *asfs_get_link(
         source, '\0',
         sb->s_blocksize - sizeof(struct fsSoftLink));
     if (!end) {
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         return ERR_PTR(-EUCLEAN);
     }
 
     source_length = (size_t)(end - source);
     writer.data = kzalloc(PATH_MAX, GFP_KERNEL);
     if (!writer.data) {
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         return ERR_PTR(-ENOMEM);
     }
     writer.capacity = PATH_MAX;
@@ -671,7 +671,7 @@ const char *asfs_get_link(
     colon = memchr(source, ':', source_length);
     if (colon) {
         const size_t volume_length = (size_t)(colon - source);
-        const char *root_volume = ASFS_SB(sb)->root_volume;
+        const char *root_volume = IFS_SFS_SB(sb)->root_volume;
         const bool is_root_volume =
             root_volume != NULL &&
             strlen(root_volume) == volume_length &&
@@ -682,7 +682,7 @@ const char *asfs_get_link(
         } else {
             size_t index = 0U;
 
-            prefix = ASFS_SB(sb)->prefix;
+            prefix = IFS_SFS_SB(sb)->prefix;
             if (!prefix)
                 prefix = "/";
 
@@ -692,8 +692,8 @@ const char *asfs_get_link(
                 size_t consumed = 0U;
                 result = sfs_link_convert_one(
                     &writer, source + index, volume_length - index,
-                    ASFS_SB(sb)->nls_disk, ASFS_SB(sb)->nls_io,
-                    (ASFS_SB(sb)->flags & ASFS_VOL_LOWERCASE) != 0,
+                    IFS_SFS_SB(sb)->nls_disk, IFS_SFS_SB(sb)->nls_io,
+                    (IFS_SFS_SB(sb)->flags & IFS_SFS_VOL_LOWERCASE) != 0,
                     &consumed);
                 if (consumed == 0U)
                     result = -EUCLEAN;
@@ -727,7 +727,7 @@ const char *asfs_get_link(
             result = sfs_link_convert_one(
                 &writer, source + source_index,
                 source_length - source_index,
-                ASFS_SB(sb)->nls_disk, ASFS_SB(sb)->nls_io,
+                IFS_SFS_SB(sb)->nls_disk, IFS_SFS_SB(sb)->nls_io,
                 false, &consumed);
         }
         if (result != 0 || consumed == 0U)
@@ -737,19 +737,19 @@ const char *asfs_get_link(
         source_index += consumed;
     }
 
-    asfs_brelse(bh);
+    ifs_sfs_brelse(bh);
     set_delayed_call(done, sfs_free_link, writer.data);
     return writer.data;
 
 fail:
-    asfs_brelse(bh);
+    ifs_sfs_brelse(bh);
     kfree(writer.data);
     return ERR_PTR(result != 0 ? result : -EUCLEAN);
 }
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 
-int asfs_write_symlink(struct inode *inode, const char *target)
+int ifs_sfs_write_symlink(struct inode *inode, const char *target)
 {
     struct super_block *sb = inode->i_sb;
     struct buffer_head *bh;
@@ -762,13 +762,13 @@ int asfs_write_symlink(struct inode *inode, const char *target)
     if (!target)
         return -EINVAL;
 
-    bh = asfs_breadcheck(
-        sb, ASFS_I(inode)->firstblock, ASFS_SOFTLINK_ID);
+    bh = ifs_sfs_breadcheck(
+        sb, IFS_SFS_I(inode)->firstblock, IFS_SFS_SOFTLINK_ID);
     if (!bh)
         return -EIO;
 
     if (sb->s_blocksize <= sizeof(struct fsSoftLink) + 1U) {
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         return -EUCLEAN;
     }
 
@@ -785,7 +785,7 @@ int asfs_write_symlink(struct inode *inode, const char *target)
     }
 
     if (*cursor == '/') {
-        const char *prefix = ASFS_SB(sb)->prefix;
+        const char *prefix = IFS_SFS_SB(sb)->prefix;
         size_t prefix_length = prefix ? strlen(prefix) : 0U;
 
         while (*cursor == '/')
@@ -804,7 +804,7 @@ int asfs_write_symlink(struct inode *inode, const char *target)
                 size_t consumed = 0U;
                 result = sfs_link_convert_one(
                     &writer, volume + index, volume_length - index,
-                    ASFS_SB(sb)->nls_io, ASFS_SB(sb)->nls_disk,
+                    IFS_SFS_SB(sb)->nls_io, IFS_SFS_SB(sb)->nls_disk,
                     false, &consumed);
                 if (result != 0 || consumed == 0U)
                     goto out;
@@ -814,10 +814,10 @@ int asfs_write_symlink(struct inode *inode, const char *target)
             if (result != 0)
                 goto out;
             cursor = slash ? slash + 1 : volume + volume_length;
-        } else if (ASFS_SB(sb)->root_volume) {
+        } else if (IFS_SFS_SB(sb)->root_volume) {
             result = sfs_link_append_bytes(
-                &writer, ASFS_SB(sb)->root_volume,
-                strlen(ASFS_SB(sb)->root_volume));
+                &writer, IFS_SFS_SB(sb)->root_volume,
+                strlen(IFS_SFS_SB(sb)->root_volume));
             if (result == 0)
                 result = sfs_link_append_byte(&writer, ':');
             if (result != 0)
@@ -857,7 +857,7 @@ int asfs_write_symlink(struct inode *inode, const char *target)
             size_t consumed = 0U;
             result = sfs_link_convert_one(
                 &writer, cursor, remaining,
-                ASFS_SB(sb)->nls_io, ASFS_SB(sb)->nls_disk,
+                IFS_SFS_SB(sb)->nls_io, IFS_SFS_SB(sb)->nls_disk,
                 false, &consumed);
             if (result != 0 || consumed == 0U)
                 goto out;
@@ -865,10 +865,10 @@ int asfs_write_symlink(struct inode *inode, const char *target)
         }
     }
 
-    asfs_bstore(sb, bh);
+    ifs_sfs_bstore(sb, bh);
 
 out:
-    asfs_brelse(bh);
+    ifs_sfs_brelse(bh);
     return result;
 }
 

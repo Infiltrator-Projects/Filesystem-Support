@@ -67,8 +67,8 @@ static int sfs_find_leaf(
     struct buffer_head **returned_bh,
     struct BNode **returned_node)
 {
-    u32 block = ASFS_SB(sb)->extentbnoderoot;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 block = IFS_SFS_SB(sb)->extentbnoderoot;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     if (!returned_bh || !returned_node)
         return -EINVAL;
@@ -86,8 +86,8 @@ static int sfs_find_leaf(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
-            sb, block, ASFS_BNODECONTAINER_ID);
+        bh = ifs_sfs_breadcheck(
+            sb, block, IFS_SFS_BNODECONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -97,7 +97,7 @@ static int sfs_find_leaf(
 
         if (sfs_validate_btree(
                 sb, tree, &capacity) != 0) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
@@ -114,7 +114,7 @@ static int sfs_find_leaf(
 
         if (count == 0U ||
             tree->nodesize != sizeof(struct BNode)) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
@@ -127,9 +127,9 @@ static int sfs_find_leaf(
             const u32 next =
                 be32_to_cpu(node->data);
 
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             if (next == 0U ||
-                next >= ASFS_SB(sb)->totalblocks)
+                next >= IFS_SFS_SB(sb)->totalblocks)
                 return -EUCLEAN;
             block = next;
         }
@@ -138,7 +138,7 @@ static int sfs_find_leaf(
     return -EUCLEAN;
 }
 
-int asfs_getextent(
+int ifs_sfs_getextent(
     struct super_block *sb,
     u32 key,
     struct buffer_head **returned_bh,
@@ -159,7 +159,7 @@ int asfs_getextent(
         return result;
 
     if (!node || be32_to_cpu(node->key) != key) {
-        asfs_brelse(*returned_bh);
+        ifs_sfs_brelse(*returned_bh);
         *returned_bh = NULL;
         return -ENOENT;
     }
@@ -170,8 +170,8 @@ int asfs_getextent(
             be32_to_cpu((*returned_extent)->key),
             be32_to_cpu((*returned_extent)->next),
             be16_to_cpu((*returned_extent)->blocks),
-            ASFS_SB(sb)->totalblocks) != 0) {
-        asfs_brelse(*returned_bh);
+            IFS_SFS_SB(sb)->totalblocks) != 0) {
+        ifs_sfs_brelse(*returned_bh);
         *returned_bh = NULL;
         *returned_extent = NULL;
         return -EUCLEAN;
@@ -180,7 +180,7 @@ int asfs_getextent(
     return 0;
 }
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 
 static struct BNode *sfs_insert_sorted(
     struct BTreeContainer *tree,
@@ -243,15 +243,15 @@ static int sfs_promote_full_root(
     first_key =
         be32_to_cpu(tree->bnode[0].key);
 
-    result = asfs_allocadminspace(
+    result = ifs_sfs_allocadminspace(
         sb, &copy_block);
     if (result != 0)
         return result;
 
-    copy_bh = asfs_getzeroblk(
+    copy_bh = ifs_sfs_getzeroblk(
         sb, copy_block);
     if (!copy_bh) {
-        (void)asfs_freeadminspace(
+        (void)ifs_sfs_freeadminspace(
             sb, copy_block);
         return -EIO;
     }
@@ -261,14 +261,14 @@ static int sfs_promote_full_root(
     memcpy(copy, root, sb->s_blocksize);
     copy->bheader.ownblock =
         cpu_to_be32(copy_block);
-    asfs_bstore(sb, copy_bh);
-    asfs_brelse(copy_bh);
+    ifs_sfs_bstore(sb, copy_bh);
+    ifs_sfs_brelse(copy_bh);
 
     memset(root_bh->b_data, 0, sb->s_blocksize);
     root =
         (struct fsBNodeContainer *)root_bh->b_data;
     root->bheader.id =
-        cpu_to_be32(ASFS_BNODECONTAINER_ID);
+        cpu_to_be32(IFS_SFS_BNODECONTAINER_ID);
     root->bheader.ownblock =
         cpu_to_be32(root_block);
     root->btc.isleaf = FALSE;
@@ -278,7 +278,7 @@ static int sfs_promote_full_root(
         cpu_to_be32(first_key);
     root->btc.bnode[0].data =
         cpu_to_be32(copy_block);
-    asfs_bstore(sb, root_bh);
+    ifs_sfs_bstore(sb, root_bh);
     return 0;
 }
 
@@ -332,15 +332,15 @@ static int sfs_split_child(
     left_count = child_count / 2U;
     right_count = child_count - left_count;
 
-    result = asfs_allocadminspace(
+    result = ifs_sfs_allocadminspace(
         sb, &right_block);
     if (result != 0)
         return result;
 
-    right_bh = asfs_getzeroblk(
+    right_bh = ifs_sfs_getzeroblk(
         sb, right_block);
     if (!right_bh) {
-        (void)asfs_freeadminspace(
+        (void)ifs_sfs_freeadminspace(
             sb, right_block);
         return -EIO;
     }
@@ -349,7 +349,7 @@ static int sfs_split_child(
         (struct fsBNodeContainer *)
             right_bh->b_data;
     right_container->bheader.id =
-        cpu_to_be32(ASFS_BNODECONTAINER_ID);
+        cpu_to_be32(IFS_SFS_BNODECONTAINER_ID);
     right_container->bheader.ownblock =
         cpu_to_be32(right_block);
     right = &right_container->btc;
@@ -384,8 +384,8 @@ static int sfs_split_child(
             right_count * child->nodesize);
         child->nodecount =
             cpu_to_be16(child_count);
-        asfs_brelse(right_bh);
-        (void)asfs_freeadminspace(
+        ifs_sfs_brelse(right_bh);
+        (void)ifs_sfs_freeadminspace(
             sb, right_block);
         return IS_ERR(parent_node)
             ? PTR_ERR(parent_node) : -EUCLEAN;
@@ -396,10 +396,10 @@ static int sfs_split_child(
     sfs_bnode_at(parent, child_index)->key =
         child->bnode[0].key;
 
-    asfs_bstore(sb, child_bh);
-    asfs_bstore(sb, right_bh);
-    asfs_bstore(sb, parent_bh);
-    asfs_brelse(right_bh);
+    ifs_sfs_bstore(sb, child_bh);
+    ifs_sfs_bstore(sb, right_bh);
+    ifs_sfs_bstore(sb, parent_bh);
+    ifs_sfs_brelse(right_bh);
 
     *right_block_out = right_block;
     *right_key_out = right_key;
@@ -413,9 +413,9 @@ static int sfs_create_extent_node(
     struct fsExtentBNode **returned_extent)
 {
     const u32 root_block =
-        ASFS_SB(sb)->extentbnoderoot;
+        IFS_SFS_SB(sb)->extentbnoderoot;
     u32 block = root_block;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     if (!returned_bh || !returned_extent)
         return -EINVAL;
@@ -436,8 +436,8 @@ restart:
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
-            sb, block, ASFS_BNODECONTAINER_ID);
+        bh = ifs_sfs_breadcheck(
+            sb, block, IFS_SFS_BNODECONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -446,7 +446,7 @@ restart:
         tree = &container->btc;
         if (sfs_validate_btree(
                 sb, tree, &capacity) != 0) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
@@ -455,13 +455,13 @@ restart:
             int result;
 
             if (block != root_block) {
-                asfs_brelse(bh);
+                ifs_sfs_brelse(bh);
                 return -EUCLEAN;
             }
 
             result = sfs_promote_full_root(
                 sb, bh);
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             if (result != 0)
                 return result;
             goto restart;
@@ -474,15 +474,15 @@ restart:
 
             if (IS_ERR(node)) {
                 int result = PTR_ERR(node);
-                asfs_brelse(bh);
+                ifs_sfs_brelse(bh);
                 return result;
             }
             if (!node) {
-                asfs_brelse(bh);
+                ifs_sfs_brelse(bh);
                 return -EUCLEAN;
             }
 
-            asfs_bstore(sb, bh);
+            ifs_sfs_bstore(sb, bh);
             *returned_bh = bh;
             *returned_extent =
                 (struct fsExtentBNode *)node;
@@ -491,7 +491,7 @@ restart:
 
         if (count == 0U ||
             tree->nodesize != sizeof(struct BNode)) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
@@ -514,16 +514,16 @@ restart:
 
             if (child_block == 0U ||
                 child_block >=
-                    ASFS_SB(sb)->totalblocks) {
-                asfs_brelse(bh);
+                    IFS_SFS_SB(sb)->totalblocks) {
+                ifs_sfs_brelse(bh);
                 return -EUCLEAN;
             }
 
-            child_bh = asfs_breadcheck(
+            child_bh = ifs_sfs_breadcheck(
                 sb, child_block,
-                ASFS_BNODECONTAINER_ID);
+                IFS_SFS_BNODECONTAINER_ID);
             if (!child_bh) {
-                asfs_brelse(bh);
+                ifs_sfs_brelse(bh);
                 return -EIO;
             }
 
@@ -535,8 +535,8 @@ restart:
             if (sfs_validate_btree(
                     sb, child_tree,
                     &child_capacity) != 0) {
-                asfs_brelse(child_bh);
-                asfs_brelse(bh);
+                ifs_sfs_brelse(child_bh);
+                ifs_sfs_brelse(bh);
                 return -EUCLEAN;
             }
 
@@ -548,8 +548,8 @@ restart:
                     child_bh,
                     &right_block, &right_key);
                 if (result != 0) {
-                    asfs_brelse(child_bh);
-                    asfs_brelse(bh);
+                    ifs_sfs_brelse(child_bh);
+                    ifs_sfs_brelse(bh);
                     return result;
                 }
 
@@ -557,8 +557,8 @@ restart:
                     child_block = right_block;
             }
 
-            asfs_brelse(child_bh);
-            asfs_brelse(bh);
+            ifs_sfs_brelse(child_bh);
+            ifs_sfs_brelse(bh);
             block = child_block;
         }
     }
@@ -573,8 +573,8 @@ static int sfs_find_parent(
     struct buffer_head **parent_bh,
     u32 *parent_index)
 {
-    u32 block = ASFS_SB(sb)->extentbnoderoot;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 block = IFS_SFS_SB(sb)->extentbnoderoot;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     if (!parent_bh || !parent_index)
         return -EINVAL;
@@ -596,8 +596,8 @@ static int sfs_find_parent(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
-            sb, block, ASFS_BNODECONTAINER_ID);
+        bh = ifs_sfs_breadcheck(
+            sb, block, IFS_SFS_BNODECONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -607,7 +607,7 @@ static int sfs_find_parent(
         if (sfs_validate_btree(
                 sb, tree, &capacity) != 0 ||
             tree->isleaf == TRUE) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
@@ -624,7 +624,7 @@ static int sfs_find_parent(
         }
 
         if (count == 0U) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
@@ -632,10 +632,10 @@ static int sfs_find_parent(
             tree, child_first_key);
         block = be32_to_cpu(
             sfs_bnode_at(tree, index)->data);
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
 
         if (block == 0U ||
-            block >= ASFS_SB(sb)->totalblocks)
+            block >= IFS_SFS_SB(sb)->totalblocks)
             return -EUCLEAN;
     }
 
@@ -673,10 +673,10 @@ static int sfs_update_first_key_upward(
     u32 old_key,
     u32 new_key)
 {
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     while (child_block !=
-           ASFS_SB(sb)->extentbnoderoot) {
+           IFS_SFS_SB(sb)->extentbnoderoot) {
         struct buffer_head *parent_bh = NULL;
         struct fsBNodeContainer *parent_container;
         struct BTreeContainer *parent;
@@ -709,14 +709,14 @@ static int sfs_update_first_key_upward(
 
         sfs_bnode_at(parent, index)->key =
             cpu_to_be32(new_key);
-        asfs_bstore(sb, parent_bh);
+        ifs_sfs_bstore(sb, parent_bh);
 
         if (index != 0U) {
-            asfs_brelse(parent_bh);
+            ifs_sfs_brelse(parent_bh);
             return 0;
         }
 
-        asfs_brelse(parent_bh);
+        ifs_sfs_brelse(parent_bh);
         child_block = parent_block;
         old_key = parent_old_key;
     }
@@ -728,7 +728,7 @@ static int sfs_collapse_root_if_possible(
     struct super_block *sb)
 {
     const u32 root_block =
-        ASFS_SB(sb)->extentbnoderoot;
+        IFS_SFS_SB(sb)->extentbnoderoot;
     struct buffer_head *root_bh;
     struct fsBNodeContainer *root;
     struct BTreeContainer *tree;
@@ -736,9 +736,9 @@ static int sfs_collapse_root_if_possible(
     u32 child_block;
     struct buffer_head *child_bh;
 
-    root_bh = asfs_breadcheck(
+    root_bh = ifs_sfs_breadcheck(
         sb, root_block,
-        ASFS_BNODECONTAINER_ID);
+        IFS_SFS_BNODECONTAINER_ID);
     if (!root_bh)
         return -EIO;
 
@@ -748,29 +748,29 @@ static int sfs_collapse_root_if_possible(
     tree = &root->btc;
     if (sfs_validate_btree(
             sb, tree, &capacity) != 0) {
-        asfs_brelse(root_bh);
+        ifs_sfs_brelse(root_bh);
         return -EUCLEAN;
     }
 
     if (tree->isleaf == TRUE ||
         be16_to_cpu(tree->nodecount) != 1U) {
-        asfs_brelse(root_bh);
+        ifs_sfs_brelse(root_bh);
         return 0;
     }
 
     child_block =
         be32_to_cpu(tree->bnode[0].data);
     if (child_block == 0U ||
-        child_block >= ASFS_SB(sb)->totalblocks) {
-        asfs_brelse(root_bh);
+        child_block >= IFS_SFS_SB(sb)->totalblocks) {
+        ifs_sfs_brelse(root_bh);
         return -EUCLEAN;
     }
 
-    child_bh = asfs_breadcheck(
+    child_bh = ifs_sfs_breadcheck(
         sb, child_block,
-        ASFS_BNODECONTAINER_ID);
+        IFS_SFS_BNODECONTAINER_ID);
     if (!child_bh) {
-        asfs_brelse(root_bh);
+        ifs_sfs_brelse(root_bh);
         return -EIO;
     }
 
@@ -783,11 +783,11 @@ static int sfs_collapse_root_if_possible(
             root_bh->b_data;
     root->bheader.ownblock =
         cpu_to_be32(root_block);
-    asfs_bstore(sb, root_bh);
-    asfs_brelse(child_bh);
-    asfs_brelse(root_bh);
+    ifs_sfs_bstore(sb, root_bh);
+    ifs_sfs_brelse(child_bh);
+    ifs_sfs_brelse(root_bh);
 
-    return asfs_freeadminspace(
+    return ifs_sfs_freeadminspace(
         sb, child_block);
 }
 
@@ -797,8 +797,8 @@ static int sfs_remove_empty_container(
     u32 old_first_key)
 {
     const u32 root_block =
-        ASFS_SB(sb)->extentbnoderoot;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+        IFS_SFS_SB(sb)->extentbnoderoot;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     while (child_block != root_block) {
         struct buffer_head *parent_bh = NULL;
@@ -836,12 +836,12 @@ static int sfs_remove_empty_container(
             parent, parent_index);
         parent_count =
             be16_to_cpu(parent->nodecount);
-        asfs_bstore(sb, parent_bh);
+        ifs_sfs_bstore(sb, parent_bh);
 
-        result = asfs_freeadminspace(
+        result = ifs_sfs_freeadminspace(
             sb, child_block);
         if (result != 0) {
-            asfs_brelse(parent_bh);
+            ifs_sfs_brelse(parent_bh);
             return result;
         }
 
@@ -850,12 +850,12 @@ static int sfs_remove_empty_container(
                 parent->isleaf = TRUE;
                 parent->nodesize =
                     IFS_SFS_BTREE_EXTENT_NODE_MIN_SIZE;
-                asfs_bstore(sb, parent_bh);
-                asfs_brelse(parent_bh);
+                ifs_sfs_bstore(sb, parent_bh);
+                ifs_sfs_brelse(parent_bh);
                 return 0;
             }
 
-            asfs_brelse(parent_bh);
+            ifs_sfs_brelse(parent_bh);
             return sfs_collapse_root_if_possible(
                 sb);
         }
@@ -867,7 +867,7 @@ static int sfs_remove_empty_container(
             const bool first_changed =
                 parent_index == 0U;
 
-            asfs_brelse(parent_bh);
+            ifs_sfs_brelse(parent_bh);
             if (first_changed)
                 return sfs_update_first_key_upward(
                     sb, parent_block,
@@ -876,7 +876,7 @@ static int sfs_remove_empty_container(
             return 0;
         }
 
-        asfs_brelse(parent_bh);
+        ifs_sfs_brelse(parent_bh);
         child_block = parent_block;
         old_first_key = parent_old_key;
     }
@@ -884,7 +884,7 @@ static int sfs_remove_empty_container(
     return 0;
 }
 
-int asfs_deletebnode(
+int ifs_sfs_deletebnode(
     struct super_block *sb,
     struct buffer_head *bh,
     u32 key)
@@ -927,12 +927,12 @@ int asfs_deletebnode(
         return -ENOENT;
 
     sfs_remove_bnode_at(tree, index);
-    asfs_bstore(sb, bh);
+    ifs_sfs_bstore(sb, bh);
 
     count = be16_to_cpu(tree->nodecount);
     if (count == 0U) {
         if (block ==
-            ASFS_SB(sb)->extentbnoderoot)
+            IFS_SFS_SB(sb)->extentbnoderoot)
             return 0;
         return sfs_remove_empty_container(
             sb, block, old_first_key);
@@ -947,11 +947,11 @@ int asfs_deletebnode(
     return 0;
 }
 
-int asfs_deleteextents(
+int ifs_sfs_deleteextents(
     struct super_block *sb,
     u32 key)
 {
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     while (key != 0U) {
         struct buffer_head *bh = NULL;
@@ -964,7 +964,7 @@ int asfs_deleteextents(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        result = asfs_getextent(
+        result = ifs_sfs_getextent(
             sb, key, &bh, &extent);
         if (result != 0)
             return result;
@@ -973,13 +973,13 @@ int asfs_deleteextents(
         extent_key = be32_to_cpu(extent->key);
         blocks = be16_to_cpu(extent->blocks);
 
-        result = asfs_freespace(
+        result = ifs_sfs_freespace(
             sb, extent_key, blocks);
         if (result == 0)
-            result = asfs_deletebnode(
+            result = ifs_sfs_deletebnode(
                 sb, bh, extent_key);
 
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         if (result != 0)
             return result;
 
@@ -989,7 +989,7 @@ int asfs_deleteextents(
     return 0;
 }
 
-int asfs_addblocks(
+int ifs_sfs_addblocks(
     struct super_block *sb,
     u16 blocks,
     u32 new_space,
@@ -1003,7 +1003,7 @@ int asfs_addblocks(
     if (!last_extent || blocks == 0U ||
         ifs_sfs_validate_extent(
             new_space, 0U, blocks,
-            ASFS_SB(sb)->totalblocks) != 0)
+            IFS_SFS_SB(sb)->totalblocks) != 0)
         return -EINVAL;
 
     if (*last_extent != 0U) {
@@ -1012,7 +1012,7 @@ int asfs_addblocks(
         u32 previous_end;
         u32 previous_blocks;
 
-        result = asfs_getextent(
+        result = ifs_sfs_getextent(
             sb, previous_key, &bh, &extent);
         if (result != 0)
             return result;
@@ -1028,15 +1028,15 @@ int asfs_addblocks(
                 0xffffU) {
             extent->blocks = cpu_to_be16(
                 previous_blocks + blocks);
-            asfs_bstore(sb, bh);
-            asfs_brelse(bh);
-            ASFS_SB(sb)->
+            ifs_sfs_bstore(sb, bh);
+            ifs_sfs_brelse(bh);
+            IFS_SFS_SB(sb)->
                 block_rovingblockptr =
                 new_space + blocks;
             return 0;
         }
 
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         bh = NULL;
         extent = NULL;
 
@@ -1052,37 +1052,37 @@ int asfs_addblocks(
         extent->next = 0U;
         extent->blocks =
             cpu_to_be16(blocks);
-        asfs_bstore(sb, bh);
-        asfs_brelse(bh);
+        ifs_sfs_bstore(sb, bh);
+        ifs_sfs_brelse(bh);
         bh = NULL;
         extent = NULL;
 
-        result = asfs_getextent(
+        result = ifs_sfs_getextent(
             sb, previous_key,
             &bh, &extent);
         if (result != 0) {
             struct buffer_head *cleanup_bh = NULL;
             struct fsExtentBNode *cleanup_extent = NULL;
 
-            if (asfs_getextent(
+            if (ifs_sfs_getextent(
                     sb, new_space,
                     &cleanup_bh,
                     &cleanup_extent) == 0) {
-                (void)asfs_deletebnode(
+                (void)ifs_sfs_deletebnode(
                     sb, cleanup_bh,
                     new_space);
-                asfs_brelse(cleanup_bh);
+                ifs_sfs_brelse(cleanup_bh);
             }
             return result;
         }
 
         extent->next =
             cpu_to_be32(new_space);
-        asfs_bstore(sb, bh);
-        asfs_brelse(bh);
+        ifs_sfs_bstore(sb, bh);
+        ifs_sfs_brelse(bh);
 
         *last_extent = new_space;
-        ASFS_SB(sb)->block_rovingblockptr =
+        IFS_SFS_SB(sb)->block_rovingblockptr =
             new_space + blocks;
         return 0;
     }
@@ -1097,11 +1097,11 @@ int asfs_addblocks(
         cpu_to_be32(object_node | MSB_MASK);
     extent->next = 0U;
     extent->blocks = cpu_to_be16(blocks);
-    asfs_bstore(sb, bh);
-    asfs_brelse(bh);
+    ifs_sfs_bstore(sb, bh);
+    ifs_sfs_brelse(bh);
 
     *last_extent = new_space;
-    ASFS_SB(sb)->block_rovingblockptr =
+    IFS_SFS_SB(sb)->block_rovingblockptr =
         new_space + blocks;
     return 0;
 }
@@ -1143,16 +1143,16 @@ static int sfs_decode_child_pointer(
     bool *full)
 {
     const unsigned int shift =
-        sb->s_blocksize_bits - ASFS_BLCKFACCURACY;
+        sb->s_blocksize_bits - IFS_SFS_BLCKFACCURACY;
     u32 block;
 
     if (!child_block || !full ||
-        sb->s_blocksize_bits < ASFS_BLCKFACCURACY ||
+        sb->s_blocksize_bits < IFS_SFS_BLCKFACCURACY ||
         raw == 0U)
         return -EUCLEAN;
 
     block = raw >> shift;
-    if (block == 0U || block >= ASFS_SB(sb)->totalblocks)
+    if (block == 0U || block >= IFS_SFS_SB(sb)->totalblocks)
         return -EUCLEAN;
 
     *child_block = block;
@@ -1167,13 +1167,13 @@ static int sfs_encode_child_pointer(
     u32 *raw)
 {
     const unsigned int shift =
-        sb->s_blocksize_bits - ASFS_BLCKFACCURACY;
+        sb->s_blocksize_bits - IFS_SFS_BLCKFACCURACY;
     u32 encoded;
 
     if (!raw ||
-        sb->s_blocksize_bits < ASFS_BLCKFACCURACY ||
+        sb->s_blocksize_bits < IFS_SFS_BLCKFACCURACY ||
         child_block == 0U ||
-        child_block >= ASFS_SB(sb)->totalblocks ||
+        child_block >= IFS_SFS_SB(sb)->totalblocks ||
         check_shl_overflow(child_block, shift, &encoded))
         return -EINVAL;
 
@@ -1223,8 +1223,8 @@ static int sfs_find_parent_container(
     struct buffer_head **parent_bh,
     u32 *parent_slot)
 {
-    u32 block = ASFS_SB(sb)->objectnoderoot;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 block = IFS_SFS_SB(sb)->objectnoderoot;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     if (!parent_bh || !parent_slot)
         return -EINVAL;
@@ -1246,15 +1246,15 @@ static int sfs_find_parent_container(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
-            sb, block, ASFS_NODECONTAINER_ID);
+        bh = ifs_sfs_breadcheck(
+            sb, block, IFS_SFS_NODECONTAINER_ID);
         if (!bh)
             return -EIO;
 
         container =
             (struct fsNodeContainer *)bh->b_data;
         if (be32_to_cpu(container->nodes) <= 1U) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
@@ -1265,14 +1265,14 @@ static int sfs_find_parent_container(
                 child_node_number,
                 &slot) != 0 ||
             slot >= sfs_node_index_capacity(sb)) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
         raw = be32_to_cpu(container->node[slot]);
         if (sfs_decode_child_pointer(
                 sb, raw, &next, &full) != 0) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
@@ -1282,14 +1282,14 @@ static int sfs_find_parent_container(
             return 0;
         }
 
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         block = next;
     }
 
     return -EUCLEAN;
 }
 
-int asfs_getnode(
+int ifs_sfs_getnode(
     struct super_block *sb,
     u32 node_number,
     struct buffer_head **returned_bh,
@@ -1303,8 +1303,8 @@ int asfs_getnode(
 
     *returned_bh = NULL;
     *returned_node = NULL;
-    block = ASFS_SB(sb)->objectnoderoot;
-    budget = ASFS_SB(sb)->totalblocks;
+    block = IFS_SFS_SB(sb)->objectnoderoot;
+    budget = IFS_SFS_SB(sb)->totalblocks;
 
     while (block != 0U) {
         struct buffer_head *bh;
@@ -1315,8 +1315,8 @@ int asfs_getnode(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
-            sb, block, ASFS_NODECONTAINER_ID);
+        bh = ifs_sfs_breadcheck(
+            sb, block, IFS_SFS_NODECONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -1332,7 +1332,7 @@ int asfs_getnode(
                     sb->s_blocksize, base,
                     node_number, &slot) != 0 ||
                 slot >= sfs_node_leaf_capacity(sb)) {
-                asfs_brelse(bh);
+                ifs_sfs_brelse(bh);
                 return -EUCLEAN;
             }
 
@@ -1357,23 +1357,23 @@ int asfs_getnode(
                     sb,
                     be32_to_cpu(container->node[slot]),
                     &next, &full) != 0) {
-                asfs_brelse(bh);
+                ifs_sfs_brelse(bh);
                 return -EUCLEAN;
             }
 
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             block = next;
             continue;
         }
 
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         return -EUCLEAN;
     }
 
     return -EUCLEAN;
 }
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 
 static int sfs_propagate_full_state(
     struct super_block *sb,
@@ -1381,9 +1381,9 @@ static int sfs_propagate_full_state(
     u32 child_node_number,
     bool full)
 {
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
-    while (child_block != ASFS_SB(sb)->objectnoderoot) {
+    while (child_block != IFS_SFS_SB(sb)->objectnoderoot) {
         struct buffer_head *parent_bh = NULL;
         struct fsNodeContainer *parent;
         u32 slot;
@@ -1414,7 +1414,7 @@ static int sfs_propagate_full_state(
         else
             raw &= ~1U;
         parent->node[slot] = cpu_to_be32(raw);
-        asfs_bstore(sb, parent_bh);
+        ifs_sfs_bstore(sb, parent_bh);
 
         propagate = full
             ? sfs_index_container_full(sb, parent)
@@ -1423,7 +1423,7 @@ static int sfs_propagate_full_state(
             be32_to_cpu(parent->bheader.ownblock);
         parent_node_number =
             be32_to_cpu(parent->nodenumber);
-        asfs_brelse(parent_bh);
+        ifs_sfs_brelse(parent_bh);
 
         if (!propagate)
             return 0;
@@ -1449,28 +1449,28 @@ static int sfs_create_node_container(
     if (!returned_block || nodes_per_entry == 0U)
         return -EINVAL;
 
-    result = asfs_allocadminspace(sb, &block);
+    result = ifs_sfs_allocadminspace(sb, &block);
     if (result != 0)
         return result;
 
-    bh = asfs_getzeroblk(sb, block);
+    bh = ifs_sfs_getzeroblk(sb, block);
     if (!bh) {
-        (void)asfs_freeadminspace(sb, block);
+        (void)ifs_sfs_freeadminspace(sb, block);
         return -EIO;
     }
 
     container =
         (struct fsNodeContainer *)bh->b_data;
     container->bheader.id =
-        cpu_to_be32(ASFS_NODECONTAINER_ID);
+        cpu_to_be32(IFS_SFS_NODECONTAINER_ID);
     container->bheader.ownblock =
         cpu_to_be32(block);
     container->nodenumber =
         cpu_to_be32(node_number);
     container->nodes =
         cpu_to_be32(nodes_per_entry);
-    asfs_bstore(sb, bh);
-    asfs_brelse(bh);
+    ifs_sfs_bstore(sb, bh);
+    ifs_sfs_brelse(bh);
 
     *returned_block = block;
     return 0;
@@ -1478,7 +1478,7 @@ static int sfs_create_node_container(
 
 static int sfs_add_node_level(struct super_block *sb)
 {
-    const u32 root_block = ASFS_SB(sb)->objectnoderoot;
+    const u32 root_block = IFS_SFS_SB(sb)->objectnoderoot;
     const u32 index_capacity =
         sfs_node_index_capacity(sb);
     const u32 leaf_capacity =
@@ -1496,52 +1496,52 @@ static int sfs_add_node_level(struct super_block *sb)
     if (index_capacity == 0U || leaf_capacity == 0U)
         return -EUCLEAN;
 
-    root_bh = asfs_breadcheck(
-        sb, root_block, ASFS_NODECONTAINER_ID);
+    root_bh = ifs_sfs_breadcheck(
+        sb, root_block, IFS_SFS_NODECONTAINER_ID);
     if (!root_bh)
         return -EIO;
 
     root = (struct fsNodeContainer *)root_bh->b_data;
     old_nodes = be32_to_cpu(root->nodes);
     if (old_nodes == 0U) {
-        asfs_brelse(root_bh);
+        ifs_sfs_brelse(root_bh);
         return -EUCLEAN;
     }
 
-    result = asfs_allocadminspace(sb, &copy_block);
+    result = ifs_sfs_allocadminspace(sb, &copy_block);
     if (result != 0) {
-        asfs_brelse(root_bh);
+        ifs_sfs_brelse(root_bh);
         return result;
     }
 
-    copy_bh = asfs_getzeroblk(sb, copy_block);
+    copy_bh = ifs_sfs_getzeroblk(sb, copy_block);
     if (!copy_bh) {
-        asfs_brelse(root_bh);
-        (void)asfs_freeadminspace(sb, copy_block);
+        ifs_sfs_brelse(root_bh);
+        (void)ifs_sfs_freeadminspace(sb, copy_block);
         return -EIO;
     }
 
     copy = (struct fsNodeContainer *)copy_bh->b_data;
     memcpy(copy, root, sb->s_blocksize);
     copy->bheader.ownblock = cpu_to_be32(copy_block);
-    asfs_bstore(sb, copy_bh);
-    asfs_brelse(copy_bh);
+    ifs_sfs_bstore(sb, copy_bh);
+    ifs_sfs_brelse(copy_bh);
 
     if (old_nodes == 1U) {
         new_nodes = leaf_capacity;
     } else if (check_mul_overflow(
                    old_nodes, index_capacity,
                    &new_nodes)) {
-        asfs_brelse(root_bh);
-        (void)asfs_freeadminspace(sb, copy_block);
+        ifs_sfs_brelse(root_bh);
+        (void)ifs_sfs_freeadminspace(sb, copy_block);
         return -EOVERFLOW;
     }
 
     result = sfs_encode_child_pointer(
         sb, copy_block, true, &encoded);
     if (result != 0) {
-        asfs_brelse(root_bh);
-        (void)asfs_freeadminspace(sb, copy_block);
+        ifs_sfs_brelse(root_bh);
+        (void)ifs_sfs_freeadminspace(sb, copy_block);
         return result;
     }
 
@@ -1550,24 +1550,24 @@ static int sfs_add_node_level(struct super_block *sb)
                sizeof(struct fsNodeContainer));
     root->nodes = cpu_to_be32(new_nodes);
     root->node[0] = cpu_to_be32(encoded);
-    asfs_bstore(sb, root_bh);
-    asfs_brelse(root_bh);
+    ifs_sfs_bstore(sb, root_bh);
+    ifs_sfs_brelse(root_bh);
     return 0;
 }
 
-int asfs_createnode(
+int ifs_sfs_createnode(
     struct super_block *sb,
     struct buffer_head **returned_bh,
     struct fsNode **returned_node,
     u32 *returned_node_number)
 {
-    const u32 root_block = ASFS_SB(sb)->objectnoderoot;
+    const u32 root_block = IFS_SFS_SB(sb)->objectnoderoot;
     const u32 leaf_capacity =
         sfs_node_leaf_capacity(sb);
     const u32 index_capacity =
         sfs_node_index_capacity(sb);
     u32 block = root_block;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     if (!returned_bh || !returned_node ||
         !returned_node_number ||
@@ -1592,8 +1592,8 @@ restart:
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
-            sb, block, ASFS_NODECONTAINER_ID);
+        bh = ifs_sfs_breadcheck(
+            sb, block, IFS_SFS_NODECONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -1647,7 +1647,7 @@ restart:
                         if (result != 0) {
                             *returned_bh = NULL;
                             *returned_node = NULL;
-                            asfs_brelse(bh);
+                            ifs_sfs_brelse(bh);
                             return result;
                         }
                     }
@@ -1659,7 +1659,7 @@ restart:
                 const u32 node_number =
                     be32_to_cpu(container->nodenumber);
 
-                asfs_brelse(bh);
+                ifs_sfs_brelse(bh);
                 if (block != root_block) {
                     int result =
                         sfs_propagate_full_state(
@@ -1712,11 +1712,11 @@ restart:
                             &next, &full);
 
                     if (result != 0) {
-                        asfs_brelse(bh);
+                        ifs_sfs_brelse(bh);
                         return result;
                     }
 
-                    asfs_brelse(bh);
+                    ifs_sfs_brelse(bh);
                     block = next;
                     goto continue_descent;
                 }
@@ -1736,14 +1736,14 @@ restart:
                     if (nodes_per_child %
                             index_capacity !=
                         0U) {
-                        asfs_brelse(bh);
+                        ifs_sfs_brelse(bh);
                         return -EUCLEAN;
                     }
                     child_nodes =
                         nodes_per_child /
                         index_capacity;
                     if (child_nodes == 0U) {
-                        asfs_brelse(bh);
+                        ifs_sfs_brelse(bh);
                         return -EUCLEAN;
                     }
                 }
@@ -1756,7 +1756,7 @@ restart:
                         base,
                         child_node_number,
                         &child_node_number)) {
-                    asfs_brelse(bh);
+                    ifs_sfs_brelse(bh);
                     return -EOVERFLOW;
                 }
 
@@ -1765,7 +1765,7 @@ restart:
                         sb, child_node_number,
                         child_nodes, &child_block);
                 if (result != 0) {
-                    asfs_brelse(bh);
+                    ifs_sfs_brelse(bh);
                     return result;
                 }
 
@@ -1773,16 +1773,16 @@ restart:
                     sb, child_block, false,
                     &encoded);
                 if (result != 0) {
-                    (void)asfs_freeadminspace(
+                    (void)ifs_sfs_freeadminspace(
                         sb, child_block);
-                    asfs_brelse(bh);
+                    ifs_sfs_brelse(bh);
                     return result;
                 }
 
                 container->node[empty_slot] =
                     cpu_to_be32(encoded);
-                asfs_bstore(sb, bh);
-                asfs_brelse(bh);
+                ifs_sfs_bstore(sb, bh);
+                ifs_sfs_brelse(bh);
                 block = child_block;
                 goto continue_descent;
             }
@@ -1792,7 +1792,7 @@ restart:
                     be32_to_cpu(
                         container->nodenumber);
 
-                asfs_brelse(bh);
+                ifs_sfs_brelse(bh);
                 if (block == root_block) {
                     int result =
                         sfs_add_node_level(sb);
@@ -1810,7 +1810,7 @@ restart:
             }
         }
 
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         return -EUCLEAN;
 
 continue_descent:
@@ -1826,8 +1826,8 @@ static int sfs_unlink_empty_container(
     u32 child_node_number)
 {
     const u32 root_block =
-        ASFS_SB(sb)->objectnoderoot;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+        IFS_SFS_SB(sb)->objectnoderoot;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     while (child_block != root_block) {
         struct buffer_head *parent_bh = NULL;
@@ -1858,26 +1858,26 @@ static int sfs_unlink_empty_container(
             be32_to_cpu(parent->nodenumber);
 
         parent->node[slot] = 0U;
-        asfs_bstore(sb, parent_bh);
+        ifs_sfs_bstore(sb, parent_bh);
 
         result =
-            asfs_freeadminspace(
+            ifs_sfs_freeadminspace(
                 sb, child_block);
         if (result != 0) {
-            asfs_brelse(parent_bh);
+            ifs_sfs_brelse(parent_bh);
             return result;
         }
 
         if (!sfs_index_container_empty(
                 sb, parent) ||
             parent_block == root_block) {
-            asfs_brelse(parent_bh);
+            ifs_sfs_brelse(parent_bh);
             return sfs_propagate_full_state(
                 sb, parent_block,
                 parent_node_number, false);
         }
 
-        asfs_brelse(parent_bh);
+        ifs_sfs_brelse(parent_bh);
         child_block = parent_block;
         child_node_number =
             parent_node_number;
@@ -1886,7 +1886,7 @@ static int sfs_unlink_empty_container(
     return 0;
 }
 
-int asfs_deletenode(
+int ifs_sfs_deletenode(
     struct super_block *sb,
     u32 object_node)
 {
@@ -1901,7 +1901,7 @@ int asfs_deletenode(
     u32 node_number;
     int result;
 
-    result = asfs_getnode(
+    result = ifs_sfs_getnode(
         sb, object_node, &bh, &object);
     if (result != 0)
         return result;
@@ -1928,13 +1928,13 @@ int asfs_deletenode(
             empty_count++;
     }
 
-    asfs_bstore(sb, bh);
+    ifs_sfs_bstore(sb, bh);
 
     if (empty_count == 1U) {
         result = sfs_propagate_full_state(
             sb, block, node_number, false);
     } else if (empty_count == leaf_capacity &&
-               block != ASFS_SB(sb)->
+               block != IFS_SFS_SB(sb)->
                    objectnoderoot) {
         result = sfs_unlink_empty_container(
             sb, block, node_number);
@@ -1942,7 +1942,7 @@ int asfs_deletenode(
         result = 0;
     }
 
-    asfs_brelse(bh);
+    ifs_sfs_brelse(bh);
     return result;
 }
 
@@ -1971,7 +1971,7 @@ static int sfs_object_record_bytes(
     size_t raw;
 
     if (!record_bytes ||
-        name_length > ASFS_MAXFN ||
+        name_length > IFS_SFS_MAXFN ||
         check_add_overflow(
             (size_t)sfs_object_fixed_bytes(),
             name_length + 2U, &raw))
@@ -1985,7 +1985,7 @@ static int sfs_object_record_bytes(
     return 0;
 }
 
-struct fsObject *asfs_nextobject(
+struct fsObject *ifs_sfs_nextobject(
     struct super_block *sb,
     struct fsObjectContainer *container,
     struct fsObject *object)
@@ -1997,7 +1997,7 @@ struct fsObject *asfs_nextobject(
     ifs_sfs_u32 name_bytes = 0U;
     IfsSfsObjectRecordStatus status;
 
-    if (!asfs_object_slot_fits(
+    if (!ifs_sfs_object_slot_fits(
             sb, container, object))
         return NULL;
 
@@ -2021,7 +2021,7 @@ struct fsObject *asfs_nextobject(
         (object_start + record_bytes);
 }
 
-struct fsObject *asfs_find_obj_by_name(
+struct fsObject *ifs_sfs_find_obj_by_name(
     struct super_block *sb,
     struct fsObjectContainer *container,
     u8 *name)
@@ -2029,20 +2029,20 @@ struct fsObject *asfs_find_obj_by_name(
     struct fsObject *object =
         &container->object[0];
 
-    while (asfs_object_slot_fits(
+    while (ifs_sfs_object_slot_fits(
                sb, container, object) &&
            be32_to_cpu(object->objectnode) != 0U) {
         struct fsObject *next =
-            asfs_nextobject(
+            ifs_sfs_nextobject(
                 sb, container, object);
 
         if (!next)
             return ERR_PTR(-EUCLEAN);
 
-        if (asfs_namecmp(
+        if (ifs_sfs_namecmp(
                 object->name, name,
-                (ASFS_SB(sb)->flags &
-                 ASFS_ROOTBITS_CASESENSITIVE) != 0,
+                (IFS_SFS_SB(sb)->flags &
+                 IFS_SFS_ROOTBITS_CASESENSITIVE) != 0,
                 NULL) == 0)
             return object;
 
@@ -2052,7 +2052,7 @@ struct fsObject *asfs_find_obj_by_name(
     return NULL;
 }
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 
 static struct fsObject *sfs_find_object_by_node(
     struct super_block *sb,
@@ -2062,11 +2062,11 @@ static struct fsObject *sfs_find_object_by_node(
     struct fsObject *object =
         &container->object[0];
 
-    while (asfs_object_slot_fits(
+    while (ifs_sfs_object_slot_fits(
                sb, container, object) &&
            be32_to_cpu(object->objectnode) != 0U) {
         struct fsObject *next =
-            asfs_nextobject(
+            ifs_sfs_nextobject(
                 sb, container, object);
 
         if (!next)
@@ -2083,7 +2083,7 @@ static struct fsObject *sfs_find_object_by_node(
     return NULL;
 }
 
-int asfs_readobject(
+int ifs_sfs_readobject(
     struct super_block *sb,
     u32 object_node,
     struct buffer_head **returned_bh,
@@ -2100,7 +2100,7 @@ int asfs_readobject(
     *returned_bh = NULL;
     *returned_object = NULL;
 
-    result = asfs_getnode(
+    result = ifs_sfs_getnode(
         sb, object_node,
         &node_bh, &node);
     if (result != 0)
@@ -2108,16 +2108,16 @@ int asfs_readobject(
 
     container_block =
         be32_to_cpu(node->node.data);
-    asfs_brelse(node_bh);
+    ifs_sfs_brelse(node_bh);
 
     if (container_block == 0U ||
         container_block >=
-            ASFS_SB(sb)->totalblocks)
+            IFS_SFS_SB(sb)->totalblocks)
         return -EUCLEAN;
 
-    *returned_bh = asfs_breadcheck(
+    *returned_bh = ifs_sfs_breadcheck(
         sb, container_block,
-        ASFS_OBJECTCONTAINER_ID);
+        IFS_SFS_OBJECTCONTAINER_ID);
     if (!*returned_bh)
         return -EIO;
 
@@ -2130,12 +2130,12 @@ int asfs_readobject(
     if (IS_ERR(*returned_object)) {
         result = PTR_ERR(*returned_object);
         *returned_object = NULL;
-        asfs_brelse(*returned_bh);
+        ifs_sfs_brelse(*returned_bh);
         *returned_bh = NULL;
         return result;
     }
     if (!*returned_object) {
-        asfs_brelse(*returned_bh);
+        ifs_sfs_brelse(*returned_bh);
         *returned_bh = NULL;
         return -ENOENT;
     }
@@ -2163,7 +2163,7 @@ static int sfs_remove_object_container(
     int result;
 
     if (own_block == 0U ||
-        own_block >= ASFS_SB(sb)->totalblocks ||
+        own_block >= IFS_SFS_SB(sb)->totalblocks ||
         next == own_block ||
         previous == own_block)
         return -EUCLEAN;
@@ -2171,12 +2171,12 @@ static int sfs_remove_object_container(
     if (next != 0U) {
         struct fsObjectContainer *next_container;
 
-        if (next >= ASFS_SB(sb)->totalblocks)
+        if (next >= IFS_SFS_SB(sb)->totalblocks)
             return -EUCLEAN;
 
-        link_bh = asfs_breadcheck(
+        link_bh = ifs_sfs_breadcheck(
             sb, next,
-            ASFS_OBJECTCONTAINER_ID);
+            IFS_SFS_OBJECTCONTAINER_ID);
         if (!link_bh)
             return -EIO;
 
@@ -2185,19 +2185,19 @@ static int sfs_remove_object_container(
                 link_bh->b_data;
         next_container->previous =
             cpu_to_be32(previous);
-        asfs_bstore(sb, link_bh);
-        asfs_brelse(link_bh);
+        ifs_sfs_bstore(sb, link_bh);
+        ifs_sfs_brelse(link_bh);
     }
 
     if (previous != 0U) {
         struct fsObjectContainer *previous_container;
 
-        if (previous >= ASFS_SB(sb)->totalblocks)
+        if (previous >= IFS_SFS_SB(sb)->totalblocks)
             return -EUCLEAN;
 
-        link_bh = asfs_breadcheck(
+        link_bh = ifs_sfs_breadcheck(
             sb, previous,
-            ASFS_OBJECTCONTAINER_ID);
+            IFS_SFS_OBJECTCONTAINER_ID);
         if (!link_bh)
             return -EIO;
 
@@ -2206,12 +2206,12 @@ static int sfs_remove_object_container(
                 link_bh->b_data;
         previous_container->next =
             cpu_to_be32(next);
-        asfs_bstore(sb, link_bh);
-        asfs_brelse(link_bh);
+        ifs_sfs_bstore(sb, link_bh);
+        ifs_sfs_brelse(link_bh);
     } else {
         struct fsObject *parent_object = NULL;
 
-        result = asfs_readobject(
+        result = ifs_sfs_readobject(
             sb, parent, &link_bh,
             &parent_object);
         if (result != 0)
@@ -2219,18 +2219,18 @@ static int sfs_remove_object_container(
 
         if ((parent_object->bits &
              OTYPE_DIR) == 0U) {
-            asfs_brelse(link_bh);
+            ifs_sfs_brelse(link_bh);
             return -EUCLEAN;
         }
 
         parent_object->
             object.dir.firstdirblock =
             cpu_to_be32(next);
-        asfs_bstore(sb, link_bh);
-        asfs_brelse(link_bh);
+        ifs_sfs_bstore(sb, link_bh);
+        ifs_sfs_brelse(link_bh);
     }
 
-    return asfs_freeadminspace(
+    return ifs_sfs_freeadminspace(
         sb, own_block);
 }
 
@@ -2248,9 +2248,9 @@ static int sfs_adjust_recycled_info(
         sizeof(struct fsRootInfo))
         return -EUCLEAN;
 
-    bh = asfs_breadcheck(
-        sb, ASFS_SB(sb)->rootobjectcontainer,
-        ASFS_OBJECTCONTAINER_ID);
+    bh = ifs_sfs_breadcheck(
+        sb, IFS_SFS_SB(sb)->rootobjectcontainer,
+        IFS_SFS_OBJECTCONTAINER_ID);
     if (!bh)
         return -EIO;
 
@@ -2267,7 +2267,7 @@ static int sfs_adjust_recycled_info(
             be32_to_cpu(
                 root_info->deletedblocks),
             deleted_blocks, &blocks) != 0) {
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         return -EUCLEAN;
     }
 
@@ -2275,8 +2275,8 @@ static int sfs_adjust_recycled_info(
         cpu_to_be32(files);
     root_info->deletedblocks =
         cpu_to_be32(blocks);
-    asfs_bstore(sb, bh);
-    asfs_brelse(bh);
+    ifs_sfs_bstore(sb, bh);
+    ifs_sfs_brelse(bh);
     return 0;
 }
 
@@ -2294,12 +2294,12 @@ static int sfs_remove_packed_object(
         (u8 *)container + sb->s_blocksize;
     size_t record_bytes;
 
-    if (!asfs_object_slot_fits(
+    if (!ifs_sfs_object_slot_fits(
             sb, container, object))
         return -EUCLEAN;
 
     if (be32_to_cpu(container->parent) ==
-        ASFS_RECYCLEDNODE) {
+        IFS_SFS_RECYCLEDNODE) {
         const u32 file_blocks =
             DIV_ROUND_UP(
                 be32_to_cpu(
@@ -2313,13 +2313,13 @@ static int sfs_remove_packed_object(
             return result;
     }
 
-    next = asfs_nextobject(
+    next = ifs_sfs_nextobject(
         sb, container, object);
     if (!next)
         return -EUCLEAN;
 
     if (object == first &&
-        asfs_object_slot_fits(
+        ifs_sfs_object_slot_fits(
             sb, container, next) &&
         be32_to_cpu(next->objectnode) == 0U)
         return sfs_remove_object_container(
@@ -2339,7 +2339,7 @@ static int sfs_remove_packed_object(
     memset(
         block_end - record_bytes,
         0, record_bytes);
-    asfs_bstore(sb, bh);
+    ifs_sfs_bstore(sb, bh);
     return 0;
 }
 
@@ -2360,10 +2360,10 @@ static int sfs_dehash_object(
     u16 chain;
     u32 cursor_node;
     u32 replacement;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
     int result;
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, parent_node,
         &parent_bh, &parent);
     if (result != 0)
@@ -2372,29 +2372,29 @@ static int sfs_dehash_object(
     hash_block =
         be32_to_cpu(
             parent->object.dir.hashtable);
-    asfs_brelse(parent_bh);
+    ifs_sfs_brelse(parent_bh);
     if (hash_block == 0U)
         return 0;
 
-    hash_bh = asfs_breadcheck(
-        sb, hash_block, ASFS_HASHTABLE_ID);
+    hash_bh = ifs_sfs_breadcheck(
+        sb, hash_block, IFS_SFS_HASHTABLE_ID);
     if (!hash_bh)
         return -EIO;
 
-    result = asfs_getnode(
+    result = ifs_sfs_getnode(
         sb, object_node,
         &target_bh, &target);
     if (result != 0) {
-        asfs_brelse(hash_bh);
+        ifs_sfs_brelse(hash_bh);
         return result;
     }
 
     table =
         (struct fsHashTable *)hash_bh->b_data;
-    hash = asfs_hash(
+    hash = ifs_sfs_hash(
         name,
-        (ASFS_SB(sb)->flags &
-         ASFS_ROOTBITS_CASESENSITIVE) != 0);
+        (IFS_SFS_SB(sb)->flags &
+         IFS_SFS_ROOTBITS_CASESENSITIVE) != 0);
     chain = HASHCHAIN(hash);
     cursor_node =
         be32_to_cpu(
@@ -2405,13 +2405,13 @@ static int sfs_dehash_object(
     if (cursor_node == object_node) {
         table->hashentry[chain] =
             cpu_to_be32(replacement);
-        asfs_bstore(sb, hash_bh);
-        asfs_brelse(target_bh);
-        asfs_brelse(hash_bh);
+        ifs_sfs_bstore(sb, hash_bh);
+        ifs_sfs_brelse(target_bh);
+        ifs_sfs_brelse(hash_bh);
         return 0;
     }
 
-    asfs_brelse(target_bh);
+    ifs_sfs_brelse(target_bh);
     target_bh = NULL;
 
     while (cursor_node != 0U) {
@@ -2424,7 +2424,7 @@ static int sfs_dehash_object(
             goto out;
         }
 
-        result = asfs_getnode(
+        result = ifs_sfs_getnode(
             sb, cursor_node,
             &node_bh, &node);
         if (result != 0)
@@ -2434,20 +2434,20 @@ static int sfs_dehash_object(
         if (next == object_node) {
             node->next =
                 cpu_to_be32(replacement);
-            asfs_bstore(sb, node_bh);
-            asfs_brelse(node_bh);
+            ifs_sfs_bstore(sb, node_bh);
+            ifs_sfs_brelse(node_bh);
             result = 0;
             goto out;
         }
 
-        asfs_brelse(node_bh);
+        ifs_sfs_brelse(node_bh);
         cursor_node = next;
     }
 
     result = -EUCLEAN;
 
 out:
-    asfs_brelse(hash_bh);
+    ifs_sfs_brelse(hash_bh);
     return result;
 }
 
@@ -2475,12 +2475,12 @@ static int sfs_remove_object(
         return result;
 
     if (delete_node)
-        return asfs_deletenode(sb, node);
+        return ifs_sfs_deletenode(sb, node);
 
     return 0;
 }
 
-int asfs_deleteobject(
+int ifs_sfs_deleteobject(
     struct super_block *sb,
     struct buffer_head *bh,
     struct fsObject *object)
@@ -2512,20 +2512,20 @@ int asfs_deleteobject(
     if ((bits & OTYPE_LINK) != 0U &&
         (bits & OTYPE_HARDLINK) == 0U) {
         return auxiliary != 0U
-            ? asfs_freeadminspace(
+            ? ifs_sfs_freeadminspace(
                 sb, auxiliary)
             : 0;
     }
 
     if ((bits & OTYPE_DIR) != 0U) {
         return auxiliary != 0U
-            ? asfs_freeadminspace(
+            ? ifs_sfs_freeadminspace(
                 sb, auxiliary)
             : 0;
     }
 
     if (auxiliary != 0U)
-        return asfs_deleteextents(
+        return ifs_sfs_deleteextents(
             sb, auxiliary);
 
     return 0;
@@ -2542,17 +2542,17 @@ static u8 *sfs_object_container_end(
         max_t(u32, sfs_object_fixed_bytes(), 1U);
 
     while (budget-- != 0U &&
-           asfs_object_slot_fits(
+           ifs_sfs_object_slot_fits(
                sb, container, object) &&
            be32_to_cpu(
                object->objectnode) != 0U) {
-        object = asfs_nextobject(
+        object = ifs_sfs_nextobject(
             sb, container, object);
         if (!object)
             return NULL;
     }
 
-    if (!asfs_object_slot_fits(
+    if (!ifs_sfs_object_slot_fits(
             sb, container, object))
         return NULL;
 
@@ -2568,7 +2568,7 @@ static int sfs_find_object_space(
     struct buffer_head *parent_bh;
     struct fsObject *parent;
     u32 block;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
 
     if (!io_bh || !*io_bh ||
         !io_object || !*io_object ||
@@ -2591,9 +2591,9 @@ static int sfs_find_object_space(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        bh = asfs_breadcheck(
+        bh = ifs_sfs_breadcheck(
             sb, block,
-            ASFS_OBJECTCONTAINER_ID);
+            IFS_SFS_OBJECTCONTAINER_ID);
         if (!bh)
             return -EIO;
 
@@ -2603,7 +2603,7 @@ static int sfs_find_object_space(
         end = sfs_object_container_end(
             sb, container);
         if (!end) {
-            asfs_brelse(bh);
+            ifs_sfs_brelse(bh);
             return -EUCLEAN;
         }
 
@@ -2618,7 +2618,7 @@ static int sfs_find_object_space(
         }
 
         next = be32_to_cpu(container->next);
-        asfs_brelse(bh);
+        ifs_sfs_brelse(bh);
         block = next;
     }
 
@@ -2633,26 +2633,26 @@ static int sfs_find_object_space(
         u32 new_block;
         int result;
 
-        result = asfs_allocadminspace(
+        result = ifs_sfs_allocadminspace(
             sb, &new_block);
         if (result != 0)
             return result;
 
-        new_bh = asfs_getzeroblk(
+        new_bh = ifs_sfs_getzeroblk(
             sb, new_block);
         if (!new_bh) {
-            (void)asfs_freeadminspace(
+            (void)ifs_sfs_freeadminspace(
                 sb, new_block);
             return -EIO;
         }
 
         if (old_head != 0U) {
-            old_head_bh = asfs_breadcheck(
+            old_head_bh = ifs_sfs_breadcheck(
                 sb, old_head,
-                ASFS_OBJECTCONTAINER_ID);
+                IFS_SFS_OBJECTCONTAINER_ID);
             if (!old_head_bh) {
-                asfs_brelse(new_bh);
-                (void)asfs_freeadminspace(
+                ifs_sfs_brelse(new_bh);
+                (void)ifs_sfs_freeadminspace(
                     sb, new_block);
                 return -EIO;
             }
@@ -2663,7 +2663,7 @@ static int sfs_find_object_space(
                 new_bh->b_data;
         new_container->bheader.id =
             cpu_to_be32(
-                ASFS_OBJECTCONTAINER_ID);
+                IFS_SFS_OBJECTCONTAINER_ID);
         new_container->bheader.ownblock =
             cpu_to_be32(new_block);
         new_container->parent =
@@ -2671,12 +2671,12 @@ static int sfs_find_object_space(
         new_container->next =
             cpu_to_be32(old_head);
         new_container->previous = 0U;
-        asfs_bstore(sb, new_bh);
+        ifs_sfs_bstore(sb, new_bh);
 
         parent->
             object.dir.firstdirblock =
             cpu_to_be32(new_block);
-        asfs_bstore(sb, parent_bh);
+        ifs_sfs_bstore(sb, parent_bh);
 
         if (old_head_bh) {
             struct fsObjectContainer *old =
@@ -2685,8 +2685,8 @@ static int sfs_find_object_space(
 
             old->previous =
                 cpu_to_be32(new_block);
-            asfs_bstore(sb, old_head_bh);
-            asfs_brelse(old_head_bh);
+            ifs_sfs_bstore(sb, old_head_bh);
+            ifs_sfs_brelse(old_head_bh);
         }
 
         *io_bh = new_bh;
@@ -2713,21 +2713,21 @@ static int sfs_publish_hash_link(
     if (hash_block == 0U) {
         node->next = 0U;
         node->hash16 = 0U;
-        asfs_bstore(sb, node_bh);
+        ifs_sfs_bstore(sb, node_bh);
         return 0;
     }
 
-    hash_bh = asfs_breadcheck(
-        sb, hash_block, ASFS_HASHTABLE_ID);
+    hash_bh = ifs_sfs_breadcheck(
+        sb, hash_block, IFS_SFS_HASHTABLE_ID);
     if (!hash_bh)
         return -EIO;
 
     table =
         (struct fsHashTable *)hash_bh->b_data;
-    hash = asfs_hash(
+    hash = ifs_sfs_hash(
         name,
-        (ASFS_SB(sb)->flags &
-         ASFS_ROOTBITS_CASESENSITIVE) != 0);
+        (IFS_SFS_SB(sb)->flags &
+         IFS_SFS_ROOTBITS_CASESENSITIVE) != 0);
     chain = HASHCHAIN(hash);
     old_head =
         be32_to_cpu(
@@ -2735,16 +2735,16 @@ static int sfs_publish_hash_link(
 
     node->next = cpu_to_be32(old_head);
     node->hash16 = cpu_to_be16(hash);
-    asfs_bstore(sb, node_bh);
+    ifs_sfs_bstore(sb, node_bh);
 
     table->hashentry[chain] =
         cpu_to_be32(node_number);
-    asfs_bstore(sb, hash_bh);
-    asfs_brelse(hash_bh);
+    ifs_sfs_bstore(sb, hash_bh);
+    ifs_sfs_brelse(hash_bh);
     return 0;
 }
 
-int asfs_createobject(
+int ifs_sfs_createobject(
     struct super_block *sb,
     struct buffer_head **io_bh,
     struct fsObject **io_object,
@@ -2780,8 +2780,8 @@ int asfs_createobject(
     name_length =
         strnlen(
             (const char *)object_name,
-            ASFS_MAXFN + 1U);
-    if (name_length > ASFS_MAXFN)
+            IFS_SFS_MAXFN + 1U);
+    if (name_length > IFS_SFS_MAXFN)
         return -ENAMETOOLONG;
 
     result = sfs_object_record_bytes(
@@ -2795,12 +2795,12 @@ int asfs_createobject(
 
     if (!force &&
         !ifs_sfs_has_allocation_headroom(
-            ASFS_SB(sb)->freeblocks,
-            1U, ASFS_ALWAYSFREE))
+            IFS_SFS_SB(sb)->freeblocks,
+            1U, IFS_SFS_ALWAYSFREE))
         return -ENOSPC;
     if (!force &&
         be32_to_cpu(parent->objectnode) ==
-            ASFS_RECYCLEDNODE)
+            IFS_SFS_RECYCLEDNODE)
         return -EINVAL;
 
     result = sfs_find_object_space(
@@ -2824,7 +2824,7 @@ int asfs_createobject(
         node_number =
             be32_to_cpu(
                 destination->objectnode);
-        result = asfs_getnode(
+        result = ifs_sfs_getnode(
             sb, node_number,
             &node_bh, &node);
         if (result != 0)
@@ -2833,7 +2833,7 @@ int asfs_createobject(
         saved_node = *node;
         saved_node_valid = true;
     } else {
-        result = asfs_createnode(
+        result = ifs_sfs_createnode(
             sb, &node_bh,
             (struct fsNode **)&node,
             &node_number);
@@ -2850,12 +2850,12 @@ int asfs_createobject(
         struct buffer_head *aux_bh;
         struct fsHashTable *table;
 
-        result = asfs_allocadminspace(
+        result = ifs_sfs_allocadminspace(
             sb, &auxiliary_block);
         if (result != 0)
             goto rollback_node;
 
-        aux_bh = asfs_getzeroblk(
+        aux_bh = ifs_sfs_getzeroblk(
             sb, auxiliary_block);
         if (!aux_bh) {
             result = -EIO;
@@ -2865,13 +2865,13 @@ int asfs_createobject(
         table =
             (struct fsHashTable *)aux_bh->b_data;
         table->bheader.id =
-            cpu_to_be32(ASFS_HASHTABLE_ID);
+            cpu_to_be32(IFS_SFS_HASHTABLE_ID);
         table->bheader.ownblock =
             cpu_to_be32(auxiliary_block);
         table->parent =
             destination->objectnode;
-        asfs_bstore(sb, aux_bh);
-        asfs_brelse(aux_bh);
+        ifs_sfs_bstore(sb, aux_bh);
+        ifs_sfs_brelse(aux_bh);
         destination->object.dir.hashtable =
             cpu_to_be32(auxiliary_block);
     } else if ((destination->bits &
@@ -2882,12 +2882,12 @@ int asfs_createobject(
         struct buffer_head *aux_bh;
         struct fsSoftLink *link;
 
-        result = asfs_allocadminspace(
+        result = ifs_sfs_allocadminspace(
             sb, &auxiliary_block);
         if (result != 0)
             goto rollback_node;
 
-        aux_bh = asfs_getzeroblk(
+        aux_bh = ifs_sfs_getzeroblk(
             sb, auxiliary_block);
         if (!aux_bh) {
             result = -EIO;
@@ -2897,13 +2897,13 @@ int asfs_createobject(
         link =
             (struct fsSoftLink *)aux_bh->b_data;
         link->bheader.id =
-            cpu_to_be32(ASFS_SOFTLINK_ID);
+            cpu_to_be32(IFS_SFS_SOFTLINK_ID);
         link->bheader.ownblock =
             cpu_to_be32(auxiliary_block);
         link->parent =
             destination->objectnode;
-        asfs_bstore(sb, aux_bh);
-        asfs_brelse(aux_bh);
+        ifs_sfs_bstore(sb, aux_bh);
+        ifs_sfs_brelse(aux_bh);
         destination->object.file.data =
             cpu_to_be32(auxiliary_block);
     }
@@ -2912,7 +2912,7 @@ int asfs_createobject(
         ((struct fsBlockHeader *)
              (*io_bh)->b_data)->ownblock;
 
-    asfs_bstore(sb, *io_bh);
+    ifs_sfs_bstore(sb, *io_bh);
     result = sfs_publish_hash_link(
         sb, parent_hash,
         node_bh, node,
@@ -2920,23 +2920,23 @@ int asfs_createobject(
     if (result != 0)
         goto rollback_node;
 
-    asfs_brelse(node_bh);
+    ifs_sfs_brelse(node_bh);
     return 0;
 
 rollback_node:
     if (saved_node_valid && node_bh) {
         *node = saved_node;
-        asfs_bstore(sb, node_bh);
+        ifs_sfs_bstore(sb, node_bh);
     }
-    asfs_brelse(node_bh);
+    ifs_sfs_brelse(node_bh);
 
     if (created_node &&
-        asfs_deletenode(
+        ifs_sfs_deletenode(
             sb, node_number) != 0)
         result = -EUCLEAN;
 
     if (auxiliary_block != 0U &&
-        asfs_freeadminspace(
+        ifs_sfs_freeadminspace(
             sb, auxiliary_block) != 0)
         result = -EUCLEAN;
 
@@ -2944,12 +2944,12 @@ rollback_record:
     if (destination) {
         memset(
             destination, 0, record_bytes);
-        asfs_bstore(sb, *io_bh);
+        ifs_sfs_bstore(sb, *io_bh);
     }
     return result;
 }
 
-int asfs_addblockstofile(
+int ifs_sfs_addblockstofile(
     struct super_block *sb,
     struct buffer_head *object_bh,
     struct fsObject *object,
@@ -2965,7 +2965,7 @@ int asfs_addblockstofile(
     u32 search_start = 0U;
     u32 found_block = 0U;
     u32 found_blocks = 0U;
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
     int result;
 
     if (!new_space || !added_blocks ||
@@ -2982,7 +2982,7 @@ int asfs_addblockstofile(
             if (budget-- == 0U)
                 return -EUCLEAN;
 
-            result = asfs_getextent(
+            result = ifs_sfs_getextent(
                 sb, last_extent,
                 &extent_bh, &extent);
             if (result != 0)
@@ -2995,25 +2995,25 @@ int asfs_addblockstofile(
                     be16_to_cpu(extent->blocks);
                 last_extent =
                     be32_to_cpu(extent->key);
-                asfs_brelse(extent_bh);
+                ifs_sfs_brelse(extent_bh);
                 extent_bh = NULL;
                 break;
             }
 
             last_extent = next;
-            asfs_brelse(extent_bh);
+            ifs_sfs_brelse(extent_bh);
             extent_bh = NULL;
         }
     }
 
-    result = asfs_findspace(
+    result = ifs_sfs_findspace(
         sb, blocks,
         search_start, search_start,
         &found_block, &found_blocks);
     if (result != 0)
         return result;
 
-    result = asfs_markspace(
+    result = ifs_sfs_markspace(
         sb, found_block, found_blocks);
     if (result != 0)
         return result;
@@ -3021,7 +3021,7 @@ int asfs_addblockstofile(
     {
         u32 new_last = last_extent;
 
-        result = asfs_addblocks(
+        result = ifs_sfs_addblocks(
             sb, (u16)found_blocks,
             found_block,
             be32_to_cpu(object->objectnode),
@@ -3029,21 +3029,21 @@ int asfs_addblockstofile(
         if (result != 0) {
             struct buffer_head *orphan_bh = NULL;
             struct fsExtentBNode *orphan = NULL;
-            int cleanup = asfs_getextent(
+            int cleanup = ifs_sfs_getextent(
                 sb, found_block,
                 &orphan_bh, &orphan);
 
             if (cleanup == 0) {
-                cleanup = asfs_deletebnode(
+                cleanup = ifs_sfs_deletebnode(
                     sb, orphan_bh,
                     found_block);
-                asfs_brelse(orphan_bh);
+                ifs_sfs_brelse(orphan_bh);
             } else if (cleanup == -ENOENT) {
                 cleanup = 0;
             }
 
             if (cleanup == 0) {
-                cleanup = asfs_freespace(
+                cleanup = ifs_sfs_freespace(
                     sb, found_block,
                     found_blocks);
             }
@@ -3058,11 +3058,11 @@ int asfs_addblockstofile(
 
     *new_space = found_block;
     *added_blocks = found_blocks;
-    asfs_bstore(sb, object_bh);
+    ifs_sfs_bstore(sb, object_bh);
     return 0;
 }
 
-int asfs_renameobject(
+int ifs_sfs_renameobject(
     struct super_block *sb,
     struct buffer_head *source_bh,
     struct fsObject *source,
@@ -3071,7 +3071,7 @@ int asfs_renameobject(
     u8 *new_name)
 {
     struct fsObject saved_object;
-    u8 old_name[ASFS_MAXFN + 2U];
+    u8 old_name[IFS_SFS_MAXFN + 2U];
     const u32 old_parent =
         be32_to_cpu(
             ((struct fsObjectContainer *)
@@ -3106,12 +3106,12 @@ int asfs_renameobject(
 
         name_start = block_start + name_offset;
         available = (size_t)(block_end - name_start);
-        limit = min_t(size_t, available, ASFS_MAXFN + 1U);
+        limit = min_t(size_t, available, IFS_SFS_MAXFN + 1U);
         terminator = memchr(name_start, '\0', limit);
         if (!terminator)
             return -EUCLEAN;
         old_name_length = (size_t)(terminator - name_start);
-        if (old_name_length > ASFS_MAXFN)
+        if (old_name_length > IFS_SFS_MAXFN)
             return -EUCLEAN;
     }
 
@@ -3131,34 +3131,34 @@ int asfs_renameobject(
         struct buffer_head *destination_bh;
         struct fsObject *destination;
 
-        result = asfs_readobject(
+        result = ifs_sfs_readobject(
             sb, new_parent,
             &fresh_parent_bh,
             &fresh_parent);
         if (result == 0) {
             destination_bh = fresh_parent_bh;
             destination = fresh_parent;
-            result = asfs_createobject(
+            result = ifs_sfs_createobject(
                 sb, &destination_bh,
                 &destination,
                 &saved_object,
                 new_name, TRUE);
             if (result == 0)
-                asfs_bstore(
+                ifs_sfs_bstore(
                     sb, destination_bh);
 
             if (destination_bh !=
                 fresh_parent_bh)
-                asfs_brelse(
+                ifs_sfs_brelse(
                     destination_bh);
-            asfs_brelse(
+            ifs_sfs_brelse(
                 fresh_parent_bh);
         }
     }
 
     if (result == 0) {
         if (new_parent ==
-            ASFS_RECYCLEDNODE) {
+            IFS_SFS_RECYCLEDNODE) {
             const s32 file_blocks =
                 (s32)DIV_ROUND_UP(
                     be32_to_cpu(
@@ -3178,7 +3178,7 @@ int asfs_renameobject(
         struct buffer_head *restore_bh;
         struct fsObject *restore_object;
 
-        if (asfs_readobject(
+        if (ifs_sfs_readobject(
                 sb, old_parent,
                 &restore_parent_bh,
                 &restore_parent) == 0) {
@@ -3186,18 +3186,18 @@ int asfs_renameobject(
                 restore_parent_bh;
             restore_object =
                 restore_parent;
-            if (asfs_createobject(
+            if (ifs_sfs_createobject(
                     sb, &restore_bh,
                     &restore_object,
                     &saved_object,
                     old_name, TRUE) == 0)
-                asfs_bstore(
+                ifs_sfs_bstore(
                     sb, restore_bh);
 
             if (restore_bh !=
                 restore_parent_bh)
-                asfs_brelse(restore_bh);
-            asfs_brelse(
+                ifs_sfs_brelse(restore_bh);
+            ifs_sfs_brelse(
                 restore_parent_bh);
         }
     }
@@ -3205,7 +3205,7 @@ int asfs_renameobject(
     return result;
 }
 
-int asfs_truncateblocksinfile(
+int ifs_sfs_truncateblocksinfile(
     struct super_block *sb,
     struct buffer_head *object_bh,
     struct fsObject *object,
@@ -3220,7 +3220,7 @@ int asfs_truncateblocksinfile(
     u32 key =
         be32_to_cpu(
             object->object.file.data);
-    u32 budget = ASFS_SB(sb)->totalblocks;
+    u32 budget = IFS_SFS_SB(sb)->totalblocks;
     int result;
 
     if (key == 0U)
@@ -3234,7 +3234,7 @@ int asfs_truncateblocksinfile(
         if (budget-- == 0U)
             return -EUCLEAN;
 
-        result = asfs_getextent(
+        result = ifs_sfs_getextent(
             sb, next_key,
             &extent_bh, &extent);
         if (result != 0)
@@ -3248,7 +3248,7 @@ int asfs_truncateblocksinfile(
 
         logical += extent_blocks;
         key = be32_to_cpu(extent->next);
-        asfs_brelse(extent_bh);
+        ifs_sfs_brelse(extent_bh);
         extent_bh = NULL;
     }
 
@@ -3268,26 +3268,26 @@ int asfs_truncateblocksinfile(
             be32_to_cpu(extent->prev);
 
         if (keep_blocks > current_blocks) {
-            asfs_brelse(extent_bh);
+            ifs_sfs_brelse(extent_bh);
             return -EUCLEAN;
         }
 
         if (current_blocks > keep_blocks) {
-            result = asfs_freespace(
+            result = ifs_sfs_freespace(
                 sb,
                 extent_key + keep_blocks,
                 current_blocks - keep_blocks);
             if (result != 0) {
-                asfs_brelse(extent_bh);
+                ifs_sfs_brelse(extent_bh);
                 return result;
             }
         }
 
         if (next != 0U) {
-            result = asfs_deleteextents(
+            result = ifs_sfs_deleteextents(
                 sb, next);
             if (result != 0) {
-                asfs_brelse(extent_bh);
+                ifs_sfs_brelse(extent_bh);
                 return result;
             }
         }
@@ -3297,35 +3297,35 @@ int asfs_truncateblocksinfile(
                 cpu_to_be16(
                     (u16)keep_blocks);
             extent->next = 0U;
-            asfs_bstore(sb, extent_bh);
-            asfs_brelse(extent_bh);
+            ifs_sfs_bstore(sb, extent_bh);
+            ifs_sfs_brelse(extent_bh);
             return 0;
         }
 
         if ((previous & MSB_MASK) != 0U) {
             object->object.file.data = 0U;
-            asfs_bstore(sb, object_bh);
+            ifs_sfs_bstore(sb, object_bh);
         } else {
             struct buffer_head *previous_bh = NULL;
             struct fsExtentBNode *previous_extent = NULL;
 
-            result = asfs_getextent(
+            result = ifs_sfs_getextent(
                 sb, previous & ~MSB_MASK,
                 &previous_bh,
                 &previous_extent);
             if (result != 0) {
-                asfs_brelse(extent_bh);
+                ifs_sfs_brelse(extent_bh);
                 return result;
             }
 
             previous_extent->next = 0U;
-            asfs_bstore(sb, previous_bh);
-            asfs_brelse(previous_bh);
+            ifs_sfs_bstore(sb, previous_bh);
+            ifs_sfs_brelse(previous_bh);
         }
 
-        result = asfs_deletebnode(
+        result = ifs_sfs_deletebnode(
             sb, extent_bh, extent_key);
-        asfs_brelse(extent_bh);
+        ifs_sfs_brelse(extent_bh);
         return result;
     }
 }

@@ -22,26 +22,26 @@ static int sfs_load_extent(
     if (!extent || key == 0U)
         return -EUCLEAN;
 
-    result = asfs_getextent(sb, key, &bh, &disk_extent);
+    result = ifs_sfs_getextent(sb, key, &bh, &disk_extent);
     if (result != 0)
         return result;
 
     extent->key = disk_extent->key;
     extent->next = disk_extent->next;
     extent->blocks = disk_extent->blocks;
-    asfs_brelse(bh);
+    ifs_sfs_brelse(bh);
 
     if (ifs_sfs_validate_extent(
             be32_to_cpu(extent->key),
             be32_to_cpu(extent->next),
             be16_to_cpu(extent->blocks),
-            ASFS_SB(sb)->totalblocks) != 0)
+            IFS_SFS_SB(sb)->totalblocks) != 0)
         return -EUCLEAN;
 
     return 0;
 }
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 static int sfs_extend_file_to_block(
     struct inode *inode,
     sector_t block)
@@ -58,32 +58,32 @@ static int sfs_extend_file_to_block(
         return block < inode->i_blocks ? 0 : -EFBIG;
 
     requested = (u32)block - (u32)inode->i_blocks + 1U;
-    if (requested < ASFS_BLOCKCHUNKS)
-        requested = ASFS_BLOCKCHUNKS;
+    if (requested < IFS_SFS_BLOCKCHUNKS)
+        requested = IFS_SFS_BLOCKCHUNKS;
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, (u32)inode->i_ino, &bh, &object);
     if (result != 0)
         return result;
 
-    result = asfs_addblockstofile(
+    result = ifs_sfs_addblockstofile(
         sb, bh, object, requested, &new_space, &added);
     if (result == 0) {
         if ((u64)added * sb->s_blocksize >
-            U64_MAX - (u64)ASFS_I(inode)->mmu_private) {
+            U64_MAX - (u64)IFS_SFS_I(inode)->mmu_private) {
             result = -EOVERFLOW;
         } else {
-            ASFS_I(inode)->mmu_private +=
+            IFS_SFS_I(inode)->mmu_private +=
                 (u64)added * sb->s_blocksize;
             inode->i_blocks += added;
-            ASFS_I(inode)->ext_cache.key = 0U;
-            ASFS_I(inode)->firstblock =
+            IFS_SFS_I(inode)->ext_cache.key = 0U;
+            IFS_SFS_I(inode)->firstblock =
                 be32_to_cpu(object->object.file.data);
-            ASFS_I(inode)->modified = TRUE;
+            IFS_SFS_I(inode)->modified = TRUE;
         }
     }
 
-    asfs_brelse(bh);
+    ifs_sfs_brelse(bh);
     return result;
 }
 #endif
@@ -106,7 +106,7 @@ static int sfs_map_block(
     if (logical_block > U32_MAX)
         return -EFBIG;
 
-#ifndef CONFIG_ASFS_RW
+#ifndef CONFIG_IFS_SFS_RW
     if (create)
         return -EROFS;
 #endif
@@ -114,9 +114,9 @@ static int sfs_map_block(
     if (!create && logical_block >= inode->i_blocks)
         return -EIO;
 
-    mutex_lock(&ASFS_SB(sb)->lock);
+    mutex_lock(&IFS_SFS_SB(sb)->lock);
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
     if (create && logical_block >= inode->i_blocks) {
         result = sfs_extend_file_to_block(inode, logical_block);
         if (result != 0)
@@ -124,33 +124,33 @@ static int sfs_map_block(
     }
 #endif
 
-    if (ASFS_I(inode)->firstblock == 0U) {
+    if (IFS_SFS_I(inode)->firstblock == 0U) {
         result = -EUCLEAN;
         goto out_unlock;
     }
 
-    if (ASFS_I(inode)->ext_cache.key != 0U &&
-        ASFS_I(inode)->ext_cache.startblock <= logical_block) {
-        extent.key = cpu_to_be32(ASFS_I(inode)->ext_cache.key);
-        extent.next = cpu_to_be32(ASFS_I(inode)->ext_cache.next);
-        extent.blocks = cpu_to_be16(ASFS_I(inode)->ext_cache.blocks);
-        logical_start = ASFS_I(inode)->ext_cache.startblock;
+    if (IFS_SFS_I(inode)->ext_cache.key != 0U &&
+        IFS_SFS_I(inode)->ext_cache.startblock <= logical_block) {
+        extent.key = cpu_to_be32(IFS_SFS_I(inode)->ext_cache.key);
+        extent.next = cpu_to_be32(IFS_SFS_I(inode)->ext_cache.next);
+        extent.blocks = cpu_to_be16(IFS_SFS_I(inode)->ext_cache.blocks);
+        logical_start = IFS_SFS_I(inode)->ext_cache.startblock;
 
         if (ifs_sfs_validate_extent(
-                ASFS_I(inode)->ext_cache.key,
-                ASFS_I(inode)->ext_cache.next,
-                ASFS_I(inode)->ext_cache.blocks,
-                ASFS_SB(sb)->totalblocks) != 0) {
-            ASFS_I(inode)->ext_cache.key = 0U;
+                IFS_SFS_I(inode)->ext_cache.key,
+                IFS_SFS_I(inode)->ext_cache.next,
+                IFS_SFS_I(inode)->ext_cache.blocks,
+                IFS_SFS_SB(sb)->totalblocks) != 0) {
+            IFS_SFS_I(inode)->ext_cache.key = 0U;
             logical_start = 0U;
             result = sfs_load_extent(
-                sb, ASFS_I(inode)->firstblock, &extent);
+                sb, IFS_SFS_I(inode)->firstblock, &extent);
             if (result != 0)
                 goto out_unlock;
         }
     } else {
         result = sfs_load_extent(
-            sb, ASFS_I(inode)->firstblock, &extent);
+            sb, IFS_SFS_I(inode)->firstblock, &extent);
         if (result != 0)
             goto out_unlock;
     }
@@ -163,7 +163,7 @@ static int sfs_map_block(
             result = -EUCLEAN;
             goto out_unlock;
         }
-        if (++traversed > ASFS_SB(sb)->totalblocks) {
+        if (++traversed > IFS_SFS_SB(sb)->totalblocks) {
             result = -EUCLEAN;
             goto out_unlock;
         }
@@ -177,51 +177,51 @@ static int sfs_map_block(
     physical =
         be32_to_cpu(extent.key) +
         (u32)logical_block - logical_start;
-    if (physical >= ASFS_SB(sb)->totalblocks) {
+    if (physical >= IFS_SFS_SB(sb)->totalblocks) {
         result = -EUCLEAN;
         goto out_unlock;
     }
 
-    ASFS_I(inode)->ext_cache.startblock = logical_start;
-    ASFS_I(inode)->ext_cache.key = be32_to_cpu(extent.key);
-    ASFS_I(inode)->ext_cache.next = be32_to_cpu(extent.next);
-    ASFS_I(inode)->ext_cache.blocks = be16_to_cpu(extent.blocks);
+    IFS_SFS_I(inode)->ext_cache.startblock = logical_start;
+    IFS_SFS_I(inode)->ext_cache.key = be32_to_cpu(extent.key);
+    IFS_SFS_I(inode)->ext_cache.next = be32_to_cpu(extent.next);
+    IFS_SFS_I(inode)->ext_cache.blocks = be16_to_cpu(extent.blocks);
 
     map_bh(result_bh, sb, physical);
     if (create)
         set_buffer_new(result_bh);
 
 out_unlock:
-    mutex_unlock(&ASFS_SB(sb)->lock);
+    mutex_unlock(&IFS_SFS_SB(sb)->lock);
     return result;
 }
 
-int asfs_read_folio(struct file *file, struct folio *folio)
+int ifs_sfs_read_folio(struct file *file, struct folio *folio)
 {
     (void)file;
     return mpage_read_folio(folio, sfs_map_block);
 }
 
-void asfs_readahead(struct readahead_control *rac)
+void ifs_sfs_readahead(struct readahead_control *rac)
 {
     mpage_readahead(rac, sfs_map_block);
 }
 
-sector_t asfs_bmap(struct address_space *mapping, sector_t block)
+sector_t ifs_sfs_bmap(struct address_space *mapping, sector_t block)
 {
     return generic_block_bmap(mapping, block, sfs_map_block);
 }
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 
-int asfs_writepages(
+int ifs_sfs_writepages(
     struct address_space *mapping,
     struct writeback_control *writeback)
 {
     return mpage_writepages(mapping, writeback, sfs_map_block);
 }
 
-int asfs_write_begin(
+int ifs_sfs_write_begin(
     IFS_SFS_AOPS_WRITE_CONTEXT,
     struct address_space *mapping,
     loff_t position,
@@ -235,51 +235,51 @@ int asfs_write_begin(
         mapping, position, length, folio, sfs_map_block);
 }
 
-int asfs_truncate(struct inode *inode)
+int ifs_sfs_truncate(struct inode *inode)
 {
     struct super_block *sb = inode->i_sb;
     struct buffer_head *bh = NULL;
     struct fsObject *object = NULL;
     int result;
 
-    if (inode->i_size > ASFS_I(inode)->mmu_private)
+    if (inode->i_size > IFS_SFS_I(inode)->mmu_private)
         return -EOPNOTSUPP;
 
-    mutex_lock(&ASFS_SB(sb)->lock);
+    mutex_lock(&IFS_SFS_SB(sb)->lock);
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, (u32)inode->i_ino, &bh, &object);
     if (result != 0)
         goto out_unlock;
 
-    result = asfs_truncateblocksinfile(
+    result = ifs_sfs_truncateblocksinfile(
         sb, bh, object, (u32)inode->i_size);
     if (result == 0) {
         object->object.file.size =
             cpu_to_be32((u32)inode->i_size);
-        ASFS_I(inode)->mmu_private = inode->i_size;
-        ASFS_I(inode)->modified = TRUE;
-        ASFS_I(inode)->ext_cache.key = 0U;
+        IFS_SFS_I(inode)->mmu_private = inode->i_size;
+        IFS_SFS_I(inode)->modified = TRUE;
+        IFS_SFS_I(inode)->ext_cache.key = 0U;
         inode->i_blocks = DIV_ROUND_UP(
             (u64)inode->i_size, sb->s_blocksize);
-        asfs_bstore(sb, bh);
+        ifs_sfs_bstore(sb, bh);
     }
 
-    asfs_brelse(bh);
+    ifs_sfs_brelse(bh);
 
 out_unlock:
-    mutex_unlock(&ASFS_SB(sb)->lock);
+    mutex_unlock(&IFS_SFS_SB(sb)->lock);
     return result;
 }
 
-int asfs_file_open(struct inode *inode, struct file *file)
+int ifs_sfs_file_open(struct inode *inode, struct file *file)
 {
     (void)file;
-    atomic_inc(&ASFS_I(inode)->i_opencnt);
+    atomic_inc(&IFS_SFS_I(inode)->i_opencnt);
     return 0;
 }
 
-int asfs_file_release(struct inode *inode, struct file *file)
+int ifs_sfs_file_release(struct inode *inode, struct file *file)
 {
     struct super_block *sb = inode->i_sb;
     struct buffer_head *bh = NULL;
@@ -288,14 +288,14 @@ int asfs_file_release(struct inode *inode, struct file *file)
 
     (void)file;
 
-    if (!atomic_dec_and_test(&ASFS_I(inode)->i_opencnt))
+    if (!atomic_dec_and_test(&IFS_SFS_I(inode)->i_opencnt))
         return 0;
-    if (ASFS_I(inode)->modified != TRUE)
+    if (IFS_SFS_I(inode)->modified != TRUE)
         return 0;
 
-    mutex_lock(&ASFS_SB(sb)->lock);
+    mutex_lock(&IFS_SFS_SB(sb)->lock);
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, (u32)inode->i_ino, &bh, &object);
     if (result != 0)
         goto out_unlock;
@@ -305,27 +305,27 @@ int asfs_file_release(struct inode *inode, struct file *file)
               (365LL * 8LL + 2LL) * 24LL * 60LL * 60LL));
 
     if (S_ISREG(inode->i_mode)) {
-        result = asfs_truncateblocksinfile(
+        result = ifs_sfs_truncateblocksinfile(
             sb, bh, object, (u32)inode->i_size);
         if (result == 0) {
             object->object.file.size =
                 cpu_to_be32((u32)inode->i_size);
-            ASFS_I(inode)->mmu_private = inode->i_size;
+            IFS_SFS_I(inode)->mmu_private = inode->i_size;
             inode->i_blocks = DIV_ROUND_UP(
                 (u64)inode->i_size, sb->s_blocksize);
-            ASFS_I(inode)->ext_cache.key = 0U;
+            IFS_SFS_I(inode)->ext_cache.key = 0U;
         }
     }
 
     if (result == 0)
-        asfs_bstore(sb, bh);
+        ifs_sfs_bstore(sb, bh);
 
-    asfs_brelse(bh);
+    ifs_sfs_brelse(bh);
 
 out_unlock:
-    mutex_unlock(&ASFS_SB(sb)->lock);
+    mutex_unlock(&IFS_SFS_SB(sb)->lock);
     if (result == 0)
-        ASFS_I(inode)->modified = FALSE;
+        IFS_SFS_I(inode)->modified = FALSE;
     return result;
 }
 
@@ -341,7 +341,7 @@ out_unlock:
 
 #define SFS_UNIX_EPOCH_DELTA ((365LL * 8LL + 2LL) * 24LL * 60LL * 60LL)
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 static int sfs_create(
     struct mnt_idmap *idmap,
     struct inode *dir,
@@ -376,13 +376,13 @@ static int sfs_setattr(
 static const struct address_space_operations sfs_aops = {
     .dirty_folio = block_dirty_folio,
     .invalidate_folio = block_invalidate_folio,
-    .read_folio = asfs_read_folio,
-    .readahead = asfs_readahead,
-    .bmap = asfs_bmap,
-#ifdef CONFIG_ASFS_RW
-    .write_begin = asfs_write_begin,
+    .read_folio = ifs_sfs_read_folio,
+    .readahead = ifs_sfs_readahead,
+    .bmap = ifs_sfs_bmap,
+#ifdef CONFIG_IFS_SFS_RW
+    .write_begin = ifs_sfs_write_begin,
     .write_end = generic_write_end,
-    .writepages = asfs_writepages,
+    .writepages = ifs_sfs_writepages,
 #endif
 };
 
@@ -391,10 +391,10 @@ static const struct file_operations sfs_file_operations = {
     .read_iter = generic_file_read_iter,
     .mmap = generic_file_mmap,
     .splice_read = filemap_splice_read,
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
     .write_iter = generic_file_write_iter,
-    .open = asfs_file_open,
-    .release = asfs_file_release,
+    .open = ifs_sfs_file_open,
+    .release = ifs_sfs_file_release,
     .fsync = generic_file_fsync,
     .splice_write = iter_file_splice_write,
 #endif
@@ -402,13 +402,13 @@ static const struct file_operations sfs_file_operations = {
 
 static const struct file_operations sfs_dir_operations = {
     .read = generic_read_dir,
-    .iterate_shared = asfs_readdir,
+    .iterate_shared = ifs_sfs_readdir,
     .llseek = generic_file_llseek,
 };
 
 static const struct inode_operations sfs_dir_inode_operations = {
-    .lookup = asfs_lookup,
-#ifdef CONFIG_ASFS_RW
+    .lookup = ifs_sfs_lookup,
+#ifdef CONFIG_IFS_SFS_RW
     .create = sfs_create,
     .unlink = sfs_unlink,
     .symlink = sfs_symlink,
@@ -420,14 +420,14 @@ static const struct inode_operations sfs_dir_inode_operations = {
 };
 
 static const struct inode_operations sfs_file_inode_operations = {
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
     .setattr = sfs_setattr,
 #endif
 };
 
 static const struct inode_operations sfs_symlink_inode_operations = {
-    .get_link = asfs_get_link,
-#ifdef CONFIG_ASFS_RW
+    .get_link = ifs_sfs_get_link,
+#ifdef CONFIG_IFS_SFS_RW
     .setattr = sfs_setattr,
 #endif
 };
@@ -445,7 +445,7 @@ static umode_t sfs_directory_mode(umode_t base)
     return mode;
 }
 
-void asfs_read_locked_inode(struct inode *inode, void *argument)
+void ifs_sfs_read_locked_inode(struct inode *inode, void *argument)
 {
     struct fsObject *object = argument;
     struct super_block *sb = inode->i_sb;
@@ -453,28 +453,28 @@ void asfs_read_locked_inode(struct inode *inode, void *argument)
         (time64_t)be32_to_cpu(object->datemodified) +
         SFS_UNIX_EPOCH_DELTA;
 
-    inode->i_mode = ASFS_SB(sb)->mode;
+    inode->i_mode = IFS_SFS_SB(sb)->mode;
     inode_set_atime(inode, timestamp, 0);
     inode_set_mtime(inode, timestamp, 0);
     inode_set_ctime(inode, timestamp, 0);
-    i_uid_write(inode, ASFS_SB(sb)->uid);
-    i_gid_write(inode, ASFS_SB(sb)->gid);
-    atomic_set(&ASFS_I(inode)->i_opencnt, 0);
-    ASFS_I(inode)->modified = 0;
-    ASFS_I(inode)->hashtable = 0U;
-    ASFS_I(inode)->ext_cache.startblock = 0U;
-    ASFS_I(inode)->ext_cache.key = 0U;
-    ASFS_I(inode)->ext_cache.next = 0U;
-    ASFS_I(inode)->ext_cache.blocks = 0U;
+    i_uid_write(inode, IFS_SFS_SB(sb)->uid);
+    i_gid_write(inode, IFS_SFS_SB(sb)->gid);
+    atomic_set(&IFS_SFS_I(inode)->i_opencnt, 0);
+    IFS_SFS_I(inode)->modified = 0;
+    IFS_SFS_I(inode)->hashtable = 0U;
+    IFS_SFS_I(inode)->ext_cache.startblock = 0U;
+    IFS_SFS_I(inode)->ext_cache.key = 0U;
+    IFS_SFS_I(inode)->ext_cache.next = 0U;
+    IFS_SFS_I(inode)->ext_cache.blocks = 0U;
 
     if ((object->bits & OTYPE_DIR) != 0U) {
         inode->i_size = 0;
         inode->i_mode = sfs_directory_mode(inode->i_mode);
         inode->i_op = &sfs_dir_inode_operations;
         inode->i_fop = &sfs_dir_operations;
-        ASFS_I(inode)->firstblock =
+        IFS_SFS_I(inode)->firstblock =
             be32_to_cpu(object->object.dir.firstdirblock);
-        ASFS_I(inode)->hashtable =
+        IFS_SFS_I(inode)->hashtable =
             be32_to_cpu(object->object.dir.hashtable);
         return;
     }
@@ -484,7 +484,7 @@ void asfs_read_locked_inode(struct inode *inode, void *argument)
         inode->i_size = 0;
         inode->i_mode = S_IFLNK | S_IRWXUGO;
         inode->i_op = &sfs_symlink_inode_operations;
-        ASFS_I(inode)->firstblock =
+        IFS_SFS_I(inode)->firstblock =
             be32_to_cpu(object->object.file.data);
         return;
     }
@@ -496,12 +496,12 @@ void asfs_read_locked_inode(struct inode *inode, void *argument)
     inode->i_op = &sfs_file_inode_operations;
     inode->i_fop = &sfs_file_operations;
     inode->i_mapping->a_ops = &sfs_aops;
-    ASFS_I(inode)->firstblock =
+    IFS_SFS_I(inode)->firstblock =
         be32_to_cpu(object->object.file.data);
-    ASFS_I(inode)->mmu_private = inode->i_size;
+    IFS_SFS_I(inode)->mmu_private = inode->i_size;
 }
 
-struct inode *asfs_get_root_inode(struct super_block *sb)
+struct inode *ifs_sfs_get_root_inode(struct super_block *sb)
 {
     struct buffer_head *bh;
     struct fsObjectContainer *container;
@@ -509,15 +509,15 @@ struct inode *asfs_get_root_inode(struct super_block *sb)
     struct inode *inode = NULL;
     u32 node;
 
-    bh = asfs_breadcheck(
-        sb, ASFS_SB(sb)->rootobjectcontainer,
-        ASFS_OBJECTCONTAINER_ID);
+    bh = ifs_sfs_breadcheck(
+        sb, IFS_SFS_SB(sb)->rootobjectcontainer,
+        IFS_SFS_OBJECTCONTAINER_ID);
     if (!bh)
         return NULL;
 
     container = (struct fsObjectContainer *)bh->b_data;
     object = &container->object[0];
-    if (!asfs_object_slot_fits(sb, container, object))
+    if (!ifs_sfs_object_slot_fits(sb, container, object))
         goto out;
 
     node = be32_to_cpu(object->objectnode);
@@ -526,16 +526,16 @@ struct inode *asfs_get_root_inode(struct super_block *sb)
 
     inode = iget_locked(sb, node);
     if (inode && IFS_SFS_INODE_IS_NEW(inode)) {
-        asfs_read_locked_inode(inode, object);
+        ifs_sfs_read_locked_inode(inode, object);
         unlock_new_inode(inode);
     }
 
 out:
-    asfs_brelse(bh);
+    ifs_sfs_brelse(bh);
     return inode;
 }
 
-#ifdef CONFIG_ASFS_RW
+#ifdef CONFIG_IFS_SFS_RW
 
 static void sfs_set_current_times(struct inode *inode)
 {
@@ -550,11 +550,11 @@ static void sfs_sync_directory_object(
     struct inode *dir,
     struct fsObject *object)
 {
-    ASFS_I(dir)->firstblock =
+    IFS_SFS_I(dir)->firstblock =
         be32_to_cpu(object->object.dir.firstdirblock);
-    ASFS_I(dir)->hashtable =
+    IFS_SFS_I(dir)->hashtable =
         be32_to_cpu(object->object.dir.hashtable);
-    ASFS_I(dir)->modified = 1;
+    IFS_SFS_I(dir)->modified = 1;
     sfs_set_current_times(dir);
     object->datemodified = cpu_to_be32(
         (u32)(inode_get_mtime_sec(dir) -
@@ -566,8 +566,8 @@ static void sfs_release_pair(
     struct buffer_head *second)
 {
     if (second && second != first)
-        asfs_brelse(second);
-    asfs_brelse(first);
+        ifs_sfs_brelse(second);
+    ifs_sfs_brelse(first);
 }
 
 enum sfs_new_object_type {
@@ -590,14 +590,14 @@ static int sfs_create_object(
     struct fsObject *dir_object = NULL;
     struct fsObject *object = NULL;
     struct fsObject template;
-    u8 disk_name[ASFS_MAXFN_BUF];
+    u8 disk_name[IFS_SFS_MAXFN_BUF];
     int result;
 
-    asfs_translate(
+    ifs_sfs_translate(
         disk_name, (u8 *)dentry->d_name.name,
-        ASFS_SB(sb)->nls_disk, ASFS_SB(sb)->nls_io,
+        IFS_SFS_SB(sb)->nls_disk, IFS_SFS_SB(sb)->nls_io,
         sizeof(disk_name));
-    result = asfs_check_name(
+    result = ifs_sfs_check_name(
         disk_name,
         strnlen((const char *)disk_name, sizeof(disk_name)));
     if (result != 0)
@@ -620,16 +620,16 @@ static int sfs_create_object(
     else if (type == SFS_NEW_SYMLINK)
         template.bits = OTYPE_LINK;
 
-    mutex_lock(&ASFS_SB(sb)->lock);
+    mutex_lock(&IFS_SFS_SB(sb)->lock);
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, (u32)dir->i_ino, &dir_bh, &dir_object);
     if (result != 0)
         goto fail_locked;
 
     object_bh = dir_bh;
     object = dir_object;
-    result = asfs_createobject(
+    result = ifs_sfs_createobject(
         sb, &object_bh, &object, &template, disk_name, FALSE);
     if (result != 0)
         goto fail_buffers;
@@ -639,61 +639,61 @@ static int sfs_create_object(
     inode->i_blocks = 0;
     i_uid_write(inode, i_uid_read(dir));
     i_gid_write(inode, i_gid_read(dir));
-    inode->i_mode = mode | ASFS_SB(sb)->mode;
-    atomic_set(&ASFS_I(inode)->i_opencnt, 0);
-    ASFS_I(inode)->modified = 0;
-    ASFS_I(inode)->ext_cache.key = 0U;
+    inode->i_mode = mode | IFS_SFS_SB(sb)->mode;
+    atomic_set(&IFS_SFS_I(inode)->i_opencnt, 0);
+    IFS_SFS_I(inode)->modified = 0;
+    IFS_SFS_I(inode)->ext_cache.key = 0U;
 
     switch (type) {
     case SFS_NEW_DIRECTORY:
         inode->i_mode = sfs_directory_mode(inode->i_mode);
         inode->i_op = &sfs_dir_inode_operations;
         inode->i_fop = &sfs_dir_operations;
-        ASFS_I(inode)->firstblock =
+        IFS_SFS_I(inode)->firstblock =
             be32_to_cpu(object->object.dir.firstdirblock);
-        ASFS_I(inode)->hashtable =
+        IFS_SFS_I(inode)->hashtable =
             be32_to_cpu(object->object.dir.hashtable);
         break;
     case SFS_NEW_SYMLINK:
         inode->i_mode = S_IFLNK | S_IRWXUGO;
         inode->i_op = &sfs_symlink_inode_operations;
-        ASFS_I(inode)->firstblock =
+        IFS_SFS_I(inode)->firstblock =
             be32_to_cpu(object->object.file.data);
-        result = asfs_write_symlink(inode, symlink_target);
+        result = ifs_sfs_write_symlink(inode, symlink_target);
         break;
     case SFS_NEW_FILE:
         inode->i_mode |= S_IFREG;
         inode->i_op = &sfs_file_inode_operations;
         inode->i_fop = &sfs_file_operations;
         inode->i_mapping->a_ops = &sfs_aops;
-        ASFS_I(inode)->firstblock =
+        IFS_SFS_I(inode)->firstblock =
             be32_to_cpu(object->object.file.data);
-        ASFS_I(inode)->mmu_private = 0;
+        IFS_SFS_I(inode)->mmu_private = 0;
         break;
     }
 
     if (result != 0) {
-        (void)asfs_deleteobject(sb, object_bh, object);
+        (void)ifs_sfs_deleteobject(sb, object_bh, object);
         goto fail_buffers;
     }
 
-    asfs_bstore(sb, object_bh);
+    ifs_sfs_bstore(sb, object_bh);
     insert_inode_hash(inode);
     mark_inode_dirty(inode);
     d_instantiate(dentry, inode);
 
     sfs_sync_directory_object(dir, dir_object);
-    asfs_bstore(sb, dir_bh);
+    ifs_sfs_bstore(sb, dir_bh);
     mark_inode_dirty(dir);
 
     sfs_release_pair(object_bh, dir_bh);
-    mutex_unlock(&ASFS_SB(sb)->lock);
+    mutex_unlock(&IFS_SFS_SB(sb)->lock);
     return 0;
 
 fail_buffers:
     sfs_release_pair(object_bh, dir_bh);
 fail_locked:
-    mutex_unlock(&ASFS_SB(sb)->lock);
+    mutex_unlock(&IFS_SFS_SB(sb)->lock);
     iput(inode);
     return result;
 }
@@ -748,27 +748,27 @@ static int sfs_unlink(struct inode *dir, struct dentry *dentry)
     struct fsObject *dir_object = NULL;
     int result;
 
-    mutex_lock(&ASFS_SB(sb)->lock);
+    mutex_lock(&IFS_SFS_SB(sb)->lock);
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, (u32)inode->i_ino, &object_bh, &object);
     if (result != 0)
         goto out_unlock;
 
-    result = asfs_deleteobject(sb, object_bh, object);
-    asfs_brelse(object_bh);
+    result = ifs_sfs_deleteobject(sb, object_bh, object);
+    ifs_sfs_brelse(object_bh);
     object_bh = NULL;
     if (result != 0)
         goto out_unlock;
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, (u32)dir->i_ino, &dir_bh, &dir_object);
     if (result != 0)
         goto out_unlock;
 
     sfs_sync_directory_object(dir, dir_object);
-    asfs_bstore(sb, dir_bh);
-    asfs_brelse(dir_bh);
+    ifs_sfs_bstore(sb, dir_bh);
+    ifs_sfs_brelse(dir_bh);
     dir_bh = NULL;
 
     drop_nlink(inode);
@@ -776,9 +776,9 @@ static int sfs_unlink(struct inode *dir, struct dentry *dentry)
     mark_inode_dirty(dir);
 
 out_unlock:
-    asfs_brelse(object_bh);
-    asfs_brelse(dir_bh);
-    mutex_unlock(&ASFS_SB(sb)->lock);
+    ifs_sfs_brelse(object_bh);
+    ifs_sfs_brelse(dir_bh);
+    mutex_unlock(&IFS_SFS_SB(sb)->lock);
     return result;
 }
 
@@ -786,7 +786,7 @@ static int sfs_rmdir(struct inode *dir, struct dentry *dentry)
 {
     struct inode *inode = d_inode(dentry);
 
-    if (ASFS_I(inode)->firstblock != 0U)
+    if (IFS_SFS_I(inode)->firstblock != 0U)
         return -ENOTEMPTY;
 
     return sfs_unlink(dir, dentry);
@@ -807,7 +807,7 @@ static int sfs_rename(
     struct fsObject *source = NULL;
     struct fsObject *new_dir_object = NULL;
     struct fsObject *old_dir_object = NULL;
-    u8 disk_name[ASFS_MAXFN_BUF];
+    u8 disk_name[IFS_SFS_MAXFN_BUF];
     int result;
 
     (void)idmap;
@@ -815,11 +815,11 @@ static int sfs_rename(
     if (flags != 0U)
         return -EINVAL;
 
-    asfs_translate(
+    ifs_sfs_translate(
         disk_name, (u8 *)new_dentry->d_name.name,
-        ASFS_SB(sb)->nls_disk, ASFS_SB(sb)->nls_io,
+        IFS_SFS_SB(sb)->nls_disk, IFS_SFS_SB(sb)->nls_io,
         sizeof(disk_name));
-    result = asfs_check_name(
+    result = ifs_sfs_check_name(
         disk_name,
         strnlen((const char *)disk_name, sizeof(disk_name)));
     if (result != 0)
@@ -833,32 +833,32 @@ static int sfs_rename(
             return result;
     }
 
-    mutex_lock(&ASFS_SB(sb)->lock);
+    mutex_lock(&IFS_SFS_SB(sb)->lock);
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, (u32)d_inode(old_dentry)->i_ino,
         &source_bh, &source);
     if (result != 0)
         goto out;
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, (u32)new_dir->i_ino,
         &new_dir_bh, &new_dir_object);
     if (result != 0)
         goto out;
 
-    result = asfs_renameobject(
+    result = ifs_sfs_renameobject(
         sb, source_bh, source,
         new_dir_bh, new_dir_object, disk_name);
     if (result != 0)
         goto out;
 
-    asfs_brelse(source_bh);
+    ifs_sfs_brelse(source_bh);
     source_bh = NULL;
-    asfs_brelse(new_dir_bh);
+    ifs_sfs_brelse(new_dir_bh);
     new_dir_bh = NULL;
 
-    result = asfs_readobject(
+    result = ifs_sfs_readobject(
         sb, (u32)old_dir->i_ino,
         &old_dir_bh, &old_dir_object);
     if (result != 0)
@@ -868,7 +868,7 @@ static int sfs_rename(
         new_dir_bh = old_dir_bh;
         new_dir_object = old_dir_object;
     } else {
-        result = asfs_readobject(
+        result = ifs_sfs_readobject(
             sb, (u32)new_dir->i_ino,
             &new_dir_bh, &new_dir_object);
         if (result != 0)
@@ -879,9 +879,9 @@ static int sfs_rename(
     if (old_dir != new_dir)
         sfs_sync_directory_object(new_dir, new_dir_object);
 
-    asfs_bstore(sb, old_dir_bh);
+    ifs_sfs_bstore(sb, old_dir_bh);
     if (new_dir_bh != old_dir_bh)
-        asfs_bstore(sb, new_dir_bh);
+        ifs_sfs_bstore(sb, new_dir_bh);
 
     mark_inode_dirty(old_dir);
     if (old_dir != new_dir)
@@ -889,10 +889,10 @@ static int sfs_rename(
 
 out:
     if (new_dir_bh && new_dir_bh != old_dir_bh)
-        asfs_brelse(new_dir_bh);
-    asfs_brelse(old_dir_bh);
-    asfs_brelse(source_bh);
-    mutex_unlock(&ASFS_SB(sb)->lock);
+        ifs_sfs_brelse(new_dir_bh);
+    ifs_sfs_brelse(old_dir_bh);
+    ifs_sfs_brelse(source_bh);
+    mutex_unlock(&IFS_SFS_SB(sb)->lock);
     return result;
 }
 
@@ -911,11 +911,11 @@ static int sfs_setattr(
 
     if ((attributes->ia_valid & ATTR_SIZE) != 0 &&
         attributes->ia_size != old_size) {
-        if (attributes->ia_size > ASFS_I(inode)->mmu_private)
+        if (attributes->ia_size > IFS_SFS_I(inode)->mmu_private)
             return -EOPNOTSUPP;
 
         truncate_setsize(inode, attributes->ia_size);
-        result = asfs_truncate(inode);
+        result = ifs_sfs_truncate(inode);
         if (result != 0) {
             truncate_setsize(inode, old_size);
             return result;
