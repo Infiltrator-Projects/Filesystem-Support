@@ -1827,7 +1827,7 @@ static int ifs_ext3_ensure_credits(handle_t *handle, int needed,
 {
 	int error;
 
-	if (handle->h_buffer_credits >= needed)
+	if (handle->h_total_credits >= needed)
 		return 0;
 
 	error = ext3_journal_extend(handle, EXT3_MAX_TRANS_DATA);
