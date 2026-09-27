@@ -43,6 +43,8 @@ Filesystem Support is pinned to Infiltratr Common **1.19.35**, commit
 
 The application separates its filesystem catalogue, read-only support probing, installation backend and GTK shell. Adding another filesystem should normally be a catalogue change rather than a new GUI code path.
 
+The Linux shell follows the Infiltrator OS control-centre visual language used by System Settings: a branded application header with integrated search, persistent platform/status navigation, a dashboard home page with live support metrics and quick actions, and card-based catalogue views. Filesystem actions remain driven by the same probe and installer contracts; the richer shell changes presentation and navigation without duplicating package or kernel-module policy.
+
 ## Licence
 
 GPL-3.0-or-later.
