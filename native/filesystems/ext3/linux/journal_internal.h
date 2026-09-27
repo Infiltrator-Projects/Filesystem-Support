@@ -52,6 +52,7 @@
 #define journal_destroy                  jbd2_journal_destroy
 #define journal_wipe                     jbd2_journal_wipe
 #define journal_abort                    jbd2_journal_abort
+#define journal_abort_handle             jbd2_journal_abort_handle
 #define journal_errno                    jbd2_journal_errno
 #define journal_ack_err                  jbd2_journal_ack_err
 #define journal_clear_err                jbd2_journal_clear_err
