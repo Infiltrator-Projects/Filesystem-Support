@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: fast_commit.h.
+ * Project-maintained canonical implementation.
+ */
+
 #ifndef INFILTRATR_EXT4_FAST_COMMIT_H
 #define INFILTRATR_EXT4_FAST_COMMIT_H
 
