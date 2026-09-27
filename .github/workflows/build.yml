@@ -948,7 +948,6 @@ jobs:
           control.c
           core_bridge.c
           directory_io.c
-          embedded_jbd2.h
           ext4.h
           ext4_extents.h
           ext4_jbd2.h
@@ -960,13 +959,9 @@ jobs:
           fast_commit_engine.c
           file_io.c
           fsmap.h
-          include
           inline_data.c
           inode_adapter.c
           inode_allocation.c
-          journal_core.c
-          journal_durability.c
-          journal_transactions.c
           lifecycle.c
           mapping_support.c
           mballoc.h
@@ -985,10 +980,6 @@ jobs:
           find "$root/linux" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/ext4-linux.actual
           sort -o /tmp/ext4-linux.expected /tmp/ext4-linux.expected
           diff -u /tmp/ext4-linux.expected /tmp/ext4-linux.actual
-
-          test -s "$root/linux/include/linux/jbd2.h"
-          test -s "$root/linux/include/trace/events/jbd2.h"
-          test "$(find "$root/linux/include" -type f | wc -l)" -eq 2
 
       - name: Guard canonical EXT4 source ownership
         shell: bash

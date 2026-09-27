@@ -9,6 +9,5 @@ ext4-y := core_bridge.o storage_guard.o directory_io.o \
           writeback_io.o online_resize.o lifecycle.o volume_admin.o \
           extended_metadata.o security_support.o
 
-ccflags-y += -I$(src)/include
 ccflags-y += -DCONFIG_EXT4_FS_POSIX_ACL=1
 ccflags-y += -DCONFIG_EXT4_FS_SECURITY=1
