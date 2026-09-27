@@ -1019,6 +1019,38 @@ void affs_free_prealloc(struct inode *inode)
     }
 }
 
+static int ifs_ffs_zero_extend_ffs(
+    struct inode *inode, u32 target)
+{
+    const u32 block_size = AFFS_SB(inode->i_sb)->s_data_blksize;
+    u64 position = AFFS_I(inode)->mmu_private;
+
+    if (block_size == 0U)
+        return -EUCLEAN;
+
+    while (position < target) {
+        const u32 logical = (u32)(position / block_size);
+        const u32 within = (u32)(position % block_size);
+        const u32 chunk = min_t(
+            u32, block_size - within, target - (u32)position);
+        struct buffer_head *bh;
+        int result;
+
+        result = ifs_ffs_map_to_buffer(
+            inode, logical, true, false, &bh, NULL);
+        if (result != 0)
+            return result;
+
+        memset(bh->b_data + within, 0, chunk);
+        mark_buffer_dirty_inode(bh, inode);
+        affs_brelse(bh);
+        position += chunk;
+    }
+
+    AFFS_I(inode)->mmu_private = target;
+    return 0;
+}
+
 static int ifs_ffs_zero_last_block_tail(
     struct inode *inode, u32 target, u32 kept_blocks)
 {
