@@ -2884,7 +2884,7 @@ struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 	if (journal) {
 		tid_t tid;
 
-		spin_lock(&journal->j_state_lock);
+		read_lock(&journal->j_state_lock);
 		if (journal->j_running_transaction)
 			transaction = journal->j_running_transaction;
 		else
@@ -2893,7 +2893,7 @@ struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 			tid = transaction->t_tid;
 		else
 			tid = journal->j_commit_sequence;
-		spin_unlock(&journal->j_state_lock);
+		read_unlock(&journal->j_state_lock);
 		atomic_set(&ei->i_sync_tid, tid);
 		atomic_set(&ei->i_datasync_tid, tid);
 	}

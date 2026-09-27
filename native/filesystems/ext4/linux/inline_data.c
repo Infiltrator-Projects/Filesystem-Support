@@ -30,8 +30,10 @@
 
 static unsigned int ifs_ext4_inline_size(const struct inode *inode)
 {
-	return EXT4_I(inode)->i_inline_off ?
-		EXT4_I(inode)->i_inline_size : 0U;
+	const struct ext4_inode_info *ei =
+		container_of(inode, const struct ext4_inode_info, vfs_inode);
+
+	return ei->i_inline_off ? ei->i_inline_size : 0U;
 }
 
 static struct ext4_xattr_entry *
@@ -579,7 +581,8 @@ static int ifs_ext4_inline_to_block(handle_t *handle,
 	}
 
 	{
-		struct ext4_dir_entry_2 *first = data->b_data;
+		struct ext4_dir_entry_2 *first =
+			(struct ext4_dir_entry_2 *)data->b_data;
 		struct ext4_dir_entry_2 *after_dotdot;
 		unsigned int checksum_bytes = ext4_has_metadata_csum(inode->i_sb) ?
 			sizeof(struct ext4_dir_entry_tail) : 0U;
@@ -991,7 +994,7 @@ out:
 }
 
 #ifdef INLINE_DIR_DEBUG
-void ext4_show_inline_dir(struct inode *dir,
+static void ext4_show_inline_dir(struct inode *dir,
 			  struct buffer_head *bh,
 			  void *start,
 			  int size)
@@ -1715,7 +1718,8 @@ int ext4_inline_data_iomap(struct inode *inode, struct iomap *iomap)
 
 	address = (u64)iloc.bh->b_blocknr <<
 		inode->i_sb->s_blocksize_bits;
-	address += (u8 *)ext4_raw_inode(&iloc) - iloc.bh->b_data;
+	address += (u8 *)ext4_raw_inode(&iloc) -
+		(u8 *)iloc.bh->b_data;
 	address += offsetof(struct ext4_inode, i_block);
 
 	iomap->addr = address;
