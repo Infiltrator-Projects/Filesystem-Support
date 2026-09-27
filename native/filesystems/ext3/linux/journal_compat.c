@@ -47,7 +47,7 @@ static int ifs_ext3_zero_journal(journal_t *journal)
 {
 	unsigned int logical;
 
-	for (logical = 0; logical < journal->j_maxlen; ++logical) {
+	for (logical = 0; logical < journal->j_total_len; ++logical) {
 		unsigned long long physical = 0;
 		struct buffer_head *bh;
 		int result;
@@ -78,7 +78,7 @@ int journal_create(journal_t *journal)
 
 	if (!journal || !journal->j_inode)
 		return -EINVAL;
-	if (journal->j_maxlen < JBD2_MIN_JOURNAL_BLOCKS)
+	if (journal->j_total_len < JBD2_MIN_JOURNAL_BLOCKS)
 		return -EINVAL;
 	if (!journal->j_superblock || !journal->j_sb_buffer)
 		return -EIO;
@@ -92,7 +92,7 @@ int journal_create(journal_t *journal)
 	super->s_header.h_magic = cpu_to_be32(JBD2_MAGIC_NUMBER);
 	super->s_header.h_blocktype = cpu_to_be32(JBD2_SUPERBLOCK_V2);
 	super->s_blocksize = cpu_to_be32(journal->j_blocksize);
-	super->s_maxlen = cpu_to_be32(journal->j_maxlen);
+	super->s_maxlen = cpu_to_be32(journal->j_total_len);
 	super->s_first = cpu_to_be32(1);
 	super->s_sequence = cpu_to_be32(1);
 	super->s_start = cpu_to_be32(0);
