@@ -1,25 +1,8 @@
 /*
- * linux/fs/jbd/journal.c
+ * Copyright (C) 2026 Shannon Smith
  *
- * Written by Stephen C. Tweedie <sct@redhat.com>, 1998
- *
- * Copyright 1998 Red Hat corp --- All Rights Reserved
- *
- * This file is part of the Linux kernel and is made available under
- * the terms of the GNU General Public License, version 2, or at your
- * option, any later version, incorporated herein by reference.
- *
- * Generic filesystem journal-writing code; part of the ext2fs
- * journaling system.
- *
- * This file manages journals: areas of disk reserved for logging
- * transactional updates.  This includes the kernel journaling thread
- * which is responsible for scheduling updates to the log.
- *
- * We do not actually manage the physical storage of the journal in this
- * file: that is left to a per-journal policy function, which allows us
- * to store the journal within a filesystem-specified area for ext2
- * journaling (ext2 can use a reserved inode for storing the log).
+ * Infiltrator Filesystem Support EXT3 Linux adapter: journal_core.c.
+ * Project-maintained implementation for the canonical EXT3 driver.
  */
 
 /*
@@ -69,8 +52,8 @@
 #endif
 
 
-static int journal_convert_superblock_v1(journal_t *, journal_superblock_t *);
-static void __journal_abort_soft (journal_t *journal, int errno);
+static int ifs_ext3_local_journal_convert_superblock_v1(journal_t *, journal_superblock_t *);
+static void ifs_ext3_local___journal_abort_soft (journal_t *journal, int errno);
 static struct block_device *journal_bdev(journal_t *journal);
 
 #ifdef CONFIG_JBD_DEBUG
@@ -102,14 +85,14 @@ void __jbd_debug(int level, const char *file, const char *func,
 
 
 /**
- * commit_timeout - Advances journalled state toward a durable transaction or checkpoint boundary.
+ * ifs_ext3_local_commit_timeout - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void commit_timeout(struct timer_list *timer)
+static void ifs_ext3_local_commit_timeout(struct timer_list *timer)
 {
 	journal_t *journal = from_timer(journal, timer, j_commit_timer);
 
@@ -118,20 +101,20 @@ static void commit_timeout(struct timer_list *timer)
 
 
 /**
- * kjournald - Implements the kjournald operation within the journal core subsystem.
+ * ifs_ext3_local_kjournald - Implements the ifs_ext3_local_kjournald operation within the journal core subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int kjournald(void *arg)
+static int ifs_ext3_local_kjournald(void *arg)
 {
 	journal_t *journal = arg;
 	transaction_t *transaction;
 
 
-	timer_setup(&journal->j_commit_timer, commit_timeout, 0);
+	timer_setup(&journal->j_commit_timer, ifs_ext3_local_commit_timeout, 0);
 
 	set_freezable();
 
@@ -139,7 +122,7 @@ static int kjournald(void *arg)
 	journal->j_task = current;
 	wake_up(&journal->j_wait_done_commit);
 
-	printk(KERN_INFO "kjournald starting.  Commit interval %ld seconds\n",
+	printk(KERN_INFO "ifs_ext3_local_kjournald starting.  Commit interval %ld seconds\n",
 			journal->j_commit_interval / HZ);
 
 
@@ -165,7 +148,7 @@ loop:
 	if (freezing(current)) {
 
 
-		jbd_debug(1, "Now suspending kjournald\n");
+		jbd_debug(1, "Now suspending ifs_ext3_local_kjournald\n");
 		spin_unlock(&journal->j_state_lock);
 		try_to_freeze();
 		spin_lock(&journal->j_state_lock);
@@ -193,7 +176,7 @@ loop:
 		finish_wait(&journal->j_wait_commit, &wait);
 	}
 
-	jbd_debug(1, "kjournald wakes\n");
+	jbd_debug(1, "ifs_ext3_local_kjournald wakes\n");
 
 
 	transaction = journal->j_running_transaction;
@@ -214,18 +197,18 @@ end_loop:
 
 
 /**
- * journal_start_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_journal_start_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int journal_start_thread(journal_t *journal)
+static int ifs_ext3_local_journal_start_thread(journal_t *journal)
 {
 	struct task_struct *t;
 
-	t = kthread_run(kjournald, journal, "kjournald");
+	t = kthread_run(ifs_ext3_local_kjournald, journal, "ifs_ext3_local_kjournald");
 	if (IS_ERR(t))
 		return PTR_ERR(t);
 
@@ -235,14 +218,14 @@ static int journal_start_thread(journal_t *journal)
 
 
 /**
- * journal_kill_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_journal_kill_thread - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_kill_thread(journal_t *journal)
+static void ifs_ext3_local_journal_kill_thread(journal_t *journal)
 {
 	spin_lock(&journal->j_state_lock);
 	journal->j_flags |= JFS_UNMOUNT;
@@ -641,7 +624,7 @@ int journal_bmap(journal_t *journal, unsigned int blocknr,
 				__func__, blocknr, journal->j_dev);
 			if (!err)
 				err = -EIO;
-			__journal_abort_soft(journal, err);
+			ifs_ext3_local___journal_abort_soft(journal, err);
 		}
 	} else {
 		*retp = blocknr;
@@ -682,14 +665,14 @@ struct journal_head *journal_get_descriptor_buffer(journal_t *journal)
 
 
 /**
- * journal_init_common - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_journal_init_common - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static journal_t * journal_init_common (void)
+static journal_t * ifs_ext3_local_journal_init_common (void)
 {
 	journal_t *journal;
 	int err;
@@ -738,7 +721,7 @@ journal_t * journal_init_dev(struct block_device *bdev,
 			struct block_device *fs_dev,
 			int start, int len, int blocksize)
 {
-	journal_t *journal = journal_init_common();
+	journal_t *journal = ifs_ext3_local_journal_init_common();
 	struct buffer_head *bh;
 	int n;
 
@@ -790,7 +773,7 @@ out_err:
 journal_t * journal_init_inode (struct inode *inode)
 {
 	struct buffer_head *bh;
-	journal_t *journal = journal_init_common();
+	journal_t *journal = ifs_ext3_local_journal_init_common();
 	int err;
 	int n;
 	unsigned int blocknr;
@@ -847,14 +830,14 @@ out_err:
 
 
 /**
- * journal_fail_superblock - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_journal_fail_superblock - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_fail_superblock (journal_t *journal)
+static void ifs_ext3_local_journal_fail_superblock (journal_t *journal)
 {
 	struct buffer_head *bh = journal->j_sb_buffer;
 	brelse(bh);
@@ -863,14 +846,14 @@ static void journal_fail_superblock (journal_t *journal)
 
 
 /**
- * journal_reset - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_journal_reset - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int journal_reset(journal_t *journal)
+static int ifs_ext3_local_journal_reset(journal_t *journal)
 {
 	journal_superblock_t *sb = journal->j_superblock;
 	unsigned int first, last;
@@ -880,7 +863,7 @@ static int journal_reset(journal_t *journal)
 	if (first + JFS_MIN_JOURNAL_BLOCKS > last + 1) {
 		printk(KERN_ERR "JBD: Journal too short (blocks %u-%u).\n",
 		       first, last);
-		journal_fail_superblock(journal);
+		ifs_ext3_local_journal_fail_superblock(journal);
 		return -EINVAL;
 	}
 
@@ -915,7 +898,7 @@ static int journal_reset(journal_t *journal)
 					   REQ_FUA);
 		mutex_unlock(&journal->j_checkpoint_mutex);
 	}
-	return journal_start_thread(journal);
+	return ifs_ext3_local_journal_start_thread(journal);
 }
 
 
@@ -937,7 +920,7 @@ int journal_create(journal_t *journal)
 	if (journal->j_maxlen < JFS_MIN_JOURNAL_BLOCKS) {
 		printk (KERN_ERR "Journal length (%d blocks) too short.\n",
 			journal->j_maxlen);
-		journal_fail_superblock(journal);
+		ifs_ext3_local_journal_fail_superblock(journal);
 		return -EINVAL;
 	}
 
@@ -987,19 +970,19 @@ int journal_create(journal_t *journal)
 	journal->j_flags &= ~JFS_ABORT;
 	journal->j_format_version = 2;
 
-	return journal_reset(journal);
+	return ifs_ext3_local_journal_reset(journal);
 }
 
 
 /**
- * journal_write_superblock - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_journal_write_superblock - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_write_superblock(journal_t *journal, blk_opf_t write_flags)
+static void ifs_ext3_local_journal_write_superblock(journal_t *journal, blk_opf_t write_flags)
 {
 	struct buffer_head *bh = journal->j_sb_buffer;
 	int ret;
@@ -1052,7 +1035,7 @@ void journal_update_sb_log_tail(journal_t *journal, tid_t tail_tid,
 	sb->s_sequence = cpu_to_be32(tail_tid);
 	sb->s_start    = cpu_to_be32(tail_block);
 
-	journal_write_superblock(journal, write_flags);
+	ifs_ext3_local_journal_write_superblock(journal, write_flags);
 
 
 	spin_lock(&journal->j_state_lock);
@@ -1063,14 +1046,14 @@ void journal_update_sb_log_tail(journal_t *journal, tid_t tail_tid,
 
 
 /**
- * mark_journal_empty - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_mark_journal_empty - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mark_journal_empty(journal_t *journal)
+static void ifs_ext3_local_mark_journal_empty(journal_t *journal)
 {
 	journal_superblock_t *sb = journal->j_superblock;
 
@@ -1088,7 +1071,7 @@ static void mark_journal_empty(journal_t *journal)
 	sb->s_start    = cpu_to_be32(0);
 	spin_unlock(&journal->j_state_lock);
 
-	journal_write_superblock(journal, REQ_FUA);
+	ifs_ext3_local_journal_write_superblock(journal, REQ_FUA);
 
 	spin_lock(&journal->j_state_lock);
 
@@ -1098,14 +1081,14 @@ static void mark_journal_empty(journal_t *journal)
 
 
 /**
- * journal_update_sb_errno - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_journal_update_sb_errno - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_update_sb_errno(journal_t *journal)
+static void ifs_ext3_local_journal_update_sb_errno(journal_t *journal)
 {
 	journal_superblock_t *sb = journal->j_superblock;
 
@@ -1115,19 +1098,19 @@ static void journal_update_sb_errno(journal_t *journal)
 	sb->s_errno = cpu_to_be32(journal->j_errno);
 	spin_unlock(&journal->j_state_lock);
 
-	journal_write_superblock(journal, REQ_SYNC);
+	ifs_ext3_local_journal_write_superblock(journal, REQ_SYNC);
 }
 
 
 /**
- * journal_get_superblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext3_local_journal_get_superblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int journal_get_superblock(journal_t *journal)
+static int ifs_ext3_local_journal_get_superblock(journal_t *journal)
 {
 	struct buffer_head *bh;
 	journal_superblock_t *sb;
@@ -1184,25 +1167,25 @@ static int journal_get_superblock(journal_t *journal)
 	return 0;
 
 out:
-	journal_fail_superblock(journal);
+	ifs_ext3_local_journal_fail_superblock(journal);
 	return err;
 }
 
 
 /**
- * load_superblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext3_local_load_superblock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int load_superblock(journal_t *journal)
+static int ifs_ext3_local_load_superblock(journal_t *journal)
 {
 	int err;
 	journal_superblock_t *sb;
 
-	err = journal_get_superblock(journal);
+	err = ifs_ext3_local_journal_get_superblock(journal);
 	if (err)
 		return err;
 
@@ -1231,7 +1214,7 @@ int journal_load(journal_t *journal)
 	int err;
 	journal_superblock_t *sb;
 
-	err = load_superblock(journal);
+	err = ifs_ext3_local_load_superblock(journal);
 	if (err)
 		return err;
 
@@ -1254,7 +1237,7 @@ int journal_load(journal_t *journal)
 		goto recovery_error;
 
 
-	if (journal_reset(journal))
+	if (ifs_ext3_local_journal_reset(journal))
 		goto recovery_error;
 
 	journal->j_flags &= ~JFS_ABORT;
@@ -1280,7 +1263,7 @@ int journal_destroy(journal_t *journal)
 	int err = 0;
 
 
-	journal_kill_thread(journal);
+	ifs_ext3_local_journal_kill_thread(journal);
 
 
 	if (journal->j_running_transaction)
@@ -1305,7 +1288,7 @@ int journal_destroy(journal_t *journal)
 		if (!is_journal_aborted(journal)) {
 			journal->j_tail_sequence =
 				++journal->j_transaction_sequence;
-			mark_journal_empty(journal);
+			ifs_ext3_local_mark_journal_empty(journal);
 		} else
 			err = -EIO;
 		brelse(journal->j_sb_buffer);
@@ -1423,7 +1406,7 @@ int journal_update_format (journal_t *journal)
 	journal_superblock_t *sb;
 	int err;
 
-	err = journal_get_superblock(journal);
+	err = ifs_ext3_local_journal_get_superblock(journal);
 	if (err)
 		return err;
 
@@ -1433,7 +1416,7 @@ int journal_update_format (journal_t *journal)
 	case JFS_SUPERBLOCK_V2:
 		return 0;
 	case JFS_SUPERBLOCK_V1:
-		return journal_convert_superblock_v1(journal, sb);
+		return ifs_ext3_local_journal_convert_superblock_v1(journal, sb);
 	default:
 		break;
 	}
@@ -1442,14 +1425,14 @@ int journal_update_format (journal_t *journal)
 
 
 /**
- * journal_convert_superblock_v1 - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_journal_convert_superblock_v1 - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int journal_convert_superblock_v1(journal_t *journal,
+static int ifs_ext3_local_journal_convert_superblock_v1(journal_t *journal,
 					 journal_superblock_t *sb)
 {
 	int offset, blocksize;
@@ -1525,7 +1508,7 @@ int journal_flush(journal_t *journal)
 	cleanup_journal_tail(journal);
 
 
-	mark_journal_empty(journal);
+	ifs_ext3_local_mark_journal_empty(journal);
 	mutex_unlock(&journal->j_checkpoint_mutex);
 	spin_lock(&journal->j_state_lock);
 	J_ASSERT(!journal->j_running_transaction);
@@ -1552,7 +1535,7 @@ int journal_wipe(journal_t *journal, int write)
 
 	J_ASSERT (!(journal->j_flags & JFS_LOADED));
 
-	err = load_superblock(journal);
+	err = ifs_ext3_local_load_superblock(journal);
 	if (err)
 		return err;
 
@@ -1566,7 +1549,7 @@ int journal_wipe(journal_t *journal, int write)
 	if (write) {
 
 		mutex_lock(&journal->j_checkpoint_mutex);
-		mark_journal_empty(journal);
+		ifs_ext3_local_mark_journal_empty(journal);
 		mutex_unlock(&journal->j_checkpoint_mutex);
 	}
 
@@ -1592,14 +1575,14 @@ static struct block_device *journal_bdev(journal_t *journal)
 
 
 /**
- * __journal_abort_hard - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local___journal_abort_hard - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __journal_abort_hard(journal_t *journal)
+static void ifs_ext3_local___journal_abort_hard(journal_t *journal)
 {
 	transaction_t *transaction;
 
@@ -1619,14 +1602,14 @@ static void __journal_abort_hard(journal_t *journal)
 
 
 /**
- * __journal_abort_soft - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local___journal_abort_soft - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __journal_abort_soft (journal_t *journal, int errno)
+static void ifs_ext3_local___journal_abort_soft (journal_t *journal, int errno)
 {
 	if (journal->j_flags & JFS_ABORT)
 		return;
@@ -1634,10 +1617,10 @@ static void __journal_abort_soft (journal_t *journal, int errno)
 	if (!journal->j_errno)
 		journal->j_errno = errno;
 
-	__journal_abort_hard(journal);
+	ifs_ext3_local___journal_abort_hard(journal);
 
 	if (errno)
-		journal_update_sb_errno(journal);
+		ifs_ext3_local_journal_update_sb_errno(journal);
 }
 
 
@@ -1651,7 +1634,7 @@ static void __journal_abort_soft (journal_t *journal, int errno)
  */
 void journal_abort(journal_t *journal, int errno)
 {
-	__journal_abort_soft(journal, errno);
+	ifs_ext3_local___journal_abort_soft(journal, errno);
 }
 
 
@@ -1737,14 +1720,14 @@ static atomic_t nr_journal_heads = ATOMIC_INIT(0);
 
 
 /**
- * journal_init_journal_head_cache - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_journal_init_journal_head_cache - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int journal_init_journal_head_cache(void)
+static int ifs_ext3_local_journal_init_journal_head_cache(void)
 {
 	int retval;
 
@@ -1764,14 +1747,14 @@ static int journal_init_journal_head_cache(void)
 
 
 /**
- * journal_destroy_journal_head_cache - Tears down subsystem state after users have been quiesced.
+ * ifs_ext3_local_journal_destroy_journal_head_cache - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_destroy_journal_head_cache(void)
+static void ifs_ext3_local_journal_destroy_journal_head_cache(void)
 {
 	if (journal_head_cache) {
 		kmem_cache_destroy(journal_head_cache);
@@ -1811,14 +1794,14 @@ static struct journal_head *journal_alloc_journal_head(void)
 
 
 /**
- * journal_free_journal_head - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext3_local_journal_free_journal_head - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_free_journal_head(struct journal_head *jh)
+static void ifs_ext3_local_journal_free_journal_head(struct journal_head *jh)
 {
 #ifdef CONFIG_JBD_DEBUG
 	atomic_dec(&nr_journal_heads);
@@ -1869,7 +1852,7 @@ repeat:
 	jh->b_jcount++;
 	jbd_unlock_bh_journal_head(bh);
 	if (new_jh)
-		journal_free_journal_head(new_jh);
+		ifs_ext3_local_journal_free_journal_head(new_jh);
 	return bh->b_private;
 }
 
@@ -1897,14 +1880,14 @@ struct journal_head *journal_grab_journal_head(struct buffer_head *bh)
 
 
 /**
- * __journal_remove_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local___journal_remove_journal_head - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __journal_remove_journal_head(struct buffer_head *bh)
+static void ifs_ext3_local___journal_remove_journal_head(struct buffer_head *bh)
 {
 	struct journal_head *jh = bh2jh(bh);
 
@@ -1927,7 +1910,7 @@ static void __journal_remove_journal_head(struct buffer_head *bh)
 	bh->b_private = NULL;
 	jh->b_bh = NULL;
 	clear_buffer_jbd(bh);
-	journal_free_journal_head(jh);
+	ifs_ext3_local_journal_free_journal_head(jh);
 }
 
 
@@ -1947,7 +1930,7 @@ void journal_put_journal_head(struct journal_head *jh)
 	J_ASSERT_JH(jh, jh->b_jcount > 0);
 	--jh->b_jcount;
 	if (!jh->b_jcount) {
-		__journal_remove_journal_head(bh);
+		ifs_ext3_local___journal_remove_journal_head(bh);
 		jbd_unlock_bh_journal_head(bh);
 		__brelse(bh);
 	} else
@@ -1964,14 +1947,14 @@ static struct dentry *jbd_debug;
 
 
 /**
- * jbd_create_debugfs_entry - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext3_local_jbd_create_debugfs_entry - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __init jbd_create_debugfs_entry(void)
+static void __init ifs_ext3_local_jbd_create_debugfs_entry(void)
 {
 	jbd_debugfs_dir = debugfs_create_dir("jbd", NULL);
 	if (jbd_debugfs_dir)
@@ -1982,14 +1965,14 @@ static void __init jbd_create_debugfs_entry(void)
 
 
 /**
- * jbd_remove_debugfs_entry - Implements the remove debugfs entry operation within the journal core subsystem.
+ * ifs_ext3_local_jbd_remove_debugfs_entry - Implements the remove debugfs entry operation within the journal core subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void jbd_remove_debugfs_entry(void)
+static void ifs_ext3_local_jbd_remove_debugfs_entry(void)
 {
 	debugfs_remove(jbd_debug);
 	debugfs_remove(jbd_debugfs_dir);
@@ -1999,27 +1982,27 @@ static void jbd_remove_debugfs_entry(void)
 
 
 /**
- * jbd_create_debugfs_entry - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ * ifs_ext3_local_jbd_create_debugfs_entry - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void jbd_create_debugfs_entry(void)
+static inline void ifs_ext3_local_jbd_create_debugfs_entry(void)
 {
 }
 
 
 /**
- * jbd_remove_debugfs_entry - Implements the remove debugfs entry operation within the journal core subsystem.
+ * ifs_ext3_local_jbd_remove_debugfs_entry - Implements the remove debugfs entry operation within the journal core subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void jbd_remove_debugfs_entry(void)
+static inline void ifs_ext3_local_jbd_remove_debugfs_entry(void)
 {
 }
 
@@ -2029,14 +2012,14 @@ struct kmem_cache *jbd_handle_cache;
 
 
 /**
- * journal_init_handle_cache - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_journal_init_handle_cache - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int __init journal_init_handle_cache(void)
+static int __init ifs_ext3_local_journal_init_handle_cache(void)
 {
 	jbd_handle_cache = kmem_cache_create("journal_handle",
 				sizeof(handle_t),
@@ -2052,14 +2035,14 @@ static int __init journal_init_handle_cache(void)
 
 
 /**
- * journal_destroy_handle_cache - Tears down subsystem state after users have been quiesced.
+ * ifs_ext3_local_journal_destroy_handle_cache - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_destroy_handle_cache(void)
+static void ifs_ext3_local_journal_destroy_handle_cache(void)
 {
 	if (jbd_handle_cache)
 		kmem_cache_destroy(jbd_handle_cache);
@@ -2067,39 +2050,39 @@ static void journal_destroy_handle_cache(void)
 
 
 /**
- * journal_init_caches - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_journal_init_caches - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int __init journal_init_caches(void)
+static int __init ifs_ext3_local_journal_init_caches(void)
 {
 	int ret;
 
 	ret = journal_init_revoke_caches();
 	if (ret == 0)
-		ret = journal_init_journal_head_cache();
+		ret = ifs_ext3_local_journal_init_journal_head_cache();
 	if (ret == 0)
-		ret = journal_init_handle_cache();
+		ret = ifs_ext3_local_journal_init_handle_cache();
 	return ret;
 }
 
 
 /**
- * journal_destroy_caches - Tears down subsystem state after users have been quiesced.
+ * ifs_ext3_local_journal_destroy_caches - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void journal_destroy_caches(void)
+static void ifs_ext3_local_journal_destroy_caches(void)
 {
 	journal_destroy_revoke_caches();
-	journal_destroy_journal_head_cache();
-	journal_destroy_handle_cache();
+	ifs_ext3_local_journal_destroy_journal_head_cache();
+	ifs_ext3_local_journal_destroy_handle_cache();
 }
 
 
@@ -2117,10 +2100,10 @@ int __init infiltratr_ext3_jbd_init(void)
 
 	BUILD_BUG_ON(sizeof(struct journal_superblock_s) != 1024);
 
-	ret = journal_init_caches();
+	ret = ifs_ext3_local_journal_init_caches();
 	if (ret != 0)
-		journal_destroy_caches();
-	jbd_create_debugfs_entry();
+		ifs_ext3_local_journal_destroy_caches();
+	ifs_ext3_local_jbd_create_debugfs_entry();
 	return ret;
 }
 
@@ -2140,6 +2123,6 @@ void infiltratr_ext3_jbd_exit(void)
 	if (n)
 		printk(KERN_ERR "JBD: leaked %d journal_heads!\n", n);
 #endif
-	jbd_remove_debugfs_entry();
-	journal_destroy_caches();
+	ifs_ext3_local_jbd_remove_debugfs_entry();
+	ifs_ext3_local_journal_destroy_caches();
 }

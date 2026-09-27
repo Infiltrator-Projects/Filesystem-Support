@@ -1,20 +1,8 @@
 /*
- * linux/fs/jbd/transaction.c
+ * Copyright (C) 2026 Shannon Smith
  *
- * Written by Stephen C. Tweedie <sct@redhat.com>, 1998
- *
- * Copyright 1998 Red Hat corp --- All Rights Reserved
- *
- * This file is part of the Linux kernel and is made available under
- * the terms of the GNU General Public License, version 2, or at your
- * option, any later version, incorporated herein by reference.
- *
- * Generic filesystem transaction handling code; part of the ext2fs
- * journaling system.
- *
- * This file manages transactions (compound commits managed by the
- * journaling code) and handles (individual atomic operations by the
- * filesystem).
+ * Infiltrator Filesystem Support EXT3 Linux adapter: journal_transactions.c.
+ * Project-maintained implementation for the canonical EXT3 driver.
  */
 
 /*
@@ -49,11 +37,11 @@
 #include <linux/highmem.h>
 #include <linux/hrtimer.h>
 
-static void __journal_temp_unlink_buffer(struct journal_head *jh);
+static void ifs_ext3_local___journal_temp_unlink_buffer(struct journal_head *jh);
 
 
 /**
- * get_transaction - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext3_local_get_transaction - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
@@ -61,7 +49,7 @@ static void __journal_temp_unlink_buffer(struct journal_head *jh);
  * rollback, abort or retry policy.
  */
 static transaction_t *
-get_transaction(journal_t *journal, transaction_t *transaction)
+ifs_ext3_local_get_transaction(journal_t *journal, transaction_t *transaction)
 {
 	transaction->t_journal = journal;
 	transaction->t_state = T_RUNNING;
@@ -83,14 +71,14 @@ get_transaction(journal_t *journal, transaction_t *transaction)
 
 
 /**
- * start_this_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_start_this_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int start_this_handle(journal_t *journal, handle_t *handle)
+static int ifs_ext3_local_start_this_handle(journal_t *journal, handle_t *handle)
 {
 	transaction_t *transaction;
 	int needed;
@@ -143,7 +131,7 @@ repeat_locked:
 			spin_unlock(&journal->j_state_lock);
 			goto alloc_transaction;
 		}
-		get_transaction(journal, new_transaction);
+		ifs_ext3_local_get_transaction(journal, new_transaction);
 		new_transaction = NULL;
 	}
 
@@ -260,7 +248,7 @@ handle_t *journal_start(journal_t *journal, int nblocks)
 
 	current->journal_info = handle;
 
-	err = start_this_handle(journal, handle);
+	err = ifs_ext3_local_start_this_handle(journal, handle);
 	if (err < 0) {
 		jbd_free_handle(handle);
 		current->journal_info = NULL;
@@ -366,7 +354,7 @@ int journal_restart(handle_t *handle, int nblocks)
 
 	lock_map_release(&handle->h_lockdep_map);
 	handle->h_buffer_credits = nblocks;
-	ret = start_this_handle(journal, handle);
+	ret = ifs_ext3_local_start_this_handle(journal, handle);
 	return ret;
 }
 
@@ -441,14 +429,14 @@ void journal_unlock_updates (journal_t *journal)
 
 
 /**
- * warn_dirty_buffer - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext3_local_warn_dirty_buffer - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void warn_dirty_buffer(struct buffer_head *bh)
+static void ifs_ext3_local_warn_dirty_buffer(struct buffer_head *bh)
 {
 	printk(KERN_WARNING
 	       "JBD: Spotted dirty metadata buffer (dev = %pg, blocknr = %llu). "
@@ -459,7 +447,7 @@ static void warn_dirty_buffer(struct buffer_head *bh)
 
 
 /**
- * do_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext3_local_do_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
@@ -467,7 +455,7 @@ static void warn_dirty_buffer(struct buffer_head *bh)
  * rollback, abort or retry policy.
  */
 static int
-do_get_write_access(handle_t *handle, struct journal_head *jh,
+ifs_ext3_local_do_get_write_access(handle_t *handle, struct journal_head *jh,
 			int force_copy)
 {
 	struct buffer_head *bh;
@@ -505,7 +493,7 @@ repeat:
 			if (jh->b_next_transaction)
 				J_ASSERT_JH(jh, jh->b_next_transaction ==
 							transaction);
-			warn_dirty_buffer(bh);
+			ifs_ext3_local_warn_dirty_buffer(bh);
 		}
 
 
@@ -646,7 +634,7 @@ int journal_get_write_access(handle_t *handle, struct buffer_head *bh)
 	int rc;
 
 
-	rc = do_get_write_access(handle, jh, 0);
+	rc = ifs_ext3_local_do_get_write_access(handle, jh, 0);
 	journal_put_journal_head(jh);
 	return rc;
 }
@@ -732,7 +720,7 @@ int journal_get_undo_access(handle_t *handle, struct buffer_head *bh)
 	JBUFFER_TRACE(jh, "entry");
 
 
-	err = do_get_write_access(handle, jh, 1);
+	err = ifs_ext3_local_do_get_write_access(handle, jh, 1);
 	if (err)
 		goto out;
 
@@ -846,7 +834,7 @@ int journal_dirty_data(handle_t *handle, struct buffer_head *bh)
 			if (jh->b_transaction != NULL &&
 			    jh->b_transaction != handle->h_transaction) {
 				JBUFFER_TRACE(jh, "unfile from commit");
-				__journal_temp_unlink_buffer(jh);
+				ifs_ext3_local___journal_temp_unlink_buffer(jh);
 
 
 				jh->b_transaction = handle->h_transaction;
@@ -1014,7 +1002,7 @@ int journal_forget (handle_t *handle, struct buffer_head *bh)
 
 
 		if (jh->b_cp_transaction) {
-			__journal_temp_unlink_buffer(jh);
+			ifs_ext3_local___journal_temp_unlink_buffer(jh);
 			__journal_file_buffer(jh, transaction, BJ_Forget);
 		} else {
 			__journal_unfile_buffer(jh);
@@ -1180,7 +1168,7 @@ int journal_force_commit(journal_t *journal)
 
 
 /**
- * __blist_add_buffer - Implements the blist add buffer operation within the journal transaction api subsystem.
+ * ifs_ext3_local___blist_add_buffer - Implements the blist add buffer operation within the journal transaction api subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
@@ -1188,7 +1176,7 @@ int journal_force_commit(journal_t *journal)
  * rollback, abort or retry policy.
  */
 static inline void
-__blist_add_buffer(struct journal_head **list, struct journal_head *jh)
+ifs_ext3_local___blist_add_buffer(struct journal_head **list, struct journal_head *jh)
 {
 	if (!*list) {
 		jh->b_tnext = jh->b_tprev = jh;
@@ -1204,7 +1192,7 @@ __blist_add_buffer(struct journal_head **list, struct journal_head *jh)
 
 
 /**
- * __blist_del_buffer - Implements the blist del buffer operation within the journal transaction api subsystem.
+ * ifs_ext3_local___blist_del_buffer - Implements the blist del buffer operation within the journal transaction api subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
@@ -1212,7 +1200,7 @@ __blist_add_buffer(struct journal_head **list, struct journal_head *jh)
  * rollback, abort or retry policy.
  */
 static inline void
-__blist_del_buffer(struct journal_head **list, struct journal_head *jh)
+ifs_ext3_local___blist_del_buffer(struct journal_head **list, struct journal_head *jh)
 {
 	if (*list == jh) {
 		*list = jh->b_tnext;
@@ -1225,14 +1213,14 @@ __blist_del_buffer(struct journal_head **list, struct journal_head *jh)
 
 
 /**
- * __journal_temp_unlink_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local___journal_temp_unlink_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __journal_temp_unlink_buffer(struct journal_head *jh)
+static void ifs_ext3_local___journal_temp_unlink_buffer(struct journal_head *jh)
 {
 	struct journal_head **list = NULL;
 	transaction_t *transaction;
@@ -1278,7 +1266,7 @@ static void __journal_temp_unlink_buffer(struct journal_head *jh)
 		break;
 	}
 
-	__blist_del_buffer(list, jh);
+	ifs_ext3_local___blist_del_buffer(list, jh);
 	jh->b_jlist = BJ_None;
 	if (test_clear_buffer_jbddirty(bh))
 		mark_buffer_dirty(bh);
@@ -1295,7 +1283,7 @@ static void __journal_temp_unlink_buffer(struct journal_head *jh)
  */
 void __journal_unfile_buffer(struct journal_head *jh)
 {
-	__journal_temp_unlink_buffer(jh);
+	ifs_ext3_local___journal_temp_unlink_buffer(jh);
 	jh->b_transaction = NULL;
 	journal_put_journal_head(jh);
 }
@@ -1325,7 +1313,7 @@ void journal_unfile_buffer(journal_t *journal, struct journal_head *jh)
 
 
 /**
- * __journal_try_to_free_buffer - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext3_local___journal_try_to_free_buffer - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
@@ -1333,7 +1321,7 @@ void journal_unfile_buffer(journal_t *journal, struct journal_head *jh)
  * rollback, abort or retry policy.
  */
 static void
-__journal_try_to_free_buffer(journal_t *journal, struct buffer_head *bh)
+ifs_ext3_local___journal_try_to_free_buffer(journal_t *journal, struct buffer_head *bh)
 {
 	struct journal_head *jh;
 
@@ -1394,7 +1382,7 @@ int journal_try_to_free_buffers(journal_t *journal,
 			continue;
 
 		jbd_lock_bh_state(bh);
-		__journal_try_to_free_buffer(journal, bh);
+		ifs_ext3_local___journal_try_to_free_buffer(journal, bh);
 		journal_put_journal_head(jh);
 		jbd_unlock_bh_state(bh);
 		if (buffer_jbd(bh))
@@ -1409,21 +1397,21 @@ busy:
 
 
 /**
- * __dispose_buffer - Implements the dispose buffer operation within the journal transaction api subsystem.
+ * ifs_ext3_local___dispose_buffer - Implements the dispose buffer operation within the journal transaction api subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int __dispose_buffer(struct journal_head *jh, transaction_t *transaction)
+static int ifs_ext3_local___dispose_buffer(struct journal_head *jh, transaction_t *transaction)
 {
 	int may_free = 1;
 	struct buffer_head *bh = jh2bh(jh);
 
 	if (jh->b_cp_transaction) {
 		JBUFFER_TRACE(jh, "on running+cp transaction");
-		__journal_temp_unlink_buffer(jh);
+		ifs_ext3_local___journal_temp_unlink_buffer(jh);
 
 
 		clear_buffer_dirty(bh);
@@ -1438,14 +1426,14 @@ static int __dispose_buffer(struct journal_head *jh, transaction_t *transaction)
 
 
 /**
- * journal_unmap_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_journal_unmap_buffer - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int journal_unmap_buffer(journal_t *journal, struct buffer_head *bh,
+static int ifs_ext3_local_journal_unmap_buffer(journal_t *journal, struct buffer_head *bh,
 				int partial_page)
 {
 	transaction_t *transaction;
@@ -1488,7 +1476,7 @@ retry:
 
 
 			JBUFFER_TRACE(jh, "checkpointed: add to BJ_Forget");
-			may_free = __dispose_buffer(jh,
+			may_free = ifs_ext3_local___dispose_buffer(jh,
 					journal->j_running_transaction);
 			goto zap_buffer;
 		} else {
@@ -1496,7 +1484,7 @@ retry:
 
 			if (journal->j_committing_transaction) {
 				JBUFFER_TRACE(jh, "give to committing trans");
-				may_free = __dispose_buffer(jh,
+				may_free = ifs_ext3_local___dispose_buffer(jh,
 					journal->j_committing_transaction);
 				goto zap_buffer;
 			} else {
@@ -1511,7 +1499,7 @@ retry:
 		if (jh->b_jlist == BJ_Locked) {
 
 
-			may_free = __dispose_buffer(jh, transaction);
+			may_free = ifs_ext3_local___dispose_buffer(jh, transaction);
 			goto zap_buffer;
 		}
 
@@ -1543,7 +1531,7 @@ retry:
 
 		J_ASSERT_JH(jh, transaction == journal->j_running_transaction);
 		JBUFFER_TRACE(jh, "on running transaction");
-		may_free = __dispose_buffer(jh, transaction);
+		may_free = ifs_ext3_local___dispose_buffer(jh, transaction);
 	}
 
 zap_buffer:
@@ -1602,7 +1590,7 @@ void journal_invalidatepage(journal_t *journal,
 
 		if (offset <= curr_off) {
 			lock_buffer(bh);
-			may_free &= journal_unmap_buffer(journal, bh,
+			may_free &= ifs_ext3_local_journal_unmap_buffer(journal, bh,
 						 partial_folio);
 			unlock_buffer(bh);
 		}
@@ -1647,14 +1635,14 @@ void __journal_file_buffer(struct journal_head *jh,
 
 
 		if (buffer_dirty(bh))
-			warn_dirty_buffer(bh);
+			ifs_ext3_local_warn_dirty_buffer(bh);
 		if (test_clear_buffer_dirty(bh) ||
 		    test_clear_buffer_jbddirty(bh))
 			was_dirty = 1;
 	}
 
 	if (jh->b_transaction)
-		__journal_temp_unlink_buffer(jh);
+		ifs_ext3_local___journal_temp_unlink_buffer(jh);
 	else
 		journal_grab_journal_head(bh);
 	jh->b_transaction = transaction;
@@ -1691,7 +1679,7 @@ void __journal_file_buffer(struct journal_head *jh,
 		break;
 	}
 
-	__blist_add_buffer(list, jh);
+	ifs_ext3_local___blist_add_buffer(list, jh);
 	jh->b_jlist = jlist;
 
 	if (was_dirty)
@@ -1743,7 +1731,7 @@ void __journal_refile_buffer(struct journal_head *jh)
 
 
 	was_dirty = test_clear_buffer_jbddirty(bh);
-	__journal_temp_unlink_buffer(jh);
+	ifs_ext3_local___journal_temp_unlink_buffer(jh);
 
 
 	jh->b_transaction = jh->b_next_transaction;

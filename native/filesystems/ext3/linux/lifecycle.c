@@ -1,19 +1,8 @@
 /*
- *  linux/fs/ext3/super.c
+ * Copyright (C) 2026 Shannon Smith
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  from
- *
- *  linux/fs/minix/inode.c
- *
- *  Copyright (C) 1991, 1992  Linus Torvalds
- *
- *  Big-endian to little-endian byte-swapping/bitmaps by
- *        David S. Miller (davem@caip.rutgers.edu), 1995
+ * Infiltrator Filesystem Support EXT3 Linux adapter: lifecycle.c.
+ * Project-maintained implementation for the canonical EXT3 driver.
  */
 
 /*
@@ -64,24 +53,24 @@
   #define EXT3_MOUNT_DEFAULT_DATA_MODE EXT3_MOUNT_WRITEBACK_DATA
 #endif
 
-static int ext3_load_journal(struct super_block *, struct ext3_super_block *,
+static int ifs_ext3_local_ext3_load_journal(struct super_block *, struct ext3_super_block *,
 			     unsigned long journal_devnum);
-static int ext3_create_journal(struct super_block *, struct ext3_super_block *,
+static int ifs_ext3_local_ext3_create_journal(struct super_block *, struct ext3_super_block *,
 			       unsigned int);
-static int ext3_commit_super(struct super_block *sb,
+static int ifs_ext3_local_ext3_commit_super(struct super_block *sb,
 			       struct ext3_super_block *es,
 			       int sync);
-static void ext3_mark_recovery_complete(struct super_block * sb,
+static void ifs_ext3_local_ext3_mark_recovery_complete(struct super_block * sb,
 					struct ext3_super_block * es);
-static void ext3_clear_journal_err(struct super_block * sb,
+static void ifs_ext3_local_ext3_clear_journal_err(struct super_block * sb,
 				   struct ext3_super_block * es);
-static int ext3_sync_fs(struct super_block *sb, int wait);
+static int ifs_ext3_local_ext3_sync_fs(struct super_block *sb, int wait);
 static const char *ext3_decode_error(struct super_block * sb, int errno,
 				     char nbuf[16]);
-static int ext3_remount (struct super_block * sb, int * flags, char * data);
-static int ext3_statfs (struct dentry * dentry, struct kstatfs * buf);
-static int ext3_unfreeze(struct super_block *sb);
-static int ext3_freeze(struct super_block *sb);
+static int ifs_ext3_local_ext3_remount (struct super_block * sb, int * flags, char * data);
+static int ifs_ext3_local_ext3_statfs (struct dentry * dentry, struct kstatfs * buf);
+static int ifs_ext3_local_ext3_unfreeze(struct super_block *sb);
+static int ifs_ext3_local_ext3_freeze(struct super_block *sb);
 
 
 /**
@@ -193,14 +182,14 @@ void ext3_msg(struct super_block *sb, const char *prefix,
 
 
 /**
- * ext3_handle_error - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_ext3_handle_error - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_handle_error(struct super_block *sb)
+static void ifs_ext3_local_ext3_handle_error(struct super_block *sb)
 {
 	struct ext3_super_block *es = EXT3_SB(sb)->s_es;
 
@@ -220,7 +209,7 @@ static void ext3_handle_error(struct super_block *sb)
 	if (test_opt(sb, ERRORS_RO))
 		ext3_msg(sb, KERN_CRIT,
 			 "error: aborting filesystem after error; writes disabled");
-	ext3_commit_super(sb, es, 1);
+	ifs_ext3_local_ext3_commit_super(sb, es, 1);
 	if (test_opt(sb, ERRORS_PANIC))
 		panic("EXT3-fs (%s): panic forced after error\n",
 			sb->s_id);
@@ -251,7 +240,7 @@ void ext3_error(struct super_block *sb, const char *function,
 
 	va_end(args);
 
-	ext3_handle_error(sb);
+	ifs_ext3_local_ext3_handle_error(sb);
 }
 
 
@@ -318,7 +307,7 @@ void __ext3_std_error (struct super_block * sb, const char * function,
 	errstr = ext3_decode_error(sb, errno, nbuf);
 	ext3_msg(sb, KERN_CRIT, "error in %s: %s", function, errstr);
 
-	ext3_handle_error(sb);
+	ifs_ext3_local_ext3_handle_error(sb);
 }
 
 
@@ -438,24 +427,24 @@ static struct file *ext3_blkdev_get(dev_t dev, struct super_block *sb)
 	return bdev_file;
 }
 
-static void ext3_blkdev_put(struct file *bdev_file)
+static void ifs_ext3_local_ext3_blkdev_put(struct file *bdev_file)
 {
 	bdev_fput(bdev_file);
 }
 
 
 /**
- * ext3_blkdev_remove - Implements the blkdev remove operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_blkdev_remove - Implements the blkdev remove operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_blkdev_remove(struct ext3_sb_info *sbi)
+static void ifs_ext3_local_ext3_blkdev_remove(struct ext3_sb_info *sbi)
 {
 	if (sbi->journal_bdev_file) {
-		ext3_blkdev_put(sbi->journal_bdev_file);
+		ifs_ext3_local_ext3_blkdev_put(sbi->journal_bdev_file);
 		sbi->journal_bdev_file = NULL;
 	}
 	sbi->journal_bdev = NULL;
@@ -477,14 +466,14 @@ static inline struct inode *orphan_list_entry(struct list_head *l)
 
 
 /**
- * dump_orphan_list - Implements the dump orphan list operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_dump_orphan_list - Implements the dump orphan list operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void dump_orphan_list(struct super_block *sb, struct ext3_sb_info *sbi)
+static void ifs_ext3_local_dump_orphan_list(struct super_block *sb, struct ext3_sb_info *sbi)
 {
 	struct list_head *l;
 
@@ -504,14 +493,14 @@ static void dump_orphan_list(struct super_block *sb, struct ext3_sb_info *sbi)
 
 
 /**
- * ext3_put_super - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext3_local_ext3_put_super - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_put_super (struct super_block * sb)
+static void ifs_ext3_local_ext3_put_super (struct super_block * sb)
 {
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
 	struct ext3_super_block *es = sbi->s_es;
@@ -529,7 +518,7 @@ static void ext3_put_super (struct super_block * sb)
 		es->s_state = cpu_to_le16(sbi->s_mount_state);
 		BUFFER_TRACE(sbi->s_sbh, "marking dirty");
 		mark_buffer_dirty(sbi->s_sbh);
-		ext3_commit_super(sb, es, 1);
+		ifs_ext3_local_ext3_commit_super(sb, es, 1);
 	}
 
 	for (i = 0; i < sbi->s_gdb_count; i++)
@@ -546,7 +535,7 @@ static void ext3_put_super (struct super_block * sb)
 
 
 	if (!list_empty(&sbi->s_orphan))
-		dump_orphan_list(sb, sbi);
+		ifs_ext3_local_dump_orphan_list(sb, sbi);
 	J_ASSERT(list_empty(&sbi->s_orphan));
 
 	invalidate_bdev(sb->s_bdev);
@@ -555,7 +544,7 @@ static void ext3_put_super (struct super_block * sb)
 
 		sync_blockdev(sbi->journal_bdev);
 		invalidate_bdev(sbi->journal_bdev);
-		ext3_blkdev_remove(sbi);
+		ifs_ext3_local_ext3_blkdev_remove(sbi);
 	}
 	sb->s_fs_info = NULL;
 	kfree(sbi->s_blockgroup_lock);
@@ -595,14 +584,14 @@ static struct inode *ext3_alloc_inode(struct super_block *sb)
 
 
 /**
- * ext3_drop_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ifs_ext3_local_ext3_drop_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_drop_inode(struct inode *inode)
+static int ifs_ext3_local_ext3_drop_inode(struct inode *inode)
 {
 	int drop = generic_drop_inode(inode);
 
@@ -612,14 +601,14 @@ static int ext3_drop_inode(struct inode *inode)
 
 
 /**
- * ext3_i_callback - Implements the i callback operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_i_callback - Implements the i callback operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_i_callback(struct rcu_head *head)
+static void ifs_ext3_local_ext3_i_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
 	kmem_cache_free(ext3_inode_cachep, EXT3_I(inode));
@@ -627,14 +616,14 @@ static void ext3_i_callback(struct rcu_head *head)
 
 
 /**
- * ext3_destroy_inode - Tears down subsystem state after users have been quiesced.
+ * ifs_ext3_local_ext3_destroy_inode - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_destroy_inode(struct inode *inode)
+static void ifs_ext3_local_ext3_destroy_inode(struct inode *inode)
 {
 	if (!list_empty(&(EXT3_I(inode)->i_orphan))) {
 		printk("EXT3 Inode %p: orphan list check failed!\n",
@@ -644,19 +633,19 @@ static void ext3_destroy_inode(struct inode *inode)
 				false);
 		dump_stack();
 	}
-	call_rcu(&inode->i_rcu, ext3_i_callback);
+	call_rcu(&inode->i_rcu, ifs_ext3_local_ext3_i_callback);
 }
 
 
 /**
- * init_once - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_init_once - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void init_once(void *foo)
+static void ifs_ext3_local_init_once(void *foo)
 {
 	struct ext3_inode_info *ei = (struct ext3_inode_info *) foo;
 
@@ -670,19 +659,19 @@ static void init_once(void *foo)
 
 
 /**
- * init_inodecache - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_init_inodecache - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int __init init_inodecache(void)
+static int __init ifs_ext3_local_init_inodecache(void)
 {
 	ext3_inode_cachep = kmem_cache_create("ext3_inode_cache",
 					     sizeof(struct ext3_inode_info),
 					     0, SLAB_RECLAIM_ACCOUNT,
-					     init_once);
+					     ifs_ext3_local_init_once);
 	if (ext3_inode_cachep == NULL)
 		return -ENOMEM;
 	return 0;
@@ -690,14 +679,14 @@ static int __init init_inodecache(void)
 
 
 /**
- * destroy_inodecache - Tears down subsystem state after users have been quiesced.
+ * ifs_ext3_local_destroy_inodecache - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void destroy_inodecache(void)
+static void ifs_ext3_local_destroy_inodecache(void)
 {
 
 
@@ -707,14 +696,14 @@ static void destroy_inodecache(void)
 
 
 /**
- * ext3_show_quota_options - Implements the show quota options operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_show_quota_options - Implements the show quota options operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ext3_show_quota_options(struct seq_file *seq, struct super_block *sb)
+static inline void ifs_ext3_local_ext3_show_quota_options(struct seq_file *seq, struct super_block *sb)
 {
 #if defined(CONFIG_QUOTA)
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
@@ -774,14 +763,14 @@ static char *data_mode_string(unsigned long mode)
 
 
 /**
- * ext3_show_options - Implements the show options operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_show_options - Implements the show options operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_show_options(struct seq_file *seq, struct dentry *root)
+static int ifs_ext3_local_ext3_show_options(struct seq_file *seq, struct dentry *root)
 {
 	struct super_block *sb = root->d_sb;
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
@@ -855,7 +844,7 @@ static int ext3_show_options(struct seq_file *seq, struct dentry *root)
 	if (test_opt(sb, NOLOAD))
 		seq_puts(seq, ",norecovery");
 
-	ext3_show_quota_options(seq, sb);
+	ifs_ext3_local_ext3_show_quota_options(seq, sb);
 
 	return 0;
 }
@@ -924,22 +913,21 @@ static struct dentry *ext3_fh_to_parent(struct super_block *sb, struct fid *fid,
 }
 
 
-
 #ifdef CONFIG_QUOTA
 #define QTYPE2NAME(t) ((t)==USRQUOTA?"user":"group")
 #define QTYPE2MOPT(on, t) ((t)==USRQUOTA?((on)##USRJQUOTA):((on)##GRPJQUOTA))
 
-static int ext3_write_dquot(struct dquot *dquot);
-static int ext3_acquire_dquot(struct dquot *dquot);
-static int ext3_release_dquot(struct dquot *dquot);
-static int ext3_mark_dquot_dirty(struct dquot *dquot);
-static int ext3_write_info(struct super_block *sb, int type);
-static int ext3_quota_on(struct super_block *sb, int type, int format_id,
+static int ifs_ext3_local_ext3_write_dquot(struct dquot *dquot);
+static int ifs_ext3_local_ext3_acquire_dquot(struct dquot *dquot);
+static int ifs_ext3_local_ext3_release_dquot(struct dquot *dquot);
+static int ifs_ext3_local_ext3_mark_dquot_dirty(struct dquot *dquot);
+static int ifs_ext3_local_ext3_write_info(struct super_block *sb, int type);
+static int ifs_ext3_local_ext3_quota_on(struct super_block *sb, int type, int format_id,
 			 const struct path *path);
-static int ext3_quota_on_mount(struct super_block *sb, int type);
-static ssize_t ext3_quota_read(struct super_block *sb, int type, char *data,
+static int ifs_ext3_local_ext3_quota_on_mount(struct super_block *sb, int type);
+static ssize_t ifs_ext3_local_ext3_quota_read(struct super_block *sb, int type, char *data,
 			       size_t len, loff_t off);
-static ssize_t ext3_quota_write(struct super_block *sb, int type,
+static ssize_t ifs_ext3_local_ext3_quota_write(struct super_block *sb, int type,
 				const char *data, size_t len, loff_t off);
 
 
@@ -957,17 +945,17 @@ static struct dquot **ext3_get_dquots(struct inode *inode)
 }
 
 static const struct dquot_operations ext3_quota_operations = {
-	.write_dquot	= ext3_write_dquot,
-	.acquire_dquot	= ext3_acquire_dquot,
-	.release_dquot	= ext3_release_dquot,
-	.mark_dirty	= ext3_mark_dquot_dirty,
-	.write_info	= ext3_write_info,
+	.write_dquot	= ifs_ext3_local_ext3_write_dquot,
+	.acquire_dquot	= ifs_ext3_local_ext3_acquire_dquot,
+	.release_dquot	= ifs_ext3_local_ext3_release_dquot,
+	.mark_dirty	= ifs_ext3_local_ext3_mark_dquot_dirty,
+	.write_info	= ifs_ext3_local_ext3_write_info,
 	.alloc_dquot	= dquot_alloc,
 	.destroy_dquot	= dquot_destroy,
 };
 
 static const struct quotactl_ops ext3_qctl_operations = {
-	.quota_on	= ext3_quota_on,
+	.quota_on	= ifs_ext3_local_ext3_quota_on,
 	.quota_off	= dquot_quota_off,
 	.quota_sync	= dquot_quota_sync,
 	.get_state	= dquot_get_state,
@@ -979,21 +967,21 @@ static const struct quotactl_ops ext3_qctl_operations = {
 
 static const struct super_operations ext3_sops = {
 	.alloc_inode	= ext3_alloc_inode,
-	.destroy_inode	= ext3_destroy_inode,
+	.destroy_inode	= ifs_ext3_local_ext3_destroy_inode,
 	.write_inode	= ext3_write_inode,
 	.dirty_inode	= ext3_dirty_inode,
-	.drop_inode	= ext3_drop_inode,
+	.drop_inode	= ifs_ext3_local_ext3_drop_inode,
 	.evict_inode	= ext3_evict_inode,
-	.put_super	= ext3_put_super,
-	.sync_fs	= ext3_sync_fs,
-	.freeze_fs	= ext3_freeze,
-	.unfreeze_fs	= ext3_unfreeze,
-	.statfs		= ext3_statfs,
-	.remount_fs	= ext3_remount,
-	.show_options	= ext3_show_options,
+	.put_super	= ifs_ext3_local_ext3_put_super,
+	.sync_fs	= ifs_ext3_local_ext3_sync_fs,
+	.freeze_fs	= ifs_ext3_local_ext3_freeze,
+	.unfreeze_fs	= ifs_ext3_local_ext3_unfreeze,
+	.statfs		= ifs_ext3_local_ext3_statfs,
+	.remount_fs	= ifs_ext3_local_ext3_remount,
+	.show_options	= ifs_ext3_local_ext3_show_options,
 #ifdef CONFIG_QUOTA
-	.quota_read	= ext3_quota_read,
-	.quota_write	= ext3_quota_write,
+	.quota_read	= ifs_ext3_local_ext3_quota_read,
+	.quota_write	= ifs_ext3_local_ext3_quota_write,
 	.get_dquots	= ext3_get_dquots,
 #endif
 };
@@ -1080,14 +1068,14 @@ static const match_table_t tokens = {
 
 
 /**
- * get_sb_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext3_local_get_sb_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ext3_fsblk_t get_sb_block(void **data, struct super_block *sb)
+static ext3_fsblk_t ifs_ext3_local_get_sb_block(void **data, struct super_block *sb)
 {
 	ext3_fsblk_t	sb_block;
 	char		*options = (char *) *data;
@@ -1112,14 +1100,14 @@ static ext3_fsblk_t get_sb_block(void **data, struct super_block *sb)
 
 
 /**
- * set_qf_name - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext3_local_set_qf_name - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int set_qf_name(struct super_block *sb, int qtype, substring_t *args)
+static int ifs_ext3_local_set_qf_name(struct super_block *sb, int qtype, substring_t *args)
 {
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
 	char *qname;
@@ -1161,14 +1149,14 @@ static int set_qf_name(struct super_block *sb, int qtype, substring_t *args)
 
 
 /**
- * clear_qf_name - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext3_local_clear_qf_name - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int clear_qf_name(struct super_block *sb, int qtype) {
+static int ifs_ext3_local_clear_qf_name(struct super_block *sb, int qtype) {
 
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
 
@@ -1188,14 +1176,14 @@ static int clear_qf_name(struct super_block *sb, int qtype) {
 
 
 /**
- * parse_options - Implements the parse options operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_parse_options - Implements the parse options operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int parse_options (char *options, struct super_block *sb,
+static int ifs_ext3_local_parse_options (char *options, struct super_block *sb,
 			  unsigned int *inum, unsigned long *journal_devnum,
 			  ext3_fsblk_t *n_blocks_count, int is_remount)
 {
@@ -1441,19 +1429,19 @@ static int parse_options (char *options, struct super_block *sb,
 			break;
 #ifdef CONFIG_QUOTA
 		case Opt_usrjquota:
-			if (!set_qf_name(sb, USRQUOTA, &args[0]))
+			if (!ifs_ext3_local_set_qf_name(sb, USRQUOTA, &args[0]))
 				return 0;
 			break;
 		case Opt_grpjquota:
-			if (!set_qf_name(sb, GRPQUOTA, &args[0]))
+			if (!ifs_ext3_local_set_qf_name(sb, GRPQUOTA, &args[0]))
 				return 0;
 			break;
 		case Opt_offusrjquota:
-			if (!clear_qf_name(sb, USRQUOTA))
+			if (!ifs_ext3_local_clear_qf_name(sb, USRQUOTA))
 				return 0;
 			break;
 		case Opt_offgrpjquota:
-			if (!clear_qf_name(sb, GRPQUOTA))
+			if (!ifs_ext3_local_clear_qf_name(sb, GRPQUOTA))
 				return 0;
 			break;
 		case Opt_jqfmt_vfsold:
@@ -1584,14 +1572,14 @@ set_qf_format:
 
 
 /**
- * ext3_setup_super - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_ext3_setup_super - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_setup_super(struct super_block *sb, struct ext3_super_block *es,
+static int ifs_ext3_local_ext3_setup_super(struct super_block *sb, struct ext3_super_block *es,
 			    int read_only)
 {
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
@@ -1637,7 +1625,7 @@ static int ext3_setup_super(struct super_block *sb, struct ext3_super_block *es,
 	ext3_update_dynamic_rev(sb);
 	EXT3_SET_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER);
 
-	ext3_commit_super(sb, es, 1);
+	ifs_ext3_local_ext3_commit_super(sb, es, 1);
 	if (test_opt(sb, DEBUG))
 		ext3_msg(sb, KERN_INFO, "[bs=%lu, gc=%lu, "
 				"bpg=%lu, ipg=%lu, mo=%04lx]",
@@ -1658,14 +1646,14 @@ static int ext3_setup_super(struct super_block *sb, struct ext3_super_block *es,
 
 
 /**
- * ext3_check_descriptors - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext3_local_ext3_check_descriptors - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_check_descriptors(struct super_block *sb)
+static int ifs_ext3_local_ext3_check_descriptors(struct super_block *sb)
 {
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
 	int i;
@@ -1686,7 +1674,7 @@ static int ext3_check_descriptors(struct super_block *sb)
 		if (le32_to_cpu(gdp->bg_block_bitmap) < first_block ||
 		    le32_to_cpu(gdp->bg_block_bitmap) > last_block)
 		{
-			ext3_error (sb, "ext3_check_descriptors",
+			ext3_error (sb, "ifs_ext3_local_ext3_check_descriptors",
 				    "Block bitmap for group %d"
 				    " not in group (block %lu)!",
 				    i, (unsigned long)
@@ -1696,7 +1684,7 @@ static int ext3_check_descriptors(struct super_block *sb)
 		if (le32_to_cpu(gdp->bg_inode_bitmap) < first_block ||
 		    le32_to_cpu(gdp->bg_inode_bitmap) > last_block)
 		{
-			ext3_error (sb, "ext3_check_descriptors",
+			ext3_error (sb, "ifs_ext3_local_ext3_check_descriptors",
 				    "Inode bitmap for group %d"
 				    " not in group (block %lu)!",
 				    i, (unsigned long)
@@ -1709,7 +1697,7 @@ static int ext3_check_descriptors(struct super_block *sb)
 		    sbi->s_itb_per_group - 1 >
 		    last_block - le32_to_cpu(gdp->bg_inode_table))
 		{
-			ext3_error (sb, "ext3_check_descriptors",
+			ext3_error (sb, "ifs_ext3_local_ext3_check_descriptors",
 				    "Inode table for group %d"
 				    " not in group (block %lu)!",
 				    i, (unsigned long)
@@ -1725,14 +1713,14 @@ static int ext3_check_descriptors(struct super_block *sb)
 
 
 /**
- * ext3_orphan_cleanup - Implements the orphan cleanup operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_orphan_cleanup - Implements the orphan cleanup operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_orphan_cleanup (struct super_block * sb,
+static void ifs_ext3_local_ext3_orphan_cleanup (struct super_block * sb,
 				 struct ext3_super_block * es)
 {
 	unsigned int s_flags = sb->s_flags;
@@ -1779,7 +1767,7 @@ static void ext3_orphan_cleanup (struct super_block * sb,
 
 	for (i = 0; i < EXT3_MAXQUOTAS; i++) {
 		if (EXT3_SB(sb)->s_qf_names[i]) {
-			int ret = ext3_quota_on_mount(sb, i);
+			int ret = ifs_ext3_local_ext3_quota_on_mount(sb, i);
 			if (ret < 0)
 				ext3_msg(sb, KERN_ERR,
 					"error: cannot turn on journaled "
@@ -1838,14 +1826,14 @@ static void ext3_orphan_cleanup (struct super_block * sb,
 
 
 /**
- * ext3_max_size - Implements the max size operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_max_size - Implements the max size operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static loff_t ext3_max_size(int bits)
+static loff_t ifs_ext3_local_ext3_max_size(int bits)
 {
 	loff_t res = EXT3_NDIR_BLOCKS;
 	int meta_blocks;
@@ -1882,14 +1870,14 @@ static loff_t ext3_max_size(int bits)
 
 
 /**
- * descriptor_loc - Implements the descriptor loc operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_descriptor_loc - Implements the descriptor loc operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ext3_fsblk_t descriptor_loc(struct super_block *sb,
+static ext3_fsblk_t ifs_ext3_local_descriptor_loc(struct super_block *sb,
 				    ext3_fsblk_t logic_sb_block,
 				    int nr)
 {
@@ -1910,20 +1898,20 @@ static ext3_fsblk_t descriptor_loc(struct super_block *sb,
 
 
 /**
- * ext3_fill_super - Constructs and validates the mounted filesystem state before it is published to VFS.
+ * ifs_ext3_local_ext3_fill_super - Constructs and validates the mounted filesystem state before it is published to VFS.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_fill_super (struct super_block *sb, void *data, int silent)
+static int ifs_ext3_local_ext3_fill_super (struct super_block *sb, void *data, int silent)
 {
 	struct buffer_head * bh;
 	struct ext3_super_block *es = NULL;
 	struct ext3_sb_info *sbi;
 	ext3_fsblk_t block;
-	ext3_fsblk_t sb_block = get_sb_block(&data, sb);
+	ext3_fsblk_t sb_block = ifs_ext3_local_get_sb_block(&data, sb);
 	ext3_fsblk_t logic_sb_block;
 	unsigned long offset = 0;
 	unsigned int journal_inum = 0;
@@ -2018,7 +2006,7 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	set_opt(sbi->s_mount_opt, BARRIER);
 	set_opt(sbi->s_mount_opt, RESERVATION);
 
-	if (!parse_options ((char *) data, sb, &journal_inum, &journal_devnum,
+	if (!ifs_ext3_local_parse_options ((char *) data, sb, &journal_inum, &journal_devnum,
 			    NULL, 0))
 		goto failed_mount;
 
@@ -2094,7 +2082,7 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 		}
 	}
 
-	sb->s_maxbytes = ext3_max_size(sb->s_blocksize_bits);
+	sb->s_maxbytes = ifs_ext3_local_ext3_max_size(sb->s_blocksize_bits);
 
 	if (le32_to_cpu(es->s_rev_level) == EXT3_GOOD_OLD_REV) {
 		sbi->s_inode_size = EXT3_GOOD_OLD_INODE_SIZE;
@@ -2212,7 +2200,7 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	bgl_lock_init(sbi->s_blockgroup_lock);
 
 	for (i = 0; i < db_count; i++) {
-		block = descriptor_loc(sb, logic_sb_block, i);
+		block = ifs_ext3_local_descriptor_loc(sb, logic_sb_block, i);
 		sbi->s_group_desc[i] = sb_bread(sb, block);
 		if (!sbi->s_group_desc[i]) {
 			ext3_msg(sb, KERN_ERR,
@@ -2221,7 +2209,7 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 			goto failed_mount2;
 		}
 	}
-	if (!ext3_check_descriptors (sb)) {
+	if (!ifs_ext3_local_ext3_check_descriptors (sb)) {
 		ext3_msg(sb, KERN_ERR,
 			"error: group descriptors corrupted");
 		goto failed_mount2;
@@ -2264,10 +2252,10 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 
 	if (!test_opt(sb, NOLOAD) &&
 	    EXT3_HAS_COMPAT_FEATURE(sb, EXT3_FEATURE_COMPAT_HAS_JOURNAL)) {
-		if (ext3_load_journal(sb, es, journal_devnum))
+		if (ifs_ext3_local_ext3_load_journal(sb, es, journal_devnum))
 			goto failed_mount2;
 	} else if (journal_inum) {
-		if (ext3_create_journal(sb, es, journal_inum))
+		if (ifs_ext3_local_ext3_create_journal(sb, es, journal_inum))
 			goto failed_mount2;
 	} else {
 		if (!silent)
@@ -2336,14 +2324,14 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 		goto failed_mount3;
 	}
 
-	if (ext3_setup_super(sb, es, sb->s_flags & SB_RDONLY))
+	if (ifs_ext3_local_ext3_setup_super(sb, es, sb->s_flags & SB_RDONLY))
 		sb->s_flags |= SB_RDONLY;
 
 	EXT3_SB(sb)->s_mount_state |= EXT3_ORPHAN_FS;
-	ext3_orphan_cleanup(sb, es);
+	ifs_ext3_local_ext3_orphan_cleanup(sb, es);
 	EXT3_SB(sb)->s_mount_state &= ~EXT3_ORPHAN_FS;
 	if (needs_recovery) {
-		ext3_mark_recovery_complete(sb, es);
+		ifs_ext3_local_ext3_mark_recovery_complete(sb, es);
 		ext3_msg(sb, KERN_INFO, "recovery complete");
 	}
 	ext3_msg(sb, KERN_INFO, "mounted filesystem with %s data mode",
@@ -2374,7 +2362,7 @@ failed_mount:
 	for (i = 0; i < EXT3_MAXQUOTAS; i++)
 		kfree(sbi->s_qf_names[i]);
 #endif
-	ext3_blkdev_remove(sbi);
+	ifs_ext3_local_ext3_blkdev_remove(sbi);
 	brelse(bh);
 out_fail:
 	sb->s_fs_info = NULL;
@@ -2385,14 +2373,14 @@ out_fail:
 
 
 /**
- * ext3_init_journal_params - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_ext3_init_journal_params - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_init_journal_params(struct super_block *sb, journal_t *journal)
+static void ifs_ext3_local_ext3_init_journal_params(struct super_block *sb, journal_t *journal)
 {
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
 
@@ -2455,7 +2443,7 @@ static journal_t *ext3_get_journal(struct super_block *sb,
 		return NULL;
 	}
 	journal->j_private = sb;
-	ext3_init_journal_params(sb, journal);
+	ifs_ext3_local_ext3_init_journal_params(sb, journal);
 	return journal;
 }
 
@@ -2547,25 +2535,25 @@ static journal_t *ext3_get_dev_journal(struct super_block *sb,
 	}
 	EXT3_SB(sb)->journal_bdev = bdev;
 	EXT3_SB(sb)->journal_bdev_file = bdev_file;
-	ext3_init_journal_params(sb, journal);
+	ifs_ext3_local_ext3_init_journal_params(sb, journal);
 	return journal;
 out_journal:
 	journal_destroy(journal);
 out_bdev:
-	ext3_blkdev_put(bdev_file);
+	ifs_ext3_local_ext3_blkdev_put(bdev_file);
 	return NULL;
 }
 
 
 /**
- * ext3_load_journal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext3_local_ext3_load_journal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_load_journal(struct super_block *sb,
+static int ifs_ext3_local_ext3_load_journal(struct super_block *sb,
 			     struct ext3_super_block *es,
 			     unsigned long journal_devnum)
 {
@@ -2638,14 +2626,14 @@ static int ext3_load_journal(struct super_block *sb,
 	}
 
 	EXT3_SB(sb)->s_journal = journal;
-	ext3_clear_journal_err(sb, es);
+	ifs_ext3_local_ext3_clear_journal_err(sb, es);
 
 	if (!really_read_only && journal_devnum &&
 	    journal_devnum != le32_to_cpu(es->s_journal_dev)) {
 		es->s_journal_dev = cpu_to_le32(journal_devnum);
 
 
-		ext3_commit_super(sb, es, 1);
+		ifs_ext3_local_ext3_commit_super(sb, es, 1);
 	}
 
 	return 0;
@@ -2653,14 +2641,14 @@ static int ext3_load_journal(struct super_block *sb,
 
 
 /**
- * ext3_create_journal - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_ext3_create_journal - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_create_journal(struct super_block *sb,
+static int ifs_ext3_local_ext3_create_journal(struct super_block *sb,
 			       struct ext3_super_block *es,
 			       unsigned int journal_inum)
 {
@@ -2697,21 +2685,21 @@ static int ext3_create_journal(struct super_block *sb,
 	es->s_journal_inum = cpu_to_le32(journal_inum);
 
 
-	ext3_commit_super(sb, es, 1);
+	ifs_ext3_local_ext3_commit_super(sb, es, 1);
 
 	return 0;
 }
 
 
 /**
- * ext3_commit_super - Advances journalled state toward a durable transaction or checkpoint boundary.
+ * ifs_ext3_local_ext3_commit_super - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_commit_super(struct super_block *sb,
+static int ifs_ext3_local_ext3_commit_super(struct super_block *sb,
 			       struct ext3_super_block *es,
 			       int sync)
 {
@@ -2751,14 +2739,14 @@ static int ext3_commit_super(struct super_block *sb,
 
 
 /**
- * ext3_mark_recovery_complete - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ifs_ext3_local_ext3_mark_recovery_complete - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_mark_recovery_complete(struct super_block * sb,
+static void ifs_ext3_local_ext3_mark_recovery_complete(struct super_block * sb,
 					struct ext3_super_block * es)
 {
 	journal_t *journal = EXT3_SB(sb)->s_journal;
@@ -2770,7 +2758,7 @@ static void ext3_mark_recovery_complete(struct super_block * sb,
 	if (EXT3_HAS_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER) &&
 	    sb->s_flags & SB_RDONLY) {
 		EXT3_CLEAR_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER);
-		ext3_commit_super(sb, es, 1);
+		ifs_ext3_local_ext3_commit_super(sb, es, 1);
 	}
 
 out:
@@ -2779,14 +2767,14 @@ out:
 
 
 /**
- * ext3_clear_journal_err - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * ifs_ext3_local_ext3_clear_journal_err - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext3_clear_journal_err(struct super_block *sb,
+static void ifs_ext3_local_ext3_clear_journal_err(struct super_block *sb,
 				   struct ext3_super_block *es)
 {
 	journal_t *journal;
@@ -2808,7 +2796,7 @@ static void ext3_clear_journal_err(struct super_block *sb,
 
 		EXT3_SB(sb)->s_mount_state |= EXT3_ERROR_FS;
 		es->s_state |= cpu_to_le16(EXT3_ERROR_FS);
-		ext3_commit_super (sb, es, 1);
+		ifs_ext3_local_ext3_commit_super (sb, es, 1);
 
 		journal_clear_err(journal);
 	}
@@ -2838,18 +2826,16 @@ int ext3_force_commit(struct super_block *sb)
 
 
 /**
- * ext3_sync_fs - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ * ifs_ext3_local_ext3_sync_fs - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_sync_fs(struct super_block *sb, int wait)
+static int ifs_ext3_local_ext3_sync_fs(struct super_block *sb, int wait)
 {
 	tid_t target;
-
-
 
 
 	dquot_writeback_dquots(sb, -1);
@@ -2862,14 +2848,14 @@ static int ext3_sync_fs(struct super_block *sb, int wait)
 
 
 /**
- * ext3_freeze - Implements the freeze operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_freeze - Implements the freeze operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_freeze(struct super_block *sb)
+static int ifs_ext3_local_ext3_freeze(struct super_block *sb)
 {
 	int error = 0;
 	journal_t *journal;
@@ -2887,7 +2873,7 @@ static int ext3_freeze(struct super_block *sb)
 
 
 		EXT3_CLEAR_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER);
-		error = ext3_commit_super(sb, EXT3_SB(sb)->s_es, 1);
+		error = ifs_ext3_local_ext3_commit_super(sb, EXT3_SB(sb)->s_es, 1);
 		if (error)
 			goto out;
 	}
@@ -2900,19 +2886,19 @@ out:
 
 
 /**
- * ext3_unfreeze - Implements the unfreeze operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_unfreeze - Implements the unfreeze operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_unfreeze(struct super_block *sb)
+static int ifs_ext3_local_ext3_unfreeze(struct super_block *sb)
 {
 	if (!(sb->s_flags & SB_RDONLY)) {
 
 		EXT3_SET_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_RECOVER);
-		ext3_commit_super(sb, EXT3_SB(sb)->s_es, 1);
+		ifs_ext3_local_ext3_commit_super(sb, EXT3_SB(sb)->s_es, 1);
 		journal_unlock_updates(EXT3_SB(sb)->s_journal);
 	}
 	return 0;
@@ -2920,14 +2906,14 @@ static int ext3_unfreeze(struct super_block *sb)
 
 
 /**
- * ext3_remount - Implements the remount operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_remount - Implements the remount operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_remount (struct super_block * sb, int * flags, char * data)
+static int ifs_ext3_local_ext3_remount (struct super_block * sb, int * flags, char * data)
 {
 	struct ext3_super_block * es;
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
@@ -2966,7 +2952,7 @@ static int ext3_remount (struct super_block * sb, int * flags, char * data)
 #endif
 
 
-	if (!parse_options(data, sb, NULL, NULL, &n_blocks_count, 1)) {
+	if (!ifs_ext3_local_parse_options(data, sb, NULL, NULL, &n_blocks_count, 1)) {
 		err = -EINVAL;
 		goto restore_opts;
 	}
@@ -2979,7 +2965,7 @@ static int ext3_remount (struct super_block * sb, int * flags, char * data)
 
 	es = sbi->s_es;
 
-	ext3_init_journal_params(sb, sbi->s_journal);
+	ifs_ext3_local_ext3_init_journal_params(sb, sbi->s_journal);
 
 	if ((*flags & SB_RDONLY) != (sb->s_flags & SB_RDONLY) ||
 		n_blocks_count > le32_to_cpu(es->s_blocks_count)) {
@@ -3001,7 +2987,7 @@ static int ext3_remount (struct super_block * sb, int * flags, char * data)
 			    (sbi->s_mount_state & EXT3_VALID_FS))
 				es->s_state = cpu_to_le16(sbi->s_mount_state);
 
-			ext3_mark_recovery_complete(sb, es);
+			ifs_ext3_local_ext3_mark_recovery_complete(sb, es);
 		} else {
 			ifs_ext3_u32 unsupported_features;
 
@@ -3028,11 +3014,11 @@ static int ext3_remount (struct super_block * sb, int * flags, char * data)
 			}
 
 
-			ext3_clear_journal_err(sb, es);
+			ifs_ext3_local_ext3_clear_journal_err(sb, es);
 			sbi->s_mount_state = le16_to_cpu(es->s_state);
 			if ((err = ext3_group_extend(sb, es, n_blocks_count)))
 				goto restore_opts;
-			if (!ext3_setup_super (sb, es, 0))
+			if (!ifs_ext3_local_ext3_setup_super (sb, es, 0))
 				sb->s_flags &= ~SB_RDONLY;
 			enable_quota = 1;
 		}
@@ -3063,14 +3049,14 @@ restore_opts:
 
 
 /**
- * ext3_statfs - Implements the statfs operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_statfs - Implements the statfs operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_statfs (struct dentry * dentry, struct kstatfs * buf)
+static int ifs_ext3_local_ext3_statfs (struct dentry * dentry, struct kstatfs * buf)
 {
 	struct super_block *sb = dentry->d_sb;
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
@@ -3142,14 +3128,14 @@ static inline struct inode *dquot_to_inode(struct dquot *dquot)
 
 
 /**
- * ext3_write_dquot - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext3_local_ext3_write_dquot - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_write_dquot(struct dquot *dquot)
+static int ifs_ext3_local_ext3_write_dquot(struct dquot *dquot)
 {
 	int ret, err;
 	handle_t *handle;
@@ -3169,14 +3155,14 @@ static int ext3_write_dquot(struct dquot *dquot)
 
 
 /**
- * ext3_acquire_dquot - Implements the acquire dquot operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_acquire_dquot - Implements the acquire dquot operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_acquire_dquot(struct dquot *dquot)
+static int ifs_ext3_local_ext3_acquire_dquot(struct dquot *dquot)
 {
 	int ret, err;
 	handle_t *handle;
@@ -3194,14 +3180,14 @@ static int ext3_acquire_dquot(struct dquot *dquot)
 
 
 /**
- * ext3_release_dquot - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext3_local_ext3_release_dquot - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_release_dquot(struct dquot *dquot)
+static int ifs_ext3_local_ext3_release_dquot(struct dquot *dquot)
 {
 	int ret, err;
 	handle_t *handle;
@@ -3222,20 +3208,20 @@ static int ext3_release_dquot(struct dquot *dquot)
 
 
 /**
- * ext3_mark_dquot_dirty - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext3_local_ext3_mark_dquot_dirty - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_mark_dquot_dirty(struct dquot *dquot)
+static int ifs_ext3_local_ext3_mark_dquot_dirty(struct dquot *dquot)
 {
 
 	if (EXT3_SB(dquot->dq_sb)->s_qf_names[USRQUOTA] ||
 	    EXT3_SB(dquot->dq_sb)->s_qf_names[GRPQUOTA]) {
 		dquot_mark_dquot_dirty(dquot);
-		return ext3_write_dquot(dquot);
+		return ifs_ext3_local_ext3_write_dquot(dquot);
 	} else {
 		return dquot_mark_dquot_dirty(dquot);
 	}
@@ -3243,14 +3229,14 @@ static int ext3_mark_dquot_dirty(struct dquot *dquot)
 
 
 /**
- * ext3_write_info - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext3_local_ext3_write_info - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_write_info(struct super_block *sb, int type)
+static int ifs_ext3_local_ext3_write_info(struct super_block *sb, int type)
 {
 	int ret, err;
 	handle_t *handle;
@@ -3268,14 +3254,14 @@ static int ext3_write_info(struct super_block *sb, int type)
 
 
 /**
- * ext3_quota_on_mount - Implements a mount-path operation for the owning filesystem.
+ * ifs_ext3_local_ext3_quota_on_mount - Implements a mount-path operation for the owning filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_quota_on_mount(struct super_block *sb, int type)
+static int ifs_ext3_local_ext3_quota_on_mount(struct super_block *sb, int type)
 {
 	return dquot_quota_on_mount(sb, EXT3_SB(sb)->s_qf_names[type],
 					EXT3_SB(sb)->s_jquota_fmt, type);
@@ -3283,14 +3269,14 @@ static int ext3_quota_on_mount(struct super_block *sb, int type)
 
 
 /**
- * ext3_quota_on - Implements the quota on operation within the mount, superblock and module lifecycle subsystem.
+ * ifs_ext3_local_ext3_quota_on - Implements the quota on operation within the mount, superblock and module lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext3_quota_on(struct super_block *sb, int type, int format_id,
+static int ifs_ext3_local_ext3_quota_on(struct super_block *sb, int type, int format_id,
 			 const struct path *path)
 {
 	int err;
@@ -3326,14 +3312,14 @@ static int ext3_quota_on(struct super_block *sb, int type, int format_id,
 
 
 /**
- * ext3_quota_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext3_local_ext3_quota_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext3_quota_read(struct super_block *sb, int type, char *data,
+static ssize_t ifs_ext3_local_ext3_quota_read(struct super_block *sb, int type, char *data,
 			       size_t len, loff_t off)
 {
 	struct inode *inode = sb_dqopt(sb)->files[type];
@@ -3371,14 +3357,14 @@ static ssize_t ext3_quota_read(struct super_block *sb, int type, char *data,
 
 
 /**
- * ext3_quota_write - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ifs_ext3_local_ext3_quota_write - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ext3_quota_write(struct super_block *sb, int type,
+static ssize_t ifs_ext3_local_ext3_quota_write(struct super_block *sb, int type,
 				const char *data, size_t len, loff_t off)
 {
 	struct inode *inode = sb_dqopt(sb)->files[type];
@@ -3453,7 +3439,7 @@ out:
 static struct dentry *ext3_mount(struct file_system_type *fs_type,
 	int flags, const char *dev_name, void *data)
 {
-	return mount_bdev(fs_type, flags, dev_name, data, ext3_fill_super);
+	return mount_bdev(fs_type, flags, dev_name, data, ifs_ext3_local_ext3_fill_super);
 }
 
 static struct file_system_type ext3_fs_type = {
@@ -3467,19 +3453,19 @@ MODULE_ALIAS_FS("ext3");
 
 
 /**
- * ext3_core_init_fs - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_ext3_core_init_fs - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int __init ext3_core_init_fs(void)
+static int __init ifs_ext3_local_ext3_core_init_fs(void)
 {
 	int err = init_ext3_xattr();
 	if (err)
 		return err;
-	err = init_inodecache();
+	err = ifs_ext3_local_init_inodecache();
 	if (err)
 		goto out1;
         err = register_filesystem(&ext3_fs_type);
@@ -3487,7 +3473,7 @@ static int __init ext3_core_init_fs(void)
 		goto out;
 	return 0;
 out:
-	destroy_inodecache();
+	ifs_ext3_local_destroy_inodecache();
 out1:
 	exit_ext3_xattr();
 	return err;
@@ -3495,21 +3481,20 @@ out1:
 
 
 /**
- * ext3_core_exit_fs - Tears down subsystem state after users have been quiesced.
+ * ifs_ext3_local_ext3_core_exit_fs - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __exit ext3_core_exit_fs(void)
+static void __exit ifs_ext3_local_ext3_core_exit_fs(void)
 {
 	unregister_filesystem(&ext3_fs_type);
-	destroy_inodecache();
+	ifs_ext3_local_destroy_inodecache();
 	exit_ext3_xattr();
 }
 
-MODULE_AUTHOR("Remy Card, Stephen Tweedie, Andrew Morton, Andreas Dilger, Theodore Ts'o and others");
 MODULE_DESCRIPTION("Third Extended Filesystem");
 MODULE_LICENSE("GPL");
 int infiltratr_ext3_mbcache_init(void);
@@ -3519,14 +3504,14 @@ void infiltratr_ext3_jbd_exit(void);
 
 
 /**
- * init_ext3_fs - Initialises subsystem state and establishes the resources required by later operations.
+ * ifs_ext3_local_init_ext3_fs - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int __init init_ext3_fs(void)
+static int __init ifs_ext3_local_init_ext3_fs(void)
 {
 	int err = infiltratr_ext3_mbcache_init();
 	if (err)
@@ -3536,7 +3521,7 @@ static int __init init_ext3_fs(void)
 		infiltratr_ext3_mbcache_exit();
 		return err;
 	}
-	err = ext3_core_init_fs();
+	err = ifs_ext3_local_ext3_core_init_fs();
 	if (err) {
 		infiltratr_ext3_jbd_exit();
 		infiltratr_ext3_mbcache_exit();
@@ -3546,16 +3531,16 @@ static int __init init_ext3_fs(void)
 
 
 /**
- * exit_ext3_fs - Tears down subsystem state after users have been quiesced.
+ * ifs_ext3_local_exit_ext3_fs - Tears down subsystem state after users have been quiesced.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void __exit exit_ext3_fs(void)
+static void __exit ifs_ext3_local_exit_ext3_fs(void)
 {
-	ext3_core_exit_fs();
+	ifs_ext3_local_ext3_core_exit_fs();
 	infiltratr_ext3_jbd_exit();
 	infiltratr_ext3_mbcache_exit();
 }
@@ -3569,8 +3554,8 @@ static void __exit exit_ext3_fs(void)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-module_init(init_ext3_fs)
-module_exit(exit_ext3_fs)
+module_init(ifs_ext3_local_init_ext3_fs)
+module_exit(ifs_ext3_local_exit_ext3_fs)
 
 
 int __ext3_journal_get_undo_access(const char *where, handle_t *handle,

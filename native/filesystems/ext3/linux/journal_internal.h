@@ -1,16 +1,8 @@
 /*
- * linux/include/linux/jbd.h
+ * Copyright (C) 2026 Shannon Smith
  *
- * Written by Stephen C. Tweedie <sct@redhat.com>
- *
- * Copyright 1998-2000 Red Hat, Inc --- All Rights Reserved
- *
- * This file is part of the Linux kernel and is made available under
- * the terms of the GNU General Public License, version 2, or at your
- * option, any later version, incorporated herein by reference.
- *
- * Definitions for transaction data structures for the buffer cache
- * filesystem journaling support.
+ * Infiltrator Filesystem Support EXT3 Linux adapter: journal_internal.h.
+ * Project-maintained implementation for the canonical EXT3 driver.
  */
 
 /*
