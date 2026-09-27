@@ -13,7 +13,10 @@ concurrency:
 
 jobs:
   source-boundary:
-    runs-on: ${{ startsWith(github.event.head_commit.message, 'Release ') && 'ubuntu-24.04' || 'linux-native' }}
+    # This job performs Git history/tag checks and therefore requires a runner
+    # with the Git CLI available. Keep it on the hosted qualification image;
+    # the compile-heavy jobs may still prefer self-hosted runners.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
