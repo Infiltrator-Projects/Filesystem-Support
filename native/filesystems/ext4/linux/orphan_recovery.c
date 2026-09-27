@@ -1,23 +1,8 @@
 /*
- * EXT4 — Orphan-file management
+ * Copyright (C) 2026 Shannon Smith
  *
- * Purpose:
- *   Tracks inodes whose truncate/unlink completion must survive a crash, including the modern orphan-file mechanism.
- *
- * Filesystem model:
- *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
- *
- * Correctness focus:
- *   An inode may leave orphan tracking only after the durable state no longer needs recovery-time completion.
- *
- * Project rules:
- *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
- *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
- *
- * Commentary policy:
- *   Comments explain invariants, ownership, persistence ordering and
- *   non-obvious design intent. They deliberately avoid restating C syntax.
+ * Infiltrator Filesystem Support EXT4 Linux adapter: orphan_recovery.c.
+ * Project-maintained canonical implementation.
  */
 
 #include <linux/fs.h>
@@ -31,14 +16,14 @@
 
 
 /**
- * ext4_orphan_file_add - Implements the orphan file add operation within the orphan-file management subsystem.
+ * ifs_ext4_local_ext4_orphan_file_add - Implements the orphan file add operation within the orphan-file management subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_orphan_file_add(handle_t *handle, struct inode *inode)
+static int ifs_ext4_local_ext4_orphan_file_add(handle_t *handle, struct inode *inode)
 {
 	int i, j, start;
 	struct ext4_orphan_info *oi = &EXT4_SB(inode->i_sb)->s_orphan_info;
@@ -132,7 +117,7 @@ int ext4_orphan_add(handle_t *handle, struct inode *inode)
 		  S_ISLNK(inode->i_mode)) || inode->i_nlink == 0);
 
 	if (sbi->s_orphan_info.of_blocks) {
-		err = ext4_orphan_file_add(handle, inode);
+		err = ifs_ext4_local_ext4_orphan_file_add(handle, inode);
 
 
 		if (err != -ENOSPC)
@@ -190,14 +175,14 @@ out:
 
 
 /**
- * ext4_orphan_file_del - Implements the orphan file del operation within the orphan-file management subsystem.
+ * ifs_ext4_local_ext4_orphan_file_del - Implements the orphan file del operation within the orphan-file management subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_orphan_file_del(handle_t *handle, struct inode *inode)
+static int ifs_ext4_local_ext4_orphan_file_del(handle_t *handle, struct inode *inode)
 {
 	struct ext4_orphan_info *oi = &EXT4_SB(inode->i_sb)->s_orphan_info;
 	__le32 *bdata;
@@ -252,7 +237,7 @@ int ext4_orphan_del(handle_t *handle, struct inode *inode)
 	WARN_ON_ONCE(!(inode->i_state & (I_NEW | I_FREEING)) &&
 		     !inode_is_locked(inode));
 	if (ext4_test_inode_state(inode, EXT4_STATE_ORPHAN_FILE))
-		return ext4_orphan_file_del(handle, inode);
+		return ifs_ext4_local_ext4_orphan_file_del(handle, inode);
 
 
 	if (list_empty(&ei->i_orphan))
@@ -324,14 +309,14 @@ out_brelse:
 
 
 /**
- * ext4_quota_on_mount - Implements a mount-path operation for the owning filesystem.
+ * ifs_ext4_local_ext4_quota_on_mount - Implements a mount-path operation for the owning filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_quota_on_mount(struct super_block *sb, int type)
+static int ifs_ext4_local_ext4_quota_on_mount(struct super_block *sb, int type)
 {
 	return dquot_quota_on_mount(sb,
 		rcu_dereference_protected(EXT4_SB(sb)->s_qf_names[type],
@@ -342,14 +327,14 @@ static int ext4_quota_on_mount(struct super_block *sb, int type)
 
 
 /**
- * ext4_process_orphan - Implements the process orphan operation within the orphan-file management subsystem.
+ * ifs_ext4_local_ext4_process_orphan - Implements the process orphan operation within the orphan-file management subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_process_orphan(struct inode *inode,
+static void ifs_ext4_local_ext4_process_orphan(struct inode *inode,
 				int *nr_truncates, int *nr_orphans)
 {
 	struct super_block *sb = inode->i_sb;
@@ -457,7 +442,7 @@ void ext4_orphan_cleanup(struct super_block *sb, struct ext4_super_block *es)
 
 	for (i = 0; i < EXT4_MAXQUOTAS; i++) {
 		if (EXT4_SB(sb)->s_qf_names[i]) {
-			int ret = ext4_quota_on_mount(sb, i);
+			int ret = ifs_ext4_local_ext4_quota_on_mount(sb, i);
 
 			if (!ret)
 				quota_update = 1;
@@ -485,7 +470,7 @@ void ext4_orphan_cleanup(struct super_block *sb, struct ext4_super_block *es)
 		}
 
 		list_add(&EXT4_I(inode)->i_orphan, &EXT4_SB(sb)->s_orphan);
-		ext4_process_orphan(inode, &nr_truncates, &nr_orphans);
+		ifs_ext4_local_ext4_process_orphan(inode, &nr_truncates, &nr_orphans);
 	}
 
 	for (i = 0; i < oi->of_blocks; i++) {
@@ -498,7 +483,7 @@ void ext4_orphan_cleanup(struct super_block *sb, struct ext4_super_block *es)
 				continue;
 			ext4_set_inode_state(inode, EXT4_STATE_ORPHAN_FILE);
 			EXT4_I(inode)->i_orphan_idx = i * inodes_per_ob + j;
-			ext4_process_orphan(inode, &nr_truncates, &nr_orphans);
+			ifs_ext4_local_ext4_process_orphan(inode, &nr_truncates, &nr_orphans);
 		}
 	}
 
@@ -562,14 +547,14 @@ static struct ext4_orphan_block_tail *ext4_orphan_block_tail(
 
 
 /**
- * ext4_orphan_file_block_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_ext4_orphan_file_block_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_orphan_file_block_csum_verify(struct super_block *sb,
+static int ifs_ext4_local_ext4_orphan_file_block_csum_verify(struct super_block *sb,
 					      struct buffer_head *bh)
 {
 	__u32 calculated;
@@ -679,7 +664,7 @@ int ext4_init_orphan_info(struct super_block *sb)
 			ret = -EIO;
 			goto out_free;
 		}
-		if (!ext4_orphan_file_block_csum_verify(sb,
+		if (!ifs_ext4_local_ext4_orphan_file_block_csum_verify(sb,
 						oi->of_binfo[i].ob_bh)) {
 			ext4_error(sb, "orphan file block %d: bad checksum", i);
 			ret = -EIO;
