@@ -6,9 +6,9 @@ on:
   pull_request:
 
 concurrency:
-  # v2 rotates away from a stale cancelled run that remained attached to
-  # self-hosted runners.  Future pushes still cancel superseded work on main.
-  group: filesystem-support-build-v2-${{ github.ref }}
+  # v3 rotates away from a stale queued v2 run that remained attached to
+  # self-hosted runners. Future pushes still cancel superseded work on main.
+  group: filesystem-support-build-v3-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
