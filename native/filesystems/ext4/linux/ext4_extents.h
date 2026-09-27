@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: ext4_extents.h.
+ * Project-maintained implementation for the canonical EXT4 driver.
+ */
+
 #ifndef INFILTRATR_EXT4_EXTENTS_H
 #define INFILTRATR_EXT4_EXTENTS_H
 

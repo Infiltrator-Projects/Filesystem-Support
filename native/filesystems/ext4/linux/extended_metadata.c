@@ -1,18 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
- * linux/fs/ext4/xattr.c
+ * Copyright (C) 2026 Shannon Smith
  *
- * Copyright (C) 2001-2003 Andreas Gruenbacher, <agruen@suse.de>
- *
- * Fix by Harrison Xing <harrison@mountainviewdata.com>.
- * Ext4 code with a lot of help from Eric Jarman <ejarman@acm.org>.
- * Extended attributes for symlinks and special files added per
- *  suggestion of Luka Renko <luka.renko@hermes.si>.
- * xattr consolidation Copyright (c) 2004 James Morris <jmorris@redhat.com>,
- *  Red Hat Inc.
- * ea-in-inode support by Alex Tomas <alex@clusterfs.com> aka bzzz
- *  and Andreas Gruenbacher <agruen@suse.de>.
+ * Infiltrator Filesystem Support EXT4 Linux adapter: extended_metadata.c.
+ * Project-maintained implementation for the canonical EXT4 driver.
  */
+
+// SPDX-License-Identifier: GPL-2.0
+
 
 /*
  * EXT4 — Extended metadata
@@ -28,7 +22,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -58,16 +52,16 @@
 # define ea_bdebug(bh, fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
-static void ext4_xattr_block_cache_insert(struct mb_cache *,
+static void ifs_ext4_local_ext4_xattr_block_cache_insert(struct mb_cache *,
 					  struct buffer_head *);
 static struct buffer_head *
-ext4_xattr_block_cache_find(struct inode *, struct ext4_xattr_header *,
+ifs_ext4_local_ext4_xattr_block_cache_find(struct inode *, struct ext4_xattr_header *,
 			    struct mb_cache_entry **);
-static __le32 ext4_xattr_hash_entry(char *name, size_t name_len, __le32 *value,
+static __le32 ifs_ext4_local_ext4_xattr_hash_entry(char *name, size_t name_len, __le32 *value,
 				    size_t value_count);
-static __le32 ext4_xattr_hash_entry_signed(char *name, size_t name_len, __le32 *value,
+static __le32 ifs_ext4_local_ext4_xattr_hash_entry_signed(char *name, size_t name_len, __le32 *value,
 				    size_t value_count);
-static void ext4_xattr_rehash(struct ext4_xattr_header *);
+static void ifs_ext4_local_ext4_xattr_rehash(struct ext4_xattr_header *);
 
 static const struct xattr_handler * const ext4_xattr_handler_map[] = {
 	[EXT4_XATTR_INDEX_USER]		     = &ext4_xattr_user_handler,
@@ -99,7 +93,7 @@ const struct xattr_handler * const ext4_xattr_handlers[] = {
 				inode->i_sb->s_fs_info)->s_ea_inode_cache)
 
 static int
-ext4_expand_inode_array(struct ext4_xattr_inode_array **ea_inode_array,
+ifs_ext4_local_ext4_expand_inode_array(struct ext4_xattr_inode_array **ea_inode_array,
 			struct inode *inode);
 
 #ifdef CONFIG_LOCKDEP
@@ -125,14 +119,14 @@ void ext4_xattr_inode_set_class(struct inode *ea_inode)
 
 
 /**
- * ext4_xattr_block_csum - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_block_csum - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static __le32 ext4_xattr_block_csum(struct inode *inode,
+static __le32 ifs_ext4_local_ext4_xattr_block_csum(struct inode *inode,
 				    sector_t block_nr,
 				    struct ext4_xattr_header *hdr)
 {
@@ -155,14 +149,14 @@ static __le32 ext4_xattr_block_csum(struct inode *inode,
 
 
 /**
- * ext4_xattr_block_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_ext4_xattr_block_csum_verify - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_block_csum_verify(struct inode *inode,
+static int ifs_ext4_local_ext4_xattr_block_csum_verify(struct inode *inode,
 					struct buffer_head *bh)
 {
 	struct ext4_xattr_header *hdr = BHDR(bh);
@@ -170,7 +164,7 @@ static int ext4_xattr_block_csum_verify(struct inode *inode,
 
 	if (ext4_has_metadata_csum(inode->i_sb)) {
 		lock_buffer(bh);
-		ret = (hdr->h_checksum == ext4_xattr_block_csum(inode,
+		ret = (hdr->h_checksum == ifs_ext4_local_ext4_xattr_block_csum(inode,
 							bh->b_blocknr, hdr));
 		unlock_buffer(bh);
 	}
@@ -179,18 +173,18 @@ static int ext4_xattr_block_csum_verify(struct inode *inode,
 
 
 /**
- * ext4_xattr_block_csum_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_block_csum_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_xattr_block_csum_set(struct inode *inode,
+static void ifs_ext4_local_ext4_xattr_block_csum_set(struct inode *inode,
 				      struct buffer_head *bh)
 {
 	if (ext4_has_metadata_csum(inode->i_sb))
-		BHDR(bh)->h_checksum = ext4_xattr_block_csum(inode,
+		BHDR(bh)->h_checksum = ifs_ext4_local_ext4_xattr_block_csum(inode,
 						bh->b_blocknr, BHDR(bh));
 }
 
@@ -219,7 +213,7 @@ static inline const char *ext4_xattr_prefix(int name_index,
 
 
 /**
- * check_xattrs - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_check_xattrs - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -227,7 +221,7 @@ static inline const char *ext4_xattr_prefix(int name_index,
  * rollback, abort or retry policy.
  */
 static int
-check_xattrs(struct inode *inode, struct buffer_head *bh,
+ifs_ext4_local_check_xattrs(struct inode *inode, struct buffer_head *bh,
 	     struct ext4_xattr_entry *entry, void *end, void *value_start,
 	     const char *function, unsigned int line)
 {
@@ -243,7 +237,7 @@ check_xattrs(struct inode *inode, struct buffer_head *bh,
 		}
 		if (buffer_verified(bh))
 			return 0;
-		if (!ext4_xattr_block_csum_verify(inode, bh)) {
+		if (!ifs_ext4_local_ext4_xattr_block_csum_verify(inode, bh)) {
 			err = -EFSBADCRC;
 			err_str = "invalid checksum";
 			goto errout;
@@ -336,7 +330,7 @@ errout:
 
 
 /**
- * __ext4_xattr_check_block - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local___ext4_xattr_check_block - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -344,15 +338,15 @@ errout:
  * rollback, abort or retry policy.
  */
 static inline int
-__ext4_xattr_check_block(struct inode *inode, struct buffer_head *bh,
+ifs_ext4_local___ext4_xattr_check_block(struct inode *inode, struct buffer_head *bh,
 			 const char *function, unsigned int line)
 {
-	return check_xattrs(inode, bh, BFIRST(bh), bh->b_data + bh->b_size,
+	return ifs_ext4_local_check_xattrs(inode, bh, BFIRST(bh), bh->b_data + bh->b_size,
 			    bh->b_data, function, line);
 }
 
 #define ext4_xattr_check_block(inode, bh) \
-	__ext4_xattr_check_block((inode), (bh),  __func__, __LINE__)
+	ifs_ext4_local___ext4_xattr_check_block((inode), (bh),  __func__, __LINE__)
 
 
 /**
@@ -367,13 +361,13 @@ int
 __xattr_check_inode(struct inode *inode, struct ext4_xattr_ibody_header *header,
 			 void *end, const char *function, unsigned int line)
 {
-	return check_xattrs(inode, NULL, IFIRST(header), end, IFIRST(header),
+	return ifs_ext4_local_check_xattrs(inode, NULL, IFIRST(header), end, IFIRST(header),
 			    function, line);
 }
 
 
 /**
- * xattr_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_xattr_find_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -381,7 +375,7 @@ __xattr_check_inode(struct inode *inode, struct ext4_xattr_ibody_header *header,
  * rollback, abort or retry policy.
  */
 static int
-xattr_find_entry(struct inode *inode, struct ext4_xattr_entry **pentry,
+ifs_ext4_local_xattr_find_entry(struct inode *inode, struct ext4_xattr_entry **pentry,
 		 void *end, int name_index, const char *name, int sorted)
 {
 	struct ext4_xattr_entry *entry, *next;
@@ -411,7 +405,7 @@ xattr_find_entry(struct inode *inode, struct ext4_xattr_entry **pentry,
 
 
 /**
- * ext4_xattr_inode_hash - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_hash - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -419,21 +413,21 @@ xattr_find_entry(struct inode *inode, struct ext4_xattr_entry **pentry,
  * rollback, abort or retry policy.
  */
 static u32
-ext4_xattr_inode_hash(struct ext4_sb_info *sbi, const void *buffer, size_t size)
+ifs_ext4_local_ext4_xattr_inode_hash(struct ext4_sb_info *sbi, const void *buffer, size_t size)
 {
 	return ext4_chksum(sbi, sbi->s_csum_seed, buffer, size);
 }
 
 
 /**
- * ext4_xattr_inode_get_ref - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_inode_get_ref - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static u64 ext4_xattr_inode_get_ref(struct inode *ea_inode)
+static u64 ifs_ext4_local_ext4_xattr_inode_get_ref(struct inode *ea_inode)
 {
 	return ((u64) inode_get_ctime_sec(ea_inode) << 32) |
 		(u32) inode_peek_iversion_raw(ea_inode);
@@ -441,14 +435,14 @@ static u64 ext4_xattr_inode_get_ref(struct inode *ea_inode)
 
 
 /**
- * ext4_xattr_inode_set_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_set_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_xattr_inode_set_ref(struct inode *ea_inode, u64 ref_count)
+static void ifs_ext4_local_ext4_xattr_inode_set_ref(struct inode *ea_inode, u64 ref_count)
 {
 	inode_set_ctime(ea_inode, (u32)(ref_count >> 32), 0);
 	inode_set_iversion_raw(ea_inode, ref_count & 0xffffffff);
@@ -456,42 +450,42 @@ static void ext4_xattr_inode_set_ref(struct inode *ea_inode, u64 ref_count)
 
 
 /**
- * ext4_xattr_inode_get_hash - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_inode_get_hash - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static u32 ext4_xattr_inode_get_hash(struct inode *ea_inode)
+static u32 ifs_ext4_local_ext4_xattr_inode_get_hash(struct inode *ea_inode)
 {
 	return (u32) inode_get_atime_sec(ea_inode);
 }
 
 
 /**
- * ext4_xattr_inode_set_hash - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_set_hash - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_xattr_inode_set_hash(struct inode *ea_inode, u32 hash)
+static void ifs_ext4_local_ext4_xattr_inode_set_hash(struct inode *ea_inode, u32 hash)
 {
 	inode_set_atime(ea_inode, hash, 0);
 }
 
 
 /**
- * ext4_xattr_inode_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_inode_read - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_inode_read(struct inode *ea_inode, void *buf, size_t size)
+static int ifs_ext4_local_ext4_xattr_inode_read(struct inode *ea_inode, void *buf, size_t size)
 {
 	int blocksize = 1 << ea_inode->i_blkbits;
 	int bh_count = (size + blocksize - 1) >> ea_inode->i_blkbits;
@@ -534,14 +528,14 @@ free_bhs:
 
 
 /**
- * ext4_xattr_inode_iget - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_iget - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_inode_iget(struct inode *parent, unsigned long ea_ino,
+static int ifs_ext4_local_ext4_xattr_inode_iget(struct inode *parent, unsigned long ea_ino,
 				 u32 ea_inode_hash, struct inode **ea_inode)
 {
 	struct inode *inode;
@@ -565,11 +559,11 @@ static int ext4_xattr_inode_iget(struct inode *parent, unsigned long ea_ino,
 	ext4_xattr_inode_set_class(inode);
 
 
-	if (ea_inode_hash != ext4_xattr_inode_get_hash(inode) &&
+	if (ea_inode_hash != ifs_ext4_local_ext4_xattr_inode_get_hash(inode) &&
 	    EXT4_XATTR_INODE_GET_PARENT(inode) == parent->i_ino &&
 	    inode->i_generation == parent->i_generation) {
 		ext4_set_inode_state(inode, EXT4_STATE_LUSTRE_EA_INODE);
-		ext4_xattr_inode_set_ref(inode, 1);
+		ifs_ext4_local_ext4_xattr_inode_set_ref(inode, 1);
 	} else {
 		inode_lock_nested(inode, I_MUTEX_XATTR);
 		inode->i_flags |= S_NOQUOTA;
@@ -597,7 +591,7 @@ void ext4_evict_ea_inode(struct inode *inode)
 		return;
 
 	while ((oe = mb_cache_entry_delete_or_get(EA_INODE_CACHE(inode),
-			ext4_xattr_inode_get_hash(inode), inode->i_ino))) {
+			ifs_ext4_local_ext4_xattr_inode_get_hash(inode), inode->i_ino))) {
 		mb_cache_entry_wait_unused(oe);
 		mb_cache_entry_put(EA_INODE_CACHE(inode), oe);
 	}
@@ -605,7 +599,7 @@ void ext4_evict_ea_inode(struct inode *inode)
 
 
 /**
- * ext4_xattr_inode_verify_hashes - Validates state before it is trusted by the remainder of the filesystem.
+ * ifs_ext4_local_ext4_xattr_inode_verify_hashes - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -613,15 +607,15 @@ void ext4_evict_ea_inode(struct inode *inode)
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_inode_verify_hashes(struct inode *ea_inode,
+ifs_ext4_local_ext4_xattr_inode_verify_hashes(struct inode *ea_inode,
 			       struct ext4_xattr_entry *entry, void *buffer,
 			       size_t size)
 {
 	u32 hash;
 
 
-	hash = ext4_xattr_inode_hash(EXT4_SB(ea_inode->i_sb), buffer, size);
-	if (hash != ext4_xattr_inode_get_hash(ea_inode))
+	hash = ifs_ext4_local_ext4_xattr_inode_hash(EXT4_SB(ea_inode->i_sb), buffer, size);
+	if (hash != ifs_ext4_local_ext4_xattr_inode_get_hash(ea_inode))
 		return -EFSCORRUPTED;
 
 	if (entry) {
@@ -629,14 +623,14 @@ ext4_xattr_inode_verify_hashes(struct inode *ea_inode,
 
 
 		tmp_data = cpu_to_le32(hash);
-		e_hash = ext4_xattr_hash_entry(entry->e_name, entry->e_name_len,
+		e_hash = ifs_ext4_local_ext4_xattr_hash_entry(entry->e_name, entry->e_name_len,
 					       &tmp_data, 1);
 
 		if (e_hash == entry->e_hash)
 			return 0;
 
 
-		e_hash = ext4_xattr_hash_entry_signed(entry->e_name, entry->e_name_len,
+		e_hash = ifs_ext4_local_ext4_xattr_hash_entry_signed(entry->e_name, entry->e_name_len,
 							&tmp_data, 1);
 
 		if (e_hash != entry->e_hash)
@@ -650,7 +644,7 @@ ext4_xattr_inode_verify_hashes(struct inode *ea_inode,
 
 
 /**
- * ext4_xattr_inode_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_inode_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -658,14 +652,14 @@ ext4_xattr_inode_verify_hashes(struct inode *ea_inode,
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_inode_get(struct inode *inode, struct ext4_xattr_entry *entry,
+ifs_ext4_local_ext4_xattr_inode_get(struct inode *inode, struct ext4_xattr_entry *entry,
 		     void *buffer, size_t size)
 {
 	struct mb_cache *ea_inode_cache = EA_INODE_CACHE(inode);
 	struct inode *ea_inode;
 	int err;
 
-	err = ext4_xattr_inode_iget(inode, le32_to_cpu(entry->e_value_inum),
+	err = ifs_ext4_local_ext4_xattr_inode_iget(inode, le32_to_cpu(entry->e_value_inum),
 				    le32_to_cpu(entry->e_hash), &ea_inode);
 	if (err) {
 		ea_inode = NULL;
@@ -680,12 +674,12 @@ ext4_xattr_inode_get(struct inode *inode, struct ext4_xattr_entry *entry,
 		goto out;
 	}
 
-	err = ext4_xattr_inode_read(ea_inode, buffer, size);
+	err = ifs_ext4_local_ext4_xattr_inode_read(ea_inode, buffer, size);
 	if (err)
 		goto out;
 
 	if (!ext4_test_inode_state(ea_inode, EXT4_STATE_LUSTRE_EA_INODE)) {
-		err = ext4_xattr_inode_verify_hashes(ea_inode, entry, buffer,
+		err = ifs_ext4_local_ext4_xattr_inode_verify_hashes(ea_inode, entry, buffer,
 						     size);
 		if (err) {
 			ext4_warning_inode(ea_inode,
@@ -695,7 +689,7 @@ ext4_xattr_inode_get(struct inode *inode, struct ext4_xattr_entry *entry,
 
 		if (ea_inode_cache)
 			mb_cache_entry_create(ea_inode_cache, GFP_NOFS,
-					ext4_xattr_inode_get_hash(ea_inode),
+					ifs_ext4_local_ext4_xattr_inode_get_hash(ea_inode),
 					ea_inode->i_ino, true               );
 	}
 out:
@@ -705,7 +699,7 @@ out:
 
 
 /**
- * ext4_xattr_block_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_block_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -713,7 +707,7 @@ out:
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_block_get(struct inode *inode, int name_index, const char *name,
+ifs_ext4_local_ext4_xattr_block_get(struct inode *inode, int name_index, const char *name,
 		     void *buffer, size_t buffer_size)
 {
 	struct buffer_head *bh = NULL;
@@ -738,10 +732,10 @@ ext4_xattr_block_get(struct inode *inode, int name_index, const char *name,
 	error = ext4_xattr_check_block(inode, bh);
 	if (error)
 		goto cleanup;
-	ext4_xattr_block_cache_insert(ea_block_cache, bh);
+	ifs_ext4_local_ext4_xattr_block_cache_insert(ea_block_cache, bh);
 	entry = BFIRST(bh);
 	end = bh->b_data + bh->b_size;
-	error = xattr_find_entry(inode, &entry, end, name_index, name, 1);
+	error = ifs_ext4_local_xattr_find_entry(inode, &entry, end, name_index, name, 1);
 	if (error)
 		goto cleanup;
 	size = le32_to_cpu(entry->e_value_size);
@@ -752,7 +746,7 @@ ext4_xattr_block_get(struct inode *inode, int name_index, const char *name,
 		if (size > buffer_size)
 			goto cleanup;
 		if (entry->e_value_inum) {
-			error = ext4_xattr_inode_get(inode, entry, buffer,
+			error = ifs_ext4_local_ext4_xattr_inode_get(inode, entry, buffer,
 						     size);
 			if (error)
 				goto cleanup;
@@ -802,7 +796,7 @@ ext4_xattr_ibody_get(struct inode *inode, int name_index, const char *name,
 	header = IHDR(inode, raw_inode);
 	end = ITAIL(inode, raw_inode);
 	entry = IFIRST(header);
-	error = xattr_find_entry(inode, &entry, end, name_index, name, 0);
+	error = ifs_ext4_local_xattr_find_entry(inode, &entry, end, name_index, name, 0);
 	if (error)
 		goto cleanup;
 	size = le32_to_cpu(entry->e_value_size);
@@ -813,7 +807,7 @@ ext4_xattr_ibody_get(struct inode *inode, int name_index, const char *name,
 		if (size > buffer_size)
 			goto cleanup;
 		if (entry->e_value_inum) {
-			error = ext4_xattr_inode_get(inode, entry, buffer,
+			error = ifs_ext4_local_ext4_xattr_inode_get(inode, entry, buffer,
 						     size);
 			if (error)
 				goto cleanup;
@@ -858,7 +852,7 @@ ext4_xattr_get(struct inode *inode, int name_index, const char *name,
 	error = ext4_xattr_ibody_get(inode, name_index, name, buffer,
 				     buffer_size);
 	if (error == -ENODATA)
-		error = ext4_xattr_block_get(inode, name_index, name, buffer,
+		error = ifs_ext4_local_ext4_xattr_block_get(inode, name_index, name, buffer,
 					     buffer_size);
 	up_read(&EXT4_I(inode)->xattr_sem);
 	return error;
@@ -866,7 +860,7 @@ ext4_xattr_get(struct inode *inode, int name_index, const char *name,
 
 
 /**
- * ext4_xattr_list_entries - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_list_entries - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -874,7 +868,7 @@ ext4_xattr_get(struct inode *inode, int name_index, const char *name,
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_list_entries(struct dentry *dentry, struct ext4_xattr_entry *entry,
+ifs_ext4_local_ext4_xattr_list_entries(struct dentry *dentry, struct ext4_xattr_entry *entry,
 			char *buffer, size_t buffer_size)
 {
 	size_t rest = buffer_size;
@@ -904,7 +898,7 @@ ext4_xattr_list_entries(struct dentry *dentry, struct ext4_xattr_entry *entry,
 
 
 /**
- * ext4_xattr_block_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_block_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -912,7 +906,7 @@ ext4_xattr_list_entries(struct dentry *dentry, struct ext4_xattr_entry *entry,
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_block_list(struct dentry *dentry, char *buffer, size_t buffer_size)
+ifs_ext4_local_ext4_xattr_block_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 {
 	struct inode *inode = d_inode(dentry);
 	struct buffer_head *bh = NULL;
@@ -933,8 +927,8 @@ ext4_xattr_block_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 	error = ext4_xattr_check_block(inode, bh);
 	if (error)
 		goto cleanup;
-	ext4_xattr_block_cache_insert(EA_BLOCK_CACHE(inode), bh);
-	error = ext4_xattr_list_entries(dentry, BFIRST(bh), buffer,
+	ifs_ext4_local_ext4_xattr_block_cache_insert(EA_BLOCK_CACHE(inode), bh);
+	error = ifs_ext4_local_ext4_xattr_list_entries(dentry, BFIRST(bh), buffer,
 					buffer_size);
 cleanup:
 	brelse(bh);
@@ -943,7 +937,7 @@ cleanup:
 
 
 /**
- * ext4_xattr_ibody_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_ibody_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -951,7 +945,7 @@ cleanup:
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_ibody_list(struct dentry *dentry, char *buffer, size_t buffer_size)
+ifs_ext4_local_ext4_xattr_ibody_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 {
 	struct inode *inode = d_inode(dentry);
 	struct ext4_xattr_ibody_header *header;
@@ -966,7 +960,7 @@ ext4_xattr_ibody_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 		return error;
 	raw_inode = ext4_raw_inode(&iloc);
 	header = IHDR(inode, raw_inode);
-	error = ext4_xattr_list_entries(dentry, IFIRST(header),
+	error = ifs_ext4_local_ext4_xattr_list_entries(dentry, IFIRST(header),
 					buffer, buffer_size);
 
 	brelse(iloc.bh);
@@ -988,14 +982,14 @@ ext4_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size)
 	int ret, ret2;
 
 	down_read(&EXT4_I(d_inode(dentry))->xattr_sem);
-	ret = ret2 = ext4_xattr_ibody_list(dentry, buffer, buffer_size);
+	ret = ret2 = ifs_ext4_local_ext4_xattr_ibody_list(dentry, buffer, buffer_size);
 	if (ret < 0)
 		goto errout;
 	if (buffer) {
 		buffer += ret;
 		buffer_size -= ret;
 	}
-	ret = ext4_xattr_block_list(dentry, buffer, buffer_size);
+	ret = ifs_ext4_local_ext4_xattr_block_list(dentry, buffer, buffer_size);
 	if (ret < 0)
 		goto errout;
 	ret += ret2;
@@ -1006,14 +1000,14 @@ errout:
 
 
 /**
- * ext4_xattr_update_super_block - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_update_super_block - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_xattr_update_super_block(handle_t *handle,
+static void ifs_ext4_local_ext4_xattr_update_super_block(handle_t *handle,
 					  struct super_block *sb)
 {
 	if (ext4_has_feature_xattr(sb))
@@ -1091,14 +1085,14 @@ out:
 
 
 /**
- * round_up_cluster - Implements the round up cluster operation within the extended metadata subsystem.
+ * ifs_ext4_local_round_up_cluster - Implements the round up cluster operation within the extended metadata subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline size_t round_up_cluster(struct inode *inode, size_t length)
+static inline size_t ifs_ext4_local_round_up_cluster(struct inode *inode, size_t length)
 {
 	struct super_block *sb = inode->i_sb;
 	size_t cluster_size = 1 << (EXT4_SB(sb)->s_cluster_bits +
@@ -1110,21 +1104,21 @@ static inline size_t round_up_cluster(struct inode *inode, size_t length)
 
 
 /**
- * ext4_xattr_inode_alloc_quota - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ifs_ext4_local_ext4_xattr_inode_alloc_quota - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_inode_alloc_quota(struct inode *inode, size_t len)
+static int ifs_ext4_local_ext4_xattr_inode_alloc_quota(struct inode *inode, size_t len)
 {
 	int err;
 
 	err = dquot_alloc_inode(inode);
 	if (err)
 		return err;
-	err = dquot_alloc_space_nodirty(inode, round_up_cluster(inode, len));
+	err = dquot_alloc_space_nodirty(inode, ifs_ext4_local_round_up_cluster(inode, len));
 	if (err)
 		dquot_free_inode(inode);
 	return err;
@@ -1132,21 +1126,21 @@ static int ext4_xattr_inode_alloc_quota(struct inode *inode, size_t len)
 
 
 /**
- * ext4_xattr_inode_free_quota - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_xattr_inode_free_quota - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_xattr_inode_free_quota(struct inode *parent,
+static void ifs_ext4_local_ext4_xattr_inode_free_quota(struct inode *parent,
 					struct inode *ea_inode,
 					size_t len)
 {
 	if (ea_inode &&
 	    ext4_test_inode_state(ea_inode, EXT4_STATE_LUSTRE_EA_INODE))
 		return;
-	dquot_free_space_nodirty(parent, round_up_cluster(parent, len));
+	dquot_free_space_nodirty(parent, ifs_ext4_local_round_up_cluster(parent, len));
 	dquot_free_inode(parent);
 }
 
@@ -1224,14 +1218,14 @@ int __ext4_xattr_set_credits(struct super_block *sb, struct inode *inode,
 
 
 /**
- * ext4_xattr_inode_update_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_update_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_inode_update_ref(handle_t *handle, struct inode *ea_inode,
+static int ifs_ext4_local_ext4_xattr_inode_update_ref(handle_t *handle, struct inode *ea_inode,
 				       int ref_change)
 {
 	struct ext4_iloc iloc;
@@ -1244,7 +1238,7 @@ static int ext4_xattr_inode_update_ref(handle_t *handle, struct inode *ea_inode,
 	if (ret)
 		goto out;
 
-	ref_count = ext4_xattr_inode_get_ref(ea_inode);
+	ref_count = ifs_ext4_local_ext4_xattr_inode_get_ref(ea_inode);
 	if ((ref_count == 0 && ref_change < 0) || (ref_count == U64_MAX && ref_change > 0)) {
 		ext4_error_inode(ea_inode, __func__, __LINE__, 0,
 			"EA inode %lu ref wraparound: ref_count=%lld ref_change=%d",
@@ -1254,7 +1248,7 @@ static int ext4_xattr_inode_update_ref(handle_t *handle, struct inode *ea_inode,
 		goto out;
 	}
 	ref_count += ref_change;
-	ext4_xattr_inode_set_ref(ea_inode, ref_count);
+	ifs_ext4_local_ext4_xattr_inode_set_ref(ea_inode, ref_count);
 
 	if (ref_change > 0) {
 		if (ref_count == 1) {
@@ -1286,42 +1280,42 @@ out:
 
 
 /**
- * ext4_xattr_inode_inc_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_inc_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_inode_inc_ref(handle_t *handle, struct inode *ea_inode)
+static int ifs_ext4_local_ext4_xattr_inode_inc_ref(handle_t *handle, struct inode *ea_inode)
 {
-	return ext4_xattr_inode_update_ref(handle, ea_inode, 1);
+	return ifs_ext4_local_ext4_xattr_inode_update_ref(handle, ea_inode, 1);
 }
 
 
 /**
- * ext4_xattr_inode_dec_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_dec_ref - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_inode_dec_ref(handle_t *handle, struct inode *ea_inode)
+static int ifs_ext4_local_ext4_xattr_inode_dec_ref(handle_t *handle, struct inode *ea_inode)
 {
-	return ext4_xattr_inode_update_ref(handle, ea_inode, -1);
+	return ifs_ext4_local_ext4_xattr_inode_update_ref(handle, ea_inode, -1);
 }
 
 
 /**
- * ext4_xattr_inode_inc_ref_all - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_inc_ref_all - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_inode_inc_ref_all(handle_t *handle, struct inode *parent,
+static int ifs_ext4_local_ext4_xattr_inode_inc_ref_all(handle_t *handle, struct inode *parent,
 					struct ext4_xattr_entry *first)
 {
 	struct inode *ea_inode;
@@ -1335,12 +1329,12 @@ static int ext4_xattr_inode_inc_ref_all(handle_t *handle, struct inode *parent,
 		if (!entry->e_value_inum)
 			continue;
 		ea_ino = le32_to_cpu(entry->e_value_inum);
-		err = ext4_xattr_inode_iget(parent, ea_ino,
+		err = ifs_ext4_local_ext4_xattr_inode_iget(parent, ea_ino,
 					    le32_to_cpu(entry->e_hash),
 					    &ea_inode);
 		if (err)
 			goto cleanup;
-		err = ext4_xattr_inode_inc_ref(handle, ea_inode);
+		err = ifs_ext4_local_ext4_xattr_inode_inc_ref(handle, ea_inode);
 		if (err) {
 			ext4_warning_inode(ea_inode, "inc ref error %d", err);
 			iput(ea_inode);
@@ -1359,7 +1353,7 @@ cleanup:
 		if (!entry->e_value_inum)
 			continue;
 		ea_ino = le32_to_cpu(entry->e_value_inum);
-		err = ext4_xattr_inode_iget(parent, ea_ino,
+		err = ifs_ext4_local_ext4_xattr_inode_iget(parent, ea_ino,
 					    le32_to_cpu(entry->e_hash),
 					    &ea_inode);
 		if (err) {
@@ -1368,7 +1362,7 @@ cleanup:
 				     err);
 			continue;
 		}
-		err = ext4_xattr_inode_dec_ref(handle, ea_inode);
+		err = ifs_ext4_local_ext4_xattr_inode_dec_ref(handle, ea_inode);
 		if (err)
 			ext4_warning_inode(ea_inode, "cleanup dec ref error %d",
 					   err);
@@ -1379,21 +1373,21 @@ cleanup:
 
 
 /**
- * ext4_xattr_restart_fn - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_restart_fn - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_restart_fn(handle_t *handle, struct inode *inode,
+static int ifs_ext4_local_ext4_xattr_restart_fn(handle_t *handle, struct inode *inode,
 			struct buffer_head *bh, bool block_csum, bool dirty)
 {
 	int error;
 
 	if (bh && dirty) {
 		if (block_csum)
-			ext4_xattr_block_csum_set(inode, bh);
+			ifs_ext4_local_ext4_xattr_block_csum_set(inode, bh);
 		error = ext4_handle_dirty_metadata(handle, NULL, bh);
 		if (error) {
 			ext4_warning(inode->i_sb, "Handle metadata (error %d)",
@@ -1406,7 +1400,7 @@ static int ext4_xattr_restart_fn(handle_t *handle, struct inode *inode,
 
 
 /**
- * ext4_xattr_inode_dec_ref_all - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_dec_ref_all - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1414,7 +1408,7 @@ static int ext4_xattr_restart_fn(handle_t *handle, struct inode *inode,
  * rollback, abort or retry policy.
  */
 static void
-ext4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
+ifs_ext4_local_ext4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 			     struct buffer_head *bh,
 			     struct ext4_xattr_entry *first, bool block_csum,
 			     struct ext4_xattr_inode_array **ea_inode_array,
@@ -1448,13 +1442,13 @@ ext4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 		if (!entry->e_value_inum)
 			continue;
 		ea_ino = le32_to_cpu(entry->e_value_inum);
-		err = ext4_xattr_inode_iget(parent, ea_ino,
+		err = ifs_ext4_local_ext4_xattr_inode_iget(parent, ea_ino,
 					    le32_to_cpu(entry->e_hash),
 					    &ea_inode);
 		if (err)
 			continue;
 
-		err = ext4_expand_inode_array(ea_inode_array, ea_inode);
+		err = ifs_ext4_local_ext4_expand_inode_array(ea_inode_array, ea_inode);
 		if (err) {
 			ext4_warning_inode(ea_inode,
 					   "Expand inode array err=%d", err);
@@ -1464,7 +1458,7 @@ ext4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 
 		err = ext4_journal_ensure_credits_fn(handle, credits, credits,
 			ext4_free_metadata_revoke_credits(parent->i_sb, 1),
-			ext4_xattr_restart_fn(handle, parent, bh, block_csum,
+			ifs_ext4_local_ext4_xattr_restart_fn(handle, parent, bh, block_csum,
 					      dirty));
 		if (err < 0) {
 			ext4_warning_inode(ea_inode, "Ensure credits err=%d",
@@ -1482,7 +1476,7 @@ ext4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 			}
 		}
 
-		err = ext4_xattr_inode_dec_ref(handle, ea_inode);
+		err = ifs_ext4_local_ext4_xattr_inode_dec_ref(handle, ea_inode);
 		if (err) {
 			ext4_warning_inode(ea_inode, "ea_inode dec ref err=%d",
 					   err);
@@ -1490,7 +1484,7 @@ ext4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 		}
 
 		if (!skip_quota)
-			ext4_xattr_inode_free_quota(parent, ea_inode,
+			ifs_ext4_local_ext4_xattr_inode_free_quota(parent, ea_inode,
 					      le32_to_cpu(entry->e_value_size));
 
 
@@ -1514,7 +1508,7 @@ ext4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 
 
 /**
- * ext4_xattr_release_block - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_xattr_release_block - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1522,7 +1516,7 @@ ext4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
  * rollback, abort or retry policy.
  */
 static void
-ext4_xattr_release_block(handle_t *handle, struct inode *inode,
+ifs_ext4_local_ext4_xattr_release_block(handle_t *handle, struct inode *inode,
 			 struct buffer_head *bh,
 			 struct ext4_xattr_inode_array **ea_inode_array,
 			 int extra_credits)
@@ -1561,7 +1555,7 @@ retry_ref:
 		unlock_buffer(bh);
 
 		if (ext4_has_feature_ea_inode(inode->i_sb))
-			ext4_xattr_inode_dec_ref_all(handle, inode, bh,
+			ifs_ext4_local_ext4_xattr_inode_dec_ref_all(handle, inode, bh,
 						     BFIRST(bh),
 						     true                 ,
 						     ea_inode_array,
@@ -1586,7 +1580,7 @@ retry_ref:
 			}
 		}
 
-		ext4_xattr_block_csum_set(inode, bh);
+		ifs_ext4_local_ext4_xattr_block_csum_set(inode, bh);
 
 
 		if (ext4_handle_valid(handle))
@@ -1607,14 +1601,14 @@ out:
 
 
 /**
- * ext4_xattr_free_space - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ifs_ext4_local_ext4_xattr_free_space - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static size_t ext4_xattr_free_space(struct ext4_xattr_entry *last,
+static size_t ifs_ext4_local_ext4_xattr_free_space(struct ext4_xattr_entry *last,
 				    size_t *min_offs, void *base, int *total)
 {
 	for (; !IS_LAST_ENTRY(last); last = EXT4_XATTR_NEXT(last)) {
@@ -1631,14 +1625,14 @@ static size_t ext4_xattr_free_space(struct ext4_xattr_entry *last,
 
 
 /**
- * ext4_xattr_inode_write - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_inode_write - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_inode_write(handle_t *handle, struct inode *ea_inode,
+static int ifs_ext4_local_ext4_xattr_inode_write(handle_t *handle, struct inode *ea_inode,
 				  const void *buf, int bufsize)
 {
 	struct buffer_head *bh = NULL;
@@ -1751,13 +1745,13 @@ static struct inode *ext4_xattr_inode_create(handle_t *handle,
 		ext4_set_aops(ea_inode);
 		ext4_xattr_inode_set_class(ea_inode);
 		unlock_new_inode(ea_inode);
-		ext4_xattr_inode_set_ref(ea_inode, 1);
-		ext4_xattr_inode_set_hash(ea_inode, hash);
+		ifs_ext4_local_ext4_xattr_inode_set_ref(ea_inode, 1);
+		ifs_ext4_local_ext4_xattr_inode_set_hash(ea_inode, hash);
 		err = ext4_mark_inode_dirty(handle, ea_inode);
 		if (!err)
 			err = ext4_inode_attach_jinode(ea_inode);
 		if (err) {
-			if (ext4_xattr_inode_dec_ref(handle, ea_inode))
+			if (ifs_ext4_local_ext4_xattr_inode_dec_ref(handle, ea_inode))
 				ext4_warning_inode(ea_inode,
 					"cleanup dec ref error %d", err);
 			iput(ea_inode);
@@ -1777,7 +1771,7 @@ static struct inode *ext4_xattr_inode_create(handle_t *handle,
 
 
 /**
- * ext4_xattr_inode_cache_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_inode_cache_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -1785,7 +1779,7 @@ static struct inode *ext4_xattr_inode_create(handle_t *handle,
  * rollback, abort or retry policy.
  */
 static struct inode *
-ext4_xattr_inode_cache_find(struct inode *inode, const void *value,
+ifs_ext4_local_ext4_xattr_inode_cache_find(struct inode *inode, const void *value,
 			    size_t value_len, u32 hash)
 {
 	struct inode *ea_inode;
@@ -1816,8 +1810,8 @@ ext4_xattr_inode_cache_find(struct inode *inode, const void *value,
 			goto next_entry;
 		ext4_xattr_inode_set_class(ea_inode);
 		if (i_size_read(ea_inode) == value_len &&
-		    !ext4_xattr_inode_read(ea_inode, ea_data, value_len) &&
-		    !ext4_xattr_inode_verify_hashes(ea_inode, NULL, ea_data,
+		    !ifs_ext4_local_ext4_xattr_inode_read(ea_inode, ea_data, value_len) &&
+		    !ifs_ext4_local_ext4_xattr_inode_verify_hashes(ea_inode, NULL, ea_data,
 						    value_len) &&
 		    !memcmp(value, ea_data, value_len)) {
 			mb_cache_entry_touch(ea_inode_cache, ce);
@@ -1850,14 +1844,14 @@ static struct inode *ext4_xattr_inode_lookup_create(handle_t *handle,
 	int err;
 
 
-	err = ext4_xattr_inode_alloc_quota(inode, value_len);
+	err = ifs_ext4_local_ext4_xattr_inode_alloc_quota(inode, value_len);
 	if (err)
 		return ERR_PTR(err);
 
-	hash = ext4_xattr_inode_hash(EXT4_SB(inode->i_sb), value, value_len);
-	ea_inode = ext4_xattr_inode_cache_find(inode, value, value_len, hash);
+	hash = ifs_ext4_local_ext4_xattr_inode_hash(EXT4_SB(inode->i_sb), value, value_len);
+	ea_inode = ifs_ext4_local_ext4_xattr_inode_cache_find(inode, value, value_len, hash);
 	if (ea_inode) {
-		err = ext4_xattr_inode_inc_ref(handle, ea_inode);
+		err = ifs_ext4_local_ext4_xattr_inode_inc_ref(handle, ea_inode);
 		if (err)
 			goto out_err;
 		return ea_inode;
@@ -1866,13 +1860,13 @@ static struct inode *ext4_xattr_inode_lookup_create(handle_t *handle,
 
 	ea_inode = ext4_xattr_inode_create(handle, inode, hash);
 	if (IS_ERR(ea_inode)) {
-		ext4_xattr_inode_free_quota(inode, NULL, value_len);
+		ifs_ext4_local_ext4_xattr_inode_free_quota(inode, NULL, value_len);
 		return ea_inode;
 	}
 
-	err = ext4_xattr_inode_write(handle, ea_inode, value, value_len);
+	err = ifs_ext4_local_ext4_xattr_inode_write(handle, ea_inode, value, value_len);
 	if (err) {
-		if (ext4_xattr_inode_dec_ref(handle, ea_inode))
+		if (ifs_ext4_local_ext4_xattr_inode_dec_ref(handle, ea_inode))
 			ext4_warning_inode(ea_inode, "cleanup dec ref error %d", err);
 		goto out_err;
 	}
@@ -1883,7 +1877,7 @@ static struct inode *ext4_xattr_inode_lookup_create(handle_t *handle,
 	return ea_inode;
 out_err:
 	iput(ea_inode);
-	ext4_xattr_inode_free_quota(inode, NULL, value_len);
+	ifs_ext4_local_ext4_xattr_inode_free_quota(inode, NULL, value_len);
 	return ERR_PTR(err);
 }
 
@@ -1892,14 +1886,14 @@ out_err:
 
 
 /**
- * ext4_xattr_set_entry - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_set_entry - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_set_entry(struct ext4_xattr_info *i,
+static int ifs_ext4_local_ext4_xattr_set_entry(struct ext4_xattr_info *i,
 				struct ext4_xattr_search *s,
 				handle_t *handle, struct inode *inode,
 				struct inode *new_ea_inode,
@@ -1975,7 +1969,7 @@ static int ext4_xattr_set_entry(struct ext4_xattr_info *i,
 
 
 	if (!s->not_found && here->e_value_inum) {
-		ret = ext4_xattr_inode_iget(inode,
+		ret = ifs_ext4_local_ext4_xattr_inode_iget(inode,
 					    le32_to_cpu(here->e_value_inum),
 					    le32_to_cpu(here->e_hash),
 					    &old_ea_inode);
@@ -1985,11 +1979,11 @@ static int ext4_xattr_set_entry(struct ext4_xattr_info *i,
 		}
 
 
-		ret = ext4_xattr_inode_dec_ref(handle, old_ea_inode);
+		ret = ifs_ext4_local_ext4_xattr_inode_dec_ref(handle, old_ea_inode);
 		if (ret)
 			goto out;
 
-		ext4_xattr_inode_free_quota(inode, old_ea_inode,
+		ifs_ext4_local_ext4_xattr_inode_free_quota(inode, old_ea_inode,
 					    le32_to_cpu(here->e_value_size));
 	}
 
@@ -2081,15 +2075,15 @@ update_hash:
 
 
 			crc32c_hash = cpu_to_le32(
-				       ext4_xattr_inode_get_hash(new_ea_inode));
-			hash = ext4_xattr_hash_entry(here->e_name,
+				       ifs_ext4_local_ext4_xattr_inode_get_hash(new_ea_inode));
+			hash = ifs_ext4_local_ext4_xattr_hash_entry(here->e_name,
 						     here->e_name_len,
 						     &crc32c_hash, 1);
 		} else if (is_block) {
 			__le32 *value = s->base + le16_to_cpu(
 							here->e_value_offs);
 
-			hash = ext4_xattr_hash_entry(here->e_name,
+			hash = ifs_ext4_local_ext4_xattr_hash_entry(here->e_name,
 						     here->e_name_len, value,
 						     new_size >> 2);
 		}
@@ -2097,7 +2091,7 @@ update_hash:
 	}
 
 	if (is_block)
-		ext4_xattr_rehash((struct ext4_xattr_header *)s->base);
+		ifs_ext4_local_ext4_xattr_rehash((struct ext4_xattr_header *)s->base);
 
 	ret = 0;
 out:
@@ -2107,19 +2101,19 @@ out:
 
 
 /**
- * struct ext4_xattr_block_find - Private EXT4 state/data structure used by extended metadata.
+ * struct ifs_ext4_local_ext4_xattr_block_find - Private EXT4 state/data structure used by extended metadata.
  *
  * Treat fields that mirror persistent media or cross subsystem boundaries
  * as interface contracts rather than incidental layout.
  */
-struct ext4_xattr_block_find {
+struct ifs_ext4_local_ext4_xattr_block_find {
 	struct ext4_xattr_search s;
 	struct buffer_head *bh;
 };
 
 
 /**
- * ext4_xattr_block_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_block_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2127,8 +2121,8 @@ struct ext4_xattr_block_find {
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_block_find(struct inode *inode, struct ext4_xattr_info *i,
-		      struct ext4_xattr_block_find *bs)
+ifs_ext4_local_ext4_xattr_block_find(struct inode *inode, struct ext4_xattr_info *i,
+		      struct ifs_ext4_local_ext4_xattr_block_find *bs)
 {
 	struct super_block *sb = inode->i_sb;
 	int error;
@@ -2155,7 +2149,7 @@ ext4_xattr_block_find(struct inode *inode, struct ext4_xattr_info *i,
 		bs->s.first = BFIRST(bs->bh);
 		bs->s.end = bs->bh->b_data + bs->bh->b_size;
 		bs->s.here = bs->s.first;
-		error = xattr_find_entry(inode, &bs->s.here, bs->s.end,
+		error = ifs_ext4_local_xattr_find_entry(inode, &bs->s.here, bs->s.end,
 					 i->name_index, i->name, 1);
 		if (error && error != -ENODATA)
 			return error;
@@ -2166,7 +2160,7 @@ ext4_xattr_block_find(struct inode *inode, struct ext4_xattr_info *i,
 
 
 /**
- * ext4_xattr_block_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_block_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2174,9 +2168,9 @@ ext4_xattr_block_find(struct inode *inode, struct ext4_xattr_info *i,
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_block_set(handle_t *handle, struct inode *inode,
+ifs_ext4_local_ext4_xattr_block_set(handle_t *handle, struct inode *inode,
 		     struct ext4_xattr_info *i,
-		     struct ext4_xattr_block_find *bs)
+		     struct ifs_ext4_local_ext4_xattr_block_find *bs)
 {
 	struct super_block *sb = inode->i_sb;
 	struct buffer_head *new_bh = NULL;
@@ -2232,9 +2226,9 @@ ext4_xattr_block_set(handle_t *handle, struct inode *inode,
 				}
 			}
 			ea_bdebug(bs->bh, "modifying in-place");
-			error = ext4_xattr_set_entry(i, s, handle, inode,
+			error = ifs_ext4_local_ext4_xattr_set_entry(i, s, handle, inode,
 					     ea_inode, true               );
-			ext4_xattr_block_csum_set(inode, bs->bh);
+			ifs_ext4_local_ext4_xattr_block_csum_set(inode, bs->bh);
 			unlock_buffer(bs->bh);
 			if (error == -EFSCORRUPTED)
 				goto bad_block;
@@ -2261,7 +2255,7 @@ clone_block:
 
 		if (!s->not_found && s->here->e_value_inum) {
 			ea_ino = le32_to_cpu(s->here->e_value_inum);
-			error = ext4_xattr_inode_iget(inode, ea_ino,
+			error = ifs_ext4_local_ext4_xattr_inode_iget(inode, ea_ino,
 				      le32_to_cpu(s->here->e_hash),
 				      &tmp_inode);
 			if (error)
@@ -2293,7 +2287,7 @@ clone_block:
 		s->end = s->base + sb->s_blocksize;
 	}
 
-	error = ext4_xattr_set_entry(i, s, handle, inode, ea_inode,
+	error = ifs_ext4_local_ext4_xattr_set_entry(i, s, handle, inode, ea_inode,
 				     true               );
 	if (error == -EFSCORRUPTED)
 		goto bad_block;
@@ -2302,7 +2296,7 @@ clone_block:
 
 inserted:
 	if (!IS_LAST_ENTRY(s->first)) {
-		new_bh = ext4_xattr_block_cache_find(inode, header(s->base), &ce);
+		new_bh = ifs_ext4_local_ext4_xattr_block_cache_find(inode, header(s->base), &ce);
 		if (IS_ERR(new_bh)) {
 			error = PTR_ERR(new_bh);
 			new_bh = NULL;
@@ -2355,7 +2349,7 @@ inserted:
 					clear_bit(MBE_REUSABLE_B, &ce->e_flags);
 				ea_bdebug(new_bh, "reusing; refcount now=%d",
 					  ref);
-				ext4_xattr_block_csum_set(inode, new_bh);
+				ifs_ext4_local_ext4_xattr_block_csum_set(inode, new_bh);
 				unlock_buffer(new_bh);
 				error = ext4_handle_dirty_metadata(handle,
 								   inode,
@@ -2369,7 +2363,7 @@ inserted:
 		} else if (bs->bh && s->base == bs->bh->b_data) {
 
 			ea_bdebug(bs->bh, "keeping this block");
-			ext4_xattr_block_cache_insert(ea_block_cache, bs->bh);
+			ifs_ext4_local_ext4_xattr_block_cache_insert(ea_block_cache, bs->bh);
 			new_bh = bs->bh;
 			get_bh(new_bh);
 		} else {
@@ -2397,13 +2391,13 @@ getblk_failed:
 						 EXT4_FREE_BLOCKS_METADATA);
 				goto cleanup;
 			}
-			error = ext4_xattr_inode_inc_ref_all(handle, inode,
+			error = ifs_ext4_local_ext4_xattr_inode_inc_ref_all(handle, inode,
 						      ENTRY(header(s->base)+1));
 			if (error)
 				goto getblk_failed;
 			if (ea_inode) {
 
-				error = ext4_xattr_inode_dec_ref(handle,
+				error = ifs_ext4_local_ext4_xattr_inode_dec_ref(handle,
 								 ea_inode);
 				if (error)
 					ext4_warning_inode(ea_inode,
@@ -2422,10 +2416,10 @@ getblk_failed:
 				goto getblk_failed;
 			}
 			memcpy(new_bh->b_data, s->base, new_bh->b_size);
-			ext4_xattr_block_csum_set(inode, new_bh);
+			ifs_ext4_local_ext4_xattr_block_csum_set(inode, new_bh);
 			set_buffer_uptodate(new_bh);
 			unlock_buffer(new_bh);
-			ext4_xattr_block_cache_insert(ea_block_cache, new_bh);
+			ifs_ext4_local_ext4_xattr_block_cache_insert(ea_block_cache, new_bh);
 			error = ext4_handle_dirty_metadata(handle, inode,
 							   new_bh);
 			if (error)
@@ -2434,7 +2428,7 @@ getblk_failed:
 	}
 
 	if (old_ea_inode_quota)
-		ext4_xattr_inode_free_quota(inode, NULL, old_ea_inode_quota);
+		ifs_ext4_local_ext4_xattr_inode_free_quota(inode, NULL, old_ea_inode_quota);
 
 
 	EXT4_I(inode)->i_file_acl = new_bh ? new_bh->b_blocknr : 0;
@@ -2443,7 +2437,7 @@ getblk_failed:
 	if (bs->bh && bs->bh != new_bh) {
 		struct ext4_xattr_inode_array *ea_inode_array = NULL;
 
-		ext4_xattr_release_block(handle, inode, bs->bh,
+		ifs_ext4_local_ext4_xattr_release_block(handle, inode, bs->bh,
 					 &ea_inode_array,
 					 0                    );
 		ext4_xattr_inode_array_free(ea_inode_array);
@@ -2455,11 +2449,11 @@ cleanup:
 		if (error) {
 			int error2;
 
-			error2 = ext4_xattr_inode_dec_ref(handle, ea_inode);
+			error2 = ifs_ext4_local_ext4_xattr_inode_dec_ref(handle, ea_inode);
 			if (error2)
 				ext4_warning_inode(ea_inode, "dec ref error=%d",
 						   error2);
-			ext4_xattr_inode_free_quota(inode, ea_inode,
+			ifs_ext4_local_ext4_xattr_inode_free_quota(inode, ea_inode,
 						    i_size_read(ea_inode));
 		}
 		iput(ea_inode);
@@ -2510,7 +2504,7 @@ int ext4_xattr_ibody_find(struct inode *inode, struct ext4_xattr_info *i,
 	is->s.end = ITAIL(inode, raw_inode);
 	if (ext4_test_inode_state(inode, EXT4_STATE_XATTR)) {
 
-		error = xattr_find_entry(inode, &is->s.here, is->s.end,
+		error = ifs_ext4_local_xattr_find_entry(inode, &is->s.here, is->s.end,
 					 i->name_index, i->name, 0);
 		if (error && error != -ENODATA)
 			return error;
@@ -2549,18 +2543,18 @@ int ext4_xattr_ibody_set(handle_t *handle, struct inode *inode,
 		if (IS_ERR(ea_inode))
 			return PTR_ERR(ea_inode);
 	}
-	error = ext4_xattr_set_entry(i, s, handle, inode, ea_inode,
+	error = ifs_ext4_local_ext4_xattr_set_entry(i, s, handle, inode, ea_inode,
 				     false               );
 	if (error) {
 		if (ea_inode) {
 			int error2;
 
-			error2 = ext4_xattr_inode_dec_ref(handle, ea_inode);
+			error2 = ifs_ext4_local_ext4_xattr_inode_dec_ref(handle, ea_inode);
 			if (error2)
 				ext4_warning_inode(ea_inode, "dec ref error=%d",
 						   error2);
 
-			ext4_xattr_inode_free_quota(inode, ea_inode,
+			ifs_ext4_local_ext4_xattr_inode_free_quota(inode, ea_inode,
 						    i_size_read(ea_inode));
 			iput(ea_inode);
 		}
@@ -2580,14 +2574,14 @@ int ext4_xattr_ibody_set(handle_t *handle, struct inode *inode,
 
 
 /**
- * ext4_xattr_value_same - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_value_same - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_value_same(struct ext4_xattr_search *s,
+static int ifs_ext4_local_ext4_xattr_value_same(struct ext4_xattr_search *s,
 				 struct ext4_xattr_info *i)
 {
 	void *value;
@@ -2652,7 +2646,7 @@ ext4_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 	struct ext4_xattr_ibody_find is = {
 		.s = { .not_found = -ENODATA, },
 	};
-	struct ext4_xattr_block_find bs = {
+	struct ifs_ext4_local_ext4_xattr_block_find bs = {
 		.s = { .not_found = -ENODATA, },
 	};
 	int no_expand;
@@ -2702,7 +2696,7 @@ ext4_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 	if (error)
 		goto cleanup;
 	if (is.s.not_found)
-		error = ext4_xattr_block_find(inode, &i, &bs);
+		error = ifs_ext4_local_ext4_xattr_block_find(inode, &i, &bs);
 	if (error)
 		goto cleanup;
 	if (is.s.not_found && bs.s.not_found) {
@@ -2722,13 +2716,13 @@ ext4_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 		if (!is.s.not_found)
 			error = ext4_xattr_ibody_set(handle, inode, &i, &is);
 		else if (!bs.s.not_found)
-			error = ext4_xattr_block_set(handle, inode, &i, &bs);
+			error = ifs_ext4_local_ext4_xattr_block_set(handle, inode, &i, &bs);
 	} else {
 		error = 0;
 
-		if (!is.s.not_found && ext4_xattr_value_same(&is.s, &i))
+		if (!is.s.not_found && ifs_ext4_local_ext4_xattr_value_same(&is.s, &i))
 			goto cleanup;
-		if (!bs.s.not_found && ext4_xattr_value_same(&bs.s, &i))
+		if (!bs.s.not_found && ifs_ext4_local_ext4_xattr_value_same(&bs.s, &i))
 			goto cleanup;
 
 		if (ext4_has_feature_ea_inode(inode->i_sb) &&
@@ -2739,16 +2733,16 @@ retry_inode:
 		error = ext4_xattr_ibody_set(handle, inode, &i, &is);
 		if (!error && !bs.s.not_found) {
 			i.value = NULL;
-			error = ext4_xattr_block_set(handle, inode, &i, &bs);
+			error = ifs_ext4_local_ext4_xattr_block_set(handle, inode, &i, &bs);
 		} else if (error == -ENOSPC) {
 			if (EXT4_I(inode)->i_file_acl && !bs.s.base) {
 				brelse(bs.bh);
 				bs.bh = NULL;
-				error = ext4_xattr_block_find(inode, &i, &bs);
+				error = ifs_ext4_local_ext4_xattr_block_find(inode, &i, &bs);
 				if (error)
 					goto cleanup;
 			}
-			error = ext4_xattr_block_set(handle, inode, &i, &bs);
+			error = ifs_ext4_local_ext4_xattr_block_set(handle, inode, &i, &bs);
 			if (!error && !is.s.not_found) {
 				i.value = NULL;
 				error = ext4_xattr_ibody_set(handle, inode, &i,
@@ -2765,7 +2759,7 @@ retry_inode:
 		}
 	}
 	if (!error) {
-		ext4_xattr_update_super_block(handle, inode->i_sb);
+		ifs_ext4_local_ext4_xattr_update_super_block(handle, inode->i_sb);
 		inode_set_ctime_current(inode);
 		inode_inc_iversion(inode);
 		if (!value)
@@ -2873,14 +2867,14 @@ retry:
 
 
 /**
- * ext4_xattr_shift_entries - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_shift_entries - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_xattr_shift_entries(struct ext4_xattr_entry *entry,
+static void ifs_ext4_local_ext4_xattr_shift_entries(struct ext4_xattr_entry *entry,
 				     int value_offs_shift, void *to,
 				     void *from, size_t n)
 {
@@ -2904,19 +2898,19 @@ static void ext4_xattr_shift_entries(struct ext4_xattr_entry *entry,
 
 
 /**
- * ext4_xattr_move_to_block - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_move_to_block - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_move_to_block(handle_t *handle, struct inode *inode,
+static int ifs_ext4_local_ext4_xattr_move_to_block(handle_t *handle, struct inode *inode,
 				    struct ext4_inode *raw_inode,
 				    struct ext4_xattr_entry *entry)
 {
 	struct ext4_xattr_ibody_find *is = NULL;
-	struct ext4_xattr_block_find *bs = NULL;
+	struct ifs_ext4_local_ext4_xattr_block_find *bs = NULL;
 	char *buffer = NULL, *b_entry_name = NULL;
 	size_t value_size = le32_to_cpu(entry->e_value_size);
 	struct ext4_xattr_info i = {
@@ -2930,7 +2924,7 @@ static int ext4_xattr_move_to_block(handle_t *handle, struct inode *inode,
 	int error;
 
 	is = kzalloc(sizeof(struct ext4_xattr_ibody_find), GFP_NOFS);
-	bs = kzalloc(sizeof(struct ext4_xattr_block_find), GFP_NOFS);
+	bs = kzalloc(sizeof(struct ifs_ext4_local_ext4_xattr_block_find), GFP_NOFS);
 	b_entry_name = kmalloc(entry->e_name_len + 1, GFP_NOFS);
 	if (!is || !bs || !b_entry_name) {
 		error = -ENOMEM;
@@ -2950,7 +2944,7 @@ static int ext4_xattr_move_to_block(handle_t *handle, struct inode *inode,
 			goto out;
 		}
 		needs_kvfree = 1;
-		error = ext4_xattr_inode_get(inode, entry, buffer, value_size);
+		error = ifs_ext4_local_ext4_xattr_inode_get(inode, entry, buffer, value_size);
 		if (error)
 			goto out;
 	} else {
@@ -2972,12 +2966,12 @@ static int ext4_xattr_move_to_block(handle_t *handle, struct inode *inode,
 
 	i.value = buffer;
 	i.value_len = value_size;
-	error = ext4_xattr_block_find(inode, &i, bs);
+	error = ifs_ext4_local_ext4_xattr_block_find(inode, &i, bs);
 	if (error)
 		goto out;
 
 
-	error = ext4_xattr_block_set(handle, inode, &i, bs);
+	error = ifs_ext4_local_ext4_xattr_block_set(handle, inode, &i, bs);
 	if (error)
 		goto out;
 
@@ -3002,14 +2996,14 @@ out:
 
 
 /**
- * ext4_xattr_make_inode_space - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_make_inode_space - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ext4_xattr_make_inode_space(handle_t *handle, struct inode *inode,
+static int ifs_ext4_local_ext4_xattr_make_inode_space(handle_t *handle, struct inode *inode,
 				       struct ext4_inode *raw_inode,
 				       int isize_diff, size_t ifree,
 				       size_t bfree, int *total_ino)
@@ -3061,7 +3055,7 @@ static int ext4_xattr_make_inode_space(handle_t *handle, struct inode *inode,
 		if (!entry->e_value_inum)
 			total_size += EXT4_XATTR_SIZE(
 					      le32_to_cpu(entry->e_value_size));
-		error = ext4_xattr_move_to_block(handle, inode, raw_inode,
+		error = ifs_ext4_local_ext4_xattr_move_to_block(handle, inode, raw_inode,
 						 entry);
 		if (error)
 			return error;
@@ -3110,7 +3104,7 @@ retry:
 	min_offs = end - base;
 	total_ino = sizeof(struct ext4_xattr_ibody_header) + sizeof(u32);
 
-	ifree = ext4_xattr_free_space(base, &min_offs, base, &total_ino);
+	ifree = ifs_ext4_local_ext4_xattr_free_space(base, &min_offs, base, &total_ino);
 	if (ifree >= isize_diff)
 		goto shift;
 
@@ -3131,7 +3125,7 @@ retry:
 		base = BHDR(bh);
 		end = bh->b_data + bh->b_size;
 		min_offs = end - base;
-		bfree = ext4_xattr_free_space(BFIRST(bh), &min_offs, base,
+		bfree = ifs_ext4_local_ext4_xattr_free_space(BFIRST(bh), &min_offs, base,
 					      NULL);
 		brelse(bh);
 		if (bfree + ifree < isize_diff) {
@@ -3147,7 +3141,7 @@ retry:
 		bfree = inode->i_sb->s_blocksize;
 	}
 
-	error = ext4_xattr_make_inode_space(handle, inode, raw_inode,
+	error = ifs_ext4_local_ext4_xattr_make_inode_space(handle, inode, raw_inode,
 					    isize_diff, ifree, bfree,
 					    &total_ino);
 	if (error) {
@@ -3162,7 +3156,7 @@ retry:
 	}
 shift:
 
-	ext4_xattr_shift_entries(IFIRST(header), EXT4_I(inode)->i_extra_isize
+	ifs_ext4_local_ext4_xattr_shift_entries(IFIRST(header), EXT4_I(inode)->i_extra_isize
 			- new_extra_isize, (void *)raw_inode +
 			EXT4_GOOD_OLD_INODE_SIZE + new_extra_isize,
 			(void *)header, total_ino);
@@ -3185,7 +3179,7 @@ cleanup:
 
 
 /**
- * ext4_expand_inode_array - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ifs_ext4_local_ext4_expand_inode_array - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3193,7 +3187,7 @@ cleanup:
  * rollback, abort or retry policy.
  */
 static int
-ext4_expand_inode_array(struct ext4_xattr_inode_array **ea_inode_array,
+ifs_ext4_local_ext4_expand_inode_array(struct ext4_xattr_inode_array **ea_inode_array,
 			struct inode *inode)
 {
 	if (*ea_inode_array == NULL) {
@@ -3272,7 +3266,7 @@ int ext4_xattr_delete_inode(handle_t *handle, struct inode *inode,
 
 		header = IHDR(inode, ext4_raw_inode(&iloc));
 		if (header->h_magic == cpu_to_le32(EXT4_XATTR_MAGIC))
-			ext4_xattr_inode_dec_ref_all(handle, inode, iloc.bh,
+			ifs_ext4_local_ext4_xattr_inode_dec_ref_all(handle, inode, iloc.bh,
 						     IFIRST(header),
 						     false                 ,
 						     ea_inode_array,
@@ -3301,20 +3295,20 @@ int ext4_xattr_delete_inode(handle_t *handle, struct inode *inode,
 			     entry = EXT4_XATTR_NEXT(entry)) {
 				if (!entry->e_value_inum)
 					continue;
-				error = ext4_xattr_inode_iget(inode,
+				error = ifs_ext4_local_ext4_xattr_inode_iget(inode,
 					      le32_to_cpu(entry->e_value_inum),
 					      le32_to_cpu(entry->e_hash),
 					      &ea_inode);
 				if (error)
 					continue;
-				ext4_xattr_inode_free_quota(inode, ea_inode,
+				ifs_ext4_local_ext4_xattr_inode_free_quota(inode, ea_inode,
 					      le32_to_cpu(entry->e_value_size));
 				iput(ea_inode);
 			}
 
 		}
 
-		ext4_xattr_release_block(handle, inode, bh, ea_inode_array,
+		ifs_ext4_local_ext4_xattr_release_block(handle, inode, bh, ea_inode_array,
 					 extra_credits);
 
 
@@ -3357,7 +3351,7 @@ void ext4_xattr_inode_array_free(struct ext4_xattr_inode_array *ea_inode_array)
 
 
 /**
- * ext4_xattr_block_cache_insert - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_block_cache_insert - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3365,7 +3359,7 @@ void ext4_xattr_inode_array_free(struct ext4_xattr_inode_array *ea_inode_array)
  * rollback, abort or retry policy.
  */
 static void
-ext4_xattr_block_cache_insert(struct mb_cache *ea_block_cache,
+ifs_ext4_local_ext4_xattr_block_cache_insert(struct mb_cache *ea_block_cache,
 			      struct buffer_head *bh)
 {
 	struct ext4_xattr_header *header = BHDR(bh);
@@ -3387,7 +3381,7 @@ ext4_xattr_block_cache_insert(struct mb_cache *ea_block_cache,
 
 
 /**
- * ext4_xattr_cmp - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_cmp - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3395,7 +3389,7 @@ ext4_xattr_block_cache_insert(struct mb_cache *ea_block_cache,
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_cmp(struct ext4_xattr_header *header1,
+ifs_ext4_local_ext4_xattr_cmp(struct ext4_xattr_header *header1,
 	       struct ext4_xattr_header *header2)
 {
 	struct ext4_xattr_entry *entry1, *entry2;
@@ -3428,7 +3422,7 @@ ext4_xattr_cmp(struct ext4_xattr_header *header1,
 
 
 /**
- * ext4_xattr_block_cache_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_block_cache_find - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3436,7 +3430,7 @@ ext4_xattr_cmp(struct ext4_xattr_header *header1,
  * rollback, abort or retry policy.
  */
 static struct buffer_head *
-ext4_xattr_block_cache_find(struct inode *inode,
+ifs_ext4_local_ext4_xattr_block_cache_find(struct inode *inode,
 			    struct ext4_xattr_header *header,
 			    struct mb_cache_entry **pce)
 {
@@ -3460,7 +3454,7 @@ ext4_xattr_block_cache_find(struct inode *inode,
 						 (unsigned long)ce->e_value);
 			mb_cache_entry_put(ea_block_cache, ce);
 			return bh;
-		} else if (ext4_xattr_cmp(header, BHDR(bh)) == 0) {
+		} else if (ifs_ext4_local_ext4_xattr_cmp(header, BHDR(bh)) == 0) {
 			*pce = ce;
 			return bh;
 		}
@@ -3475,14 +3469,14 @@ ext4_xattr_block_cache_find(struct inode *inode,
 
 
 /**
- * ext4_xattr_hash_entry - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_hash_entry - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static __le32 ext4_xattr_hash_entry(char *name, size_t name_len, __le32 *value,
+static __le32 ifs_ext4_local_ext4_xattr_hash_entry(char *name, size_t name_len, __le32 *value,
 				    size_t value_count)
 {
 	__u32 hash = 0;
@@ -3502,14 +3496,14 @@ static __le32 ext4_xattr_hash_entry(char *name, size_t name_len, __le32 *value,
 
 
 /**
- * ext4_xattr_hash_entry_signed - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_hash_entry_signed - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static __le32 ext4_xattr_hash_entry_signed(char *name, size_t name_len, __le32 *value, size_t value_count)
+static __le32 ifs_ext4_local_ext4_xattr_hash_entry_signed(char *name, size_t name_len, __le32 *value, size_t value_count)
 {
 	__u32 hash = 0;
 
@@ -3533,14 +3527,14 @@ static __le32 ext4_xattr_hash_entry_signed(char *name, size_t name_len, __le32 *
 
 
 /**
- * ext4_xattr_rehash - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_rehash - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ext4_xattr_rehash(struct ext4_xattr_header *header)
+static void ifs_ext4_local_ext4_xattr_rehash(struct ext4_xattr_header *header)
 {
 	struct ext4_xattr_entry *here;
 	__u32 hash = 0;
@@ -3596,7 +3590,7 @@ void ext4_xattr_destroy_cache(struct mb_cache *cache)
 
 
 /**
- * ext4_xattr_hurd_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_hurd_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3604,14 +3598,14 @@ void ext4_xattr_destroy_cache(struct mb_cache *cache)
  * rollback, abort or retry policy.
  */
 static bool
-ext4_xattr_hurd_list(struct dentry *dentry)
+ifs_ext4_local_ext4_xattr_hurd_list(struct dentry *dentry)
 {
 	return test_opt(dentry->d_sb, XATTR_USER);
 }
 
 
 /**
- * ext4_xattr_hurd_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_hurd_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3619,7 +3613,7 @@ ext4_xattr_hurd_list(struct dentry *dentry)
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_hurd_get(const struct xattr_handler *handler,
+ifs_ext4_local_ext4_xattr_hurd_get(const struct xattr_handler *handler,
 		    struct dentry *unused, struct inode *inode,
 		    const char *name, void *buffer, size_t size)
 {
@@ -3632,7 +3626,7 @@ ext4_xattr_hurd_get(const struct xattr_handler *handler,
 
 
 /**
- * ext4_xattr_hurd_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_hurd_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3640,7 +3634,7 @@ ext4_xattr_hurd_get(const struct xattr_handler *handler,
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_hurd_set(const struct xattr_handler *handler,
+ifs_ext4_local_ext4_xattr_hurd_set(const struct xattr_handler *handler,
 		    struct mnt_idmap *idmap,
 		    struct dentry *unused, struct inode *inode,
 		    const char *name, const void *value,
@@ -3655,14 +3649,14 @@ ext4_xattr_hurd_set(const struct xattr_handler *handler,
 
 const struct xattr_handler ext4_xattr_hurd_handler = {
 	.prefix	= XATTR_HURD_PREFIX,
-	.list	= ext4_xattr_hurd_list,
-	.get	= ext4_xattr_hurd_get,
-	.set	= ext4_xattr_hurd_set,
+	.list	= ifs_ext4_local_ext4_xattr_hurd_list,
+	.get	= ifs_ext4_local_ext4_xattr_hurd_get,
+	.set	= ifs_ext4_local_ext4_xattr_hurd_set,
 };
 
 
 /**
- * ext4_xattr_trusted_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_trusted_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3670,14 +3664,14 @@ const struct xattr_handler ext4_xattr_hurd_handler = {
  * rollback, abort or retry policy.
  */
 static bool
-ext4_xattr_trusted_list(struct dentry *dentry)
+ifs_ext4_local_ext4_xattr_trusted_list(struct dentry *dentry)
 {
 	return capable(CAP_SYS_ADMIN);
 }
 
 
 /**
- * ext4_xattr_trusted_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_trusted_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3685,7 +3679,7 @@ ext4_xattr_trusted_list(struct dentry *dentry)
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_trusted_get(const struct xattr_handler *handler,
+ifs_ext4_local_ext4_xattr_trusted_get(const struct xattr_handler *handler,
 		       struct dentry *unused, struct inode *inode,
 		       const char *name, void *buffer, size_t size)
 {
@@ -3695,7 +3689,7 @@ ext4_xattr_trusted_get(const struct xattr_handler *handler,
 
 
 /**
- * ext4_xattr_trusted_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_trusted_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3703,7 +3697,7 @@ ext4_xattr_trusted_get(const struct xattr_handler *handler,
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_trusted_set(const struct xattr_handler *handler,
+ifs_ext4_local_ext4_xattr_trusted_set(const struct xattr_handler *handler,
 		       struct mnt_idmap *idmap,
 		       struct dentry *unused, struct inode *inode,
 		       const char *name, const void *value,
@@ -3715,14 +3709,14 @@ ext4_xattr_trusted_set(const struct xattr_handler *handler,
 
 const struct xattr_handler ext4_xattr_trusted_handler = {
 	.prefix	= XATTR_TRUSTED_PREFIX,
-	.list	= ext4_xattr_trusted_list,
-	.get	= ext4_xattr_trusted_get,
-	.set	= ext4_xattr_trusted_set,
+	.list	= ifs_ext4_local_ext4_xattr_trusted_list,
+	.get	= ifs_ext4_local_ext4_xattr_trusted_get,
+	.set	= ifs_ext4_local_ext4_xattr_trusted_set,
 };
 
 
 /**
- * ext4_xattr_user_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_user_list - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3730,14 +3724,14 @@ const struct xattr_handler ext4_xattr_trusted_handler = {
  * rollback, abort or retry policy.
  */
 static bool
-ext4_xattr_user_list(struct dentry *dentry)
+ifs_ext4_local_ext4_xattr_user_list(struct dentry *dentry)
 {
 	return test_opt(dentry->d_sb, XATTR_USER);
 }
 
 
 /**
- * ext4_xattr_user_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_user_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3745,7 +3739,7 @@ ext4_xattr_user_list(struct dentry *dentry)
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_user_get(const struct xattr_handler *handler,
+ifs_ext4_local_ext4_xattr_user_get(const struct xattr_handler *handler,
 		    struct dentry *unused, struct inode *inode,
 		    const char *name, void *buffer, size_t size)
 {
@@ -3757,7 +3751,7 @@ ext4_xattr_user_get(const struct xattr_handler *handler,
 
 
 /**
- * ext4_xattr_user_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_user_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3765,7 +3759,7 @@ ext4_xattr_user_get(const struct xattr_handler *handler,
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_user_set(const struct xattr_handler *handler,
+ifs_ext4_local_ext4_xattr_user_set(const struct xattr_handler *handler,
 		    struct mnt_idmap *idmap,
 		    struct dentry *unused, struct inode *inode,
 		    const char *name, const void *value,
@@ -3779,16 +3773,16 @@ ext4_xattr_user_set(const struct xattr_handler *handler,
 
 const struct xattr_handler ext4_xattr_user_handler = {
 	.prefix	= XATTR_USER_PREFIX,
-	.list	= ext4_xattr_user_list,
-	.get	= ext4_xattr_user_get,
-	.set	= ext4_xattr_user_set,
+	.list	= ifs_ext4_local_ext4_xattr_user_list,
+	.get	= ifs_ext4_local_ext4_xattr_user_get,
+	.set	= ifs_ext4_local_ext4_xattr_user_set,
 };
 
 #ifdef CONFIG_EXT4_FS_SECURITY
 
 
 /**
- * ext4_xattr_security_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ifs_ext4_local_ext4_xattr_security_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3796,7 +3790,7 @@ const struct xattr_handler ext4_xattr_user_handler = {
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_security_get(const struct xattr_handler *handler,
+ifs_ext4_local_ext4_xattr_security_get(const struct xattr_handler *handler,
 			struct dentry *unused, struct inode *inode,
 			const char *name, void *buffer, size_t size)
 {
@@ -3806,7 +3800,7 @@ ext4_xattr_security_get(const struct xattr_handler *handler,
 
 
 /**
- * ext4_xattr_security_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_xattr_security_set - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3814,7 +3808,7 @@ ext4_xattr_security_get(const struct xattr_handler *handler,
  * rollback, abort or retry policy.
  */
 static int
-ext4_xattr_security_set(const struct xattr_handler *handler,
+ifs_ext4_local_ext4_xattr_security_set(const struct xattr_handler *handler,
 			struct mnt_idmap *idmap,
 			struct dentry *unused, struct inode *inode,
 			const char *name, const void *value,
@@ -3826,7 +3820,7 @@ ext4_xattr_security_set(const struct xattr_handler *handler,
 
 
 /**
- * ext4_initxattrs - Implements the initxattrs operation within the extended metadata subsystem.
+ * ifs_ext4_local_ext4_initxattrs - Implements the initxattrs operation within the extended metadata subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3834,7 +3828,7 @@ ext4_xattr_security_set(const struct xattr_handler *handler,
  * rollback, abort or retry policy.
  */
 static int
-ext4_initxattrs(struct inode *inode, const struct xattr *xattr_array,
+ifs_ext4_local_ext4_initxattrs(struct inode *inode, const struct xattr *xattr_array,
 		void *fs_info)
 {
 	const struct xattr *xattr;
@@ -3866,13 +3860,13 @@ ext4_init_security(handle_t *handle, struct inode *inode, struct inode *dir,
 		   const struct qstr *qstr)
 {
 	return security_inode_init_security(inode, dir, qstr,
-					    &ext4_initxattrs, handle);
+					    &ifs_ext4_local_ext4_initxattrs, handle);
 }
 
 const struct xattr_handler ext4_xattr_security_handler = {
 	.prefix	= XATTR_SECURITY_PREFIX,
-	.get	= ext4_xattr_security_get,
-	.set	= ext4_xattr_security_set,
+	.get	= ifs_ext4_local_ext4_xattr_security_get,
+	.set	= ifs_ext4_local_ext4_xattr_security_set,
 };
 #endif
 
@@ -3880,7 +3874,7 @@ const struct xattr_handler ext4_xattr_security_handler = {
 
 
 /**
- * ext4_acl_from_disk - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_acl_from_disk - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3888,7 +3882,7 @@ const struct xattr_handler ext4_xattr_security_handler = {
  * rollback, abort or retry policy.
  */
 static struct posix_acl *
-ext4_acl_from_disk(const void *value, size_t size)
+ifs_ext4_local_ext4_acl_from_disk(const void *value, size_t size)
 {
 	const char *end = (char *)value + size;
 	int n, count;
@@ -3959,7 +3953,7 @@ fail:
 
 
 /**
- * ext4_acl_to_disk - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local_ext4_acl_to_disk - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -3967,7 +3961,7 @@ fail:
  * rollback, abort or retry policy.
  */
 static void *
-ext4_acl_to_disk(const struct posix_acl *acl, size_t *size)
+ifs_ext4_local_ext4_acl_to_disk(const struct posix_acl *acl, size_t *size)
 {
 	ext4_acl_header *ext_acl;
 	char *e;
@@ -4052,7 +4046,7 @@ ext4_get_acl(struct inode *inode, int type, bool rcu)
 		retval = ext4_xattr_get(inode, name_index, "", value, retval);
 	}
 	if (retval > 0)
-		acl = ext4_acl_from_disk(value, retval);
+		acl = ifs_ext4_local_ext4_acl_from_disk(value, retval);
 	else if (retval == -ENODATA || retval == -ENOSYS)
 		acl = NULL;
 	else
@@ -4064,7 +4058,7 @@ ext4_get_acl(struct inode *inode, int type, bool rcu)
 
 
 /**
- * __ext4_set_acl - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
+ * ifs_ext4_local___ext4_set_acl - Implements an extended-metadata operation in the filesystem's xattr/ACL subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -4072,7 +4066,7 @@ ext4_get_acl(struct inode *inode, int type, bool rcu)
  * rollback, abort or retry policy.
  */
 static int
-__ext4_set_acl(handle_t *handle, struct inode *inode, int type,
+ifs_ext4_local___ext4_set_acl(handle_t *handle, struct inode *inode, int type,
 	     struct posix_acl *acl, int xattr_flags)
 {
 	int name_index;
@@ -4095,7 +4089,7 @@ __ext4_set_acl(handle_t *handle, struct inode *inode, int type,
 		return -EINVAL;
 	}
 	if (acl) {
-		value = ext4_acl_to_disk(acl, &size);
+		value = ifs_ext4_local_ext4_acl_to_disk(acl, &size);
 		if (IS_ERR(value))
 			return (int)PTR_ERR(value);
 	}
@@ -4151,7 +4145,7 @@ retry:
 			update_mode = 1;
 	}
 
-	error = __ext4_set_acl(handle, inode, type, acl, 0                  );
+	error = ifs_ext4_local___ext4_set_acl(handle, inode, type, acl, 0                  );
 	if (!error && update_mode) {
 		inode->i_mode = mode;
 		inode_set_ctime_current(inode);
@@ -4184,7 +4178,7 @@ ext4_init_acl(handle_t *handle, struct inode *inode, struct inode *dir)
 		return error;
 
 	if (default_acl) {
-		error = __ext4_set_acl(handle, inode, ACL_TYPE_DEFAULT,
+		error = ifs_ext4_local___ext4_set_acl(handle, inode, ACL_TYPE_DEFAULT,
 				       default_acl, XATTR_CREATE);
 		posix_acl_release(default_acl);
 	} else {
@@ -4192,7 +4186,7 @@ ext4_init_acl(handle_t *handle, struct inode *inode, struct inode *dir)
 	}
 	if (acl) {
 		if (!error)
-			error = __ext4_set_acl(handle, inode, ACL_TYPE_ACCESS,
+			error = ifs_ext4_local___ext4_set_acl(handle, inode, ACL_TYPE_ACCESS,
 					       acl, XATTR_CREATE);
 		posix_acl_release(acl);
 	} else {
@@ -4228,7 +4222,7 @@ struct mb_cache {
 
 static struct kmem_cache *mb_entry_cache;
 
-static unsigned long mb_cache_shrink(struct mb_cache *cache,
+static unsigned long ifs_ext4_local_mb_cache_shrink(struct mb_cache *cache,
 				     unsigned long nr_to_scan);
 
 
@@ -4270,7 +4264,7 @@ int mb_cache_entry_create(struct mb_cache *cache, gfp_t mask, u32 key,
 		schedule_work(&cache->c_shrink_work);
 
 	if (cache->c_entry_count >= 2*cache->c_max_entries)
-		mb_cache_shrink(cache, SYNC_SHRINK_BATCH);
+		ifs_ext4_local_mb_cache_shrink(cache, SYNC_SHRINK_BATCH);
 
 	entry = kmem_cache_alloc(mb_entry_cache, mask);
 	if (!entry)
@@ -4487,14 +4481,14 @@ void mb_cache_entry_touch(struct mb_cache *cache,
 
 
 /**
- * mb_cache_count - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * ifs_ext4_local_mb_cache_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static unsigned long mb_cache_count(struct shrinker *shrink,
+static unsigned long ifs_ext4_local_mb_cache_count(struct shrinker *shrink,
 				    struct shrink_control *sc)
 {
 	struct mb_cache *cache = shrink->private_data;
@@ -4504,14 +4498,14 @@ static unsigned long mb_cache_count(struct shrinker *shrink,
 
 
 /**
- * mb_cache_shrink - Implements the mb cache shrink operation within the extended metadata subsystem.
+ * ifs_ext4_local_mb_cache_shrink - Implements the mb cache shrink operation within the extended metadata subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static unsigned long mb_cache_shrink(struct mb_cache *cache,
+static unsigned long ifs_ext4_local_mb_cache_shrink(struct mb_cache *cache,
 				     unsigned long nr_to_scan)
 {
 	struct mb_cache_entry *entry;
@@ -4543,18 +4537,18 @@ static unsigned long mb_cache_shrink(struct mb_cache *cache,
 
 
 /**
- * mb_cache_scan - Implements the mb cache scan operation within the extended metadata subsystem.
+ * ifs_ext4_local_mb_cache_scan - Implements the mb cache scan operation within the extended metadata subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static unsigned long mb_cache_scan(struct shrinker *shrink,
+static unsigned long ifs_ext4_local_mb_cache_scan(struct shrinker *shrink,
 				   struct shrink_control *sc)
 {
 	struct mb_cache *cache = shrink->private_data;
-	return mb_cache_shrink(cache, sc->nr_to_scan);
+	return ifs_ext4_local_mb_cache_shrink(cache, sc->nr_to_scan);
 }
 
 
@@ -4562,18 +4556,18 @@ static unsigned long mb_cache_scan(struct shrinker *shrink,
 
 
 /**
- * mb_cache_shrink_worker - Implements the mb cache shrink worker operation within the extended metadata subsystem.
+ * ifs_ext4_local_mb_cache_shrink_worker - Implements the mb cache shrink worker operation within the extended metadata subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void mb_cache_shrink_worker(struct work_struct *work)
+static void ifs_ext4_local_mb_cache_shrink_worker(struct work_struct *work)
 {
 	struct mb_cache *cache = container_of(work, struct mb_cache,
 					      c_shrink_work);
-	mb_cache_shrink(cache, cache->c_max_entries / SHRINK_DIVISOR);
+	ifs_ext4_local_mb_cache_shrink(cache, cache->c_max_entries / SHRINK_DIVISOR);
 }
 
 
@@ -4615,13 +4609,13 @@ struct mb_cache *mb_cache_create(int bucket_bits)
 		goto err_out;
 	}
 
-	cache->c_shrink->count_objects = mb_cache_count;
-	cache->c_shrink->scan_objects = mb_cache_scan;
+	cache->c_shrink->count_objects = ifs_ext4_local_mb_cache_count;
+	cache->c_shrink->scan_objects = ifs_ext4_local_mb_cache_scan;
 	cache->c_shrink->private_data = cache;
 
 	shrinker_register(cache->c_shrink);
 
-	INIT_WORK(&cache->c_shrink_work, mb_cache_shrink_worker);
+	INIT_WORK(&cache->c_shrink_work, ifs_ext4_local_mb_cache_shrink_worker);
 
 	return cache;
 

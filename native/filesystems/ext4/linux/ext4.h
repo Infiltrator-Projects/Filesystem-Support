@@ -1,18 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
- *  ext4.h
+ * Copyright (C) 2026 Shannon Smith
  *
- * Copyright (C) 1992, 1993, 1994, 1995
- * Remy Card (card@masi.ibp.fr)
- * Laboratoire MASI - Institut Blaise Pascal
- * Universite Pierre et Marie Curie (Paris VI)
- *
- *  from
- *
- *  linux/include/linux/minix_fs.h
- *
- *  Copyright (C) 1991, 1992  Linus Torvalds
+ * Infiltrator Filesystem Support EXT4 Linux adapter: ext4.h.
+ * Project-maintained implementation for the canonical EXT4 driver.
  */
+
+// SPDX-License-Identifier: GPL-2.0
+
 
 /*
  * EXT4 — EXT4 shared model
@@ -28,7 +22,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:

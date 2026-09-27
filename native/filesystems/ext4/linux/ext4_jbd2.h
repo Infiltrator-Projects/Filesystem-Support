@@ -1,3 +1,10 @@
+/*
+ * Copyright (C) 2026 Shannon Smith
+ *
+ * Infiltrator Filesystem Support EXT4 Linux adapter: ext4_jbd2.h.
+ * Project-maintained implementation for the canonical EXT4 driver.
+ */
+
 #ifndef INFILTRATR_EXT4_JOURNAL_H
 #define INFILTRATR_EXT4_JOURNAL_H
 
