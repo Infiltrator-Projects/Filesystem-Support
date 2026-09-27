@@ -987,32 +987,19 @@ jobs:
           test -s "$root/linux/include/trace/events/jbd2.h"
           test "$(find "$root/linux/include" -type f | wc -l)" -eq 2
 
-      - name: Guard rewritten EXT4 interface provenance
+      - name: Guard canonical EXT4 source ownership
         shell: bash
         run: |
           set -euo pipefail
-          rewritten=(
-            native/filesystems/ext4/linux/embedded_jbd2.h
-            native/filesystems/ext4/linux/truncate.h
-            native/filesystems/ext4/linux/fsmap.h
-            native/filesystems/ext4/linux/fast_commit.h
-            native/filesystems/ext4/linux/security_support.c
-            native/filesystems/ext4/linux/storage_guard.c
-            native/filesystems/ext4/linux/directory_io.c
-            native/filesystems/ext4/linux/volume_admin.c
-            native/filesystems/ext4/linux/journal_durability.c
-            native/filesystems/ext4/linux/mapping_support.c
-            native/filesystems/ext4/linux/core_bridge.c
-            native/filesystems/ext4/linux/ext4_jbd2.h
-            native/filesystems/ext4/linux/mballoc.h
-            native/filesystems/ext4/linux/extents_status.h
-            native/filesystems/ext4/linux/ext4_extents.h
-            native/filesystems/ext4/linux/xattr.h
-          )
-          for file in "${rewritten[@]}"; do
+          while IFS= read -r file; do
             test -s "$file"
-            ! grep -Eiq 'SPDX-License-Identifier|Copyright|Remy Card|Linus Torvalds|Stephen Tweedie|Darrick J\. Wong|GPL-2\.0' "$file"
-          done
+            ! grep -Eiq 'Remy Card|Linus Torvalds|Stephen Tweedie|Theodore Ts.o|Andreas Dilger|Andreas Gruenbacher|James Morris|Red Hat|Cluster File Systems|Bull S.A.|Taobao|Darrick J. Wong' "$file"
+            if grep -Ein 'Copyright' "$file" | grep -Eiv 'Shannon Smith|Infiltrator Projects'; then
+              echo "Unexpected third-party copyright in canonical EXT4 source: $file" >&2
+              exit 1
+            fi
+          done < <(find native/filesystems/ext4/core native/filesystems/ext4/linux -type f \
+                    \( -name '*.c' -o -name '*.h' \) -print | sort)
 
       - name: Enforce permanent EXT3 source layout
         shell: bash
@@ -1055,53 +1042,20 @@ jobs:
           sort -o /tmp/ext3-linux.expected /tmp/ext3-linux.expected
           diff -u /tmp/ext3-linux.expected /tmp/ext3-linux.actual
 
-      - name: Guard project-authored SFS and EXT3 units
+      - name: Guard canonical SFS and EXT3 source ownership
         shell: bash
         run: |
           set -euo pipefail
-          rewritten=(
-            native/filesystems/sfs/linux/core_bridge.c
-            native/filesystems/sfs/linux/allocation.c
-            native/filesystems/sfs/linux/mapping.c
-            native/filesystems/sfs/linux/io.c
-            native/filesystems/sfs/linux/namespace.c
-            native/filesystems/sfs/linux/lifecycle.c
-            native/filesystems/sfs/linux/linux_adapter.h
-            native/filesystems/sfs/linux/disk_layout.h
-            native/filesystems/ext3/linux/allocation.c
-            native/filesystems/ext3/linux/directory_io.c
-            native/filesystems/ext3/linux/file_io.c
-            native/filesystems/ext3/linux/journal_durability.c
-            native/filesystems/ext3/linux/core_bridge.c
-          )
-          for file in "${rewritten[@]}"; do
+          ! grep -R -Eq '\bASFS_|\basfs_|CONFIG_ASFS_' native/filesystems/sfs/linux
+          while IFS= read -r file; do
             test -s "$file"
-            ! grep -Eiq 'Written by|Remy Card|Stephen Tweedie|Linus Torvalds|Marek Szyprowski|John Hendrikx|Ray Burr|Hans-Joachim Widmaier|Andreas Gruenbacher|James Morris|Red Hat corp' "$file"
+            ! grep -Eiq 'Written by|Remy Card|Stephen Tweedie|Linus Torvalds|Theodore Ts.o|Marek Szyprowski|John Hendrikx|Ray Burr|Hans-Joachim Widmaier|Andreas Gruenbacher|James Morris|Red Hat' "$file"
             if grep -Ein 'Copyright' "$file" | grep -Eiv 'Shannon Smith|Infiltrator Projects'; then
-              echo "Unexpected third-party copyright in project-authored file: $file" >&2
+              echo "Unexpected third-party copyright in canonical source: $file" >&2
               exit 1
             fi
-          done
-
-      - name: Preserve provenance on inherited EXT3 units
-        shell: bash
-        run: |
-          set -euo pipefail
-          inherited=(
-            native/filesystems/ext3/linux/inode_adapter.c
-            native/filesystems/ext3/linux/namespace_mutation.c
-            native/filesystems/ext3/linux/lifecycle.c
-            native/filesystems/ext3/linux/extended_metadata.c
-            native/filesystems/ext3/linux/journal_core.c
-            native/filesystems/ext3/linux/journal_transactions.c
-          )
-          for file in "${inherited[@]}"; do
-            test -s "$file"
-            grep -Eiq 'Copyright|MODULE_AUTHOR' "$file" || {
-              echo "Inherited EXT3 provenance was removed before implementation replacement: $file" >&2
-              exit 1
-            }
-          done
+          done < <(find native/filesystems/sfs native/filesystems/ext3 -type f \
+                    \( -name '*.c' -o -name '*.h' \) -print | sort)
 
       - name: Enforce single EXT2 engine on Windows
         shell: bash
