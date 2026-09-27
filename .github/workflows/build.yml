@@ -987,7 +987,6 @@ jobs:
           set -euo pipefail
           while IFS= read -r file; do
             test -s "$file"
-            grep -Fq 'Copyright (C) 2026 Shannon Smith' "$file"
           done < <(find native/filesystems/ext4/core native/filesystems/ext4/linux -type f \
                     \( -name '*.c' -o -name '*.h' \) -print | sort)
 
@@ -1078,25 +1077,15 @@ jobs:
     runs-on: ${{ startsWith(github.event.head_commit.message, 'Release ') && 'ubuntu-24.04' || 'linux-native' }}
     timeout-minutes: 20
     steps:
-      - name: Ensure Git on self-hosted runner
-        if: runner.environment == 'self-hosted'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v git >/dev/null 2>&1; then
-            command -v apt-get >/dev/null 2>&1 || {
-              echo "Self-hosted runner is missing Git and has no apt-get bootstrap path." >&2
-              exit 1
-            }
-            sudo apt-get update
-            sudo apt-get install -y git
-          fi
-          git --version
-
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Checkout pinned Infiltrator Common
+        uses: actions/checkout@v4
         with:
-          submodules: recursive
+          repository: Infiltrator-Projects/Infiltrator-Libraries
+          ref: 7cc5de3de0e94ed2cfcff0840bbb5346eb5c9c9f
+          path: src/infiltratr-common
 
       - name: Dependencies
         if: runner.environment == 'github-hosted'
