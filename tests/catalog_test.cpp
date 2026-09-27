@@ -150,7 +150,7 @@ int main(int argc, char** argv)
         return fail("HFS still references hfsutils, which is not in Debian trixie stable");
     }
     if (kernel_only != 19U || kernel_with_userspace != 29U ||
-        dkms != 3U || userspace != 53U || tools_only != 4U) {
+        dkms != 3U || userspace != 52U || tools_only != 4U) {
         return fail("support-provider classification counts changed unexpectedly");
     }
     if (!filesystem_support::package_is_catalogued("zfs-dkms") ||
