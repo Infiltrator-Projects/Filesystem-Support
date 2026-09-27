@@ -1,7 +1,10 @@
 # EXT Source Provenance and Rewrite Ledger
 
-This document is the authoritative migration ledger for the active EXT2, EXT3
-and EXT4 implementation source.
+This document records the EXT2, EXT3 and EXT4 migration history. Its earlier
+per-file authorship classifications became stale after the journal changes.
+They must not be used to determine current authorship without inspecting the
+current implementation bodies and their history. A filename, copyright line,
+or old classification alone cannot establish whether its current body is copied.
 
 The project rule is simple: production implementation source must be written
 for Filesystem Support. External implementations may be studied for observable
@@ -88,105 +91,32 @@ dispatch, directory dispatch, volume lifecycle and DriverEntry. The fragments
 remain one WDK translation unit intentionally, so this structural recut changes
 neither linkage nor filesystem semantics.
 
-## Project-authored EXT3 units
+## Current EXT3 and EXT4 source state
 
-EXT3's active Linux tree is now cut by Filesystem Support responsibility rather
-than the old EXT3/JBD translation-unit layout. The units that have crossed the
-implementation-ownership boundary are:
+The active EXT3 Linux tree contains `journal_compat.c` and
+`journal_internal.h`; it no longer contains `journal_core.c`,
+`journal_transactions.c`, or `journal_durability.c`. The active EXT4 Linux
+tree likewise has no `journal_core.c`, `journal_transactions.c`,
+`journal_durability.c`, `embedded_jbd2.h`, or private `include/linux/jbd2.h`
+and `include/trace/events/jbd2.h` files. Prior lists naming those files as
+active implementation were incorrect and have been removed.
 
-- `native/filesystems/ext3/core/ext3_core.c`
-- `native/filesystems/ext3/core/ext3_core.h`
-- `native/filesystems/ext3/linux/core_bridge.c`
-- `native/filesystems/ext3/linux/allocation.c`
-- `native/filesystems/ext3/linux/directory_io.c`
-- `native/filesystems/ext3/linux/file_io.c`
-- `native/filesystems/ext3/linux/journal_durability.c`
+Recent EXT3 and EXT4 changes use the Linux kernel JBD2 interfaces for journal
+work. This is a runtime dependency, not evidence by itself that the source in
+our modules was copied. Conversely, rewriting or restructuring files does not
+by itself prove independent authorship. The current EXT3 and EXT4 implementation
+bodies have **not** received a complete, file-by-file provenance determination
+in this ledger. Do not report them as either wholly project-authored or wholly
+inherited based on this document.
 
-`allocation.c` owns the project-authored block/inode allocation and online
-growth adapter. `journal_durability.c` owns the project-authored checkpoint,
-commit, recovery and revoke implementation. The recut does not itself change
-provenance classification; only replaced implementation bodies are promoted.
+Historical attribution text still present in active source, including
+`native/filesystems/ext4/linux/lifecycle.c`, requires review against the
+implementation body and history. Do not delete attribution merely to make an
+authorship claim or infer copied implementation solely from the comment.
 
-## EXT3 migration state
-
-The following recut EXT3 units still contain materially inherited implementation
-and therefore remain outside the project-authored set:
-
-- `native/filesystems/ext3/linux/inode_adapter.c`
-- `native/filesystems/ext3/linux/namespace_mutation.c`
-- `native/filesystems/ext3/linux/lifecycle.c`
-- `native/filesystems/ext3/linux/extended_metadata.c`
-- `native/filesystems/ext3/linux/journal_core.c`
-- `native/filesystems/ext3/linux/journal_transactions.c`
-- `native/filesystems/ext3/linux/linux_adapter.h`
-- `native/filesystems/ext3/linux/journal_internal.h`
-
-Historical attribution remains intact in those units until the implementation
-body itself is replaced. EXT3 remains one `ext3.ko`; old filenames such as
-`inode.c`, `namei.c`, `super.c`, `xattr.c`, `jbd_journal.c` and
-`jbd_transaction.c` are no longer active source boundaries.
-
-## Project-authored EXT4 units
-
-EXT4 has also been recut around Filesystem Support responsibilities. The
-project-authored active units are:
-
-- `native/filesystems/ext4/core/ext4_core.c`
-- `native/filesystems/ext4/core/ext4_core.h`
-- `native/filesystems/ext4/linux/core_bridge.c`
-- `native/filesystems/ext4/linux/storage_guard.c`
-- `native/filesystems/ext4/linux/directory_io.c`
-- `native/filesystems/ext4/linux/mapping_support.c`
-- `native/filesystems/ext4/linux/volume_admin.c`
-- `native/filesystems/ext4/linux/journal_durability.c`
-- `native/filesystems/ext4/linux/security_support.c`
-- `native/filesystems/ext4/linux/embedded_jbd2.h`
-- `native/filesystems/ext4/linux/truncate.h`
-- `native/filesystems/ext4/linux/fsmap.h`
-- `native/filesystems/ext4/linux/fast_commit.h`
-- `native/filesystems/ext4/linux/ext4_jbd2.h`
-- `native/filesystems/ext4/linux/mballoc.h`
-- `native/filesystems/ext4/linux/extents_status.h`
-- `native/filesystems/ext4/linux/ext4_extents.h`
-- `native/filesystems/ext4/linux/xattr.h`
-
-These names describe project responsibilities rather than mirroring the Linux
-EXT4 source tree. Merging or renaming is not used as evidence of authorship;
-the provenance boundary continues to follow the implementation body.
-
-## EXT4 migration state
-
-The following responsibility-named EXT4 units remain migration implementation
-until their bodies are independently replaced and qualified:
-
-- `native/filesystems/ext4/linux/extent_tree.c`
-- `native/filesystems/ext4/linux/extent_cache.c`
-- `native/filesystems/ext4/linux/fast_commit_engine.c`
-- `native/filesystems/ext4/linux/file_io.c`
-- `native/filesystems/ext4/linux/inode_allocation.c`
-- `native/filesystems/ext4/linux/inline_data.c`
-- `native/filesystems/ext4/linux/inode_adapter.c`
-- `native/filesystems/ext4/linux/control.c`
-- `native/filesystems/ext4/linux/journal_core.c`
-- `native/filesystems/ext4/linux/journal_transactions.c`
-- `native/filesystems/ext4/linux/multiblock_allocation.c`
-- `native/filesystems/ext4/linux/namespace_mutation.c`
-- `native/filesystems/ext4/linux/orphan_recovery.c`
-- `native/filesystems/ext4/linux/writeback_io.c`
-- `native/filesystems/ext4/linux/online_resize.c`
-- `native/filesystems/ext4/linux/lifecycle.c`
-- `native/filesystems/ext4/linux/extended_metadata.c`
-- `native/filesystems/ext4/linux/ext4.h`
-- `native/filesystems/ext4/linux/include/linux/jbd2.h`
-- `native/filesystems/ext4/linux/include/trace/events/jbd2.h`
-
-The trace-event header remains Linux-only diagnostic migration source. Its
-`include/trace/events/` path is retained because the Linux tracepoint
-preprocessor expects that include shape; the path does not imply that its
-implementation has crossed the project-authorship boundary.
-
-EXT4 remains one `ext4.ko`. The permanent source layout is now ours even while
-the implementation-replacement ledger remains deliberately conservative.
+The three filesystem modules remain separate: `ext2.ko`, `ext3.ko`, and
+`ext4.ko`. The EXT2 assessment above describes the earlier responsibility
+recut; it is not a legal determination about every line of current source.
 
 ## Retired EXT mechanisms
 
