@@ -199,15 +199,19 @@ linux/
 
 Headers in the Linux adapter define the EXT4/JBD2 private contracts, but the long-term design continues to move host-neutral semantics into `core/`.
 
-The Linux-only `include/trace/events/jbd2.h` path is a deliberate exception to
-the responsibility-style flat source naming: Linux tracepoint generation
-requires the trace-event include hierarchy. It is diagnostic adapter material,
-not canonical EXT4/JBD2 semantics, and its provenance remains tracked
-separately until independently replaced.
+The Linux-only `include/trace/events/jbd2.h` path is retained only because Linux tracepoint generation requires that include hierarchy. It is project-maintained diagnostic adapter material, not a second EXT4/JBD2 implementation.
 
-## Current implementation boundary
+## Canonical implementation boundary
 
-The permanent translation-unit layout is project-owned. Some large EXT4 implementation bodies remain in migration/rewrite state and retain their historical provenance until independently replaced. Source recutting does not by itself change that classification.
+EXT4 has one canonical Filesystem Support implementation. The `core/` engine and Linux adapter together form the project implementation; no alternate EXT4 driver, imported implementation body or external source tree is part of the accepted design.
+
+## Canonical implementation ownership
+
+This filesystem is an Infiltrator Filesystem Support implementation. The active `core/` and operating-system adapter source is expected to be project-authored code maintained by Shannon Smith.
+
+No third-party implementation body, vendor copy, alternate driver source tree or copied compatibility implementation is part of the canonical filesystem. Format constants, media-layout facts and operating-system interfaces are compatibility contracts, not source provenance.
+
+If active source contains another implementation's copyright, author, provenance or source-history attribution, that is treated as a source-replacement defect: the implementation body must be independently replaced. Attribution text is not to be removed while retaining the attributed body.
 
 ## Forensic completion notes against the kernel EXT4 on-disk documentation
 

@@ -82,7 +82,7 @@ An SFS object represents a file, directory or special object. Its fixed fields i
 
 The canonical object record parser validates terminators, maximum name length and record-size arithmetic.
 
-The published SmartFileSystem 1.279 filename limit is 107 characters. Filesystem Support now uses the same 107-byte limit in both the canonical core and Linux adapter and tests the exact 107/108 boundary.
+The canonical SFS filename limit is 107 bytes. Filesystem Support uses the same 107-byte limit in both the canonical core and Linux adapter and tests the exact 107/108 boundary.
 
 ## Object containers
 
@@ -226,7 +226,7 @@ The current SFS distribution documents the SFS\0 format with these user-visible 
 - a recycled/deleted-files directory;
 - no hard-link support in the distributed implementation.
 
-`IFS_SFS_MAX_FILENAME` and the Linux adapter's `ASFS_MAXFN` are both 107. Qualification tests accept 107-byte names and reject 108-byte names. Historical ports that imposed smaller policy limits remain implementation policy rather than a format limit.
+`IFS_SFS_MAX_FILENAME` and the Linux adapter's `ASFS_MAXFN` are both 107. Qualification tests accept 107-byte names and reject 108-byte names. Smaller implementation policy limits are not treated as format limits.
 
 ### Root placement and redundancy
 
@@ -265,6 +265,14 @@ Current SFS distribution documentation describes a special directory containing 
 
 Read-ahead caching and transparent defragmentation are implementation features rather than fundamental on-disk structures, but they are part of the expected SFS feature surface and should be tracked in feature-completeness tests.
 
+## Canonical implementation ownership
+
+This filesystem is an Infiltrator Filesystem Support implementation. The active `core/` and operating-system adapter source is expected to be project-authored code maintained by Shannon Smith.
+
+No third-party implementation body, vendor copy, alternate driver source tree or copied compatibility implementation is part of the canonical filesystem. Format constants, media-layout facts and operating-system interfaces are compatibility contracts, not source provenance.
+
+If active source contains another implementation's copyright, author, provenance or source-history attribution, that is treated as a source-replacement defect: the implementation body must be independently replaced. Attribution text is not to be removed while retaining the attributed body.
+
 ## Design rules used by Filesystem Support
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.
@@ -284,4 +292,4 @@ A filesystem is not considered complete merely because it compiles. Qualificatio
 - AROS SFS low-level implementation: `aros-development-team/AROS/rom/filesys/SFS/FS/`, especially `blockstructure.h`, `objects.h`, `nodes.h`, `btreenodes.h`, `adminspaces.h`, `bitmap.h`, `transactions.h`, `transactions.c` and `filesystemmain.c`.
 - SmartFilesystem 1.279 handler-compatible formatter evidence: `ChuckyGang/AmiPart/src/nativefmt.c`, documented there as byte-for-byte verified against the handler under AmiFUSE.
 
-Where historical ports and the current SmartFilesystem handler expose different policy limits, this document records the format/handler distinction rather than silently adopting one implementation constant.
+Where implementation policy and media encoding permit different limits, this document records the distinction rather than silently promoting an implementation constant into a format rule.

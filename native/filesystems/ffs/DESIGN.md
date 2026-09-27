@@ -161,6 +161,14 @@ FFS file data blocks are raw payload. Ownership, logical ordering and continuati
 
 AmigaOS later introduced long-name/FFS2 modes that alter directory-entry storage and can support 107-character names. Classic FFS remains the 30-character format described here. Filesystem Support must only claim long-name compatibility if those altered structures are independently implemented.
 
+## Canonical implementation ownership
+
+This filesystem is an Infiltrator Filesystem Support implementation. The active `core/` and operating-system adapter source is expected to be project-authored code maintained by Shannon Smith.
+
+No third-party implementation body, vendor copy, alternate driver source tree or copied compatibility implementation is part of the canonical filesystem. Format constants, media-layout facts and operating-system interfaces are compatibility contracts, not source provenance.
+
+If active source contains another implementation's copyright, author, provenance or source-history attribution, that is treated as a source-replacement defect: the implementation body must be independently replaced. Attribution text is not to be removed while retaining the attributed body.
+
 ## Design rules used by Filesystem Support
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.

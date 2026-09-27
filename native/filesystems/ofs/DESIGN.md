@@ -193,6 +193,14 @@ The DOS\4 directory-cache variant adds directory-list blocks linked from root/us
 
 The structured OFS data block described earlier is the defining OFS/FFS split: OFS stores type, owner key, sequence, payload size, next pointer and checksum in every file data block. A valid OFS reader can therefore cross-check file ownership/sequence through the data chain instead of treating the entire block as payload.
 
+## Canonical implementation ownership
+
+This filesystem is an Infiltrator Filesystem Support implementation. The active `core/` and operating-system adapter source is expected to be project-authored code maintained by Shannon Smith.
+
+No third-party implementation body, vendor copy, alternate driver source tree or copied compatibility implementation is part of the canonical filesystem. Format constants, media-layout facts and operating-system interfaces are compatibility contracts, not source provenance.
+
+If active source contains another implementation's copyright, author, provenance or source-history attribution, that is treated as a source-replacement defect: the implementation body must be independently replaced. Attribution text is not to be removed while retaining the attributed body.
+
 ## Design rules used by Filesystem Support
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.

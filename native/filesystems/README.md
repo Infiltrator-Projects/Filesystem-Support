@@ -59,3 +59,10 @@ Canonical filesystem code must not contain GTK, APT, PolicyKit, subprocess or
 host VFS/IFS objects. New native implementations begin read-only and fail
 closed on unknown or contradictory metadata. Write support is a separate
 maturity stage with explicit recovery and destructive-test evidence.
+
+
+## Canonical source ownership
+
+For the completed reference set — EXT2, EXT3, EXT4, OFS, FFS and SFS — each filesystem has one canonical Filesystem Support implementation. Active source for those six must be project-authored and maintained by Shannon Smith. Alternate FUSE providers, vendor copies, imported driver bodies and duplicate implementation trees are not accepted.
+
+A source audit finding another implementation's author, copyright or provenance in an active implementation is a replacement defect, not a documentation-only defect. The affected code must be independently reimplemented before attribution can disappear.

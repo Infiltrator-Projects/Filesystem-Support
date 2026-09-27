@@ -245,6 +245,14 @@ The format groups inode table, inode bitmap and block bitmap with nearby data to
 
 EXT2 itself has no journal and therefore has no committed-transaction replay mechanism. Space exists in the broader format evolution for features such as journalling, compression, ACLs and other extensions, but a strict EXT2 mount must reject incompatible journal/recovery state rather than treating it as plain EXT2.
 
+## Canonical implementation ownership
+
+This filesystem is an Infiltrator Filesystem Support implementation. The active `core/` and operating-system adapter source is expected to be project-authored code maintained by Shannon Smith.
+
+No third-party implementation body, vendor copy, alternate driver source tree or copied compatibility implementation is part of the canonical filesystem. Format constants, media-layout facts and operating-system interfaces are compatibility contracts, not source provenance.
+
+If active source contains another implementation's copyright, author, provenance or source-history attribution, that is treated as a source-replacement defect: the implementation body must be independently replaced. Attribution text is not to be removed while retaining the attributed body.
+
 ## Design rules used by Filesystem Support
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.

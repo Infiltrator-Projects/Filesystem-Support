@@ -130,9 +130,17 @@ linux/
 
 The journal remains embedded in `ext3.ko`; there is no separately deployed JBD helper module.
 
-## Current implementation boundary
+## Canonical implementation boundary
 
-Some EXT3 Linux units still contain inherited implementation while they are being replaced. Their provenance remains explicit. The permanent file boundaries above are nevertheless Filesystem Support responsibility boundaries rather than the historical Linux EXT3/JBD source layout.
+EXT3 has one canonical Filesystem Support implementation. The `core/` engine and Linux adapter together form the project implementation; no alternate EXT3 driver, imported implementation body or external source tree is part of the accepted design.
+
+## Canonical implementation ownership
+
+This filesystem is an Infiltrator Filesystem Support implementation. The active `core/` and operating-system adapter source is expected to be project-authored code maintained by Shannon Smith.
+
+No third-party implementation body, vendor copy, alternate driver source tree or copied compatibility implementation is part of the canonical filesystem. Format constants, media-layout facts and operating-system interfaces are compatibility contracts, not source provenance.
+
+If active source contains another implementation's copyright, author, provenance or source-history attribution, that is treated as a source-replacement defect: the implementation body must be independently replaced. Attribution text is not to be removed while retaining the attributed body.
 
 ## Forensic completion notes against EXT3/JBD documentation
 

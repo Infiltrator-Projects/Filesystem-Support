@@ -20,7 +20,7 @@ Compared against the Linux kernel EXT2 filesystem documentation and the EXT-fami
 
 ### EXT3
 
-Compared against the Linux kernel EXT3 documentation plus the historical JBD contract/source used by the standalone EXT3 implementation. The review covered EXT2 inheritance, journal byte order, journal headers/superblock, descriptor tag flags, revoke/commit semantics, internal/external journal state and orphan recovery.
+Compared against the EXT3/JBD media contracts and the project qualification corpus. The review covered EXT2 inheritance, journal byte order, journal headers/superblock, descriptor tag flags, revoke/commit semantics, internal/external journal state and orphan recovery.
 
 ### EXT4
 
@@ -67,7 +67,7 @@ The PFS3 document now includes the later PFS3aio root-extension fields and seman
 
 ### SFS filename limit
 
-The SFS audit also exposed a concrete implementation mismatch. The project used a 105-byte filename ceiling while SmartFileSystem 1.279's public format/handler surface is 107 characters. Both the canonical SFS core and Linux adapter now use 107 and qualification tests cover the exact boundary.
+The SFS audit also exposed a concrete implementation mismatch. The project used a 105-byte filename ceiling while the canonical SFS limit is 107 bytes. Both the canonical SFS core and Linux adapter now use 107 and qualification tests cover the exact boundary.
 
 ## Completeness statement
 
@@ -80,3 +80,8 @@ This does **not** mean every documented feature is already implemented for readi
 A DESIGN.md must not promote an implementation constant into a filesystem-format fact merely because that constant exists in the current code. When an authoritative source gives a product limit that is narrower than the numerical encoding, both must be documented separately.
 
 Likewise, a documented format feature is not automatically a Filesystem Support capability. Read support, write support, recovery support and qualification status must remain explicit.
+
+
+## Canonical-source rule
+
+EXT2, EXT3, EXT4, OFS, FFS and SFS are treated as project-owned canonical implementations. Design review must not infer implementation ownership from historical notes or source ancestry. The active source itself is authoritative: third-party implementation bodies or author/copyright provenance in active code are defects requiring independent source replacement.
