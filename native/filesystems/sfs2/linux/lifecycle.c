@@ -378,7 +378,8 @@ static int sfs2_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_bsize = sb->s_blocksize;
 	buf->f_blocks = sbi->totalblocks;
 	buf->f_bfree = sbi->freeblocks;
-	buf->f_bavail = sbi->freeblocks > IFS_SFS2_ALWAYSFREE ?\n		sbi->freeblocks - IFS_SFS2_ALWAYSFREE : 0U;
+	buf->f_bavail = sbi->freeblocks > IFS_SFS2_ALWAYSFREE ?
+		sbi->freeblocks - IFS_SFS2_ALWAYSFREE : 0U;
 	buf->f_namelen = IFS_SFS2_MAXFN;
 	return 0;
 }
