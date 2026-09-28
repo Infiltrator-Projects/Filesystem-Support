@@ -7,12 +7,14 @@ typedef u16 ifs_sfs2_u16;
 typedef u32 ifs_sfs2_u32;
 typedef u64 ifs_sfs2_u64;
 typedef s32 ifs_sfs2_i32;
+typedef s64 ifs_sfs2_i64;
 #else
 #include <stdint.h>
 typedef uint16_t ifs_sfs2_u16;
 typedef uint32_t ifs_sfs2_u32;
 typedef uint64_t ifs_sfs2_u64;
 typedef int32_t ifs_sfs2_i32;
+typedef int64_t ifs_sfs2_i64;
 typedef enum IfsSfs2NameStatus {
     IFS_SFS2_NAME_OK = 0,
     IFS_SFS2_NAME_TOO_LONG,
