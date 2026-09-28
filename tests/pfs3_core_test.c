@@ -242,6 +242,36 @@ int main(void)
             return fail("unknown PFS extra fields accepted");
     }
 
+    {
+        unsigned char raw[32] = {0};
+        IfsPfs3DirEntryView entry;
+        ifs_pfs3_u16 size_high = 0U;
+
+        /*
+         * PFS3aio packs selected extra-field words in reverse order before
+         * the final presence mask.  Slot 10 is fsizex (file bits 32..47).
+         */
+        raw[0] = 28U;
+        raw[1] = (unsigned char)-3;
+        raw[5] = 7U;
+        raw[9] = 9U;
+        raw[17] = 1U;
+        raw[18] = 'x';
+        raw[19] = 0U;
+        raw[24] = 0x12U; raw[25] = 0x34U;
+        raw[26] = 0x04U; raw[27] = 0x00U;
+
+        if (ifs_pfs3_decode_directory_entry(
+                raw, sizeof(raw), 1, &entry) != IFS_PFS3_DIRENTRY_OK)
+            return fail("PFS large-file directory entry rejected");
+        if (ifs_pfs3_directory_extra_word(
+                raw, sizeof(raw),
+                IFS_PFS3_EXTRA_FILE_SIZE_HIGH_WORD,
+                &size_high) != 0 ||
+            size_high != 0x1234U)
+            return fail("PFS fsizex extra field decoded incorrectly");
+    }
+
 
     {
         unsigned char raw[64] = {0};
