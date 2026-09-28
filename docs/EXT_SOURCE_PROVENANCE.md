@@ -149,10 +149,19 @@ project-authored active units are:
 - `native/filesystems/ext4/linux/extents_status.h`
 - `native/filesystems/ext4/linux/ext4_extents.h`
 - `native/filesystems/ext4/linux/xattr.h`
+- `native/filesystems/ext4/linux/orphan_recovery.c`
 
 These names describe project responsibilities rather than mirroring the Linux
 EXT4 source tree. Merging or renaming is not used as evidence of authorship;
 the provenance boundary continues to follow the implementation body.
+
+`orphan_recovery.c` was independently replaced as a bounded rewrite chunk.
+Its implementation was derived from the documented EXT4 orphan-chain and
+COMPAT_ORPHAN_FILE media contracts rather than by transforming the migration
+body. Qualification then forced an unclean reboot with an open-unlinked inode
+on both orphan-file and legacy orphan-list images, remounted both through the
+project EXT4 module, observed recovery deletion, and completed independent
+`e2fsck -fn` validation before this unit was promoted.
 
 ## EXT4 migration state
 
@@ -171,7 +180,6 @@ until their bodies are independently replaced and qualified:
 - `native/filesystems/ext4/linux/journal_transactions.c`
 - `native/filesystems/ext4/linux/multiblock_allocation.c`
 - `native/filesystems/ext4/linux/namespace_mutation.c`
-- `native/filesystems/ext4/linux/orphan_recovery.c`
 - `native/filesystems/ext4/linux/writeback_io.c`
 - `native/filesystems/ext4/linux/online_resize.c`
 - `native/filesystems/ext4/linux/lifecycle.c`
