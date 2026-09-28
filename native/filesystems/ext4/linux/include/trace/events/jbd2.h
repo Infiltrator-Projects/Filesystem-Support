@@ -22,10 +22,8 @@
 struct transaction_chp_stats_s;
 struct transaction_run_stats_s;
 
-static inline dev_t ifs_ext4_trace_journal_dev(const journal_t *journal)
-{
-	return journal && journal->j_fs_dev ? journal->j_fs_dev->bd_dev : 0;
-}
+#define IFS_EXT4_TRACE_JOURNAL_DEV(journal) \
+	((journal) && (journal)->j_fs_dev ? (journal)->j_fs_dev->bd_dev : 0)
 
 TRACE_EVENT(jbd2_checkpoint,
 	TP_PROTO(journal_t *journal, int result),
@@ -35,7 +33,7 @@ TRACE_EVENT(jbd2_checkpoint,
 		__field(int, result)
 	),
 	TP_fast_assign(
-		__entry->device = ifs_ext4_trace_journal_dev(journal);
+		__entry->device = IFS_EXT4_TRACE_JOURNAL_DEV(journal);
 		__entry->result = result;
 	),
 	TP_printk("device=%u:%u result=%d",
@@ -52,7 +50,7 @@ DECLARE_EVENT_CLASS(ifs_ext4_commit_phase,
 		__field(bool, synchronous)
 	),
 	TP_fast_assign(
-		__entry->device = ifs_ext4_trace_journal_dev(journal);
+		__entry->device = IFS_EXT4_TRACE_JOURNAL_DEV(journal);
 		__entry->transaction_id = transaction ? transaction->t_tid : 0;
 		__entry->synchronous =
 			transaction ? transaction->t_synchronous_commit : false;
@@ -97,7 +95,7 @@ TRACE_EVENT(jbd2_end_commit,
 		__field(bool, synchronous)
 	),
 	TP_fast_assign(
-		__entry->device = ifs_ext4_trace_journal_dev(journal);
+		__entry->device = IFS_EXT4_TRACE_JOURNAL_DEV(journal);
 		__entry->transaction_id = transaction ? transaction->t_tid : 0;
 		__entry->next_tail_id = journal ? journal->j_tail_sequence : 0;
 		__entry->synchronous =
@@ -300,7 +298,7 @@ TRACE_EVENT(jbd2_update_log_tail,
 		__field(unsigned long, freed_blocks)
 	),
 	TP_fast_assign(
-		__entry->device = ifs_ext4_trace_journal_dev(journal);
+		__entry->device = IFS_EXT4_TRACE_JOURNAL_DEV(journal);
 		__entry->old_tail = journal ? journal->j_tail_sequence : 0;
 		__entry->new_tail = first_tid;
 		__entry->block_number = block_nr;
@@ -320,7 +318,7 @@ TRACE_EVENT(jbd2_write_superblock,
 		__field(blk_opf_t, operation_flags)
 	),
 	TP_fast_assign(
-		__entry->device = ifs_ext4_trace_journal_dev(journal);
+		__entry->device = IFS_EXT4_TRACE_JOURNAL_DEV(journal);
 		__entry->operation_flags = write_flags;
 	),
 	TP_printk("device=%u:%u operation_flags=0x%x",
@@ -354,7 +352,7 @@ DECLARE_EVENT_CLASS(ifs_ext4_checkpoint_pressure,
 		__field(unsigned long, checkpoint_count)
 	),
 	TP_fast_assign(
-		__entry->device = ifs_ext4_trace_journal_dev(journal);
+		__entry->device = IFS_EXT4_TRACE_JOURNAL_DEV(journal);
 		__entry->requested_scan = nr_to_scan;
 		__entry->checkpoint_count = count;
 	),
@@ -386,7 +384,7 @@ TRACE_EVENT(jbd2_shrink_scan_exit,
 		__field(unsigned long, checkpoint_count)
 	),
 	TP_fast_assign(
-		__entry->device = ifs_ext4_trace_journal_dev(journal);
+		__entry->device = IFS_EXT4_TRACE_JOURNAL_DEV(journal);
 		__entry->requested_scan = nr_to_scan;
 		__entry->released = nr_shrunk;
 		__entry->checkpoint_count = count;
@@ -410,7 +408,7 @@ TRACE_EVENT(jbd2_shrink_checkpoint_list,
 		__field(unsigned long, released)
 	),
 	TP_fast_assign(
-		__entry->device = ifs_ext4_trace_journal_dev(journal);
+		__entry->device = IFS_EXT4_TRACE_JOURNAL_DEV(journal);
 		__entry->first_transaction = first_tid;
 		__entry->current_transaction = tid;
 		__entry->last_transaction = last_tid;
