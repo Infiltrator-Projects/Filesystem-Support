@@ -1,10 +1,3 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: writeback_io.c.
- * Project-maintained canonical implementation.
- */
-
 // SPDX-License-Identifier: GPL-2.0
 
 /*
@@ -21,7 +14,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -115,14 +108,14 @@ struct ext4_io_end_vec *ext4_alloc_io_end_vec(ext4_io_end_t *io_end)
 
 
 /**
- * ifs_ext4_local_ext4_free_io_end_vec - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext4_free_io_end_vec - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_free_io_end_vec(ext4_io_end_t *io_end)
+static void ext4_free_io_end_vec(ext4_io_end_t *io_end)
 {
 	struct ext4_io_end_vec *io_end_vec, *tmp;
 
@@ -151,14 +144,14 @@ struct ext4_io_end_vec *ext4_last_io_end_vec(ext4_io_end_t *io_end)
 
 
 /**
- * ifs_ext4_local_buffer_io_error - Implements the buffer io error operation within the writeback page i/o subsystem.
+ * buffer_io_error - Implements the buffer io error operation within the writeback page i/o subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_buffer_io_error(struct buffer_head *bh)
+static void buffer_io_error(struct buffer_head *bh)
 {
 	printk_ratelimited(KERN_ERR "Buffer I/O error on device %pg, logical block %llu\n",
 		       bh->b_bdev,
@@ -167,14 +160,14 @@ static void ifs_ext4_local_buffer_io_error(struct buffer_head *bh)
 
 
 /**
- * ifs_ext4_local_ext4_finish_bio - Implements the finish bio operation within the writeback page i/o subsystem.
+ * ext4_finish_bio - Implements the finish bio operation within the writeback page i/o subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_finish_bio(struct bio *bio)
+static void ext4_finish_bio(struct bio *bio)
 {
 	struct folio_iter fi;
 
@@ -210,7 +203,7 @@ static void ifs_ext4_local_ext4_finish_bio(struct bio *bio)
 			clear_buffer_async_write(bh);
 			if (bio->bi_status) {
 				set_buffer_write_io_error(bh);
-				ifs_ext4_local_buffer_io_error(bh);
+				buffer_io_error(bh);
 			}
 		} while ((bh = bh->b_this_page) != head);
 		spin_unlock_irqrestore(&head->b_uptodate_lock, flags);
@@ -223,14 +216,14 @@ static void ifs_ext4_local_ext4_finish_bio(struct bio *bio)
 
 
 /**
- * ifs_ext4_local_ext4_release_io_end - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext4_release_io_end - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_release_io_end(ext4_io_end_t *io_end)
+static void ext4_release_io_end(ext4_io_end_t *io_end)
 {
 	struct bio *bio, *next_bio;
 
@@ -240,23 +233,23 @@ static void ifs_ext4_local_ext4_release_io_end(ext4_io_end_t *io_end)
 
 	for (bio = io_end->bio; bio; bio = next_bio) {
 		next_bio = bio->bi_private;
-		ifs_ext4_local_ext4_finish_bio(bio);
+		ext4_finish_bio(bio);
 		bio_put(bio);
 	}
-	ifs_ext4_local_ext4_free_io_end_vec(io_end);
+	ext4_free_io_end_vec(io_end);
 	kmem_cache_free(io_end_cachep, io_end);
 }
 
 
 /**
- * ifs_ext4_local_ext4_end_io_end - Implements the end io end operation within the writeback page i/o subsystem.
+ * ext4_end_io_end - Implements the end io end operation within the writeback page i/o subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_end_io_end(ext4_io_end_t *io_end)
+static int ext4_end_io_end(ext4_io_end_t *io_end)
 {
 	struct inode *inode = io_end->inode;
 	handle_t *handle = io_end->handle;
@@ -283,20 +276,20 @@ static int ifs_ext4_local_ext4_end_io_end(ext4_io_end_t *io_end)
 	}
 
 	ext4_clear_io_unwritten_flag(io_end);
-	ifs_ext4_local_ext4_release_io_end(io_end);
+	ext4_release_io_end(io_end);
 	return ret;
 }
 
 
 /**
- * ifs_ext4_local_dump_completed_IO - Implements the dump completed IO operation within the writeback page i/o subsystem.
+ * dump_completed_IO - Implements the dump completed IO operation within the writeback page i/o subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_dump_completed_IO(struct inode *inode, struct list_head *head)
+static void dump_completed_IO(struct inode *inode, struct list_head *head)
 {
 #ifdef	EXT4FS_DEBUG
 	struct list_head *cur, *before, *after;
@@ -321,14 +314,14 @@ static void ifs_ext4_local_dump_completed_IO(struct inode *inode, struct list_he
 
 
 /**
- * ifs_ext4_local_ext4_add_complete_io - Implements the add complete io operation within the writeback page i/o subsystem.
+ * ext4_add_complete_io - Implements the add complete io operation within the writeback page i/o subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_add_complete_io(ext4_io_end_t *io_end)
+static void ext4_add_complete_io(ext4_io_end_t *io_end)
 {
 	struct ext4_inode_info *ei = EXT4_I(io_end->inode);
 	struct ext4_sb_info *sbi = EXT4_SB(io_end->inode->i_sb);
@@ -348,14 +341,14 @@ static void ifs_ext4_local_ext4_add_complete_io(ext4_io_end_t *io_end)
 
 
 /**
- * ifs_ext4_local_ext4_do_flush_completed_IO - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ * ext4_do_flush_completed_IO - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_do_flush_completed_IO(struct inode *inode,
+static int ext4_do_flush_completed_IO(struct inode *inode,
 				      struct list_head *head)
 {
 	ext4_io_end_t *io_end;
@@ -365,7 +358,7 @@ static int ifs_ext4_local_ext4_do_flush_completed_IO(struct inode *inode,
 	int err, ret = 0;
 
 	spin_lock_irqsave(&ei->i_completed_io_lock, flags);
-	ifs_ext4_local_dump_completed_IO(inode, head);
+	dump_completed_IO(inode, head);
 	list_replace_init(head, &unwritten);
 	spin_unlock_irqrestore(&ei->i_completed_io_lock, flags);
 
@@ -374,7 +367,7 @@ static int ifs_ext4_local_ext4_do_flush_completed_IO(struct inode *inode,
 		BUG_ON(!(io_end->flag & EXT4_IO_END_UNWRITTEN));
 		list_del_init(&io_end->list);
 
-		err = ifs_ext4_local_ext4_end_io_end(io_end);
+		err = ext4_end_io_end(io_end);
 		if (unlikely(!ret && err))
 			ret = err;
 	}
@@ -394,7 +387,7 @@ void ext4_end_io_rsv_work(struct work_struct *work)
 {
 	struct ext4_inode_info *ei = container_of(work, struct ext4_inode_info,
 						  i_rsv_conversion_work);
-	ifs_ext4_local_ext4_do_flush_completed_IO(&ei->vfs_inode, &ei->i_rsv_conversion_list);
+	ext4_do_flush_completed_IO(&ei->vfs_inode, &ei->i_rsv_conversion_list);
 }
 
 
@@ -433,10 +426,10 @@ void ext4_put_io_end_defer(ext4_io_end_t *io_end)
 	if (refcount_dec_and_test(&io_end->count)) {
 		if (!(io_end->flag & EXT4_IO_END_UNWRITTEN) ||
 				list_empty(&io_end->list_vec)) {
-			ifs_ext4_local_ext4_release_io_end(io_end);
+			ext4_release_io_end(io_end);
 			return;
 		}
-		ifs_ext4_local_ext4_add_complete_io(io_end);
+		ext4_add_complete_io(io_end);
 	}
 }
 
@@ -460,7 +453,7 @@ int ext4_put_io_end(ext4_io_end_t *io_end)
 			io_end->handle = NULL;
 			ext4_clear_io_unwritten_flag(io_end);
 		}
-		ifs_ext4_local_ext4_release_io_end(io_end);
+		ext4_release_io_end(io_end);
 	}
 	return err;
 }
@@ -482,14 +475,14 @@ ext4_io_end_t *ext4_get_io_end(ext4_io_end_t *io_end)
 
 
 /**
- * ifs_ext4_local_ext4_end_bio - Implements the end bio operation within the writeback page i/o subsystem.
+ * ext4_end_bio - Implements the end bio operation within the writeback page i/o subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_end_bio(struct bio *bio)
+static void ext4_end_bio(struct bio *bio)
 {
 	ext4_io_end_t *io_end = bio->bi_private;
 	sector_t bi_sector = bio->bi_iter.bi_sector;
@@ -499,7 +492,7 @@ static void ifs_ext4_local_ext4_end_bio(struct bio *bio)
 		      (long long) bio->bi_iter.bi_sector,
 		      (unsigned) bio_sectors(bio),
 		      bio->bi_status)) {
-		ifs_ext4_local_ext4_finish_bio(bio);
+		ext4_finish_bio(bio);
 		bio_put(bio);
 		return;
 	}
@@ -527,7 +520,7 @@ static void ifs_ext4_local_ext4_end_bio(struct bio *bio)
 
 
 		ext4_put_io_end_defer(io_end);
-		ifs_ext4_local_ext4_finish_bio(bio);
+		ext4_finish_bio(bio);
 		bio_put(bio);
 	}
 }
@@ -572,14 +565,14 @@ void ext4_io_submit_init(struct ext4_io_submit *io,
 
 
 /**
- * ifs_ext4_local_io_submit_init_bio - Initialises subsystem state and establishes the resources required by later operations.
+ * io_submit_init_bio - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_io_submit_init_bio(struct ext4_io_submit *io,
+static void io_submit_init_bio(struct ext4_io_submit *io,
 			       struct buffer_head *bh)
 {
 	struct bio *bio;
@@ -588,7 +581,7 @@ static void ifs_ext4_local_io_submit_init_bio(struct ext4_io_submit *io,
 	bio = bio_alloc(bh->b_bdev, BIO_MAX_VECS, REQ_OP_WRITE, GFP_NOIO);
 	fscrypt_set_bio_crypt_ctx_bh(bio, bh, GFP_NOIO);
 	bio->bi_iter.bi_sector = bh->b_blocknr * (bh->b_size >> 9);
-	bio->bi_end_io = ifs_ext4_local_ext4_end_bio;
+	bio->bi_end_io = ext4_end_bio;
 	bio->bi_private = ext4_get_io_end(io->io_end);
 	io->io_bio = bio;
 	io->io_next_block = bh->b_blocknr;
@@ -597,14 +590,14 @@ static void ifs_ext4_local_io_submit_init_bio(struct ext4_io_submit *io,
 
 
 /**
- * ifs_ext4_local_io_submit_add_bh - Implements the io submit add bh operation within the writeback page i/o subsystem.
+ * io_submit_add_bh - Implements the io submit add bh operation within the writeback page i/o subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_io_submit_add_bh(struct ext4_io_submit *io,
+static void io_submit_add_bh(struct ext4_io_submit *io,
 			     struct inode *inode,
 			     struct folio *folio,
 			     struct folio *io_folio,
@@ -616,7 +609,7 @@ submit_and_retry:
 		ext4_io_submit(io);
 	}
 	if (io->io_bio == NULL)
-		ifs_ext4_local_io_submit_init_bio(io, bh);
+		io_submit_init_bio(io, bh);
 	if (!bio_add_folio(io->io_bio, io_folio, bh->b_size, bh_offset(bh)))
 		goto submit_and_retry;
 	wbc_account_cgroup_owner(io->io_wbc, folio, bh->b_size);
@@ -739,7 +732,7 @@ int ext4_bio_write_folio(struct ext4_io_submit *io, struct folio *folio,
 	do {
 		if (!buffer_async_write(bh))
 			continue;
-		ifs_ext4_local_io_submit_add_bh(io, inode, folio, io_folio, bh);
+		io_submit_add_bh(io, inode, folio, io_folio, bh);
 	} while ((bh = bh->b_this_page) != head);
 
 	return 0;

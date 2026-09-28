@@ -1,10 +1,3 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: online_resize.c.
- * Project-maintained canonical implementation.
- */
-
 // SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/ext4/resize.c
@@ -30,7 +23,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -59,14 +52,14 @@ struct ext4_rcu_ptr {
 
 
 /**
- * ifs_ext4_local_ext4_rcu_ptr_callback - Implements the rcu ptr callback operation within the online resize subsystem.
+ * ext4_rcu_ptr_callback - Implements the rcu ptr callback operation within the online resize subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_rcu_ptr_callback(struct rcu_head *head)
+static void ext4_rcu_ptr_callback(struct rcu_head *head)
 {
 	struct ext4_rcu_ptr *ptr;
 
@@ -90,7 +83,7 @@ void ext4_kvfree_array_rcu(void *to_free)
 
 	if (ptr) {
 		ptr->ptr = to_free;
-		call_rcu(&ptr->rcu, ifs_ext4_local_ext4_rcu_ptr_callback);
+		call_rcu(&ptr->rcu, ext4_rcu_ptr_callback);
 		return;
 	}
 	synchronize_rcu();
@@ -157,25 +150,25 @@ int ext4_resize_begin(struct super_block *sb)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-int ext4_resize_end(struct super_block *sb, bool ifs_ext4_local_update_backups)
+int ext4_resize_end(struct super_block *sb, bool update_backups)
 {
 	clear_bit_unlock(EXT4_FLAGS_RESIZING, &EXT4_SB(sb)->s_ext4_flags);
 	smp_mb__after_atomic();
-	if (ifs_ext4_local_update_backups)
+	if (update_backups)
 		return ext4_update_overhead(sb, true);
 	return 0;
 }
 
 
 /**
- * ifs_ext4_local_ext4_group_overhead_blocks - Implements the group overhead blocks operation within the online resize subsystem.
+ * ext4_group_overhead_blocks - Implements the group overhead blocks operation within the online resize subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ext4_grpblk_t ifs_ext4_local_ext4_group_overhead_blocks(struct super_block *sb,
+static ext4_grpblk_t ext4_group_overhead_blocks(struct super_block *sb,
 						ext4_group_t group) {
 	ext4_grpblk_t overhead;
 	overhead = ext4_bg_num_gdb(sb, group);
@@ -190,14 +183,14 @@ static ext4_grpblk_t ifs_ext4_local_ext4_group_overhead_blocks(struct super_bloc
 
 
 /**
- * ifs_ext4_local_verify_group_input - Validates state before it is trusted by the remainder of the filesystem.
+ * verify_group_input - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_verify_group_input(struct super_block *sb,
+static int verify_group_input(struct super_block *sb,
 			      struct ext4_new_group_data *input)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -218,7 +211,7 @@ static int ifs_ext4_local_verify_group_input(struct super_block *sb,
 		return -EINVAL;
 	}
 
-	overhead = ifs_ext4_local_ext4_group_overhead_blocks(sb, group);
+	overhead = ext4_group_overhead_blocks(sb, group);
 	metaend = start + overhead;
 	free_blocks_count = input->blocks_count - 2 - overhead -
 			    sbi->s_itb_per_group;
@@ -367,14 +360,14 @@ out3:
 
 
 /**
- * ifs_ext4_local_free_flex_gd - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * free_flex_gd - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_free_flex_gd(struct ext4_new_flex_group_data *flex_gd)
+static void free_flex_gd(struct ext4_new_flex_group_data *flex_gd)
 {
 	kfree(flex_gd->bg_flags);
 	kfree(flex_gd->groups);
@@ -383,14 +376,14 @@ static void ifs_ext4_local_free_flex_gd(struct ext4_new_flex_group_data *flex_gd
 
 
 /**
- * ifs_ext4_local_ext4_alloc_group_tables - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ext4_alloc_group_tables - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_alloc_group_tables(struct super_block *sb,
+static int ext4_alloc_group_tables(struct super_block *sb,
 				struct ext4_new_flex_group_data *flex_gd,
 				unsigned int flexbg_size)
 {
@@ -421,14 +414,14 @@ next_group:
 	start_blk = ext4_group_first_block_no(sb, src_group);
 	last_blk = start_blk + group_data[src_group - group].blocks_count;
 
-	overhead = ifs_ext4_local_ext4_group_overhead_blocks(sb, src_group);
+	overhead = ext4_group_overhead_blocks(sb, src_group);
 
 	start_blk += overhead;
 
 
 	src_group++;
 	for (; src_group <= last_group; src_group++) {
-		overhead = ifs_ext4_local_ext4_group_overhead_blocks(sb, src_group);
+		overhead = ext4_group_overhead_blocks(sb, src_group);
 		if (overhead == 0)
 			last_blk += group_data[src_group - group].blocks_count;
 		else
@@ -542,14 +535,14 @@ static struct buffer_head *bclean(handle_t *handle, struct super_block *sb,
 
 
 /**
- * ifs_ext4_local_ext4_resize_ensure_credits_batch - Changes filesystem geometry while preserving address-space, allocation and recovery invariants.
+ * ext4_resize_ensure_credits_batch - Changes filesystem geometry while preserving address-space, allocation and recovery invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_resize_ensure_credits_batch(handle_t *handle, int credits)
+static int ext4_resize_ensure_credits_batch(handle_t *handle, int credits)
 {
 	return ext4_journal_ensure_credits_fn(handle, credits,
 		EXT4_MAX_TRANS_DATA, 0, 0);
@@ -557,14 +550,14 @@ static int ifs_ext4_local_ext4_resize_ensure_credits_batch(handle_t *handle, int
 
 
 /**
- * ifs_ext4_local_set_flexbg_block_bitmap - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * set_flexbg_block_bitmap - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_set_flexbg_block_bitmap(struct super_block *sb, handle_t *handle,
+static int set_flexbg_block_bitmap(struct super_block *sb, handle_t *handle,
 			struct ext4_new_flex_group_data *flex_gd,
 			ext4_fsblk_t first_cluster, ext4_fsblk_t last_cluster)
 {
@@ -593,7 +586,7 @@ static int ifs_ext4_local_set_flexbg_block_bitmap(struct super_block *sb, handle
 			continue;
 		}
 
-		err = ifs_ext4_local_ext4_resize_ensure_credits_batch(handle, 1);
+		err = ext4_resize_ensure_credits_batch(handle, 1);
 		if (err < 0)
 			return err;
 
@@ -623,14 +616,14 @@ static int ifs_ext4_local_set_flexbg_block_bitmap(struct super_block *sb, handle
 
 
 /**
- * ifs_ext4_local_setup_new_flex_group_blocks - Initialises subsystem state and establishes the resources required by later operations.
+ * setup_new_flex_group_blocks - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_setup_new_flex_group_blocks(struct super_block *sb,
+static int setup_new_flex_group_blocks(struct super_block *sb,
 				struct ext4_new_flex_group_data *flex_gd)
 {
 	int group_table_count[] = {1, 1, EXT4_SB(sb)->s_itb_per_group};
@@ -677,7 +670,7 @@ static int ifs_ext4_local_setup_new_flex_group_blocks(struct super_block *sb,
 			struct buffer_head *gdb;
 
 			ext4_debug("update backup group %#04llx\n", block);
-			err = ifs_ext4_local_ext4_resize_ensure_credits_batch(handle, 1);
+			err = ext4_resize_ensure_credits_batch(handle, 1);
 			if (err < 0)
 				goto out;
 
@@ -734,7 +727,7 @@ handle_bb:
 
 
 		block = group_data[i].block_bitmap;
-		err = ifs_ext4_local_ext4_resize_ensure_credits_batch(handle, 1);
+		err = ext4_resize_ensure_credits_batch(handle, 1);
 		if (err < 0)
 			goto out;
 
@@ -743,7 +736,7 @@ handle_bb:
 			err = PTR_ERR(bh);
 			goto out;
 		}
-		overhead = ifs_ext4_local_ext4_group_overhead_blocks(sb, group);
+		overhead = ext4_group_overhead_blocks(sb, group);
 		if (overhead != 0) {
 			ext4_debug("mark backup superblock %#04llx (+0)\n",
 				   start);
@@ -763,7 +756,7 @@ handle_ib:
 
 
 		block = group_data[i].inode_bitmap;
-		err = ifs_ext4_local_ext4_resize_ensure_credits_batch(handle, 1);
+		err = ext4_resize_ensure_credits_batch(handle, 1);
 		if (err < 0)
 			goto out;
 
@@ -792,7 +785,7 @@ handle_ib:
 				count += group_table_count[j];
 				continue;
 			}
-			err = ifs_ext4_local_set_flexbg_block_bitmap(sb, handle,
+			err = set_flexbg_block_bitmap(sb, handle,
 						      flex_gd,
 						      EXT4_B2C(sbi, start),
 						      EXT4_B2C(sbi,
@@ -805,7 +798,7 @@ handle_ib:
 			block = start;
 		}
 
-		err = ifs_ext4_local_set_flexbg_block_bitmap(sb, handle,
+		err = set_flexbg_block_bitmap(sb, handle,
 				flex_gd,
 				EXT4_B2C(sbi, start),
 				EXT4_B2C(sbi,
@@ -873,14 +866,14 @@ unsigned int ext4_list_backups(struct super_block *sb, unsigned int *three,
 
 
 /**
- * ifs_ext4_local_verify_reserved_gdb - Validates state before it is trusted by the remainder of the filesystem.
+ * verify_reserved_gdb - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_verify_reserved_gdb(struct super_block *sb,
+static int verify_reserved_gdb(struct super_block *sb,
 			       ext4_group_t end,
 			       struct buffer_head *primary)
 {
@@ -912,14 +905,14 @@ static int ifs_ext4_local_verify_reserved_gdb(struct super_block *sb,
 
 
 /**
- * ifs_ext4_local_add_new_gdb - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * add_new_gdb - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_add_new_gdb(handle_t *handle, struct inode *inode,
+static int add_new_gdb(handle_t *handle, struct inode *inode,
 		       ext4_group_t group)
 {
 	struct super_block *sb = inode->i_sb;
@@ -943,7 +936,7 @@ static int ifs_ext4_local_add_new_gdb(handle_t *handle, struct inode *inode,
 	if (IS_ERR(gdb_bh))
 		return PTR_ERR(gdb_bh);
 
-	gdbackups = ifs_ext4_local_verify_reserved_gdb(sb, group, gdb_bh);
+	gdbackups = verify_reserved_gdb(sb, group, gdb_bh);
 	if (gdbackups < 0) {
 		err = gdbackups;
 		goto errout;
@@ -1046,14 +1039,14 @@ errout:
 
 
 /**
- * ifs_ext4_local_add_new_gdb_meta_bg - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * add_new_gdb_meta_bg - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_add_new_gdb_meta_bg(struct super_block *sb,
+static int add_new_gdb_meta_bg(struct super_block *sb,
 			       handle_t *handle, ext4_group_t group) {
 	ext4_fsblk_t gdblock;
 	struct buffer_head *gdb_bh;
@@ -1099,14 +1092,14 @@ static int ifs_ext4_local_add_new_gdb_meta_bg(struct super_block *sb,
 
 
 /**
- * ifs_ext4_local_reserve_backup_gdb - Implements the reserve backup gdb operation within the online resize subsystem.
+ * reserve_backup_gdb - Implements the reserve backup gdb operation within the online resize subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_reserve_backup_gdb(handle_t *handle, struct inode *inode,
+static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 			      ext4_group_t group)
 {
 	struct super_block *sb = inode->i_sb;
@@ -1154,7 +1147,7 @@ static int ifs_ext4_local_reserve_backup_gdb(handle_t *handle, struct inode *ino
 			primary[res] = NULL;
 			goto exit_bh;
 		}
-		gdbackups = ifs_ext4_local_verify_reserved_gdb(sb, group, primary[res]);
+		gdbackups = verify_reserved_gdb(sb, group, primary[res]);
 		if (gdbackups < 0) {
 			brelse(primary[res]);
 			err = gdbackups;
@@ -1201,14 +1194,14 @@ exit_free:
 
 
 /**
- * ifs_ext4_local_ext4_set_block_group_nr - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext4_set_block_group_nr - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ifs_ext4_local_ext4_set_block_group_nr(struct super_block *sb, char *data,
+static inline void ext4_set_block_group_nr(struct super_block *sb, char *data,
 					   ext4_group_t group)
 {
 	struct ext4_super_block *es = (struct ext4_super_block *) data;
@@ -1220,14 +1213,14 @@ static inline void ifs_ext4_local_ext4_set_block_group_nr(struct super_block *sb
 
 
 /**
- * ifs_ext4_local_update_backups - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * update_backups - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_update_backups(struct super_block *sb, sector_t blk_off, char *data,
+static void update_backups(struct super_block *sb, sector_t blk_off, char *data,
 			   int size, int meta_bg)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -1263,7 +1256,7 @@ static void ifs_ext4_local_update_backups(struct super_block *sb, sector_t blk_o
 		ext4_fsblk_t first_block = ext4_group_first_block_no(sb, group);
 
 
-		err = ifs_ext4_local_ext4_resize_ensure_credits_batch(handle, 1);
+		err = ext4_resize_ensure_credits_batch(handle, 1);
 		if (err < 0)
 			break;
 
@@ -1291,7 +1284,7 @@ static void ifs_ext4_local_update_backups(struct super_block *sb, sector_t blk_o
 		if (rest)
 			memset(bh->b_data + size, 0, rest);
 		if (has_super && (backup_block == first_block))
-			ifs_ext4_local_ext4_set_block_group_nr(sb, bh->b_data, group);
+			ext4_set_block_group_nr(sb, bh->b_data, group);
 		set_buffer_uptodate(bh);
 		unlock_buffer(bh);
 		err = ext4_handle_dirty_metadata(handle, NULL, bh);
@@ -1322,14 +1315,14 @@ exit_err:
 
 
 /**
- * ifs_ext4_local_ext4_add_new_descs - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ext4_add_new_descs - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_add_new_descs(handle_t *handle, struct super_block *sb,
+static int ext4_add_new_descs(handle_t *handle, struct super_block *sb,
 			      ext4_group_t group, struct inode *resize_inode,
 			      ext4_group_t count)
 {
@@ -1356,11 +1349,11 @@ static int ifs_ext4_local_ext4_add_new_descs(handle_t *handle, struct super_bloc
 							    EXT4_JTR_NONE);
 
 			if (!err && reserved_gdb && ext4_bg_num_gdb(sb, group))
-				err = ifs_ext4_local_reserve_backup_gdb(handle, resize_inode, group);
+				err = reserve_backup_gdb(handle, resize_inode, group);
 		} else if (meta_bg != 0) {
-			err = ifs_ext4_local_add_new_gdb_meta_bg(sb, handle, group);
+			err = add_new_gdb_meta_bg(sb, handle, group);
 		} else {
-			err = ifs_ext4_local_add_new_gdb(handle, resize_inode, group);
+			err = add_new_gdb(handle, resize_inode, group);
 		}
 		if (err)
 			break;
@@ -1394,14 +1387,14 @@ static struct buffer_head *ext4_get_bitmap(struct super_block *sb, __u64 block)
 
 
 /**
- * ifs_ext4_local_ext4_set_bitmap_checksums - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext4_set_bitmap_checksums - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_set_bitmap_checksums(struct super_block *sb,
+static int ext4_set_bitmap_checksums(struct super_block *sb,
 				     struct ext4_group_desc *gdp,
 				     struct ext4_new_group_data *group_data)
 {
@@ -1427,14 +1420,14 @@ static int ifs_ext4_local_ext4_set_bitmap_checksums(struct super_block *sb,
 
 
 /**
- * ifs_ext4_local_ext4_setup_new_descs - Initialises subsystem state and establishes the resources required by later operations.
+ * ext4_setup_new_descs - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_setup_new_descs(handle_t *handle, struct super_block *sb,
+static int ext4_setup_new_descs(handle_t *handle, struct super_block *sb,
 				struct ext4_new_flex_group_data *flex_gd)
 {
 	struct ext4_new_group_data	*group_data = flex_gd->groups;
@@ -1461,7 +1454,7 @@ static int ifs_ext4_local_ext4_setup_new_descs(handle_t *handle, struct super_bl
 		memset(gdp, 0, EXT4_DESC_SIZE(sb));
 		ext4_block_bitmap_set(sb, gdp, group_data->block_bitmap);
 		ext4_inode_bitmap_set(sb, gdp, group_data->inode_bitmap);
-		err = ifs_ext4_local_ext4_set_bitmap_checksums(sb, gdp, group_data);
+		err = ext4_set_bitmap_checksums(sb, gdp, group_data);
 		if (err) {
 			ext4_std_error(sb, err);
 			break;
@@ -1493,14 +1486,14 @@ static int ifs_ext4_local_ext4_setup_new_descs(handle_t *handle, struct super_bl
 
 
 /**
- * ifs_ext4_local_ext4_add_overhead - Implements the add overhead operation within the online resize subsystem.
+ * ext4_add_overhead - Implements the add overhead operation within the online resize subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_add_overhead(struct super_block *sb,
+static void ext4_add_overhead(struct super_block *sb,
                               const ext4_fsblk_t overhead)
 {
        struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -1513,14 +1506,14 @@ static void ifs_ext4_local_ext4_add_overhead(struct super_block *sb,
 
 
 /**
- * ifs_ext4_local_ext4_update_super - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext4_update_super - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_update_super(struct super_block *sb,
+static void ext4_update_super(struct super_block *sb,
 			     struct ext4_new_flex_group_data *flex_gd)
 {
 	ext4_fsblk_t blocks_count = 0;
@@ -1588,7 +1581,7 @@ static void ifs_ext4_local_ext4_update_super(struct super_block *sb,
 
 
 	if (ext4_has_feature_bigalloc(sb) && (sbi->s_overhead != 0))
-		ifs_ext4_local_ext4_add_overhead(sb,
+		ext4_add_overhead(sb,
 			EXT4_NUM_B2C(sbi, blocks_count - free_blocks));
 	else
 		ext4_calculate_overhead(sb);
@@ -1604,14 +1597,14 @@ static void ifs_ext4_local_ext4_update_super(struct super_block *sb,
 
 
 /**
- * ifs_ext4_local_ext4_flex_group_add - Implements the flex group add operation within the online resize subsystem.
+ * ext4_flex_group_add - Implements the flex group add operation within the online resize subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_flex_group_add(struct super_block *sb,
+static int ext4_flex_group_add(struct super_block *sb,
 			       struct inode *resize_inode,
 			       struct ext4_new_flex_group_data *flex_gd)
 {
@@ -1631,7 +1624,7 @@ static int ifs_ext4_local_ext4_flex_group_add(struct super_block *sb,
 	ext4_get_group_no_and_offset(sb, o_blocks_count, &group, &last);
 	BUG_ON(last);
 
-	err = ifs_ext4_local_setup_new_flex_group_blocks(sb, flex_gd);
+	err = setup_new_flex_group_blocks(sb, flex_gd);
 	if (err)
 		goto exit;
 
@@ -1654,16 +1647,16 @@ static int ifs_ext4_local_ext4_flex_group_add(struct super_block *sb,
 
 	group = flex_gd->groups[0].group;
 	BUG_ON(group != sbi->s_groups_count);
-	err = ifs_ext4_local_ext4_add_new_descs(handle, sb, group,
+	err = ext4_add_new_descs(handle, sb, group,
 				resize_inode, flex_gd->count);
 	if (err)
 		goto exit_journal;
 
-	err = ifs_ext4_local_ext4_setup_new_descs(handle, sb, flex_gd);
+	err = ext4_setup_new_descs(handle, sb, flex_gd);
 	if (err)
 		goto exit_journal;
 
-	ifs_ext4_local_ext4_update_super(sb, flex_gd);
+	ext4_update_super(sb, flex_gd);
 
 	err = ext4_handle_dirty_metadata(handle, NULL, sbi->s_sbh);
 
@@ -1681,14 +1674,14 @@ exit_journal:
 		sector_t padding_blocks = meta_bg ? 0 : sbi->s_sbh->b_blocknr -
 					 ext4_group_first_block_no(sb, 0);
 
-		ifs_ext4_local_update_backups(sb, ext4_group_first_block_no(sb, 0),
+		update_backups(sb, ext4_group_first_block_no(sb, 0),
 			       (char *)es, sizeof(struct ext4_super_block), 0);
 		for (; gdb_num <= gdb_num_end; gdb_num++) {
 			struct buffer_head *gdb_bh;
 
 			gdb_bh = sbi_array_rcu_deref(sbi, s_group_desc,
 						     gdb_num);
-			ifs_ext4_local_update_backups(sb, gdb_bh->b_blocknr - padding_blocks,
+			update_backups(sb, gdb_bh->b_blocknr - padding_blocks,
 				       gdb_bh->b_data, gdb_bh->b_size, meta_bg);
 		}
 	}
@@ -1698,14 +1691,14 @@ exit:
 
 
 /**
- * ifs_ext4_local_ext4_setup_next_flex_gd - Initialises subsystem state and establishes the resources required by later operations.
+ * ext4_setup_next_flex_gd - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_setup_next_flex_gd(struct super_block *sb,
+static int ext4_setup_next_flex_gd(struct super_block *sb,
 				    struct ext4_new_flex_group_data *flex_gd,
 				    ext4_fsblk_t n_blocks_count)
 {
@@ -1742,7 +1735,7 @@ static int ifs_ext4_local_ext4_setup_next_flex_gd(struct super_block *sb,
 
 		group_data[i].group = group + i;
 		group_data[i].blocks_count = EXT4_BLOCKS_PER_GROUP(sb);
-		overhead = ifs_ext4_local_ext4_group_overhead_blocks(sb, group + i);
+		overhead = ext4_group_overhead_blocks(sb, group + i);
 		group_data[i].mdata_blocks = overhead;
 		group_data[i].free_clusters_count = EXT4_CLUSTERS_PER_GROUP(sb);
 		if (ext4_has_group_desc_csum(sb)) {
@@ -1822,7 +1815,7 @@ int ext4_group_add(struct super_block *sb, struct ext4_new_group_data *input)
 	}
 
 
-	err = ifs_ext4_local_verify_group_input(sb, input);
+	err = verify_group_input(sb, input);
 	if (err)
 		goto out;
 
@@ -1837,7 +1830,7 @@ int ext4_group_add(struct super_block *sb, struct ext4_new_group_data *input)
 	flex_gd.count = 1;
 	flex_gd.groups = input;
 	flex_gd.bg_flags = &bg_flags;
-	err = ifs_ext4_local_ext4_flex_group_add(sb, inode, &flex_gd);
+	err = ext4_flex_group_add(sb, inode, &flex_gd);
 out:
 	iput(inode);
 	return err;
@@ -1845,14 +1838,14 @@ out:
 
 
 /**
- * ifs_ext4_local_ext4_group_extend_no_check - Validates state before it is trusted by the remainder of the filesystem.
+ * ext4_group_extend_no_check - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_group_extend_no_check(struct super_block *sb,
+static int ext4_group_extend_no_check(struct super_block *sb,
 				      ext4_fsblk_t o_blocks_count, ext4_grpblk_t add)
 {
 	struct ext4_super_block *es = EXT4_SB(sb)->s_es;
@@ -1898,7 +1891,7 @@ errout:
 		if (test_opt(sb, DEBUG))
 			printk(KERN_DEBUG "EXT4-fs: extended group to %llu "
 			       "blocks\n", ext4_blocks_count(es));
-		ifs_ext4_local_update_backups(sb, ext4_group_first_block_no(sb, 0),
+		update_backups(sb, ext4_group_first_block_no(sb, 0),
 			       (char *)es, sizeof(struct ext4_super_block), 0);
 	}
 	return err;
@@ -1978,33 +1971,33 @@ int ext4_group_extend(struct super_block *sb, struct ext4_super_block *es,
 	}
 	brelse(bh);
 
-	return ifs_ext4_local_ext4_group_extend_no_check(sb, o_blocks_count, add);
+	return ext4_group_extend_no_check(sb, o_blocks_count, add);
 }
 
 
 /**
- * ifs_ext4_local_num_desc_blocks - Implements the num desc blocks operation within the online resize subsystem.
+ * num_desc_blocks - Implements the num desc blocks operation within the online resize subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_num_desc_blocks(struct super_block *sb, ext4_group_t groups)
+static int num_desc_blocks(struct super_block *sb, ext4_group_t groups)
 {
 	return (groups + EXT4_DESC_PER_BLOCK(sb) - 1) / EXT4_DESC_PER_BLOCK(sb);
 }
 
 
 /**
- * ifs_ext4_local_ext4_convert_meta_bg - Implements the convert meta bg operation within the online resize subsystem.
+ * ext4_convert_meta_bg - Implements the convert meta bg operation within the online resize subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_convert_meta_bg(struct super_block *sb, struct inode *inode)
+static int ext4_convert_meta_bg(struct super_block *sb, struct inode *inode)
 {
 	handle_t *handle;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -2053,7 +2046,7 @@ static int ifs_ext4_local_ext4_convert_meta_bg(struct super_block *sb, struct in
 	ext4_clear_feature_resize_inode(sb);
 	ext4_set_feature_meta_bg(sb);
 	sbi->s_es->s_first_meta_bg =
-		cpu_to_le32(ifs_ext4_local_num_desc_blocks(sb, sbi->s_groups_count));
+		cpu_to_le32(num_desc_blocks(sb, sbi->s_groups_count));
 	ext4_superblock_csum_set(sb);
 	unlock_buffer(sbi->s_sbh);
 
@@ -2148,8 +2141,8 @@ retry:
 	}
 	ext4_get_group_no_and_offset(sb, o_blocks_count - 1, &o_group, &offset);
 
-	n_desc_blocks = ifs_ext4_local_num_desc_blocks(sb, n_group + 1);
-	o_desc_blocks = ifs_ext4_local_num_desc_blocks(sb, sbi->s_groups_count);
+	n_desc_blocks = num_desc_blocks(sb, n_group + 1);
+	o_desc_blocks = num_desc_blocks(sb, sbi->s_groups_count);
 
 	meta_bg = ext4_has_feature_meta_bg(sb);
 
@@ -2181,7 +2174,7 @@ retry:
 	}
 
 	if ((!resize_inode && !meta_bg && n_desc_blocks > o_desc_blocks) || n_blocks_count == o_blocks_count) {
-		err = ifs_ext4_local_ext4_convert_meta_bg(sb, resize_inode);
+		err = ext4_convert_meta_bg(sb, resize_inode);
 		if (err)
 			goto out;
 		if (resize_inode) {
@@ -2197,7 +2190,7 @@ retry:
 
 
 	if ((ext4_group_first_block_no(sb, n_group) +
-	     ifs_ext4_local_ext4_group_overhead_blocks(sb, n_group) + 2 +
+	     ext4_group_overhead_blocks(sb, n_group) + 2 +
 	     sbi->s_itb_per_group + sbi->s_cluster_ratio) >= n_blocks_count) {
 		n_blocks_count = ext4_group_first_block_no(sb, n_group);
 		n_group--;
@@ -2215,7 +2208,7 @@ retry:
 	else
 		add = EXT4_C2B(sbi, EXT4_CLUSTERS_PER_GROUP(sb) - (offset + 1));
 	if (add > 0) {
-		err = ifs_ext4_local_ext4_group_extend_no_check(sb, o_blocks_count, add);
+		err = ext4_group_extend_no_check(sb, o_blocks_count, add);
 		if (err)
 			goto out;
 	}
@@ -2238,7 +2231,7 @@ retry:
 	}
 
 
-	while (ifs_ext4_local_ext4_setup_next_flex_gd(sb, flex_gd, n_blocks_count)) {
+	while (ext4_setup_next_flex_gd(sb, flex_gd, n_blocks_count)) {
 		if (time_is_before_jiffies(last_update_time + HZ * 10)) {
 			if (last_update_time)
 				ext4_msg(sb, KERN_INFO,
@@ -2246,9 +2239,9 @@ retry:
 					 ext4_blocks_count(es));
 			last_update_time = jiffies;
 		}
-		if (ifs_ext4_local_ext4_alloc_group_tables(sb, flex_gd, flexbg_size) != 0)
+		if (ext4_alloc_group_tables(sb, flex_gd, flexbg_size) != 0)
 			break;
-		err = ifs_ext4_local_ext4_flex_group_add(sb, resize_inode, flex_gd);
+		err = ext4_flex_group_add(sb, resize_inode, flex_gd);
 		if (unlikely(err))
 			break;
 	}
@@ -2256,7 +2249,7 @@ retry:
 	if (!err && n_blocks_count_retry) {
 		n_blocks_count = n_blocks_count_retry;
 		n_blocks_count_retry = 0;
-		ifs_ext4_local_free_flex_gd(flex_gd);
+		free_flex_gd(flex_gd);
 		flex_gd = NULL;
 		if (resize_inode) {
 			iput(resize_inode);
@@ -2267,7 +2260,7 @@ retry:
 
 out:
 	if (flex_gd)
-		ifs_ext4_local_free_flex_gd(flex_gd);
+		free_flex_gd(flex_gd);
 	if (resize_inode != NULL)
 		iput(resize_inode);
 	if (err)

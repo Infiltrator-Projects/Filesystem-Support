@@ -1,10 +1,3 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: mballoc.h.
- * Project-maintained canonical implementation.
- */
-
 #ifndef INFILTRATR_EXT4_MBALLLOC_H
 #define INFILTRATR_EXT4_MBALLLOC_H
 

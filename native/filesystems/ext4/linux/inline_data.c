@@ -1,889 +1,969 @@
+// SPDX-License-Identifier: LGPL-2.1
 /*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support — EXT4 inline-data engine.
- *
- * Inline payload is split between the inode's i_block array and the
- * system.data inode-body xattr.  This implementation owns the state machine
- * that grows, shrinks, converts and exposes that representation to the VFS.
+ * Copyright (c) 2012 Taobao.
+ * Written by Tao Ma <boyu.mt@taobao.com>
  */
 
-// SPDX-License-Identifier: GPL-2.0
+/*
+ * EXT4 — Inline-data support
+ *
+ * Purpose:
+ *   Implements storage of small file or directory payloads inside the inode/xattr area and transitions between inline and block-backed forms.
+ *
+ * Filesystem model:
+ *   This file belongs to a full-featured EXT4 VFS implementation with JBD2 embedded in ext4.ko.
+ *
+ * Correctness focus:
+ *   Conversion changes both inode layout and data placement; interruption must leave one authoritative representation recoverable by normal journal replay.
+ *
+ * Project rules:
+ *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
+ *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
+ *
+ * Commentary policy:
+ *   Comments explain invariants, ownership, persistence ordering and
+ *   non-obvious design intent. They deliberately avoid restating C syntax.
+ */
 
-#include <linux/buffer_head.h>
-#include <linux/fiemap.h>
-#include <linux/fs.h>
 #include <linux/iomap.h>
-#include <linux/iversion.h>
+#include <linux/fiemap.h>
 #include <linux/namei.h>
-#include <linux/pagemap.h>
-#include <linux/slab.h>
+#include <linux/iversion.h>
+#include <linux/sched/mm.h>
 
-#include "ext4.h"
 #include "ext4_jbd2.h"
-#include "truncate.h"
+#include "ext4.h"
 #include "xattr.h"
+#include "truncate.h"
 
-#define IFS_EXT4_INLINE_XATTR_NAME "data"
-#define IFS_EXT4_INLINE_HEAD_BYTES ((unsigned int)(sizeof(__le32) * EXT4_N_BLOCKS))
-#define IFS_EXT4_INLINE_PARENT_BYTES 4U
+#define EXT4_XATTR_SYSTEM_DATA	"data"
+#define EXT4_MIN_INLINE_DATA_SIZE	((sizeof(__le32) * EXT4_N_BLOCKS))
+#define EXT4_INLINE_DOTDOT_OFFSET	2
+#define EXT4_INLINE_DOTDOT_SIZE		4
 
-static unsigned int ifs_ext4_inline_size(const struct inode *inode)
+
+/**
+ * ext4_get_inline_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_get_inline_size(struct inode *inode)
 {
-	const struct ext4_inode_info *ei =
-		container_of(inode, const struct ext4_inode_info, vfs_inode);
+	if (EXT4_I(inode)->i_inline_off)
+		return EXT4_I(inode)->i_inline_size;
 
-	return ei->i_inline_off ? ei->i_inline_size : 0U;
+	return 0;
 }
 
-static struct ext4_xattr_entry *
-ifs_ext4_inline_entry(struct inode *inode, struct ext4_iloc *iloc)
-{
-	if (!EXT4_I(inode)->i_inline_off)
-		return NULL;
-	return (struct ext4_xattr_entry *)
-		((u8 *)ext4_raw_inode(iloc) + EXT4_I(inode)->i_inline_off);
-}
 
-static void *ifs_ext4_inline_tail(struct inode *inode, struct ext4_iloc *iloc)
+/**
+ * get_max_inline_xattr_value_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int get_max_inline_xattr_value_size(struct inode *inode,
+					   struct ext4_iloc *iloc)
 {
-	struct ext4_xattr_entry *entry = ifs_ext4_inline_entry(inode, iloc);
-	struct ext4_xattr_ibody_header *header;
-
-	if (!entry)
-		return NULL;
-	header = IHDR(inode, ext4_raw_inode(iloc));
-	return (u8 *)IFIRST(header) + le16_to_cpu(entry->e_value_offs);
-}
-
-static int ifs_ext4_inline_tail_capacity(struct inode *inode,
-					 struct ext4_iloc *iloc)
-{
-	struct ext4_inode *raw;
 	struct ext4_xattr_ibody_header *header;
 	struct ext4_xattr_entry *entry;
-	u8 *end;
-	int lower;
-	int used;
+	struct ext4_inode *raw_inode;
+	void *end;
+	int free, min_offs;
 
 	if (!EXT4_INODE_HAS_XATTR_SPACE(inode))
 		return 0;
 
-	raw = ext4_raw_inode(iloc);
-	header = IHDR(inode, raw);
+	min_offs = EXT4_SB(inode->i_sb)->s_inode_size -
+			EXT4_GOOD_OLD_INODE_SIZE -
+			EXT4_I(inode)->i_extra_isize -
+			sizeof(struct ext4_xattr_ibody_header);
+
+
+	if (!ext4_test_inode_state(inode, EXT4_STATE_XATTR))
+		return EXT4_XATTR_SIZE(min_offs -
+			EXT4_XATTR_LEN(strlen(EXT4_XATTR_SYSTEM_DATA)) -
+			EXT4_XATTR_ROUND - sizeof(__u32));
+
+	raw_inode = ext4_raw_inode(iloc);
+	header = IHDR(inode, raw_inode);
 	entry = IFIRST(header);
-	end = (u8 *)raw + EXT4_SB(inode->i_sb)->s_inode_size;
+	end = (void *)raw_inode + EXT4_SB(inode->i_sb)->s_inode_size;
 
-	lower = EXT4_SB(inode->i_sb)->s_inode_size -
-		EXT4_GOOD_OLD_INODE_SIZE -
-		EXT4_I(inode)->i_extra_isize -
-		sizeof(*header);
-
-	if (!ext4_test_inode_state(inode, EXT4_STATE_XATTR)) {
-		used = EXT4_XATTR_LEN(strlen(IFS_EXT4_INLINE_XATTR_NAME)) +
-			EXT4_XATTR_ROUND + sizeof(__u32);
-		return lower > used ?
-			EXT4_XATTR_SIZE(lower - used) : 0;
-	}
 
 	while (!IS_LAST_ENTRY(entry)) {
-		struct ext4_xattr_entry *next = EXT4_XATTR_NEXT(entry);
-		size_t value_off;
+		void *next = EXT4_XATTR_NEXT(entry);
 
-		if ((u8 *)next >= end)
+		if (next >= end) {
+			EXT4_ERROR_INODE(inode,
+					 "corrupt xattr in inline inode");
 			return 0;
-
+		}
 		if (!entry->e_value_inum && entry->e_value_size) {
-			value_off = le16_to_cpu(entry->e_value_offs);
-			if (value_off < lower)
-				lower = value_off;
+			size_t offs = le16_to_cpu(entry->e_value_offs);
+			if (offs < min_offs)
+				min_offs = offs;
 		}
 		entry = next;
 	}
-
-	used = (u8 *)entry - (u8 *)IFIRST(header) + sizeof(__u32);
-	lower -= used;
+	free = min_offs -
+		((void *)entry - (void *)IFIRST(header)) - sizeof(__u32);
 
 	if (EXT4_I(inode)->i_inline_off) {
-		struct ext4_xattr_entry *inline_entry =
-			ifs_ext4_inline_entry(inode, iloc);
+		entry = (struct ext4_xattr_entry *)
+			((void *)raw_inode + EXT4_I(inode)->i_inline_off);
 
-		lower += EXT4_XATTR_SIZE(
-			le32_to_cpu(inline_entry->e_value_size));
-		return max(lower, 0);
-	}
-
-	lower -= EXT4_XATTR_LEN(strlen(IFS_EXT4_INLINE_XATTR_NAME));
-	if (lower <= EXT4_XATTR_ROUND)
-		return 0;
-	return EXT4_XATTR_SIZE(lower - EXT4_XATTR_ROUND);
-}
-
-int ext4_get_max_inline_size(struct inode *inode)
-{
-	struct ext4_iloc iloc;
-	int tail;
-	int err;
-
-	if (!EXT4_I(inode)->i_extra_isize)
-		return 0;
-
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return 0;
-
-	down_read(&EXT4_I(inode)->xattr_sem);
-	tail = ifs_ext4_inline_tail_capacity(inode, &iloc);
-	up_read(&EXT4_I(inode)->xattr_sem);
-	brelse(iloc.bh);
-
-	return tail > 0 ? tail + IFS_EXT4_INLINE_HEAD_BYTES : 0;
-}
-
-int ext4_find_inline_data_nolock(struct inode *inode)
-{
-	struct ext4_xattr_ibody_find find = {
-		.s = { .not_found = -ENODATA },
-	};
-	struct ext4_xattr_info info = {
-		.name_index = EXT4_XATTR_INDEX_SYSTEM,
-		.name = IFS_EXT4_INLINE_XATTR_NAME,
-	};
-	int err;
-
-	if (!EXT4_I(inode)->i_extra_isize)
-		return 0;
-
-	err = ext4_get_inode_loc(inode, &find.iloc);
-	if (err)
-		return err;
-
-	err = ext4_xattr_ibody_find(inode, &info, &find);
-	if (!err && !find.s.not_found) {
-		if (find.s.here->e_value_inum) {
-			err = -EFSCORRUPTED;
-		} else {
-			EXT4_I(inode)->i_inline_off =
-				(u16)((u8 *)find.s.here -
-				      (u8 *)ext4_raw_inode(&find.iloc));
-			EXT4_I(inode)->i_inline_size =
-				IFS_EXT4_INLINE_HEAD_BYTES +
-				le32_to_cpu(find.s.here->e_value_size);
-		}
-	}
-
-	brelse(find.iloc.bh);
-	return err;
-}
-
-static int ifs_ext4_inline_read(struct inode *inode,
-				struct ext4_iloc *iloc,
-				void *destination,
-				unsigned int length)
-{
-	struct ext4_xattr_entry *entry;
-	unsigned int head;
-	unsigned int tail;
-
-	if (!length)
-		return 0;
-	if (!ext4_has_inline_data(inode) ||
-	    length > ifs_ext4_inline_size(inode))
-		return -EFSCORRUPTED;
-
-	head = min(length, IFS_EXT4_INLINE_HEAD_BYTES);
-	memcpy(destination, ext4_raw_inode(iloc)->i_block, head);
-
-	tail = length - head;
-	if (tail) {
-		void *tail_source;
-
-		entry = ifs_ext4_inline_entry(inode, iloc);
-		if (!entry || entry->e_value_inum ||
-		    tail > le32_to_cpu(entry->e_value_size))
-			return -EFSCORRUPTED;
-
-		tail_source = ifs_ext4_inline_tail(inode, iloc);
-		if (!tail_source)
-			return -EFSCORRUPTED;
-		memcpy((u8 *)destination + head, tail_source, tail);
-	}
-
-	return length;
-}
-
-static int ifs_ext4_inline_write(struct inode *inode,
-				 struct ext4_iloc *iloc,
-				 const void *source,
-				 loff_t position,
-				 unsigned int length)
-{
-	unsigned int head;
-	unsigned int tail;
-	unsigned int head_offset;
-
-	if (position < 0 ||
-	    (u64)position + length > ifs_ext4_inline_size(inode))
-		return -EINVAL;
-	if (!length)
-		return 0;
-
-	head_offset = min_t(u64, position, IFS_EXT4_INLINE_HEAD_BYTES);
-	head = 0;
-	if (position < IFS_EXT4_INLINE_HEAD_BYTES) {
-		head = min_t(unsigned int, length,
-			IFS_EXT4_INLINE_HEAD_BYTES - (unsigned int)position);
-		memcpy((u8 *)ext4_raw_inode(iloc)->i_block + position,
-		       source, head);
-	}
-
-	tail = length - head;
-	if (tail) {
-		unsigned int tail_offset =
-			(unsigned int)(position + head -
-				       IFS_EXT4_INLINE_HEAD_BYTES);
-		struct ext4_xattr_entry *entry =
-			ifs_ext4_inline_entry(inode, iloc);
-		void *tail_destination = ifs_ext4_inline_tail(inode, iloc);
-
-		if (!entry || !tail_destination || entry->e_value_inum ||
-		    tail_offset + tail > le32_to_cpu(entry->e_value_size))
-			return -EFSCORRUPTED;
-
-		memcpy((u8 *)tail_destination + tail_offset,
-		       (const u8 *)source + head, tail);
-	}
-
-	(void)head_offset;
-	return 0;
-}
-
-static int ifs_ext4_resize_inline_xattr(handle_t *handle,
-					 struct inode *inode,
-					 unsigned int total_length)
-{
-	struct ext4_xattr_ibody_find find = {
-		.s = { .not_found = -ENODATA },
-	};
-	struct ext4_xattr_info info = {
-		.name_index = EXT4_XATTR_INDEX_SYSTEM,
-		.name = IFS_EXT4_INLINE_XATTR_NAME,
-	};
-	unsigned int new_tail =
-		total_length > IFS_EXT4_INLINE_HEAD_BYTES ?
-		total_length - IFS_EXT4_INLINE_HEAD_BYTES : 0U;
-	void *preserve = NULL;
-	unsigned int preserve_length = 0;
-	int err;
-
-	err = ext4_get_inode_loc(inode, &find.iloc);
-	if (err)
-		return err;
-
-	err = ext4_xattr_ibody_find(inode, &info, &find);
-	if (err)
+		free += EXT4_XATTR_SIZE(le32_to_cpu(entry->e_value_size));
 		goto out;
-
-	if (!find.s.not_found) {
-		unsigned int old_tail =
-			le32_to_cpu(find.s.here->e_value_size);
-
-		preserve_length = min(old_tail, new_tail);
-		if (preserve_length) {
-			preserve = kmalloc(new_tail, GFP_NOFS);
-			if (!preserve) {
-				err = -ENOMEM;
-				goto out;
-			}
-			memset(preserve, 0, new_tail);
-			err = ext4_xattr_ibody_get(
-				inode, EXT4_XATTR_INDEX_SYSTEM,
-				IFS_EXT4_INLINE_XATTR_NAME,
-				preserve, old_tail);
-			if (err < 0)
-				goto out;
-		}
 	}
 
-	info.value_len = new_tail;
-	if (!new_tail) {
-		/*
-		 * Keep a zero-length system.data entry.  Its presence is the
-		 * durable discriminator between ordinary i_block contents and
-		 * the inline-data representation.
-		 */
-		info.value = "";
-	} else if (preserve) {
-		info.value = preserve;
-	} else {
-		info.value = EXT4_ZERO_XATTR_VALUE;
-	}
+	free -= EXT4_XATTR_LEN(strlen(EXT4_XATTR_SYSTEM_DATA));
 
-	err = ext4_journal_get_write_access(
-		handle, inode->i_sb, find.iloc.bh, EXT4_JTR_NONE);
-	if (err)
-		goto out;
-
-	err = ext4_xattr_ibody_set(handle, inode, &info, &find);
-	if (err)
-		goto out;
-
-	EXT4_I(inode)->i_inline_off =
-		(u16)((u8 *)find.s.here -
-		      (u8 *)ext4_raw_inode(&find.iloc));
-	EXT4_I(inode)->i_inline_size =
-		IFS_EXT4_INLINE_HEAD_BYTES + new_tail;
-	ext4_set_inode_flag(inode, EXT4_INODE_INLINE_DATA);
-	ext4_clear_inode_flag(inode, EXT4_INODE_EXTENTS);
-	ext4_set_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
-
-	get_bh(find.iloc.bh);
-	err = ext4_mark_iloc_dirty(handle, inode, &find.iloc);
+	if (free > EXT4_XATTR_ROUND)
+		free = EXT4_XATTR_SIZE(free - EXT4_XATTR_ROUND);
+	else
+		free = 0;
 
 out:
-	kfree(preserve);
-	brelse(find.iloc.bh);
-	return err;
+	return free;
 }
 
-static int ifs_ext4_prepare_inline(handle_t *handle,
-				   struct inode *inode,
-				   loff_t end)
+
+/**
+ * ext4_get_max_inline_size - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+int ext4_get_max_inline_size(struct inode *inode)
 {
-	int saved;
-	int capacity;
-	int err;
+	int error, max_inline_size;
+	struct ext4_iloc iloc;
+
+	if (EXT4_I(inode)->i_extra_isize == 0)
+		return 0;
+
+	error = ext4_get_inode_loc(inode, &iloc);
+	if (error) {
+		ext4_error_inode_err(inode, __func__, __LINE__, 0, -error,
+				     "can't get inode location %lu",
+				     inode->i_ino);
+		return 0;
+	}
+
+	down_read(&EXT4_I(inode)->xattr_sem);
+	max_inline_size = get_max_inline_xattr_value_size(inode, &iloc);
+	up_read(&EXT4_I(inode)->xattr_sem);
+
+	brelse(iloc.bh);
+
+	if (!max_inline_size)
+		return 0;
+
+	return max_inline_size + EXT4_MIN_INLINE_DATA_SIZE;
+}
+
+
+/**
+ * ext4_find_inline_data_nolock - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+int ext4_find_inline_data_nolock(struct inode *inode)
+{
+	struct ext4_xattr_ibody_find is = {
+		.s = { .not_found = -ENODATA, },
+	};
+	struct ext4_xattr_info i = {
+		.name_index = EXT4_XATTR_INDEX_SYSTEM,
+		.name = EXT4_XATTR_SYSTEM_DATA,
+	};
+	int error;
+
+	if (EXT4_I(inode)->i_extra_isize == 0)
+		return 0;
+
+	error = ext4_get_inode_loc(inode, &is.iloc);
+	if (error)
+		return error;
+
+	error = ext4_xattr_ibody_find(inode, &i, &is);
+	if (error)
+		goto out;
+
+	if (!is.s.not_found) {
+		if (is.s.here->e_value_inum) {
+			EXT4_ERROR_INODE(inode, "inline data xattr refers "
+					 "to an external xattr inode");
+			error = -EFSCORRUPTED;
+			goto out;
+		}
+		EXT4_I(inode)->i_inline_off = (u16)((void *)is.s.here -
+					(void *)ext4_raw_inode(&is.iloc));
+		EXT4_I(inode)->i_inline_size = EXT4_MIN_INLINE_DATA_SIZE +
+				le32_to_cpu(is.s.here->e_value_size);
+	}
+out:
+	brelse(is.iloc.bh);
+	return error;
+}
+
+
+/**
+ * ext4_read_inline_data - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_read_inline_data(struct inode *inode, void *buffer,
+				 unsigned int len,
+				 struct ext4_iloc *iloc)
+{
+	struct ext4_xattr_entry *entry;
+	struct ext4_xattr_ibody_header *header;
+	int cp_len = 0;
+	struct ext4_inode *raw_inode;
+
+	if (!len)
+		return 0;
+
+	BUG_ON(len > EXT4_I(inode)->i_inline_size);
+
+	cp_len = min_t(unsigned int, len, EXT4_MIN_INLINE_DATA_SIZE);
+
+	raw_inode = ext4_raw_inode(iloc);
+	memcpy(buffer, (void *)(raw_inode->i_block), cp_len);
+
+	len -= cp_len;
+	buffer += cp_len;
+
+	if (!len)
+		goto out;
+
+	header = IHDR(inode, raw_inode);
+	entry = (struct ext4_xattr_entry *)((void *)raw_inode +
+					    EXT4_I(inode)->i_inline_off);
+	len = min_t(unsigned int, len,
+		    (unsigned int)le32_to_cpu(entry->e_value_size));
+
+	memcpy(buffer,
+	       (void *)IFIRST(header) + le16_to_cpu(entry->e_value_offs), len);
+	cp_len += len;
+
+out:
+	return cp_len;
+}
+
+
+/**
+ * ext4_write_inline_data - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static void ext4_write_inline_data(struct inode *inode, struct ext4_iloc *iloc,
+				   void *buffer, loff_t pos, unsigned int len)
+{
+	struct ext4_xattr_entry *entry;
+	struct ext4_xattr_ibody_header *header;
+	struct ext4_inode *raw_inode;
+	int cp_len = 0;
+
+	if (unlikely(ext4_forced_shutdown(inode->i_sb)))
+		return;
+
+	BUG_ON(!EXT4_I(inode)->i_inline_off);
+	BUG_ON(pos + len > EXT4_I(inode)->i_inline_size);
+
+	raw_inode = ext4_raw_inode(iloc);
+	buffer += pos;
+
+	if (pos < EXT4_MIN_INLINE_DATA_SIZE) {
+		cp_len = pos + len > EXT4_MIN_INLINE_DATA_SIZE ?
+			 EXT4_MIN_INLINE_DATA_SIZE - pos : len;
+		memcpy((void *)raw_inode->i_block + pos, buffer, cp_len);
+
+		len -= cp_len;
+		buffer += cp_len;
+		pos += cp_len;
+	}
+
+	if (!len)
+		return;
+
+	pos -= EXT4_MIN_INLINE_DATA_SIZE;
+	header = IHDR(inode, raw_inode);
+	entry = (struct ext4_xattr_entry *)((void *)raw_inode +
+					    EXT4_I(inode)->i_inline_off);
+
+	memcpy((void *)IFIRST(header) + le16_to_cpu(entry->e_value_offs) + pos,
+	       buffer, len);
+}
+
+
+/**
+ * ext4_create_inline_data - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_create_inline_data(handle_t *handle,
+				   struct inode *inode, unsigned len)
+{
+	int error;
+	void *value = NULL;
+	struct ext4_xattr_ibody_find is = {
+		.s = { .not_found = -ENODATA, },
+	};
+	struct ext4_xattr_info i = {
+		.name_index = EXT4_XATTR_INDEX_SYSTEM,
+		.name = EXT4_XATTR_SYSTEM_DATA,
+	};
+
+	error = ext4_get_inode_loc(inode, &is.iloc);
+	if (error)
+		return error;
+
+	BUFFER_TRACE(is.iloc.bh, "get_write_access");
+	error = ext4_journal_get_write_access(handle, inode->i_sb, is.iloc.bh,
+					      EXT4_JTR_NONE);
+	if (error)
+		goto out;
+
+	if (len > EXT4_MIN_INLINE_DATA_SIZE) {
+		value = EXT4_ZERO_XATTR_VALUE;
+		len -= EXT4_MIN_INLINE_DATA_SIZE;
+	} else {
+		value = "";
+		len = 0;
+	}
+
+
+	i.value = value;
+	i.value_len = len;
+
+	error = ext4_xattr_ibody_find(inode, &i, &is);
+	if (error)
+		goto out;
+
+	if (!is.s.not_found) {
+		EXT4_ERROR_INODE(inode, "unexpected inline data xattr");
+		error = -EFSCORRUPTED;
+		goto out;
+	}
+
+	error = ext4_xattr_ibody_set(handle, inode, &i, &is);
+	if (error) {
+		if (error == -ENOSPC)
+			ext4_clear_inode_state(inode,
+					       EXT4_STATE_MAY_INLINE_DATA);
+		goto out;
+	}
+
+	memset((void *)ext4_raw_inode(&is.iloc)->i_block,
+		0, EXT4_MIN_INLINE_DATA_SIZE);
+
+	EXT4_I(inode)->i_inline_off = (u16)((void *)is.s.here -
+				      (void *)ext4_raw_inode(&is.iloc));
+	EXT4_I(inode)->i_inline_size = len + EXT4_MIN_INLINE_DATA_SIZE;
+	ext4_clear_inode_flag(inode, EXT4_INODE_EXTENTS);
+	ext4_set_inode_flag(inode, EXT4_INODE_INLINE_DATA);
+	get_bh(is.iloc.bh);
+	error = ext4_mark_iloc_dirty(handle, inode, &is.iloc);
+
+out:
+	brelse(is.iloc.bh);
+	return error;
+}
+
+
+/**
+ * ext4_update_inline_data - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_update_inline_data(handle_t *handle, struct inode *inode,
+				   unsigned int len)
+{
+	int error;
+	void *value = NULL;
+	struct ext4_xattr_ibody_find is = {
+		.s = { .not_found = -ENODATA, },
+	};
+	struct ext4_xattr_info i = {
+		.name_index = EXT4_XATTR_INDEX_SYSTEM,
+		.name = EXT4_XATTR_SYSTEM_DATA,
+	};
+
+
+	if (len <= EXT4_I(inode)->i_inline_size)
+		return 0;
+
+	error = ext4_get_inode_loc(inode, &is.iloc);
+	if (error)
+		return error;
+
+	error = ext4_xattr_ibody_find(inode, &i, &is);
+	if (error)
+		goto out;
+
+	if (is.s.not_found) {
+		EXT4_ERROR_INODE(inode, "missing inline data xattr");
+		error = -EFSCORRUPTED;
+		goto out;
+	}
+
+	len -= EXT4_MIN_INLINE_DATA_SIZE;
+	value = kzalloc(len, GFP_NOFS);
+	if (!value) {
+		error = -ENOMEM;
+		goto out;
+	}
+
+	error = ext4_xattr_ibody_get(inode, i.name_index, i.name,
+				     value, len);
+	if (error < 0)
+		goto out;
+
+	BUFFER_TRACE(is.iloc.bh, "get_write_access");
+	error = ext4_journal_get_write_access(handle, inode->i_sb, is.iloc.bh,
+					      EXT4_JTR_NONE);
+	if (error)
+		goto out;
+
+
+	i.value = value;
+	i.value_len = len;
+
+	error = ext4_xattr_ibody_set(handle, inode, &i, &is);
+	if (error)
+		goto out;
+
+	EXT4_I(inode)->i_inline_off = (u16)((void *)is.s.here -
+				      (void *)ext4_raw_inode(&is.iloc));
+	EXT4_I(inode)->i_inline_size = EXT4_MIN_INLINE_DATA_SIZE +
+				le32_to_cpu(is.s.here->e_value_size);
+	ext4_set_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
+	get_bh(is.iloc.bh);
+	error = ext4_mark_iloc_dirty(handle, inode, &is.iloc);
+
+out:
+	kfree(value);
+	brelse(is.iloc.bh);
+	return error;
+}
+
+
+/**
+ * ext4_prepare_inline_data - Implements the prepare inline data operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_prepare_inline_data(handle_t *handle, struct inode *inode,
+				    loff_t len)
+{
+	int ret, size, no_expand;
+	struct ext4_inode_info *ei = EXT4_I(inode);
 
 	if (!ext4_test_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA))
 		return -ENOSPC;
-	if (end < 0 || end > INT_MAX)
+
+	size = ext4_get_max_inline_size(inode);
+	if (size < len)
 		return -ENOSPC;
 
-	capacity = ext4_get_max_inline_size(inode);
-	if (capacity < end)
-		return -ENOSPC;
+	ext4_write_lock_xattr(inode, &no_expand);
 
-	ext4_write_lock_xattr(inode, &saved);
-	(void)ext4_find_inline_data_nolock(inode);
 
-	if (!ext4_has_inline_data(inode))
-		memset(EXT4_I(inode)->i_data, 0,
-		       IFS_EXT4_INLINE_HEAD_BYTES);
-
-	if (ifs_ext4_inline_size(inode) < end)
-		err = ifs_ext4_resize_inline_xattr(
-			handle, inode, (unsigned int)end);
+	(void) ext4_find_inline_data_nolock(inode);
+	if (ei->i_inline_off)
+		ret = ext4_update_inline_data(handle, inode, len);
 	else
-		err = 0;
+		ret = ext4_create_inline_data(handle, inode, len);
 
-	ext4_write_unlock_xattr(inode, &saved);
-	return err;
+	ext4_write_unlock_xattr(inode, &no_expand);
+	return ret;
 }
 
-static int ifs_ext4_destroy_inline_locked(handle_t *handle,
-					  struct inode *inode)
+
+/**
+ * ext4_destroy_inline_data_nolock - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_destroy_inline_data_nolock(handle_t *handle,
+					   struct inode *inode)
 {
-	struct ext4_xattr_ibody_find find = {
-		.s = { .not_found = -ENODATA },
+	struct ext4_inode_info *ei = EXT4_I(inode);
+	struct ext4_xattr_ibody_find is = {
+		.s = { .not_found = 0, },
 	};
-	struct ext4_xattr_info info = {
+	struct ext4_xattr_info i = {
 		.name_index = EXT4_XATTR_INDEX_SYSTEM,
-		.name = IFS_EXT4_INLINE_XATTR_NAME,
+		.name = EXT4_XATTR_SYSTEM_DATA,
 		.value = NULL,
 		.value_len = 0,
 	};
-	int err;
+	int error;
 
-	if (!ext4_has_inline_data(inode))
+	if (!ei->i_inline_off)
 		return 0;
 
-	err = ext4_get_inode_loc(inode, &find.iloc);
-	if (err)
-		return err;
+	down_write(&ei->i_data_sem);
 
-	err = ext4_xattr_ibody_find(inode, &info, &find);
-	if (err)
-		goto out;
-
-	if (!find.s.not_found) {
-		err = ext4_journal_get_write_access(
-			handle, inode->i_sb, find.iloc.bh, EXT4_JTR_NONE);
-		if (err)
-			goto out;
-		err = ext4_xattr_ibody_set(handle, inode, &info, &find);
-		if (err)
-			goto out;
+	error = ext4_get_inode_loc(inode, &is.iloc);
+	if (error) {
+		up_write(&ei->i_data_sem);
+		return error;
 	}
 
-	memset(ext4_raw_inode(&find.iloc)->i_block, 0,
-	       IFS_EXT4_INLINE_HEAD_BYTES);
-	memset(EXT4_I(inode)->i_data, 0, IFS_EXT4_INLINE_HEAD_BYTES);
+	error = ext4_xattr_ibody_find(inode, &i, &is);
+	if (error)
+		goto out;
+
+	BUFFER_TRACE(is.iloc.bh, "get_write_access");
+	error = ext4_journal_get_write_access(handle, inode->i_sb, is.iloc.bh,
+					      EXT4_JTR_NONE);
+	if (error)
+		goto out;
+
+	error = ext4_xattr_ibody_set(handle, inode, &i, &is);
+	if (error)
+		goto out;
+
+	memset((void *)ext4_raw_inode(&is.iloc)->i_block,
+		0, EXT4_MIN_INLINE_DATA_SIZE);
+	memset(ei->i_data, 0, EXT4_MIN_INLINE_DATA_SIZE);
+
+	if (ext4_has_feature_extents(inode->i_sb)) {
+		if (S_ISDIR(inode->i_mode) ||
+		    S_ISREG(inode->i_mode) || S_ISLNK(inode->i_mode)) {
+			ext4_set_inode_flag(inode, EXT4_INODE_EXTENTS);
+			ext4_ext_tree_init(handle, inode);
+		}
+	}
+	ext4_clear_inode_flag(inode, EXT4_INODE_INLINE_DATA);
+
+	get_bh(is.iloc.bh);
+	error = ext4_mark_iloc_dirty(handle, inode, &is.iloc);
 
 	EXT4_I(inode)->i_inline_off = 0;
 	EXT4_I(inode)->i_inline_size = 0;
-	ext4_clear_inode_flag(inode, EXT4_INODE_INLINE_DATA);
 	ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
-
-	if (ext4_has_feature_extents(inode->i_sb) &&
-	    (S_ISREG(inode->i_mode) ||
-	     S_ISDIR(inode->i_mode) ||
-	     S_ISLNK(inode->i_mode))) {
-		ext4_set_inode_flag(inode, EXT4_INODE_EXTENTS);
-		ext4_ext_tree_init(handle, inode);
-	}
-
-	get_bh(find.iloc.bh);
-	err = ext4_mark_iloc_dirty(handle, inode, &find.iloc);
-
 out:
-	brelse(find.iloc.bh);
-	return err == -ENODATA ? 0 : err;
+	brelse(is.iloc.bh);
+	if (error == -ENODATA)
+		error = 0;
+	up_write(&ei->i_data_sem);
+	return error;
 }
 
-int ext4_destroy_inline_data(handle_t *handle, struct inode *inode)
-{
-	int saved;
-	int err;
 
-	ext4_write_lock_xattr(inode, &saved);
-	down_write(&EXT4_I(inode)->i_data_sem);
-	err = ifs_ext4_destroy_inline_locked(handle, inode);
-	up_write(&EXT4_I(inode)->i_data_sem);
-	ext4_write_unlock_xattr(inode, &saved);
-	return err;
-}
-
-static int ifs_ext4_fill_inline_folio(struct inode *inode,
-				      struct folio *folio)
+/**
+ * ext4_read_inline_folio - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_read_inline_folio(struct inode *inode, struct folio *folio)
 {
+	void *kaddr;
+	int ret = 0;
+	size_t len;
 	struct ext4_iloc iloc;
-	void *address;
-	unsigned int amount;
-	int err;
 
-	if (!folio_test_locked(folio) || folio->index != 0)
-		return -EINVAL;
+	BUG_ON(!folio_test_locked(folio));
+	BUG_ON(!ext4_has_inline_data(inode));
+	BUG_ON(folio->index);
 
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return err;
-
-	amount = min_t(loff_t, ifs_ext4_inline_size(inode),
-		       i_size_read(inode));
-	if (amount > folio_size(folio)) {
-		err = -EFSCORRUPTED;
+	if (!EXT4_I(inode)->i_inline_off) {
+		ext4_warning(inode->i_sb, "inode %lu doesn't have inline data.",
+			     inode->i_ino);
 		goto out;
 	}
 
-	address = kmap_local_folio(folio, 0);
-	err = ifs_ext4_inline_read(inode, &iloc, address, amount);
-	if (err >= 0) {
-		memset((u8 *)address + amount, 0,
-		       folio_size(folio) - amount);
-		folio_mark_uptodate(folio);
-		err = 0;
+	ret = ext4_get_inode_loc(inode, &iloc);
+	if (ret)
+		goto out;
+
+	len = min_t(size_t, ext4_get_inline_size(inode), i_size_read(inode));
+
+	if (len > PAGE_SIZE) {
+		ext4_error_inode(inode, __func__, __LINE__, 0,
+				 "inline size %zu exceeds PAGE_SIZE", len);
+		ret = -EFSCORRUPTED;
+		brelse(iloc.bh);
+		goto out;
 	}
-	kunmap_local(address);
+
+	kaddr = kmap_local_folio(folio, 0);
+	ret = ext4_read_inline_data(inode, kaddr, len, &iloc);
+	kaddr = folio_zero_tail(folio, len, kaddr + len);
+	kunmap_local(kaddr);
+	folio_mark_uptodate(folio);
+	brelse(iloc.bh);
 
 out:
-	brelse(iloc.bh);
-	return err;
+	return ret;
 }
 
+
+/**
+ * ext4_readpage_inline - Implements the readpage inline operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 int ext4_readpage_inline(struct inode *inode, struct folio *folio)
 {
-	int err = 0;
-
-	down_read(&EXT4_I(inode)->xattr_sem);
-	if (!ext4_has_inline_data(inode)) {
-		err = -EAGAIN;
-	} else if (folio->index == 0) {
-		err = ifs_ext4_fill_inline_folio(inode, folio);
-	} else if (!folio_test_uptodate(folio)) {
-		folio_zero_segment(folio, 0, folio_size(folio));
-		folio_mark_uptodate(folio);
-	}
-	up_read(&EXT4_I(inode)->xattr_sem);
-
-	folio_unlock(folio);
-	return err;
-}
-
-static int ifs_ext4_inline_to_block(handle_t *handle,
-				    struct inode *inode,
-				    struct ext4_iloc *iloc)
-{
-	unsigned int inline_size = ifs_ext4_inline_size(inode);
-	struct ext4_map_blocks map = {
-		.m_lblk = 0,
-		.m_len = 1,
-	};
-	struct buffer_head *data = NULL;
-	void *payload = NULL;
-	int err;
-
-	if (!inline_size)
-		return 0;
-
-	payload = kmalloc(inline_size, GFP_NOFS);
-	if (!payload)
-		return -ENOMEM;
-
-	err = ifs_ext4_inline_read(
-		inode, iloc, payload, inline_size);
-	if (err < 0)
-		goto out;
-
-	if (S_ISDIR(inode->i_mode)) {
-		err = ext4_check_all_de(
-			inode, iloc->bh,
-			(u8 *)payload + IFS_EXT4_INLINE_PARENT_BYTES,
-			inline_size - IFS_EXT4_INLINE_PARENT_BYTES);
-		if (err)
-			goto out;
-	}
-
-	err = ifs_ext4_destroy_inline_locked(handle, inode);
-	if (err)
-		goto out;
-
-	err = ext4_map_blocks(
-		handle, inode, &map, EXT4_GET_BLOCKS_CREATE);
-	if (err < 0)
-		goto restore;
-	if (!(map.m_flags & EXT4_MAP_MAPPED)) {
-		err = -EIO;
-		goto restore;
-	}
-
-	data = sb_getblk(inode->i_sb, map.m_pblk);
-	if (!data) {
-		err = -ENOMEM;
-		goto restore;
-	}
-
-	lock_buffer(data);
-	err = ext4_journal_get_create_access(
-		handle, inode->i_sb, data, EXT4_JTR_NONE);
-	if (err) {
-		unlock_buffer(data);
-		goto restore;
-	}
-
-	memset(data->b_data, 0, inode->i_sb->s_blocksize);
-
-	if (!S_ISDIR(inode->i_mode)) {
-		memcpy(data->b_data, payload, inline_size);
-		set_buffer_uptodate(data);
-		unlock_buffer(data);
-		err = ext4_handle_dirty_metadata(handle, inode, data);
-		goto out;
-	}
-
-	{
-		struct ext4_dir_entry_2 *first =
-			(struct ext4_dir_entry_2 *)data->b_data;
-		struct ext4_dir_entry_2 *after_dotdot;
-		unsigned int checksum_bytes = ext4_has_metadata_csum(inode->i_sb) ?
-			sizeof(struct ext4_dir_entry_tail) : 0U;
-		unsigned int prefix;
-		unsigned int source_bytes =
-			inline_size - IFS_EXT4_INLINE_PARENT_BYTES;
-
-		after_dotdot = ext4_init_dot_dotdot(
-			inode, first, inode->i_sb->s_blocksize, 0,
-			le32_to_cpu(
-				((struct ext4_dir_entry_2 *)payload)->inode),
-			1);
-		prefix = (u8 *)after_dotdot - (u8 *)data->b_data;
-		memcpy(after_dotdot,
-		       (u8 *)payload + IFS_EXT4_INLINE_PARENT_BYTES,
-		       source_bytes);
-
-		/* Give the final copied dirent all remaining directory space. */
-		if (source_bytes) {
-			u8 *cursor = (u8 *)after_dotdot;
-			u8 *limit = cursor + source_bytes;
-			struct ext4_dir_entry_2 *last = NULL;
-
-			while (cursor < limit) {
-				struct ext4_dir_entry_2 *de =
-					(struct ext4_dir_entry_2 *)cursor;
-				unsigned int len =
-					ext4_rec_len_from_disk(
-						de->rec_len, source_bytes);
-
-				if (!len || cursor + len > limit) {
-					err = -EFSCORRUPTED;
-					break;
-				}
-				last = de;
-				cursor += len;
-			}
-			if (!err && last) {
-				unsigned int offset =
-					(u8 *)last - (u8 *)data->b_data;
-				last->rec_len = ext4_rec_len_to_disk(
-					inode->i_sb->s_blocksize -
-					checksum_bytes - offset,
-					inode->i_sb->s_blocksize);
-			}
-		}
-
-		if (!err && checksum_bytes)
-			ext4_initialize_dirent_tail(
-				data, inode->i_sb->s_blocksize);
-		if (!err) {
-			inode->i_size = inode->i_sb->s_blocksize;
-			EXT4_I(inode)->i_disksize = inode->i_sb->s_blocksize;
-			set_buffer_uptodate(data);
-			unlock_buffer(data);
-			err = ext4_handle_dirty_dirblock(
-				handle, inode, data);
-			if (!err) {
-				set_buffer_verified(data);
-				err = ext4_mark_inode_dirty(handle, inode);
-			}
-		} else {
-			unlock_buffer(data);
-		}
-		(void)prefix;
-	}
-	goto out;
-
-restore:
-	/*
-	 * Conversion failure must not leave the inode in a half-converted
-	 * state. Recreate the inline xattr and restore the captured bytes.
-	 */
-	if (!ifs_ext4_resize_inline_xattr(handle, inode, inline_size)) {
-		struct ext4_iloc restore_iloc;
-
-		if (!ext4_get_inode_loc(inode, &restore_iloc)) {
-			(void)ifs_ext4_inline_write(
-				inode, &restore_iloc,
-				payload, 0, inline_size);
-			brelse(restore_iloc.bh);
-		}
-	}
-
-out:
-	brelse(data);
-	kfree(payload);
-	return err;
-}
-
-static int ifs_ext4_convert_inline_mapping(struct address_space *mapping,
-					   struct inode *inode)
-{
-	struct ext4_iloc iloc;
-	struct folio *folio;
-	handle_t *handle;
-	int credits;
-	int saved;
-	int err;
-
-	if (!ext4_has_inline_data(inode)) {
-		ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
-		return 0;
-	}
-
-	credits = ext4_writepage_trans_blocks(inode);
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return err;
-
-	handle = ext4_journal_start(inode, EXT4_HT_WRITE_PAGE, credits);
-	if (IS_ERR(handle)) {
-		brelse(iloc.bh);
-		return PTR_ERR(handle);
-	}
-
-	folio = __filemap_get_folio(
-		mapping, 0, FGP_WRITEBEGIN | FGP_NOFS,
-		mapping_gfp_mask(mapping));
-	if (IS_ERR(folio)) {
-		err = PTR_ERR(folio);
-		goto stop;
-	}
-
-	ext4_write_lock_xattr(inode, &saved);
-	if (!ext4_has_inline_data(inode)) {
-		err = 0;
-		goto unlock_xattr;
-	}
-
-	if (!folio_test_uptodate(folio)) {
-		err = ifs_ext4_fill_inline_folio(inode, folio);
-		if (err)
-			goto unlock_xattr;
-	}
-
-	err = ifs_ext4_inline_to_block(handle, inode, &iloc);
-	if (!err) {
-		folio_mark_uptodate(folio);
-		folio_mark_dirty(folio);
-	}
-
-unlock_xattr:
-	ext4_write_unlock_xattr(inode, &saved);
-	folio_unlock(folio);
-	folio_put(folio);
-stop:
-	ext4_journal_stop(handle);
-	brelse(iloc.bh);
-	return err;
-}
-
-int ext4_try_to_write_inline_data(struct address_space *mapping,
-				  struct inode *inode,
-				  loff_t pos,
-				  unsigned int len,
-				  struct folio **foliop)
-{
-	struct ext4_iloc iloc;
-	struct folio *folio;
-	handle_t *handle;
-	int err;
-
-	if ((u64)pos + len > ext4_get_max_inline_size(inode))
-		return ifs_ext4_convert_inline_mapping(mapping, inode);
-
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return err;
-
-	handle = ext4_journal_start(inode, EXT4_HT_INODE, 1);
-	if (IS_ERR(handle)) {
-		brelse(iloc.bh);
-		return PTR_ERR(handle);
-	}
-
-	err = ifs_ext4_prepare_inline(handle, inode, pos + len);
-	if (err == -ENOSPC) {
-		ext4_journal_stop(handle);
-		brelse(iloc.bh);
-		return ifs_ext4_convert_inline_mapping(mapping, inode);
-	}
-	if (err)
-		goto stop;
-
-	err = ext4_journal_get_write_access(
-		handle, inode->i_sb, iloc.bh, EXT4_JTR_NONE);
-	if (err)
-		goto stop;
-
-	folio = __filemap_get_folio(
-		mapping, 0, FGP_WRITEBEGIN | FGP_NOFS,
-		mapping_gfp_mask(mapping));
-	if (IS_ERR(folio)) {
-		err = PTR_ERR(folio);
-		goto stop;
-	}
+	int ret = 0;
 
 	down_read(&EXT4_I(inode)->xattr_sem);
 	if (!ext4_has_inline_data(inode)) {
 		up_read(&EXT4_I(inode)->xattr_sem);
-		folio_unlock(folio);
-		folio_put(folio);
-		err = 0;
-		goto stop;
+		return -EAGAIN;
 	}
 
-	if (!folio_test_uptodate(folio)) {
-		err = ifs_ext4_fill_inline_folio(inode, folio);
-		if (err) {
-			up_read(&EXT4_I(inode)->xattr_sem);
-			folio_unlock(folio);
-			folio_put(folio);
-			goto stop;
-		}
+
+	if (!folio->index)
+		ret = ext4_read_inline_folio(inode, folio);
+	else if (!folio_test_uptodate(folio)) {
+		folio_zero_segment(folio, 0, folio_size(folio));
+		folio_mark_uptodate(folio);
 	}
+
 	up_read(&EXT4_I(inode)->xattr_sem);
 
-	*foliop = folio;
-	brelse(iloc.bh);
-	return 1;
-
-stop:
-	ext4_journal_stop(handle);
-	brelse(iloc.bh);
-	return err;
+	folio_unlock(folio);
+	return ret >= 0 ? 0 : ret;
 }
 
-int ext4_write_inline_data_end(struct inode *inode,
-			       loff_t pos,
-			       unsigned int len,
-			       unsigned int copied,
-			       struct folio *folio)
+
+/**
+ * ext4_convert_inline_data_to_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_convert_inline_data_to_extent(struct address_space *mapping,
+					      struct inode *inode)
 {
-	handle_t *handle = ext4_journal_current_handle();
+	int ret, needed_blocks, no_expand;
+	handle_t *handle = NULL;
+	int retries = 0, sem_held = 0;
+	struct folio *folio = NULL;
+	unsigned from, to;
 	struct ext4_iloc iloc;
-	void *address;
-	int saved;
-	int err = 0;
-	int stop_err;
 
-	if (copied < len && !folio_test_uptodate(folio))
-		copied = 0;
+	if (!ext4_has_inline_data(inode)) {
 
-	if (copied) {
-		err = ext4_get_inode_loc(inode, &iloc);
-		if (!err) {
-			ext4_write_lock_xattr(inode, &saved);
-			if (!ext4_has_inline_data(inode)) {
-				err = -EAGAIN;
-			} else {
-				address = kmap_local_folio(folio, 0);
-				err = ifs_ext4_inline_write(
-					inode, &iloc, address, pos, copied);
-				kunmap_local(address);
-				if (!err) {
-					folio_mark_uptodate(folio);
-					folio_clear_dirty(folio);
-					ext4_update_inode_size(
-						inode, pos + copied);
-				}
-			}
-			ext4_write_unlock_xattr(inode, &saved);
-			brelse(iloc.bh);
-		}
+
+		ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
+		return 0;
 	}
 
-	folio_unlock(folio);
-	folio_put(folio);
+	needed_blocks = ext4_writepage_trans_blocks(inode);
 
-	if (!err && copied)
-		mark_inode_dirty(inode);
+	ret = ext4_get_inode_loc(inode, &iloc);
+	if (ret)
+		return ret;
 
-	if ((u64)pos + len > i_size_read(inode) &&
-	    ext4_can_truncate(inode))
+retry:
+	handle = ext4_journal_start(inode, EXT4_HT_WRITE_PAGE, needed_blocks);
+	if (IS_ERR(handle)) {
+		ret = PTR_ERR(handle);
+		handle = NULL;
+		goto out;
+	}
+
+
+	folio = __filemap_get_folio(mapping, 0, FGP_WRITEBEGIN | FGP_NOFS,
+			mapping_gfp_mask(mapping));
+	if (IS_ERR(folio)) {
+		ret = PTR_ERR(folio);
+		goto out_nofolio;
+	}
+
+	ext4_write_lock_xattr(inode, &no_expand);
+	sem_held = 1;
+
+	if (!ext4_has_inline_data(inode)) {
+		ret = 0;
+		goto out;
+	}
+
+	from = 0;
+	to = ext4_get_inline_size(inode);
+	if (!folio_test_uptodate(folio)) {
+		ret = ext4_read_inline_folio(inode, folio);
+		if (ret < 0)
+			goto out;
+	}
+
+	ret = ext4_destroy_inline_data_nolock(handle, inode);
+	if (ret)
+		goto out;
+
+	if (ext4_should_dioread_nolock(inode)) {
+		ret = ext4_block_write_begin(handle, folio, from, to,
+					     ext4_get_block_unwritten);
+	} else
+		ret = ext4_block_write_begin(handle, folio, from, to,
+					     ext4_get_block);
+	clear_buffer_new(folio_buffers(folio));
+
+	if (!ret && ext4_should_journal_data(inode)) {
+		ret = ext4_walk_page_buffers(handle, inode,
+					     folio_buffers(folio), from, to,
+					     NULL, do_journal_get_write_access);
+	}
+
+	if (ret) {
+		folio_unlock(folio);
+		folio_put(folio);
+		folio = NULL;
 		ext4_orphan_add(handle, inode);
-
-	stop_err = ext4_journal_stop(handle);
-	if (!err)
-		err = stop_err;
-
-	if ((u64)pos + len > i_size_read(inode)) {
+		ext4_write_unlock_xattr(inode, &no_expand);
+		sem_held = 0;
+		ext4_journal_stop(handle);
+		handle = NULL;
 		ext4_truncate_failed_write(inode);
+
+
 		if (inode->i_nlink)
 			ext4_orphan_del(NULL, inode);
 	}
 
-	return err ? err : copied;
+	if (ret == -ENOSPC && ext4_should_retry_alloc(inode->i_sb, &retries))
+		goto retry;
+
+	if (folio)
+		block_commit_write(&folio->page, from, to);
+out:
+	if (folio) {
+		folio_unlock(folio);
+		folio_put(folio);
+	}
+out_nofolio:
+	if (sem_held)
+		ext4_write_unlock_xattr(inode, &no_expand);
+	if (handle)
+		ext4_journal_stop(handle);
+	brelse(iloc.bh);
+	return ret;
 }
 
-static int ifs_ext4_da_materialise_inline(struct address_space *mapping,
-					  struct inode *inode,
-					  void **fsdata)
-{
-	struct folio *folio;
-	unsigned int bytes;
-	int err = 0;
 
-	folio = __filemap_get_folio(
-		mapping, 0, FGP_WRITEBEGIN,
-		mapping_gfp_mask(mapping));
+/**
+ * ext4_try_to_write_inline_data - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+int ext4_try_to_write_inline_data(struct address_space *mapping,
+				  struct inode *inode,
+				  loff_t pos, unsigned len,
+				  struct folio **foliop)
+{
+	int ret;
+	handle_t *handle;
+	struct folio *folio;
+	struct ext4_iloc iloc;
+
+	if (pos + len > ext4_get_max_inline_size(inode))
+		goto convert;
+
+	ret = ext4_get_inode_loc(inode, &iloc);
+	if (ret)
+		return ret;
+
+
+	handle = ext4_journal_start(inode, EXT4_HT_INODE, 1);
+	if (IS_ERR(handle)) {
+		ret = PTR_ERR(handle);
+		handle = NULL;
+		goto out;
+	}
+
+	ret = ext4_prepare_inline_data(handle, inode, pos + len);
+	if (ret && ret != -ENOSPC)
+		goto out;
+
+
+	if (ret == -ENOSPC) {
+		ext4_journal_stop(handle);
+		brelse(iloc.bh);
+		goto convert;
+	}
+
+	ret = ext4_journal_get_write_access(handle, inode->i_sb, iloc.bh,
+					    EXT4_JTR_NONE);
+	if (ret)
+		goto out;
+
+	folio = __filemap_get_folio(mapping, 0, FGP_WRITEBEGIN | FGP_NOFS,
+					mapping_gfp_mask(mapping));
+	if (IS_ERR(folio)) {
+		ret = PTR_ERR(folio);
+		goto out;
+	}
+
+	*foliop = folio;
+	down_read(&EXT4_I(inode)->xattr_sem);
+	if (!ext4_has_inline_data(inode)) {
+		ret = 0;
+		folio_unlock(folio);
+		folio_put(folio);
+		goto out_up_read;
+	}
+
+	if (!folio_test_uptodate(folio)) {
+		ret = ext4_read_inline_folio(inode, folio);
+		if (ret < 0) {
+			folio_unlock(folio);
+			folio_put(folio);
+			goto out_up_read;
+		}
+	}
+
+	ret = 1;
+	handle = NULL;
+out_up_read:
+	up_read(&EXT4_I(inode)->xattr_sem);
+out:
+	if (handle && (ret != 1))
+		ext4_journal_stop(handle);
+	brelse(iloc.bh);
+	return ret;
+convert:
+	return ext4_convert_inline_data_to_extent(mapping, inode);
+}
+
+
+/**
+ * ext4_write_inline_data_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+int ext4_write_inline_data_end(struct inode *inode, loff_t pos, unsigned len,
+			       unsigned copied, struct folio *folio)
+{
+	handle_t *handle = ext4_journal_current_handle();
+	int no_expand;
+	void *kaddr;
+	struct ext4_iloc iloc;
+	int ret = 0, ret2;
+
+	if (unlikely(copied < len) && !folio_test_uptodate(folio))
+		copied = 0;
+
+	if (likely(copied)) {
+		ret = ext4_get_inode_loc(inode, &iloc);
+		if (ret) {
+			folio_unlock(folio);
+			folio_put(folio);
+			ext4_std_error(inode->i_sb, ret);
+			goto out;
+		}
+		ext4_write_lock_xattr(inode, &no_expand);
+		BUG_ON(!ext4_has_inline_data(inode));
+
+
+		(void) ext4_find_inline_data_nolock(inode);
+
+		kaddr = kmap_local_folio(folio, 0);
+		ext4_write_inline_data(inode, &iloc, kaddr, pos, copied);
+		kunmap_local(kaddr);
+		folio_mark_uptodate(folio);
+
+		folio_clear_dirty(folio);
+
+		ext4_write_unlock_xattr(inode, &no_expand);
+		brelse(iloc.bh);
+
+
+		ext4_update_inode_size(inode, pos + copied);
+	}
+	folio_unlock(folio);
+	folio_put(folio);
+
+
+	if (likely(copied))
+		mark_inode_dirty(inode);
+out:
+
+
+	if (pos + len > inode->i_size && ext4_can_truncate(inode))
+		ext4_orphan_add(handle, inode);
+
+	ret2 = ext4_journal_stop(handle);
+	if (!ret)
+		ret = ret2;
+	if (pos + len > inode->i_size) {
+		ext4_truncate_failed_write(inode);
+
+
+		if (inode->i_nlink)
+			ext4_orphan_del(NULL, inode);
+	}
+	return ret ? ret : copied;
+}
+
+
+/**
+ * ext4_da_convert_inline_data_to_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_da_convert_inline_data_to_extent(struct address_space *mapping,
+						 struct inode *inode,
+						 void **fsdata)
+{
+	int ret = 0, inline_size;
+	struct folio *folio;
+
+	folio = __filemap_get_folio(mapping, 0, FGP_WRITEBEGIN,
+					mapping_gfp_mask(mapping));
 	if (IS_ERR(folio))
 		return PTR_ERR(folio);
 
@@ -893,548 +973,820 @@ static int ifs_ext4_da_materialise_inline(struct address_space *mapping,
 		goto out;
 	}
 
-	bytes = ifs_ext4_inline_size(inode);
+	inline_size = ext4_get_inline_size(inode);
+
 	if (!folio_test_uptodate(folio)) {
-		err = ifs_ext4_fill_inline_folio(inode, folio);
-		if (err)
+		ret = ext4_read_inline_folio(inode, folio);
+		if (ret < 0)
 			goto out;
 	}
 
-	err = ext4_block_write_begin(
-		NULL, folio, 0, bytes, ext4_da_get_block_prep);
-	if (!err) {
-		clear_buffer_new(folio_buffers(folio));
-		folio_mark_dirty(folio);
-		folio_mark_uptodate(folio);
-		ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
-		*fsdata = (void *)CONVERT_INLINE_DATA;
+	ret = ext4_block_write_begin(NULL, folio, 0, inline_size,
+				     ext4_da_get_block_prep);
+	if (ret) {
+		up_read(&EXT4_I(inode)->xattr_sem);
+		folio_unlock(folio);
+		folio_put(folio);
+		ext4_truncate_failed_write(inode);
+		return ret;
 	}
+
+	clear_buffer_new(folio_buffers(folio));
+	folio_mark_dirty(folio);
+	folio_mark_uptodate(folio);
+	ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
+	*fsdata = (void *)CONVERT_INLINE_DATA;
 
 out:
 	up_read(&EXT4_I(inode)->xattr_sem);
-	folio_unlock(folio);
-	folio_put(folio);
-	return err;
+	if (folio) {
+		folio_unlock(folio);
+		folio_put(folio);
+	}
+	return ret;
 }
 
+
+/**
+ * ext4_da_write_inline_data_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 int ext4_da_write_inline_data_begin(struct address_space *mapping,
 				    struct inode *inode,
-				    loff_t pos,
-				    unsigned int len,
+				    loff_t pos, unsigned len,
 				    struct folio **foliop,
 				    void **fsdata)
 {
-	struct ext4_iloc iloc;
-	struct folio *folio;
+	int ret;
 	handle_t *handle;
+	struct folio *folio;
+	struct ext4_iloc iloc;
 	int retries = 0;
-	int err;
 
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return err;
+	ret = ext4_get_inode_loc(inode, &iloc);
+	if (ret)
+		return ret;
 
-retry:
+retry_journal:
 	handle = ext4_journal_start(inode, EXT4_HT_INODE, 1);
 	if (IS_ERR(handle)) {
-		err = PTR_ERR(handle);
+		ret = PTR_ERR(handle);
 		goto out;
 	}
 
-	err = ifs_ext4_prepare_inline(handle, inode, pos + len);
-	if (err == -ENOSPC) {
+	ret = ext4_prepare_inline_data(handle, inode, pos + len);
+	if (ret && ret != -ENOSPC)
+		goto out_journal;
+
+	if (ret == -ENOSPC) {
 		ext4_journal_stop(handle);
-		err = ifs_ext4_da_materialise_inline(
-			mapping, inode, fsdata);
-		if (err == -ENOSPC &&
+		ret = ext4_da_convert_inline_data_to_extent(mapping,
+							    inode,
+							    fsdata);
+		if (ret == -ENOSPC &&
 		    ext4_should_retry_alloc(inode->i_sb, &retries))
-			goto retry;
+			goto retry_journal;
 		goto out;
 	}
-	if (err)
-		goto stop;
 
-	folio = __filemap_get_folio(
-		mapping, 0, FGP_WRITEBEGIN | FGP_NOFS,
-		mapping_gfp_mask(mapping));
+
+	folio = __filemap_get_folio(mapping, 0, FGP_WRITEBEGIN | FGP_NOFS,
+					mapping_gfp_mask(mapping));
 	if (IS_ERR(folio)) {
-		err = PTR_ERR(folio);
-		goto stop;
+		ret = PTR_ERR(folio);
+		goto out_journal;
 	}
 
 	down_read(&EXT4_I(inode)->xattr_sem);
 	if (!ext4_has_inline_data(inode)) {
-		err = 0;
-		goto release;
+		ret = 0;
+		goto out_release_page;
 	}
+
 	if (!folio_test_uptodate(folio)) {
-		err = ifs_ext4_fill_inline_folio(inode, folio);
-		if (err)
-			goto release;
+		ret = ext4_read_inline_folio(inode, folio);
+		if (ret < 0)
+			goto out_release_page;
 	}
-	err = ext4_journal_get_write_access(
-		handle, inode->i_sb, iloc.bh, EXT4_JTR_NONE);
-	if (err)
-		goto release;
+	ret = ext4_journal_get_write_access(handle, inode->i_sb, iloc.bh,
+					    EXT4_JTR_NONE);
+	if (ret)
+		goto out_release_page;
 
 	up_read(&EXT4_I(inode)->xattr_sem);
 	*foliop = folio;
 	brelse(iloc.bh);
 	return 1;
-
-release:
+out_release_page:
 	up_read(&EXT4_I(inode)->xattr_sem);
 	folio_unlock(folio);
 	folio_put(folio);
-stop:
+out_journal:
 	ext4_journal_stop(handle);
 out:
 	brelse(iloc.bh);
-	return err;
+	return ret;
 }
 
 #ifdef INLINE_DIR_DEBUG
-static void __maybe_unused ext4_show_inline_dir(struct inode *dir,
-			  struct buffer_head *bh,
-			  void *start,
-			  int size)
+
+
+/**
+ * ext4_show_inline_dir - Implements the show inline dir operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+void ext4_show_inline_dir(struct inode *dir, struct buffer_head *bh,
+			  void *inline_start, int inline_size)
 {
-	u8 *cursor = start;
-	u8 *limit = cursor + size;
+	int offset;
+	unsigned short de_len;
+	struct ext4_dir_entry_2 *de = inline_start;
+	void *dlimit = inline_start + inline_size;
 
-	while (cursor < limit) {
-		struct ext4_dir_entry_2 *de =
-			(struct ext4_dir_entry_2 *)cursor;
-		unsigned int len =
-			ext4_rec_len_from_disk(de->rec_len, size);
+	trace_printk("inode %lu\n", dir->i_ino);
+	offset = 0;
+	while ((void *)de < dlimit) {
+		de_len = ext4_rec_len_from_disk(de->rec_len, inline_size);
+		trace_printk("de: off %u rlen %u name %.*s nlen %u ino %u\n",
+			     offset, de_len, de->name_len, de->name,
+			     de->name_len, le32_to_cpu(de->inode));
+		if (ext4_check_dir_entry(dir, NULL, de, bh,
+					 inline_start, inline_size, offset))
+			BUG();
 
-		if (ext4_check_dir_entry(
-			    dir, NULL, de, bh, start, size,
-			    cursor - (u8 *)start))
-			break;
-		if (!len)
-			break;
-		cursor += len;
+		offset += de_len;
+		de = (struct ext4_dir_entry_2 *) ((char *) de + de_len);
 	}
 }
 #else
-static void __maybe_unused ext4_show_inline_dir(struct inode *dir,
-			  struct buffer_head *bh,
-			  void *start,
-			  int size)
-{
-	(void)dir;
-	(void)bh;
-	(void)start;
-	(void)size;
-}
+#define ext4_show_inline_dir(dir, bh, inline_start, inline_size)
 #endif
 
-static int ifs_ext4_inline_add_dirent(handle_t *handle,
-				      struct ext4_filename *fname,
-				      struct inode *dir,
-				      struct inode *inode,
-				      struct ext4_iloc *iloc,
-				      void *region,
-				      unsigned int region_size)
+
+/**
+ * ext4_add_dirent_to_inline - Implements the add dirent to inline operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_add_dirent_to_inline(handle_t *handle,
+				     struct ext4_filename *fname,
+				     struct inode *dir,
+				     struct inode *inode,
+				     struct ext4_iloc *iloc,
+				     void *inline_start, int inline_size)
 {
-	struct ext4_dir_entry_2 *slot;
-	int err;
+	int		err;
+	struct ext4_dir_entry_2 *de;
 
-	err = ext4_find_dest_de(
-		dir, inode, iloc->bh, region,
-		region_size, fname, &slot);
+	err = ext4_find_dest_de(dir, inode, iloc->bh, inline_start,
+				inline_size, fname, &de);
 	if (err)
 		return err;
 
-	err = ext4_journal_get_write_access(
-		handle, dir->i_sb, iloc->bh, EXT4_JTR_NONE);
+	BUFFER_TRACE(iloc->bh, "get_write_access");
+	err = ext4_journal_get_write_access(handle, dir->i_sb, iloc->bh,
+					    EXT4_JTR_NONE);
 	if (err)
 		return err;
+	ext4_insert_dentry(dir, inode, de, inline_size, fname);
 
-	ext4_insert_dentry(dir, inode, slot, region_size, fname);
+	ext4_show_inline_dir(dir, iloc->bh, inline_start, inline_size);
+
+
 	inode_set_mtime_to_ts(dir, inode_set_ctime_current(dir));
 	ext4_update_dx_flag(dir);
 	inode_inc_iversion(dir);
 	return 1;
 }
 
-static void ifs_ext4_expand_last_dirent(void *region,
-				       unsigned int old_size,
-				       unsigned int new_size)
+
+/**
+ * ext4_get_inline_xattr_pos - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static void *ext4_get_inline_xattr_pos(struct inode *inode,
+				       struct ext4_iloc *iloc)
 {
-	u8 *cursor = region;
-	u8 *limit = cursor + old_size;
-	struct ext4_dir_entry_2 *last = NULL;
+	struct ext4_xattr_entry *entry;
+	struct ext4_xattr_ibody_header *header;
 
-	if (!old_size) {
-		last = region;
-		last->inode = 0;
-		last->rec_len =
-			ext4_rec_len_to_disk(new_size, new_size);
-		return;
-	}
+	BUG_ON(!EXT4_I(inode)->i_inline_off);
 
-	while (cursor < limit) {
-		struct ext4_dir_entry_2 *de =
-			(struct ext4_dir_entry_2 *)cursor;
-		unsigned int len =
-			ext4_rec_len_from_disk(de->rec_len, old_size);
+	header = IHDR(inode, ext4_raw_inode(iloc));
+	entry = (struct ext4_xattr_entry *)((void *)ext4_raw_inode(iloc) +
+					    EXT4_I(inode)->i_inline_off);
 
-		if (!len || cursor + len > limit)
-			return;
-		last = de;
-		cursor += len;
-	}
+	return (void *)IFIRST(header) + le16_to_cpu(entry->e_value_offs);
+}
 
-	if (last) {
-		unsigned int offset = (u8 *)last - (u8 *)region;
 
-		last->rec_len = ext4_rec_len_to_disk(
-			new_size - offset, new_size);
+/**
+ * ext4_update_final_de - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static void ext4_update_final_de(void *de_buf, int old_size, int new_size)
+{
+	struct ext4_dir_entry_2 *de, *prev_de;
+	void *limit;
+	int de_len;
+
+	de = de_buf;
+	if (old_size) {
+		limit = de_buf + old_size;
+		do {
+			prev_de = de;
+			de_len = ext4_rec_len_from_disk(de->rec_len, old_size);
+			de_buf += de_len;
+			de = de_buf;
+		} while (de_buf < limit);
+
+		prev_de->rec_len = ext4_rec_len_to_disk(de_len + new_size -
+							old_size, new_size);
+	} else {
+
+		de->inode = 0;
+		de->rec_len = ext4_rec_len_to_disk(new_size, new_size);
 	}
 }
 
-static int ifs_ext4_grow_inline_directory(handle_t *handle,
-					   struct inode *dir,
-					   struct ext4_iloc *iloc)
-{
-	unsigned int old_tail =
-		ifs_ext4_inline_size(dir) > IFS_EXT4_INLINE_HEAD_BYTES ?
-		ifs_ext4_inline_size(dir) - IFS_EXT4_INLINE_HEAD_BYTES : 0U;
-	unsigned int capacity =
-		ifs_ext4_inline_tail_capacity(dir, iloc);
-	int err;
 
-	if (capacity <= old_tail + ext4_dir_rec_len(1, NULL))
+/**
+ * ext4_update_inline_dir - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_update_inline_dir(handle_t *handle, struct inode *dir,
+				  struct ext4_iloc *iloc)
+{
+	int ret;
+	int old_size = EXT4_I(dir)->i_inline_size - EXT4_MIN_INLINE_DATA_SIZE;
+	int new_size = get_max_inline_xattr_value_size(dir, iloc);
+
+	if (new_size - old_size <= ext4_dir_rec_len(1, NULL))
 		return -ENOSPC;
 
-	err = ifs_ext4_resize_inline_xattr(
-		handle, dir, IFS_EXT4_INLINE_HEAD_BYTES + capacity);
-	if (err)
-		return err;
+	ret = ext4_update_inline_data(handle, dir,
+				      new_size + EXT4_MIN_INLINE_DATA_SIZE);
+	if (ret)
+		return ret;
 
-	ifs_ext4_expand_last_dirent(
-		ifs_ext4_inline_tail(dir, iloc),
-		old_tail, capacity);
-	dir->i_size = EXT4_I(dir)->i_disksize =
-		ifs_ext4_inline_size(dir);
+	ext4_update_final_de(ext4_get_inline_xattr_pos(dir, iloc), old_size,
+			     EXT4_I(dir)->i_inline_size -
+						EXT4_MIN_INLINE_DATA_SIZE);
+	dir->i_size = EXT4_I(dir)->i_disksize = EXT4_I(dir)->i_inline_size;
 	return 0;
 }
 
-int ext4_try_add_inline_entry(handle_t *handle,
-			      struct ext4_filename *fname,
-			      struct inode *dir,
-			      struct inode *inode)
-{
-	struct ext4_iloc iloc;
-	void *region;
-	unsigned int region_size;
-	int saved;
-	int err;
-	int dirty_err;
 
-	err = ext4_get_inode_loc(dir, &iloc);
+/**
+ * ext4_restore_inline_data - Implements the restore inline data operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static void ext4_restore_inline_data(handle_t *handle, struct inode *inode,
+				     struct ext4_iloc *iloc,
+				     void *buf, int inline_size)
+{
+	int ret;
+
+	ret = ext4_create_inline_data(handle, inode, inline_size);
+	if (ret) {
+		ext4_msg(inode->i_sb, KERN_EMERG,
+			"error restoring inline_data for inode -- potential data loss! (inode %lu, error %d)",
+			inode->i_ino, ret);
+		return;
+	}
+	ext4_write_inline_data(inode, iloc, buf, 0, inline_size);
+	ext4_set_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
+}
+
+
+/**
+ * ext4_finish_convert_inline_dir - Implements the finish convert inline dir operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_finish_convert_inline_dir(handle_t *handle,
+					  struct inode *inode,
+					  struct buffer_head *dir_block,
+					  void *buf,
+					  int inline_size)
+{
+	int err, csum_size = 0, header_size = 0;
+	struct ext4_dir_entry_2 *de;
+	void *target = dir_block->b_data;
+
+
+	de = target;
+	de = ext4_init_dot_dotdot(inode, de,
+		inode->i_sb->s_blocksize, csum_size,
+		le32_to_cpu(((struct ext4_dir_entry_2 *)buf)->inode), 1);
+	header_size = (void *)de - target;
+
+	memcpy((void *)de, buf + EXT4_INLINE_DOTDOT_SIZE,
+		inline_size - EXT4_INLINE_DOTDOT_SIZE);
+
+	if (ext4_has_metadata_csum(inode->i_sb))
+		csum_size = sizeof(struct ext4_dir_entry_tail);
+
+	inode->i_size = inode->i_sb->s_blocksize;
+	i_size_write(inode, inode->i_sb->s_blocksize);
+	EXT4_I(inode)->i_disksize = inode->i_sb->s_blocksize;
+	ext4_update_final_de(dir_block->b_data,
+			inline_size - EXT4_INLINE_DOTDOT_SIZE + header_size,
+			inode->i_sb->s_blocksize - csum_size);
+
+	if (csum_size)
+		ext4_initialize_dirent_tail(dir_block,
+					    inode->i_sb->s_blocksize);
+	set_buffer_uptodate(dir_block);
+	unlock_buffer(dir_block);
+	err = ext4_handle_dirty_dirblock(handle, inode, dir_block);
 	if (err)
 		return err;
+	set_buffer_verified(dir_block);
+	return ext4_mark_inode_dirty(handle, inode);
+}
 
-	ext4_write_lock_xattr(dir, &saved);
-	if (!ext4_has_inline_data(dir)) {
-		err = 0;
+
+/**
+ * ext4_convert_inline_data_nolock - Implements the convert inline data nolock operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static int ext4_convert_inline_data_nolock(handle_t *handle,
+					   struct inode *inode,
+					   struct ext4_iloc *iloc)
+{
+	int error;
+	void *buf = NULL;
+	struct buffer_head *data_bh = NULL;
+	struct ext4_map_blocks map;
+	int inline_size;
+
+	inline_size = ext4_get_inline_size(inode);
+	buf = kmalloc(inline_size, GFP_NOFS);
+	if (!buf) {
+		error = -ENOMEM;
 		goto out;
 	}
 
-	region = (u8 *)ext4_raw_inode(&iloc)->i_block +
-		IFS_EXT4_INLINE_PARENT_BYTES;
-	region_size =
-		IFS_EXT4_INLINE_HEAD_BYTES - IFS_EXT4_INLINE_PARENT_BYTES;
-
-	err = ifs_ext4_inline_add_dirent(
-		handle, fname, dir, inode, &iloc,
-		region, region_size);
-	if (err != -ENOSPC)
+	error = ext4_read_inline_data(inode, buf, inline_size, iloc);
+	if (error < 0)
 		goto out;
 
-	region_size = ifs_ext4_inline_size(dir) -
-		IFS_EXT4_INLINE_HEAD_BYTES;
-	if (!region_size) {
-		err = ifs_ext4_grow_inline_directory(
-			handle, dir, &iloc);
-		if (err && err != -ENOSPC)
-			goto out;
-		region_size = ifs_ext4_inline_size(dir) -
-			IFS_EXT4_INLINE_HEAD_BYTES;
-	}
 
-	if (region_size) {
-		region = ifs_ext4_inline_tail(dir, &iloc);
-		err = ifs_ext4_inline_add_dirent(
-			handle, fname, dir, inode, &iloc,
-			region, region_size);
-		if (err != -ENOSPC)
+	if (S_ISDIR(inode->i_mode)) {
+		error = ext4_check_all_de(inode, iloc->bh,
+					buf + EXT4_INLINE_DOTDOT_SIZE,
+					inline_size - EXT4_INLINE_DOTDOT_SIZE);
+		if (error)
 			goto out;
 	}
 
-	err = ifs_ext4_inline_to_block(handle, dir, &iloc);
+	error = ext4_destroy_inline_data_nolock(handle, inode);
+	if (error)
+		goto out;
+
+	map.m_lblk = 0;
+	map.m_len = 1;
+	map.m_flags = 0;
+	error = ext4_map_blocks(handle, inode, &map, EXT4_GET_BLOCKS_CREATE);
+	if (error < 0)
+		goto out_restore;
+	if (!(map.m_flags & EXT4_MAP_MAPPED)) {
+		error = -EIO;
+		goto out_restore;
+	}
+
+	data_bh = sb_getblk(inode->i_sb, map.m_pblk);
+	if (!data_bh) {
+		error = -ENOMEM;
+		goto out_restore;
+	}
+
+	lock_buffer(data_bh);
+	error = ext4_journal_get_create_access(handle, inode->i_sb, data_bh,
+					       EXT4_JTR_NONE);
+	if (error) {
+		unlock_buffer(data_bh);
+		error = -EIO;
+		goto out_restore;
+	}
+	memset(data_bh->b_data, 0, inode->i_sb->s_blocksize);
+
+	if (!S_ISDIR(inode->i_mode)) {
+		memcpy(data_bh->b_data, buf, inline_size);
+		set_buffer_uptodate(data_bh);
+		unlock_buffer(data_bh);
+		error = ext4_handle_dirty_metadata(handle,
+						   inode, data_bh);
+	} else {
+		error = ext4_finish_convert_inline_dir(handle, inode, data_bh,
+						       buf, inline_size);
+	}
+
+out_restore:
+	if (error)
+		ext4_restore_inline_data(handle, inode, iloc, buf, inline_size);
 
 out:
-	ext4_write_unlock_xattr(dir, &saved);
-	dirty_err = ext4_mark_inode_dirty(handle, dir);
-	if (!err)
-		err = dirty_err;
-	brelse(iloc.bh);
-	return err;
+	brelse(data_bh);
+	kfree(buf);
+	return error;
 }
 
-static int ifs_ext4_copy_inline_directory(struct inode *inode,
-					  struct ext4_iloc *iloc,
-					  void **buffer,
-					  unsigned int *size)
+
+/**
+ * ext4_try_add_inline_entry - Implements the try add inline entry operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+int ext4_try_add_inline_entry(handle_t *handle, struct ext4_filename *fname,
+			      struct inode *dir, struct inode *inode)
 {
-	void *copy;
-	int err;
+	int ret, ret2, inline_size, no_expand;
+	void *inline_start;
+	struct ext4_iloc iloc;
 
-	*size = ifs_ext4_inline_size(inode);
-	copy = kmalloc(*size, GFP_NOFS);
-	if (!copy)
-		return -ENOMEM;
+	ret = ext4_get_inode_loc(dir, &iloc);
+	if (ret)
+		return ret;
 
-	err = ifs_ext4_inline_read(inode, iloc, copy, *size);
-	if (err < 0) {
-		kfree(copy);
-		return err;
+	ext4_write_lock_xattr(dir, &no_expand);
+	if (!ext4_has_inline_data(dir))
+		goto out;
+
+	inline_start = (void *)ext4_raw_inode(&iloc)->i_block +
+						 EXT4_INLINE_DOTDOT_SIZE;
+	inline_size = EXT4_MIN_INLINE_DATA_SIZE - EXT4_INLINE_DOTDOT_SIZE;
+
+	ret = ext4_add_dirent_to_inline(handle, fname, dir, inode, &iloc,
+					inline_start, inline_size);
+	if (ret != -ENOSPC)
+		goto out;
+
+
+	inline_size = EXT4_I(dir)->i_inline_size -
+			EXT4_MIN_INLINE_DATA_SIZE;
+	if (!inline_size) {
+
+		ret = ext4_update_inline_dir(handle, dir, &iloc);
+		if (ret && ret != -ENOSPC)
+			goto out;
+
+		inline_size = EXT4_I(dir)->i_inline_size -
+				EXT4_MIN_INLINE_DATA_SIZE;
 	}
-	*buffer = copy;
-	return 0;
+
+	if (inline_size) {
+		inline_start = ext4_get_inline_xattr_pos(dir, &iloc);
+
+		ret = ext4_add_dirent_to_inline(handle, fname, dir,
+						inode, &iloc, inline_start,
+						inline_size);
+
+		if (ret != -ENOSPC)
+			goto out;
+	}
+
+
+	ret = ext4_convert_inline_data_nolock(handle, dir, &iloc);
+
+out:
+	ext4_write_unlock_xattr(dir, &no_expand);
+	ret2 = ext4_mark_inode_dirty(handle, dir);
+	if (unlikely(ret2 && !ret))
+		ret = ret2;
+	brelse(iloc.bh);
+	return ret;
 }
 
-int ext4_inlinedir_to_tree(struct file *file,
-			   struct inode *dir,
-			   ext4_lblk_t block,
+
+/**
+ * ext4_inlinedir_to_tree - Implements the inlinedir to tree operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+int ext4_inlinedir_to_tree(struct file *dir_file,
+			   struct inode *dir, ext4_lblk_t block,
 			   struct dx_hash_info *hinfo,
-			   __u32 start_hash,
-			   __u32 start_minor_hash,
+			   __u32 start_hash, __u32 start_minor_hash,
 			   int *has_inline_data)
 {
-	struct inode *inode = file_inode(file);
+	int err = 0, count = 0;
+	unsigned int parent_ino;
+	int pos;
+	struct ext4_dir_entry_2 *de;
+	struct inode *inode = file_inode(dir_file);
+	int ret, inline_size = 0;
 	struct ext4_iloc iloc;
-	struct fscrypt_str name;
-	struct ext4_dir_entry_2 synthetic = { };
-	void *buffer = NULL;
-	unsigned int size = 0;
-	unsigned int offset = 0;
-	unsigned int parent;
-	int count = 0;
-	int err;
+	void *dir_buf = NULL;
+	struct ext4_dir_entry_2 fake;
+	struct fscrypt_str tmp_str;
 
-	(void)dir;
-	(void)block;
-
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return err;
+	ret = ext4_get_inode_loc(inode, &iloc);
+	if (ret)
+		return ret;
 
 	down_read(&EXT4_I(inode)->xattr_sem);
 	if (!ext4_has_inline_data(inode)) {
+		up_read(&EXT4_I(inode)->xattr_sem);
 		*has_inline_data = 0;
-		err = 0;
-		goto unlock;
+		goto out;
 	}
 
-	err = ifs_ext4_copy_inline_directory(
-		inode, &iloc, &buffer, &size);
-	if (err)
-		goto unlock;
+	inline_size = ext4_get_inline_size(inode);
+	dir_buf = kmalloc(inline_size, GFP_NOFS);
+	if (!dir_buf) {
+		ret = -ENOMEM;
+		up_read(&EXT4_I(inode)->xattr_sem);
+		goto out;
+	}
 
-	parent = le32_to_cpu(
-		((struct ext4_dir_entry_2 *)buffer)->inode);
+	ret = ext4_read_inline_data(inode, dir_buf, inline_size, &iloc);
+	up_read(&EXT4_I(inode)->xattr_sem);
+	if (ret < 0)
+		goto out;
 
-	while (offset < size) {
-		struct ext4_dir_entry_2 *de;
-		unsigned int next;
+	pos = 0;
+	parent_ino = le32_to_cpu(((struct ext4_dir_entry_2 *)dir_buf)->inode);
+	while (pos < inline_size) {
 
-		if (offset == 0) {
-			synthetic.inode = cpu_to_le32(inode->i_ino);
-			synthetic.name_len = 1;
-			memcpy(synthetic.name, ".", 1);
-			ext4_set_de_type(inode->i_sb, &synthetic, S_IFDIR);
-			de = &synthetic;
-			next = 2;
-		} else if (offset == 2) {
-			synthetic.inode = cpu_to_le32(parent);
-			synthetic.name_len = 2;
-			memcpy(synthetic.name, "..", 2);
-			ext4_set_de_type(inode->i_sb, &synthetic, S_IFDIR);
-			de = &synthetic;
-			next = IFS_EXT4_INLINE_PARENT_BYTES;
+
+		if (pos == 0) {
+			fake.inode = cpu_to_le32(inode->i_ino);
+			fake.name_len = 1;
+			strcpy(fake.name, ".");
+			fake.rec_len = ext4_rec_len_to_disk(
+					  ext4_dir_rec_len(fake.name_len, NULL),
+					  inline_size);
+			ext4_set_de_type(inode->i_sb, &fake, S_IFDIR);
+			de = &fake;
+			pos = EXT4_INLINE_DOTDOT_OFFSET;
+		} else if (pos == EXT4_INLINE_DOTDOT_OFFSET) {
+			fake.inode = cpu_to_le32(parent_ino);
+			fake.name_len = 2;
+			strcpy(fake.name, "..");
+			fake.rec_len = ext4_rec_len_to_disk(
+					  ext4_dir_rec_len(fake.name_len, NULL),
+					  inline_size);
+			ext4_set_de_type(inode->i_sb, &fake, S_IFDIR);
+			de = &fake;
+			pos = EXT4_INLINE_DOTDOT_SIZE;
 		} else {
-			de = (struct ext4_dir_entry_2 *)
-				((u8 *)buffer + offset);
-			next = offset + ext4_rec_len_from_disk(
-				de->rec_len, size);
-			if (next <= offset || next > size) {
-				err = -EFSCORRUPTED;
-				break;
+			de = (struct ext4_dir_entry_2 *)(dir_buf + pos);
+			pos += ext4_rec_len_from_disk(de->rec_len, inline_size);
+			if (ext4_check_dir_entry(inode, dir_file, de,
+					 iloc.bh, dir_buf,
+					 inline_size, pos)) {
+				ret = count;
+				goto out;
 			}
 		}
 
-		if (ext4_hash_in_dirent(inode)) {
+		if (ext4_hash_in_dirent(dir)) {
 			hinfo->hash = EXT4_DIRENT_HASH(de);
 			hinfo->minor_hash = EXT4_DIRENT_MINOR_HASH(de);
 		} else {
-			err = ext4fs_dirhash(
-				inode, de->name, de->name_len, hinfo);
-			if (err)
-				break;
+			err = ext4fs_dirhash(dir, de->name, de->name_len, hinfo);
+			if (err) {
+				ret = err;
+				goto out;
+			}
 		}
-
-		if (de->inode &&
-		    (hinfo->hash > start_hash ||
-		     (hinfo->hash == start_hash &&
-		      hinfo->minor_hash >= start_minor_hash))) {
-			name.name = de->name;
-			name.len = de->name_len;
-			err = ext4_htree_store_dirent(
-				file, hinfo->hash, hinfo->minor_hash,
-				de, &name);
-			if (err)
-				break;
-			count++;
+		if ((hinfo->hash < start_hash) ||
+		    ((hinfo->hash == start_hash) &&
+		     (hinfo->minor_hash < start_minor_hash)))
+			continue;
+		if (de->inode == 0)
+			continue;
+		tmp_str.name = de->name;
+		tmp_str.len = de->name_len;
+		err = ext4_htree_store_dirent(dir_file, hinfo->hash,
+					      hinfo->minor_hash, de, &tmp_str);
+		if (err) {
+			ret = err;
+			goto out;
 		}
-
-		offset = next;
+		count++;
 	}
-
-	if (!err)
-		err = count;
-
-unlock:
-	up_read(&EXT4_I(inode)->xattr_sem);
-	kfree(buffer);
+	ret = count;
+out:
+	kfree(dir_buf);
 	brelse(iloc.bh);
-	return err;
+	return ret;
 }
 
+
+/**
+ * ext4_read_inline_dir - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 int ext4_read_inline_dir(struct file *file,
 			 struct dir_context *ctx,
 			 int *has_inline_data)
 {
+	unsigned int offset, parent_ino;
+	int i;
+	struct ext4_dir_entry_2 *de;
+	struct super_block *sb;
 	struct inode *inode = file_inode(file);
-	struct dir_private_info *info = file->private_data;
+	int ret, inline_size = 0;
 	struct ext4_iloc iloc;
-	void *buffer = NULL;
-	unsigned int size = 0;
-	unsigned int parent;
-	unsigned int dot = ext4_dir_rec_len(1, NULL);
-	unsigned int dotdot = dot + ext4_dir_rec_len(2, NULL);
-	unsigned int translated_base = dotdot - IFS_EXT4_INLINE_PARENT_BYTES;
-	int err;
+	void *dir_buf = NULL;
+	int dotdot_offset, dotdot_size, extra_offset, extra_size;
+	struct dir_private_info *info = file->private_data;
 
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return err;
+	ret = ext4_get_inode_loc(inode, &iloc);
+	if (ret)
+		return ret;
 
 	down_read(&EXT4_I(inode)->xattr_sem);
 	if (!ext4_has_inline_data(inode)) {
+		up_read(&EXT4_I(inode)->xattr_sem);
 		*has_inline_data = 0;
-		err = 0;
-		goto unlock;
+		goto out;
 	}
 
-	err = ifs_ext4_copy_inline_directory(
-		inode, &iloc, &buffer, &size);
-	if (err)
-		goto unlock;
+	inline_size = ext4_get_inline_size(inode);
+	dir_buf = kmalloc(inline_size, GFP_NOFS);
+	if (!dir_buf) {
+		ret = -ENOMEM;
+		up_read(&EXT4_I(inode)->xattr_sem);
+		goto out;
+	}
 
-	parent = le32_to_cpu(
-		((struct ext4_dir_entry_2 *)buffer)->inode);
+	ret = ext4_read_inline_data(inode, dir_buf, inline_size, &iloc);
+	up_read(&EXT4_I(inode)->xattr_sem);
+	if (ret < 0)
+		goto out;
 
-	if (info && !inode_eq_iversion(inode, info->cookie)) {
-		ctx->pos = 0;
+	ret = 0;
+	sb = inode->i_sb;
+	parent_ino = le32_to_cpu(((struct ext4_dir_entry_2 *)dir_buf)->inode);
+	offset = ctx->pos;
+
+
+	dotdot_offset = ext4_dir_rec_len(1, NULL);
+	dotdot_size = dotdot_offset + ext4_dir_rec_len(2, NULL);
+	extra_offset = dotdot_size - EXT4_INLINE_DOTDOT_SIZE;
+	extra_size = extra_offset + inline_size;
+
+
+	if (!inode_eq_iversion(inode, info->cookie)) {
+		for (i = 0; i < extra_size && i < offset;) {
+
+
+			if (!i) {
+				i = dotdot_offset;
+				continue;
+			} else if (i == dotdot_offset) {
+				i = dotdot_size;
+				continue;
+			}
+
+
+			de = (struct ext4_dir_entry_2 *)
+				(dir_buf + i - extra_offset);
+
+
+			if (ext4_rec_len_from_disk(de->rec_len, extra_size)
+				< ext4_dir_rec_len(1, NULL))
+				break;
+			i += ext4_rec_len_from_disk(de->rec_len,
+						    extra_size);
+		}
+		offset = i;
+		ctx->pos = offset;
 		info->cookie = inode_query_iversion(inode);
 	}
 
-	while (ctx->pos < translated_base + size) {
+	while (ctx->pos < extra_size) {
 		if (ctx->pos == 0) {
-			if (!dir_emit(
-				    ctx, ".", 1, inode->i_ino, DT_DIR))
-				break;
-			ctx->pos = dot;
-			continue;
-		}
-		if (ctx->pos == dot) {
-			if (!dir_emit(ctx, "..", 2, parent, DT_DIR))
-				break;
-			ctx->pos = dotdot;
+			if (!dir_emit(ctx, ".", 1, inode->i_ino, DT_DIR))
+				goto out;
+			ctx->pos = dotdot_offset;
 			continue;
 		}
 
-		{
-			unsigned int raw_offset =
-				ctx->pos - translated_base;
-			struct ext4_dir_entry_2 *de;
-			unsigned int len;
+		if (ctx->pos == dotdot_offset) {
+			if (!dir_emit(ctx, "..", 2, parent_ino, DT_DIR))
+				goto out;
+			ctx->pos = dotdot_size;
+			continue;
+		}
 
-			if (raw_offset < IFS_EXT4_INLINE_PARENT_BYTES) {
-				ctx->pos = dotdot;
-				continue;
-			}
-			de = (struct ext4_dir_entry_2 *)
-				((u8 *)buffer + raw_offset);
-			len = ext4_rec_len_from_disk(de->rec_len, size);
-			if (!len || raw_offset + len > size) {
-				err = -EFSCORRUPTED;
-				break;
-			}
-			if (le32_to_cpu(de->inode) &&
-			    !dir_emit(ctx, de->name, de->name_len,
+		de = (struct ext4_dir_entry_2 *)
+			(dir_buf + ctx->pos - extra_offset);
+		if (ext4_check_dir_entry(inode, file, de, iloc.bh, dir_buf,
+					 extra_size, ctx->pos))
+			goto out;
+		if (le32_to_cpu(de->inode)) {
+			if (!dir_emit(ctx, de->name, de->name_len,
 				      le32_to_cpu(de->inode),
-				      get_dtype(inode->i_sb, de->file_type)))
-				break;
-			ctx->pos += len;
+				      get_dtype(sb, de->file_type)))
+				goto out;
 		}
+		ctx->pos += ext4_rec_len_from_disk(de->rec_len, extra_size);
 	}
-
-unlock:
-	up_read(&EXT4_I(inode)->xattr_sem);
-	kfree(buffer);
+out:
+	kfree(dir_buf);
 	brelse(iloc.bh);
-	return err;
+	return ret;
 }
 
+
+/**
+ * ext4_read_inline_link - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 void *ext4_read_inline_link(struct inode *inode)
 {
 	struct ext4_iloc iloc;
-	void *buffer;
-	unsigned int size;
-	int err;
+	int ret, inline_size;
+	void *link;
 
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return ERR_PTR(err);
+	ret = ext4_get_inode_loc(inode, &iloc);
+	if (ret)
+		return ERR_PTR(ret);
 
-	size = ifs_ext4_inline_size(inode);
-	buffer = kmalloc(size + 1U, GFP_NOFS);
-	if (!buffer) {
-		brelse(iloc.bh);
-		return ERR_PTR(-ENOMEM);
+	ret = -ENOMEM;
+	inline_size = ext4_get_inline_size(inode);
+	link = kmalloc(inline_size + 1, GFP_NOFS);
+	if (!link)
+		goto out;
+
+	ret = ext4_read_inline_data(inode, link, inline_size, &iloc);
+	if (ret < 0) {
+		kfree(link);
+		goto out;
 	}
-
-	err = ifs_ext4_inline_read(inode, &iloc, buffer, size);
+	nd_terminate_link(link, inode->i_size, ret);
+out:
+	if (ret < 0)
+		link = ERR_PTR(ret);
 	brelse(iloc.bh);
-	if (err < 0) {
-		kfree(buffer);
-		return ERR_PTR(err);
-	}
-
-	nd_terminate_link(buffer, inode->i_size, size);
-	return buffer;
+	return link;
 }
 
-struct buffer_head *ext4_get_first_inline_block(
-	struct inode *inode,
-	struct ext4_dir_entry_2 **parent_de,
-	int *retval)
+
+/**
+ * ext4_get_first_inline_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+struct buffer_head *ext4_get_first_inline_block(struct inode *inode,
+					struct ext4_dir_entry_2 **parent_de,
+					int *retval)
 {
 	struct ext4_iloc iloc;
 
@@ -1442,414 +1794,517 @@ struct buffer_head *ext4_get_first_inline_block(
 	if (*retval)
 		return NULL;
 
-	*parent_de = (struct ext4_dir_entry_2 *)
-		ext4_raw_inode(&iloc)->i_block;
+	*parent_de = (struct ext4_dir_entry_2 *)ext4_raw_inode(&iloc)->i_block;
+
 	return iloc.bh;
 }
 
-int ext4_try_create_inline_dir(handle_t *handle,
-			       struct inode *parent,
+
+/**
+ * ext4_try_create_inline_dir - Performs a namespace mutation that must remain transactionally consistent across all affected directory and inode state.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+int ext4_try_create_inline_dir(handle_t *handle, struct inode *parent,
 			       struct inode *inode)
 {
+	int ret, inline_size = EXT4_MIN_INLINE_DATA_SIZE;
 	struct ext4_iloc iloc;
-	struct ext4_dir_entry_2 *parent_slot;
-	struct ext4_dir_entry_2 *free_slot;
-	int err;
+	struct ext4_dir_entry_2 *de;
 
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return err;
+	ret = ext4_get_inode_loc(inode, &iloc);
+	if (ret)
+		return ret;
 
-	err = ifs_ext4_prepare_inline(
-		handle, inode, IFS_EXT4_INLINE_HEAD_BYTES);
-	if (err)
+	ret = ext4_prepare_inline_data(handle, inode, inline_size);
+	if (ret)
 		goto out;
 
-	parent_slot = (struct ext4_dir_entry_2 *)
-		ext4_raw_inode(&iloc)->i_block;
-	memset(parent_slot, 0, IFS_EXT4_INLINE_HEAD_BYTES);
-	parent_slot->inode = cpu_to_le32(parent->i_ino);
 
-	free_slot = (struct ext4_dir_entry_2 *)
-		((u8 *)parent_slot + IFS_EXT4_INLINE_PARENT_BYTES);
-	free_slot->rec_len = ext4_rec_len_to_disk(
-		IFS_EXT4_INLINE_HEAD_BYTES -
-		IFS_EXT4_INLINE_PARENT_BYTES,
-		IFS_EXT4_INLINE_HEAD_BYTES);
-
+	de = (struct ext4_dir_entry_2 *)ext4_raw_inode(&iloc)->i_block;
+	de->inode = cpu_to_le32(parent->i_ino);
+	de = (struct ext4_dir_entry_2 *)((void *)de + EXT4_INLINE_DOTDOT_SIZE);
+	de->inode = 0;
+	de->rec_len = ext4_rec_len_to_disk(
+				inline_size - EXT4_INLINE_DOTDOT_SIZE,
+				inline_size);
 	set_nlink(inode, 2);
-	inode->i_size = EXT4_I(inode)->i_disksize =
-		IFS_EXT4_INLINE_HEAD_BYTES;
-	err = ext4_mark_inode_dirty(handle, inode);
-
+	inode->i_size = EXT4_I(inode)->i_disksize = inline_size;
 out:
 	brelse(iloc.bh);
-	return err;
+	return ret;
 }
 
-static int ifs_ext4_search_inline_region(
-	struct inode *dir,
-	struct ext4_filename *fname,
-	struct buffer_head *bh,
-	void *region,
-	unsigned int size,
-	struct ext4_dir_entry_2 **result)
-{
-	if (!size)
-		return 0;
-	return ext4_search_dir(
-		bh, region, size, dir, fname, 0, result);
-}
 
-struct buffer_head *ext4_find_inline_entry(
-	struct inode *dir,
-	struct ext4_filename *fname,
-	struct ext4_dir_entry_2 **res_dir,
-	int *has_inline_data)
+/**
+ * ext4_find_inline_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+struct buffer_head *ext4_find_inline_entry(struct inode *dir,
+					struct ext4_filename *fname,
+					struct ext4_dir_entry_2 **res_dir,
+					int *has_inline_data)
 {
-	struct ext4_iloc iloc;
-	void *region;
-	unsigned int size;
-	int err;
+	struct ext4_xattr_ibody_find is = {
+		.s = { .not_found = -ENODATA, },
+	};
+	struct ext4_xattr_info i = {
+		.name_index = EXT4_XATTR_INDEX_SYSTEM,
+		.name = EXT4_XATTR_SYSTEM_DATA,
+	};
+	int ret;
+	void *inline_start;
+	int inline_size;
 
-	err = ext4_get_inode_loc(dir, &iloc);
-	if (err)
-		return ERR_PTR(err);
+	ret = ext4_get_inode_loc(dir, &is.iloc);
+	if (ret)
+		return ERR_PTR(ret);
 
 	down_read(&EXT4_I(dir)->xattr_sem);
+
+	ret = ext4_xattr_ibody_find(dir, &i, &is);
+	if (ret)
+		goto out;
+
 	if (!ext4_has_inline_data(dir)) {
 		*has_inline_data = 0;
-		err = 0;
-		goto miss;
+		goto out;
 	}
 
-	region = (u8 *)ext4_raw_inode(&iloc)->i_block +
-		IFS_EXT4_INLINE_PARENT_BYTES;
-	size = IFS_EXT4_INLINE_HEAD_BYTES -
-		IFS_EXT4_INLINE_PARENT_BYTES;
-	err = ifs_ext4_search_inline_region(
-		dir, fname, iloc.bh, region, size, res_dir);
-	if (err == 1)
-		goto found;
-	if (err < 0)
-		goto error;
+	inline_start = (void *)ext4_raw_inode(&is.iloc)->i_block +
+						EXT4_INLINE_DOTDOT_SIZE;
+	inline_size = EXT4_MIN_INLINE_DATA_SIZE - EXT4_INLINE_DOTDOT_SIZE;
+	ret = ext4_search_dir(is.iloc.bh, inline_start, inline_size,
+			      dir, fname, 0, res_dir);
+	if (ret == 1)
+		goto out_find;
+	if (ret < 0)
+		goto out;
 
-	size = ifs_ext4_inline_size(dir) -
-		IFS_EXT4_INLINE_HEAD_BYTES;
-	if (size) {
-		region = ifs_ext4_inline_tail(dir, &iloc);
-		err = ifs_ext4_search_inline_region(
-			dir, fname, iloc.bh, region, size, res_dir);
-		if (err == 1)
-			goto found;
-		if (err < 0)
-			goto error;
-	}
+	if (ext4_get_inline_size(dir) == EXT4_MIN_INLINE_DATA_SIZE)
+		goto out;
 
-miss:
+	inline_start = ext4_get_inline_xattr_pos(dir, &is.iloc);
+	inline_size = ext4_get_inline_size(dir) - EXT4_MIN_INLINE_DATA_SIZE;
+
+	ret = ext4_search_dir(is.iloc.bh, inline_start, inline_size,
+			      dir, fname, 0, res_dir);
+	if (ret == 1)
+		goto out_find;
+
+out:
+	brelse(is.iloc.bh);
+	if (ret < 0)
+		is.iloc.bh = ERR_PTR(ret);
+	else
+		is.iloc.bh = NULL;
+out_find:
 	up_read(&EXT4_I(dir)->xattr_sem);
-	brelse(iloc.bh);
-	return NULL;
-
-found:
-	up_read(&EXT4_I(dir)->xattr_sem);
-	return iloc.bh;
-
-error:
-	up_read(&EXT4_I(dir)->xattr_sem);
-	brelse(iloc.bh);
-	return ERR_PTR(err);
+	return is.iloc.bh;
 }
 
+
+/**
+ * ext4_delete_inline_entry - Implements the delete inline entry operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 int ext4_delete_inline_entry(handle_t *handle,
 			     struct inode *dir,
-			     struct ext4_dir_entry_2 *entry,
+			     struct ext4_dir_entry_2 *de_del,
 			     struct buffer_head *bh,
 			     int *has_inline_data)
 {
+	int err, inline_size, no_expand;
 	struct ext4_iloc iloc;
-	void *head;
-	void *tail;
-	unsigned int head_size =
-		IFS_EXT4_INLINE_HEAD_BYTES -
-		IFS_EXT4_INLINE_PARENT_BYTES;
-	unsigned int tail_size;
-	int saved;
-	int err;
+	void *inline_start;
 
 	err = ext4_get_inode_loc(dir, &iloc);
 	if (err)
 		return err;
 
-	ext4_write_lock_xattr(dir, &saved);
+	ext4_write_lock_xattr(dir, &no_expand);
 	if (!ext4_has_inline_data(dir)) {
 		*has_inline_data = 0;
-		err = 0;
 		goto out;
 	}
 
-	err = ext4_journal_get_write_access(
-		handle, dir->i_sb, bh, EXT4_JTR_NONE);
+	if ((void *)de_del - ((void *)ext4_raw_inode(&iloc)->i_block) <
+		EXT4_MIN_INLINE_DATA_SIZE) {
+		inline_start = (void *)ext4_raw_inode(&iloc)->i_block +
+					EXT4_INLINE_DOTDOT_SIZE;
+		inline_size = EXT4_MIN_INLINE_DATA_SIZE -
+				EXT4_INLINE_DOTDOT_SIZE;
+	} else {
+		inline_start = ext4_get_inline_xattr_pos(dir, &iloc);
+		inline_size = ext4_get_inline_size(dir) -
+				EXT4_MIN_INLINE_DATA_SIZE;
+	}
+
+	BUFFER_TRACE(bh, "get_write_access");
+	err = ext4_journal_get_write_access(handle, dir->i_sb, bh,
+					    EXT4_JTR_NONE);
 	if (err)
 		goto out;
 
-	head = (u8 *)ext4_raw_inode(&iloc)->i_block +
-		IFS_EXT4_INLINE_PARENT_BYTES;
-	tail = ifs_ext4_inline_tail(dir, &iloc);
-	tail_size = ifs_ext4_inline_size(dir) -
-		IFS_EXT4_INLINE_HEAD_BYTES;
+	err = ext4_generic_delete_entry(dir, de_del, bh,
+					inline_start, inline_size, 0);
+	if (err)
+		goto out;
 
-	if ((u8 *)entry >= (u8 *)head &&
-	    (u8 *)entry < (u8 *)head + head_size) {
-		err = ext4_generic_delete_entry(
-			dir, entry, bh, head, head_size, 0);
-	} else if (tail &&
-		   (u8 *)entry >= (u8 *)tail &&
-		   (u8 *)entry < (u8 *)tail + tail_size) {
-		err = ext4_generic_delete_entry(
-			dir, entry, bh, tail, tail_size, 0);
-	} else {
-		err = -EFSCORRUPTED;
-	}
-
-	if (!err)
-		err = ext4_mark_inode_dirty(handle, dir);
-
+	ext4_show_inline_dir(dir, iloc.bh, inline_start, inline_size);
 out:
-	ext4_write_unlock_xattr(dir, &saved);
+	ext4_write_unlock_xattr(dir, &no_expand);
+	if (likely(err == 0))
+		err = ext4_mark_inode_dirty(handle, dir);
 	brelse(iloc.bh);
-	if (err && err != -ENOENT)
+	if (err != -ENOENT)
 		ext4_std_error(dir->i_sb, err);
 	return err;
 }
 
-static bool ifs_ext4_region_is_empty(struct inode *dir,
-				     struct buffer_head *bh,
-				     void *region,
-				     unsigned int size,
-				     unsigned int base)
+
+/**
+ * ext4_get_inline_entry - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+static inline struct ext4_dir_entry_2 *
+ext4_get_inline_entry(struct inode *inode,
+		      struct ext4_iloc *iloc,
+		      unsigned int offset,
+		      void **inline_start,
+		      int *inline_size)
 {
-	u8 *cursor = region;
-	u8 *limit = cursor + size;
+	void *inline_pos;
 
-	while (cursor < limit) {
-		struct ext4_dir_entry_2 *de =
-			(struct ext4_dir_entry_2 *)cursor;
-		unsigned int len =
-			ext4_rec_len_from_disk(de->rec_len, size);
+	BUG_ON(offset > ext4_get_inline_size(inode));
 
-		if (!len || cursor + len > limit)
-			return false;
-		if (ext4_check_dir_entry(
-			    dir, NULL, de, bh, region, size,
-			    base + (cursor - (u8 *)region)))
-			return false;
-		if (le32_to_cpu(de->inode))
-			return false;
-		cursor += len;
+	if (offset < EXT4_MIN_INLINE_DATA_SIZE) {
+		inline_pos = (void *)ext4_raw_inode(iloc)->i_block;
+		*inline_size = EXT4_MIN_INLINE_DATA_SIZE;
+	} else {
+		inline_pos = ext4_get_inline_xattr_pos(inode, iloc);
+		offset -= EXT4_MIN_INLINE_DATA_SIZE;
+		*inline_size = ext4_get_inline_size(inode) -
+				EXT4_MIN_INLINE_DATA_SIZE;
 	}
-	return true;
+
+	if (inline_start)
+		*inline_start = inline_pos;
+	return (struct ext4_dir_entry_2 *)(inline_pos + offset);
 }
 
+
+/**
+ * empty_inline_dir - Implements the empty inline dir operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 bool empty_inline_dir(struct inode *dir, int *has_inline_data)
 {
+	int err, inline_size;
 	struct ext4_iloc iloc;
-	void *head;
-	void *tail;
-	unsigned int tail_size;
-	bool empty = false;
-	int err;
+	size_t inline_len;
+	void *inline_pos;
+	unsigned int offset;
+	struct ext4_dir_entry_2 *de;
+	bool ret = false;
 
 	err = ext4_get_inode_loc(dir, &iloc);
-	if (err)
+	if (err) {
+		EXT4_ERROR_INODE_ERR(dir, -err,
+				     "error %d getting inode %lu block",
+				     err, dir->i_ino);
 		return false;
+	}
 
 	down_read(&EXT4_I(dir)->xattr_sem);
 	if (!ext4_has_inline_data(dir)) {
 		*has_inline_data = 0;
-		empty = true;
+		ret = true;
 		goto out;
 	}
 
-	if (!le32_to_cpu(
-		    ((struct ext4_dir_entry_2 *)
-		     ext4_raw_inode(&iloc)->i_block)->inode))
+	de = (struct ext4_dir_entry_2 *)ext4_raw_inode(&iloc)->i_block;
+	if (!le32_to_cpu(de->inode)) {
+		ext4_warning(dir->i_sb,
+			     "bad inline directory (dir #%lu) - no `..'",
+			     dir->i_ino);
 		goto out;
+	}
 
-	head = (u8 *)ext4_raw_inode(&iloc)->i_block +
-		IFS_EXT4_INLINE_PARENT_BYTES;
-	if (!ifs_ext4_region_is_empty(
-		    dir, iloc.bh, head,
-		    IFS_EXT4_INLINE_HEAD_BYTES -
-		    IFS_EXT4_INLINE_PARENT_BYTES,
-		    IFS_EXT4_INLINE_PARENT_BYTES))
-		goto out;
+	inline_len = ext4_get_inline_size(dir);
+	offset = EXT4_INLINE_DOTDOT_SIZE;
+	while (offset < inline_len) {
+		de = ext4_get_inline_entry(dir, &iloc, offset,
+					   &inline_pos, &inline_size);
+		if (ext4_check_dir_entry(dir, NULL, de,
+					 iloc.bh, inline_pos,
+					 inline_size, offset)) {
+			ext4_warning(dir->i_sb,
+				     "bad inline directory (dir #%lu) - "
+				     "inode %u, rec_len %u, name_len %d"
+				     "inline size %d",
+				     dir->i_ino, le32_to_cpu(de->inode),
+				     le16_to_cpu(de->rec_len), de->name_len,
+				     inline_size);
+			goto out;
+		}
+		if (le32_to_cpu(de->inode)) {
+			goto out;
+		}
+		offset += ext4_rec_len_from_disk(de->rec_len, inline_size);
+	}
 
-	tail_size = ifs_ext4_inline_size(dir) -
-		IFS_EXT4_INLINE_HEAD_BYTES;
-	tail = ifs_ext4_inline_tail(dir, &iloc);
-	if (tail_size &&
-	    !ifs_ext4_region_is_empty(
-		    dir, iloc.bh, tail, tail_size,
-		    IFS_EXT4_INLINE_HEAD_BYTES))
-		goto out;
-
-	empty = true;
-
+	ret = true;
 out:
 	up_read(&EXT4_I(dir)->xattr_sem);
 	brelse(iloc.bh);
-	return empty;
+	return ret;
 }
 
+
+/**
+ * ext4_destroy_inline_data - Tears down subsystem state after users have been quiesced.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
+int ext4_destroy_inline_data(handle_t *handle, struct inode *inode)
+{
+	int ret, no_expand;
+
+	ext4_write_lock_xattr(inode, &no_expand);
+	ret = ext4_destroy_inline_data_nolock(handle, inode);
+	ext4_write_unlock_xattr(inode, &no_expand);
+
+	return ret;
+}
+
+
+/**
+ * ext4_inline_data_iomap - Implements the inline data iomap operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 int ext4_inline_data_iomap(struct inode *inode, struct iomap *iomap)
 {
+	__u64 addr;
+	int error = -EAGAIN;
 	struct ext4_iloc iloc;
-	u64 address;
-	int err = -EAGAIN;
 
 	down_read(&EXT4_I(inode)->xattr_sem);
 	if (!ext4_has_inline_data(inode))
 		goto out;
 
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
+	error = ext4_get_inode_loc(inode, &iloc);
+	if (error)
 		goto out;
 
-	address = (u64)iloc.bh->b_blocknr <<
-		inode->i_sb->s_blocksize_bits;
-	address += (u8 *)ext4_raw_inode(&iloc) -
-		(u8 *)iloc.bh->b_data;
-	address += offsetof(struct ext4_inode, i_block);
+	addr = (__u64)iloc.bh->b_blocknr << inode->i_sb->s_blocksize_bits;
+	addr += (char *)ext4_raw_inode(&iloc) - iloc.bh->b_data;
+	addr += offsetof(struct ext4_inode, i_block);
 
-	iomap->addr = address;
+	brelse(iloc.bh);
+
+	iomap->addr = addr;
 	iomap->offset = 0;
-	iomap->length = min_t(
-		loff_t, ifs_ext4_inline_size(inode),
-		i_size_read(inode));
+	iomap->length = min_t(loff_t, ext4_get_inline_size(inode),
+			      i_size_read(inode));
 	iomap->type = IOMAP_INLINE;
 	iomap->flags = 0;
-	brelse(iloc.bh);
 
 out:
 	up_read(&EXT4_I(inode)->xattr_sem);
-	return err;
+	return error;
 }
 
+
+/**
+ * ext4_inline_data_truncate - Implements the inline data truncate operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 int ext4_inline_data_truncate(struct inode *inode, int *has_inline)
 {
 	handle_t *handle;
-	struct ext4_iloc iloc;
-	unsigned int target;
-	unsigned int old_size;
-	void *snapshot = NULL;
-	int saved;
-	int credits;
-	int err;
+	int inline_size, value_len, needed_blocks, no_expand, err = 0;
+	size_t i_size;
+	void *value = NULL;
+	struct ext4_xattr_ibody_find is = {
+		.s = { .not_found = -ENODATA, },
+	};
+	struct ext4_xattr_info i = {
+		.name_index = EXT4_XATTR_INDEX_SYSTEM,
+		.name = EXT4_XATTR_SYSTEM_DATA,
+	};
 
-	credits = ext4_writepage_trans_blocks(inode);
-	handle = ext4_journal_start(inode, EXT4_HT_INODE, credits);
+
+	needed_blocks = ext4_writepage_trans_blocks(inode);
+	handle = ext4_journal_start(inode, EXT4_HT_INODE, needed_blocks);
 	if (IS_ERR(handle))
 		return PTR_ERR(handle);
 
-	ext4_write_lock_xattr(inode, &saved);
+	ext4_write_lock_xattr(inode, &no_expand);
 	if (!ext4_has_inline_data(inode)) {
+		ext4_write_unlock_xattr(inode, &no_expand);
 		*has_inline = 0;
-		err = 0;
-		goto unlock;
+		ext4_journal_stop(handle);
+		return 0;
 	}
 
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		goto unlock;
+	if ((err = ext4_orphan_add(handle, inode)) != 0)
+		goto out;
+
+	if ((err = ext4_get_inode_loc(inode, &is.iloc)) != 0)
+		goto out;
 
 	down_write(&EXT4_I(inode)->i_data_sem);
-	old_size = ifs_ext4_inline_size(inode);
-	target = min_t(loff_t, i_size_read(inode), old_size);
+	i_size = inode->i_size;
+	inline_size = ext4_get_inline_size(inode);
+	EXT4_I(inode)->i_disksize = i_size;
 
-	snapshot = kmalloc(old_size, GFP_NOFS);
-	if (!snapshot) {
-		err = -ENOMEM;
-		goto data_unlock;
+	if (i_size < inline_size) {
+
+
+		if (!ext4_test_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA))
+			ext4_es_remove_extent(inode, 0, EXT_MAX_BLOCKS);
+
+
+		if (inline_size > EXT4_MIN_INLINE_DATA_SIZE) {
+			if ((err = ext4_xattr_ibody_find(inode, &i, &is)) != 0)
+				goto out_error;
+
+			if (is.s.not_found) {
+				EXT4_ERROR_INODE(inode,
+						 "missing inline data xattr");
+				err = -EFSCORRUPTED;
+				goto out_error;
+			}
+
+			value_len = le32_to_cpu(is.s.here->e_value_size);
+			value = kmalloc(value_len, GFP_NOFS);
+			if (!value) {
+				err = -ENOMEM;
+				goto out_error;
+			}
+
+			err = ext4_xattr_ibody_get(inode, i.name_index,
+						   i.name, value, value_len);
+			if (err <= 0)
+				goto out_error;
+
+			i.value = value;
+			i.value_len = i_size > EXT4_MIN_INLINE_DATA_SIZE ?
+					i_size - EXT4_MIN_INLINE_DATA_SIZE : 0;
+			err = ext4_xattr_ibody_set(handle, inode, &i, &is);
+			if (err)
+				goto out_error;
+		}
+
+
+		if (i_size < EXT4_MIN_INLINE_DATA_SIZE) {
+			void *p = (void *) ext4_raw_inode(&is.iloc)->i_block;
+			memset(p + i_size, 0,
+			       EXT4_MIN_INLINE_DATA_SIZE - i_size);
+		}
+
+		EXT4_I(inode)->i_inline_size = i_size <
+					EXT4_MIN_INLINE_DATA_SIZE ?
+					EXT4_MIN_INLINE_DATA_SIZE : i_size;
 	}
-	err = ifs_ext4_inline_read(
-		inode, &iloc, snapshot, old_size);
-	if (err < 0)
-		goto data_unlock;
 
-	EXT4_I(inode)->i_disksize = i_size_read(inode);
-	if (target < old_size) {
-		unsigned int representation =
-			max(target, IFS_EXT4_INLINE_HEAD_BYTES);
-
-		err = ifs_ext4_resize_inline_xattr(
-			handle, inode, representation);
-		if (err)
-			goto data_unlock;
-
-		err = ifs_ext4_inline_write(
-			inode, &iloc, snapshot, 0, target);
-		if (err)
-			goto data_unlock;
-
-		if (target < IFS_EXT4_INLINE_HEAD_BYTES)
-			memset((u8 *)ext4_raw_inode(&iloc)->i_block + target,
-			       0,
-			       IFS_EXT4_INLINE_HEAD_BYTES - target);
-	}
-
-	inode_set_mtime_to_ts(
-		inode, inode_set_ctime_current(inode));
-	err = ext4_mark_inode_dirty(handle, inode);
-	if (!err && IS_SYNC(inode))
-		ext4_handle_sync(handle);
-
-data_unlock:
-	kfree(snapshot);
+out_error:
 	up_write(&EXT4_I(inode)->i_data_sem);
-	brelse(iloc.bh);
-unlock:
-	ext4_write_unlock_xattr(inode, &saved);
+out:
+	brelse(is.iloc.bh);
+	ext4_write_unlock_xattr(inode, &no_expand);
+	kfree(value);
 	if (inode->i_nlink)
 		ext4_orphan_del(handle, inode);
+
+	if (err == 0) {
+		inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
+		err = ext4_mark_inode_dirty(handle, inode);
+		if (IS_SYNC(inode))
+			ext4_handle_sync(handle);
+	}
 	ext4_journal_stop(handle);
 	return err;
 }
 
+
+/**
+ * ext4_convert_inline_data - Implements the convert inline data operation within the inline-data support subsystem.
+ *
+ * Correctness contract: preserve the locking, lifetime, range and
+ * transaction preconditions established by the surrounding EXT4
+ * subsystem. Failure handling must follow that subsystem's established
+ * rollback, abort or retry policy.
+ */
 int ext4_convert_inline_data(struct inode *inode)
 {
-	struct ext4_iloc iloc;
+	int error, needed_blocks, no_expand;
 	handle_t *handle;
-	int saved;
-	int credits;
-	int err;
+	struct ext4_iloc iloc;
 
 	if (!ext4_has_inline_data(inode)) {
 		ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
 		return 0;
+	} else if (!ext4_test_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA)) {
+
+
+		error = filemap_flush(inode->i_mapping);
+		if (error)
+			return error;
+		if (!ext4_has_inline_data(inode))
+			return 0;
 	}
 
-	credits = ext4_writepage_trans_blocks(inode);
-	err = ext4_get_inode_loc(inode, &iloc);
-	if (err)
-		return err;
+	needed_blocks = ext4_writepage_trans_blocks(inode);
 
-	handle = ext4_journal_start(
-		inode, EXT4_HT_WRITE_PAGE, credits);
+	iloc.bh = NULL;
+	error = ext4_get_inode_loc(inode, &iloc);
+	if (error)
+		return error;
+
+	handle = ext4_journal_start(inode, EXT4_HT_WRITE_PAGE, needed_blocks);
 	if (IS_ERR(handle)) {
-		brelse(iloc.bh);
-		return PTR_ERR(handle);
+		error = PTR_ERR(handle);
+		goto out_free;
 	}
 
-	ext4_write_lock_xattr(inode, &saved);
+	ext4_write_lock_xattr(inode, &no_expand);
 	if (ext4_has_inline_data(inode))
-		err = ifs_ext4_inline_to_block(
-			handle, inode, &iloc);
-	else
-		err = 0;
-	ext4_write_unlock_xattr(inode, &saved);
-
+		error = ext4_convert_inline_data_nolock(handle, inode, &iloc);
+	ext4_write_unlock_xattr(inode, &no_expand);
 	ext4_journal_stop(handle);
+out_free:
 	brelse(iloc.bh);
-	return err;
+	return error;
 }

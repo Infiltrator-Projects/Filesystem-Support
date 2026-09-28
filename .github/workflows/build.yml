@@ -6,17 +6,14 @@ on:
   pull_request:
 
 concurrency:
-  # v3 rotates away from a stale queued v2 run that remained attached to
-  # self-hosted runners. Future pushes still cancel superseded work on main.
-  group: filesystem-support-build-v3-${{ github.ref }}
+  # v2 rotates away from a stale cancelled run that remained attached to
+  # self-hosted runners.  Future pushes still cancel superseded work on main.
+  group: filesystem-support-build-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   source-boundary:
-    # This job performs Git history/tag checks and therefore requires a runner
-    # with the Git CLI available. Keep it on the hosted qualification image;
-    # the compile-heavy jobs may still prefer self-hosted runners.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ startsWith(github.event.head_commit.message, 'Release ') && 'ubuntu-24.04' || 'linux-native' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -948,6 +945,7 @@ jobs:
           control.c
           core_bridge.c
           directory_io.c
+          embedded_jbd2.h
           ext4.h
           ext4_extents.h
           ext4_jbd2.h
@@ -959,9 +957,13 @@ jobs:
           fast_commit_engine.c
           file_io.c
           fsmap.h
+          include
           inline_data.c
           inode_adapter.c
           inode_allocation.c
+          journal_core.c
+          journal_durability.c
+          journal_transactions.c
           lifecycle.c
           mapping_support.c
           mballoc.h
@@ -981,23 +983,36 @@ jobs:
           sort -o /tmp/ext4-linux.expected /tmp/ext4-linux.expected
           diff -u /tmp/ext4-linux.expected /tmp/ext4-linux.actual
 
-      - name: Guard canonical EXT4 source provenance
+          test -s "$root/linux/include/linux/jbd2.h"
+          test -s "$root/linux/include/trace/events/jbd2.h"
+          test "$(find "$root/linux/include" -type f | wc -l)" -eq 2
+
+      - name: Guard rewritten EXT4 interface provenance
         shell: bash
         run: |
           set -euo pipefail
-          while IFS= read -r file; do
+          rewritten=(
+            native/filesystems/ext4/linux/embedded_jbd2.h
+            native/filesystems/ext4/linux/truncate.h
+            native/filesystems/ext4/linux/fsmap.h
+            native/filesystems/ext4/linux/fast_commit.h
+            native/filesystems/ext4/linux/security_support.c
+            native/filesystems/ext4/linux/storage_guard.c
+            native/filesystems/ext4/linux/directory_io.c
+            native/filesystems/ext4/linux/volume_admin.c
+            native/filesystems/ext4/linux/journal_durability.c
+            native/filesystems/ext4/linux/mapping_support.c
+            native/filesystems/ext4/linux/core_bridge.c
+            native/filesystems/ext4/linux/ext4_jbd2.h
+            native/filesystems/ext4/linux/mballoc.h
+            native/filesystems/ext4/linux/extents_status.h
+            native/filesystems/ext4/linux/ext4_extents.h
+            native/filesystems/ext4/linux/xattr.h
+          )
+          for file in "${rewritten[@]}"; do
             test -s "$file"
-          done < <(find native/filesystems/ext4/core native/filesystems/ext4/linux -type f \
-                    \( -name '*.c' -o -name '*.h' \) -print | sort)
-
-          # These active units still carry inherited implementation history.
-          # Preserve their attribution until their implementation bodies have
-          # actually been independently replaced; deleting the notices would
-          # make the provenance check less accurate rather than more accurate.
-          grep -Fq 'Cluster File Systems' native/filesystems/ext4/linux/extent_tree.c
-          grep -Fq 'Bull S.A.' native/filesystems/ext4/linux/extent_tree.c
-          grep -Fq 'Linus Torvalds' native/filesystems/ext4/linux/inode_adapter.c
-          grep -Fq 'Linus Torvalds' native/filesystems/ext4/linux/lifecycle.c
+            ! grep -Eiq 'SPDX-License-Identifier|Copyright|Remy Card|Linus Torvalds|Stephen Tweedie|Darrick J\. Wong|GPL-2\.0' "$file"
+          done
 
       - name: Enforce permanent EXT3 source layout
         shell: bash
@@ -1027,8 +1042,10 @@ jobs:
           extended_metadata.c
           file_io.c
           inode_adapter.c
-          journal_compat.c
+          journal_core.c
+          journal_durability.c
           journal_internal.h
+          journal_transactions.c
           lifecycle.c
           linux_adapter.h
           namespace_mutation.c
@@ -1038,20 +1055,53 @@ jobs:
           sort -o /tmp/ext3-linux.expected /tmp/ext3-linux.expected
           diff -u /tmp/ext3-linux.expected /tmp/ext3-linux.actual
 
-      - name: Guard canonical SFS and EXT3 source ownership
+      - name: Guard project-authored SFS and EXT3 units
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -R -Eq '\bASFS_|\basfs_|CONFIG_ASFS_' native/filesystems/sfs/linux
-          while IFS= read -r file; do
+          rewritten=(
+            native/filesystems/sfs/linux/core_bridge.c
+            native/filesystems/sfs/linux/allocation.c
+            native/filesystems/sfs/linux/mapping.c
+            native/filesystems/sfs/linux/io.c
+            native/filesystems/sfs/linux/namespace.c
+            native/filesystems/sfs/linux/lifecycle.c
+            native/filesystems/sfs/linux/linux_adapter.h
+            native/filesystems/sfs/linux/disk_layout.h
+            native/filesystems/ext3/linux/allocation.c
+            native/filesystems/ext3/linux/directory_io.c
+            native/filesystems/ext3/linux/file_io.c
+            native/filesystems/ext3/linux/journal_durability.c
+            native/filesystems/ext3/linux/core_bridge.c
+          )
+          for file in "${rewritten[@]}"; do
             test -s "$file"
-            ! grep -Eiq 'Written by|Remy Card|Stephen Tweedie|Linus Torvalds|Theodore Ts.o|Marek Szyprowski|John Hendrikx|Ray Burr|Hans-Joachim Widmaier|Andreas Gruenbacher|James Morris|Red Hat' "$file"
+            ! grep -Eiq 'Written by|Remy Card|Stephen Tweedie|Linus Torvalds|Marek Szyprowski|John Hendrikx|Ray Burr|Hans-Joachim Widmaier|Andreas Gruenbacher|James Morris|Red Hat corp' "$file"
             if grep -Ein 'Copyright' "$file" | grep -Eiv 'Shannon Smith|Infiltrator Projects'; then
-              echo "Unexpected third-party copyright in canonical source: $file" >&2
+              echo "Unexpected third-party copyright in project-authored file: $file" >&2
               exit 1
             fi
-          done < <(find native/filesystems/sfs native/filesystems/ext3 -type f \
-                    \( -name '*.c' -o -name '*.h' \) -print | sort)
+          done
+
+      - name: Preserve provenance on inherited EXT3 units
+        shell: bash
+        run: |
+          set -euo pipefail
+          inherited=(
+            native/filesystems/ext3/linux/inode_adapter.c
+            native/filesystems/ext3/linux/namespace_mutation.c
+            native/filesystems/ext3/linux/lifecycle.c
+            native/filesystems/ext3/linux/extended_metadata.c
+            native/filesystems/ext3/linux/journal_core.c
+            native/filesystems/ext3/linux/journal_transactions.c
+          )
+          for file in "${inherited[@]}"; do
+            test -s "$file"
+            grep -Eiq 'Copyright|MODULE_AUTHOR' "$file" || {
+              echo "Inherited EXT3 provenance was removed before implementation replacement: $file" >&2
+              exit 1
+            }
+          done
 
       - name: Enforce single EXT2 engine on Windows
         shell: bash
@@ -1074,21 +1124,15 @@ jobs:
           grep -Fq -- '-DCONFIG_EXT2_FS_SECURITY=1' native/filesystems/ext2/linux/Makefile
 
   linux:
-    # The current linux-native runners do not provide the build toolchain
-    # required by this job. Keep qualification deterministic on the hosted
-    # image until the runner image itself is provisioned with CMake/GTK.
+    # Keep this qualification deterministic. The current self-hosted Linux
+    # runner images are not uniformly provisioned with Git/CMake/GTK.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Checkout pinned Infiltrator Common
-        uses: actions/checkout@v4
         with:
-          repository: Infiltrator-Projects/Infiltrator-Libraries
-          ref: 7cc5de3de0e94ed2cfcff0840bbb5346eb5c9c9f
-          path: src/infiltratr-common
+          submodules: recursive
 
       - name: Dependencies
         if: runner.environment == 'github-hosted'

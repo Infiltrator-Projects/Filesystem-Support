@@ -1,11 +1,4 @@
 /*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: directory_io.c.
- * Project-maintained implementation for the canonical EXT4 driver.
- */
-
-/*
  * Infiltrator Filesystem Support — EXT4 Linux directory adapter.
  *
  * Directory-record validation and format hashing live in the portable EXT4
@@ -298,7 +291,7 @@ out:
 	return error;
 }
 
-static int ifs_ext4_local_ext4_readdir(struct file *file, struct dir_context *ctx)
+static int ext4_readdir(struct file *file, struct dir_context *ctx)
 {
 	struct inode *inode = file_inode(file);
 	int error;
@@ -373,7 +366,7 @@ static loff_t ifs_ext4_hash_eof(struct file *file)
 		EXT4_HTREE_EOF_32BIT : EXT4_HTREE_EOF_64BIT;
 }
 
-static loff_t ifs_ext4_local_ext4_dir_llseek(struct file *file,
+static loff_t ext4_dir_llseek(struct file *file,
 			      loff_t offset, int whence)
 {
 	struct inode *inode = file_inode(file);
@@ -595,7 +588,7 @@ done:
 	return result < 0 ? result : 0;
 }
 
-static int ifs_ext4_local_ext4_release_dir(struct inode *inode, struct file *file)
+static int ext4_release_dir(struct inode *inode, struct file *file)
 {
 	(void)inode;
 	ext4_htree_free_dir_info(file->private_data);
@@ -626,7 +619,7 @@ int ext4_check_all_de(struct inode *dir, struct buffer_head *bh,
 	return offset == size ? 0 : -EUCLEAN;
 }
 
-static int ifs_ext4_local_ext4_dir_open(struct inode *inode, struct file *file)
+static int ext4_dir_open(struct inode *inode, struct file *file)
 {
 	struct dir_private_info *state;
 
@@ -641,16 +634,16 @@ static int ifs_ext4_local_ext4_dir_open(struct inode *inode, struct file *file)
 }
 
 const struct file_operations ext4_dir_operations = {
-	.open = ifs_ext4_local_ext4_dir_open,
-	.llseek = ifs_ext4_local_ext4_dir_llseek,
+	.open = ext4_dir_open,
+	.llseek = ext4_dir_llseek,
 	.read = generic_read_dir,
-	.iterate_shared = ifs_ext4_local_ext4_readdir,
+	.iterate_shared = ext4_readdir,
 	.unlocked_ioctl = ext4_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = ext4_compat_ioctl,
 #endif
 	.fsync = ext4_sync_file,
-	.release = ifs_ext4_local_ext4_release_dir,
+	.release = ext4_release_dir,
 };
 
 static int ifs_ext4_hash_plain_name(const char *name, int length,

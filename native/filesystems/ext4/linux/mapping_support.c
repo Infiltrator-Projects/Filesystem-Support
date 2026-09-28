@@ -1,8 +1,6 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: mapping_support.c.
- * Project-maintained canonical implementation.
+/* Infiltrator Filesystem Support — EXT4 Linux mapping support.
+ * Legacy indirect mapping, extent migration/movement and read-side page I/O
+ * are grouped as host integration around canonical EXT4 mapping semantics.
  */
 
 #include "ext4_jbd2.h"
@@ -18,7 +16,7 @@ struct ext4_indirect_cursor {
 	struct buffer_head *bh;
 };
 
-static void ifs_ext4_local_ext4_indirect_set_cursor(struct ext4_indirect_cursor *cursor,
+static void ext4_indirect_set_cursor(struct ext4_indirect_cursor *cursor,
 				     struct buffer_head *bh,
 				     __le32 *slot)
 {
@@ -27,7 +25,7 @@ static void ifs_ext4_local_ext4_indirect_set_cursor(struct ext4_indirect_cursor 
 	cursor->bh = bh;
 }
 
-static int ifs_ext4_local_ext4_indirect_path(struct inode *inode, ext4_lblk_t logical,
+static int ext4_indirect_path(struct inode *inode, ext4_lblk_t logical,
 			      ext4_lblk_t offsets[4], int *boundary)
 {
 	ifs_ext4_u32 core_offsets[4] = { 0 };
@@ -57,7 +55,7 @@ static int ifs_ext4_local_ext4_indirect_path(struct inode *inode, ext4_lblk_t lo
 }
 
 static struct ext4_indirect_cursor *
-ifs_ext4_local_ext4_indirect_walk(struct inode *inode, int depth,
+ext4_indirect_walk(struct inode *inode, int depth,
 		   ext4_lblk_t offsets[4],
 		   struct ext4_indirect_cursor chain[4],
 		   int *err)
@@ -67,7 +65,7 @@ ifs_ext4_local_ext4_indirect_walk(struct inode *inode, int depth,
 	ext4_fsblk_t block;
 
 	*err = 0;
-	ifs_ext4_local_ext4_indirect_set_cursor(
+	ext4_indirect_set_cursor(
 		cursor, NULL, EXT4_I(inode)->i_data + offsets[0]);
 	if (!cursor->value)
 		return cursor;
@@ -99,7 +97,7 @@ ifs_ext4_local_ext4_indirect_walk(struct inode *inode, int depth,
 		}
 
 		cursor++;
-		ifs_ext4_local_ext4_indirect_set_cursor(
+		ext4_indirect_set_cursor(
 			cursor, bh,
 			(__le32 *)bh->b_data + offsets[cursor - chain]);
 		if (!cursor->value)
@@ -109,7 +107,7 @@ ifs_ext4_local_ext4_indirect_walk(struct inode *inode, int depth,
 	return NULL;
 }
 
-static void ifs_ext4_local_ext4_indirect_release_chain(
+static void ext4_indirect_release_chain(
 	struct ext4_indirect_cursor *first,
 	struct ext4_indirect_cursor *last)
 {
@@ -120,7 +118,7 @@ static void ifs_ext4_local_ext4_indirect_release_chain(
 }
 
 static ext4_fsblk_t
-ifs_ext4_local_ext4_indirect_allocation_goal(struct inode *inode,
+ext4_indirect_allocation_goal(struct inode *inode,
 			      struct ext4_indirect_cursor *missing)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -141,7 +139,7 @@ ifs_ext4_local_ext4_indirect_allocation_goal(struct inode *inode,
 }
 
 static unsigned int
-ifs_ext4_local_ext4_indirect_data_count(struct ext4_indirect_cursor *missing,
+ext4_indirect_data_count(struct ext4_indirect_cursor *missing,
 			 int metadata_levels,
 			 unsigned int requested,
 			 int boundary)
@@ -159,7 +157,7 @@ ifs_ext4_local_ext4_indirect_data_count(struct ext4_indirect_cursor *missing,
 	return count;
 }
 
-static int ifs_ext4_local_ext4_indirect_allocate_branch(
+static int ext4_indirect_allocate_branch(
 	handle_t *handle,
 	struct ext4_allocation_request *request,
 	int metadata_levels,
@@ -255,7 +253,7 @@ rollback:
 	return err;
 }
 
-static int ifs_ext4_local_ext4_indirect_publish_branch(
+static int ext4_indirect_publish_branch(
 	handle_t *handle,
 	struct ext4_allocation_request *request,
 	struct ext4_indirect_cursor *where,
@@ -331,12 +329,12 @@ int ext4_ind_map_blocks(handle_t *handle, struct inode *inode,
 	ASSERT(!ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS));
 	ASSERT(handle || !(flags & EXT4_GET_BLOCKS_CREATE));
 
-	depth = ifs_ext4_local_ext4_indirect_path(
+	depth = ext4_indirect_path(
 		inode, map->m_lblk, offsets, &boundary);
 	if (!depth)
 		goto out;
 
-	missing = ifs_ext4_local_ext4_indirect_walk(
+	missing = ext4_indirect_walk(
 		inode, depth, offsets, chain, &err);
 
 	if (!missing) {
@@ -397,18 +395,18 @@ int ext4_ind_map_blocks(handle_t *handle, struct inode *inode,
 	if (flags & EXT4_GET_BLOCKS_METADATA_NOFAIL)
 		request.flags |= EXT4_MB_USE_RESERVED;
 
-	request.goal = ifs_ext4_local_ext4_indirect_allocation_goal(inode, missing);
+	request.goal = ext4_indirect_allocation_goal(inode, missing);
 	metadata_levels = chain + depth - missing - 1;
-	request.len = ifs_ext4_local_ext4_indirect_data_count(
+	request.len = ext4_indirect_data_count(
 		missing, metadata_levels, map->m_len, boundary);
 
-	err = ifs_ext4_local_ext4_indirect_allocate_branch(
+	err = ext4_indirect_allocate_branch(
 		handle, &request, metadata_levels,
 		offsets + (missing - chain), missing);
 	if (err)
 		goto cleanup;
 
-	err = ifs_ext4_local_ext4_indirect_publish_branch(
+	err = ext4_indirect_publish_branch(
 		handle, &request, missing, metadata_levels);
 	if (err)
 		goto cleanup;
@@ -422,7 +420,7 @@ int ext4_ind_map_blocks(handle_t *handle, struct inode *inode,
 	err = request.len;
 
 cleanup:
-	ifs_ext4_local_ext4_indirect_release_chain(chain, missing);
+	ext4_indirect_release_chain(chain, missing);
 out:
 	trace_ext4_ind_map_blocks_exit(inode, flags, map, err);
 	return err;
@@ -434,7 +432,7 @@ int ext4_ind_trans_blocks(struct inode *inode, int blocks)
 		blocks, EXT4_ADDR_PER_BLOCK(inode->i_sb)) + 4;
 }
 
-static int ifs_ext4_local_ext4_indirect_restart_transaction(
+static int ext4_indirect_restart_transaction(
 	handle_t *handle, struct inode *inode,
 	struct buffer_head *bh, int *dropped)
 {
@@ -457,7 +455,7 @@ static int ifs_ext4_local_ext4_indirect_restart_transaction(
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_indirect_ensure_truncate_credits(
+static int ext4_indirect_ensure_truncate_credits(
 	handle_t *handle, struct inode *inode,
 	struct buffer_head *bh, int revoke_credits)
 {
@@ -467,7 +465,7 @@ static int ifs_ext4_local_ext4_indirect_ensure_truncate_credits(
 	err = ext4_journal_ensure_credits_fn(
 		handle, EXT4_RESERVE_TRANS_BLOCKS,
 		ext4_blocks_for_truncate(inode), revoke_credits,
-		ifs_ext4_local_ext4_indirect_restart_transaction(
+		ext4_indirect_restart_transaction(
 			handle, inode, bh, &dropped));
 
 	if (dropped)
@@ -482,7 +480,7 @@ static int ifs_ext4_local_ext4_indirect_ensure_truncate_credits(
 		handle, inode->i_sb, bh, EXT4_JTR_NONE);
 }
 
-static bool ifs_ext4_local_ext4_indirect_slots_empty(__le32 *first, __le32 *last)
+static bool ext4_indirect_slots_empty(__le32 *first, __le32 *last)
 {
 	while (first < last)
 		if (*first++)
@@ -491,7 +489,7 @@ static bool ifs_ext4_local_ext4_indirect_slots_empty(__le32 *first, __le32 *last
 }
 
 static struct ext4_indirect_cursor *
-ifs_ext4_local_ext4_indirect_find_shared(struct inode *inode, int depth,
+ext4_indirect_find_shared(struct inode *inode, int depth,
 			  ext4_lblk_t offsets[4],
 			  struct ext4_indirect_cursor chain[4],
 			  __le32 *top)
@@ -507,7 +505,7 @@ ifs_ext4_local_ext4_indirect_find_shared(struct inode *inode, int depth,
 	     --walk_depth)
 		;
 
-	partial = ifs_ext4_local_ext4_indirect_walk(
+	partial = ext4_indirect_walk(
 		inode, walk_depth, offsets, chain, &err);
 	if (!partial)
 		partial = chain + walk_depth - 1;
@@ -517,7 +515,7 @@ ifs_ext4_local_ext4_indirect_find_shared(struct inode *inode, int depth,
 
 	for (cursor = partial;
 	     cursor > chain &&
-	     ifs_ext4_local_ext4_indirect_slots_empty(
+	     ext4_indirect_slots_empty(
 		     (__le32 *)cursor->bh->b_data, cursor->slot);
 	     --cursor)
 		;
@@ -534,7 +532,7 @@ ifs_ext4_local_ext4_indirect_find_shared(struct inode *inode, int depth,
 	return partial;
 }
 
-static int ifs_ext4_local_ext4_indirect_free_data_run(
+static int ext4_indirect_free_data_run(
 	handle_t *handle, struct inode *inode,
 	struct buffer_head *parent,
 	ext4_fsblk_t first_block, unsigned long count,
@@ -560,7 +558,7 @@ static int ifs_ext4_local_ext4_indirect_free_data_run(
 		return -EFSCORRUPTED;
 	}
 
-	err = ifs_ext4_local_ext4_indirect_ensure_truncate_credits(
+	err = ext4_indirect_ensure_truncate_credits(
 		handle, inode, parent,
 		ext4_free_data_revoke_credits(inode, count));
 	if (err)
@@ -574,7 +572,7 @@ static int ifs_ext4_local_ext4_indirect_free_data_run(
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_indirect_free_data(
+static int ext4_indirect_free_data(
 	handle_t *handle, struct inode *inode,
 	struct buffer_head *parent,
 	__le32 *first, __le32 *last)
@@ -609,7 +607,7 @@ static int ifs_ext4_local_ext4_indirect_free_data(
 			continue;
 		}
 
-		err = ifs_ext4_local_ext4_indirect_free_data_run(
+		err = ext4_indirect_free_data_run(
 			handle, inode, parent,
 			run_start, run_length, run_slot, slot);
 		if (err)
@@ -621,7 +619,7 @@ static int ifs_ext4_local_ext4_indirect_free_data(
 	}
 
 	if (run_length) {
-		err = ifs_ext4_local_ext4_indirect_free_data_run(
+		err = ext4_indirect_free_data_run(
 			handle, inode, parent,
 			run_start, run_length, run_slot, last);
 		if (err)
@@ -644,7 +642,7 @@ static int ifs_ext4_local_ext4_indirect_free_data(
 	return err;
 }
 
-static int ifs_ext4_local_ext4_indirect_free_branches(
+static int ext4_indirect_free_branches(
 	handle_t *handle, struct inode *inode,
 	struct buffer_head *parent,
 	__le32 *first, __le32 *last, int depth)
@@ -657,7 +655,7 @@ static int ifs_ext4_local_ext4_indirect_free_branches(
 		return -EROFS;
 
 	if (depth == 0)
-		return ifs_ext4_local_ext4_indirect_free_data(
+		return ext4_indirect_free_data(
 			handle, inode, parent, first, last);
 
 	for (slot = last; slot > first;) {
@@ -675,7 +673,7 @@ static int ifs_ext4_local_ext4_indirect_free_branches(
 		if (IS_ERR(bh))
 			return PTR_ERR(bh);
 
-		err = ifs_ext4_local_ext4_indirect_free_branches(
+		err = ext4_indirect_free_branches(
 			handle, inode, bh,
 			(__le32 *)bh->b_data,
 			(__le32 *)bh->b_data + per_block,
@@ -684,7 +682,7 @@ static int ifs_ext4_local_ext4_indirect_free_branches(
 		if (err)
 			return err;
 
-		err = ifs_ext4_local_ext4_indirect_ensure_truncate_credits(
+		err = ext4_indirect_ensure_truncate_credits(
 			handle, inode, NULL,
 			ext4_free_metadata_revoke_credits(
 				inode->i_sb, 1));
@@ -734,7 +732,7 @@ void ext4_ind_truncate(handle_t *handle, struct inode *inode)
 		  EXT4_BLOCK_SIZE_BITS(inode->i_sb);
 
 	if (last != maximum) {
-		depth = ifs_ext4_local_ext4_indirect_path(
+		depth = ext4_indirect_path(
 			inode, last, offsets, NULL);
 		if (!depth)
 			return;
@@ -748,25 +746,25 @@ void ext4_ind_truncate(handle_t *handle, struct inode *inode)
 		return;
 
 	if (depth == 1) {
-		ifs_ext4_local_ext4_indirect_free_data(
+		ext4_indirect_free_data(
 			handle, inode, NULL,
 			data + offsets[0],
 			data + EXT4_NDIR_BLOCKS);
 		goto free_higher_levels;
 	}
 
-	partial = ifs_ext4_local_ext4_indirect_find_shared(
+	partial = ext4_indirect_find_shared(
 		inode, depth, offsets, chain, &top);
 
 	if (top) {
 		if (partial == chain) {
-			ifs_ext4_local_ext4_indirect_free_branches(
+			ext4_indirect_free_branches(
 				handle, inode, NULL,
 				&top, &top + 1,
 				(chain + depth - 1) - partial);
 			*partial->slot = 0;
 		} else {
-			ifs_ext4_local_ext4_indirect_free_branches(
+			ext4_indirect_free_branches(
 				handle, inode, partial->bh,
 				partial->slot, partial->slot + 1,
 				(chain + depth - 1) - partial);
@@ -774,7 +772,7 @@ void ext4_ind_truncate(handle_t *handle, struct inode *inode)
 	}
 
 	while (partial > chain) {
-		ifs_ext4_local_ext4_indirect_free_branches(
+		ext4_indirect_free_branches(
 			handle, inode, partial->bh,
 			partial->slot + 1,
 			(__le32 *)partial->bh->b_data + per_block,
@@ -788,7 +786,7 @@ free_higher_levels:
 	default:
 		top = data[EXT4_IND_BLOCK];
 		if (top) {
-			ifs_ext4_local_ext4_indirect_free_branches(
+			ext4_indirect_free_branches(
 				handle, inode, NULL, &top, &top + 1, 1);
 			data[EXT4_IND_BLOCK] = 0;
 		}
@@ -796,7 +794,7 @@ free_higher_levels:
 	case EXT4_IND_BLOCK:
 		top = data[EXT4_DIND_BLOCK];
 		if (top) {
-			ifs_ext4_local_ext4_indirect_free_branches(
+			ext4_indirect_free_branches(
 				handle, inode, NULL, &top, &top + 1, 2);
 			data[EXT4_DIND_BLOCK] = 0;
 		}
@@ -804,7 +802,7 @@ free_higher_levels:
 	case EXT4_DIND_BLOCK:
 		top = data[EXT4_TIND_BLOCK];
 		if (top) {
-			ifs_ext4_local_ext4_indirect_free_branches(
+			ext4_indirect_free_branches(
 				handle, inode, NULL, &top, &top + 1, 3);
 			data[EXT4_TIND_BLOCK] = 0;
 		}
@@ -844,25 +842,25 @@ int ext4_ind_remove_space(handle_t *handle, struct inode *inode,
 	if (start >= end || start > maximum)
 		return 0;
 
-	left_depth = ifs_ext4_local_ext4_indirect_path(
+	left_depth = ext4_indirect_path(
 		inode, start, offsets, NULL);
-	right_depth = ifs_ext4_local_ext4_indirect_path(
+	right_depth = ext4_indirect_path(
 		inode, end, end_offsets, NULL);
 	if (!left_depth || !right_depth || left_depth > right_depth)
 		return -EFSCORRUPTED;
 
 	if (left_depth == 1 && right_depth == 1)
-		return ifs_ext4_local_ext4_indirect_free_data(
+		return ext4_indirect_free_data(
 			handle, inode, NULL,
 			data + offsets[0],
 			data + end_offsets[0]);
 
-	left = ifs_ext4_local_ext4_indirect_find_shared(
+	left = ext4_indirect_find_shared(
 		inode, left_depth, offsets,
 		left_chain, &left_top);
 	left_release = left;
 
-	right = ifs_ext4_local_ext4_indirect_find_shared(
+	right = ext4_indirect_find_shared(
 		inode, right_depth, end_offsets,
 		right_chain, &right_top);
 	right_release = right;
@@ -881,7 +879,7 @@ int ext4_ind_remove_space(handle_t *handle, struct inode *inode,
 		if (left > left_chain &&
 		    right > right_chain &&
 		    left->bh->b_blocknr == right->bh->b_blocknr) {
-			err = ifs_ext4_local_ext4_indirect_free_branches(
+			err = ext4_indirect_free_branches(
 				handle, inode, left->bh,
 				left->slot + 1, right->slot,
 				left_level);
@@ -889,7 +887,7 @@ int ext4_ind_remove_space(handle_t *handle, struct inode *inode,
 		}
 
 		if (left > left_chain && left_level <= right_level) {
-			err = ifs_ext4_local_ext4_indirect_free_branches(
+			err = ext4_indirect_free_branches(
 				handle, inode, left->bh,
 				left->slot + 1,
 				(__le32 *)left->bh->b_data + per_block,
@@ -900,7 +898,7 @@ int ext4_ind_remove_space(handle_t *handle, struct inode *inode,
 		}
 
 		if (right > right_chain && right_level <= left_level) {
-			err = ifs_ext4_local_ext4_indirect_free_branches(
+			err = ext4_indirect_free_branches(
 				handle, inode, right->bh,
 				(__le32 *)right->bh->b_data,
 				right->slot,
@@ -911,8 +909,8 @@ int ext4_ind_remove_space(handle_t *handle, struct inode *inode,
 		}
 	}
 
-	ifs_ext4_local_ext4_indirect_release_chain(left_chain, left_release);
-	ifs_ext4_local_ext4_indirect_release_chain(right_chain, right_release);
+	ext4_indirect_release_chain(left_chain, left_release);
+	ext4_indirect_release_chain(right_chain, right_release);
 	return err;
 }
 
@@ -931,7 +929,7 @@ struct ext4_migrate_run {
 	ext4_fsblk_t physical_last;
 };
 
-static int ifs_ext4_local_ext4_migrate_flush_run(handle_t *handle, struct inode *inode,
+static int ext4_migrate_flush_run(handle_t *handle, struct inode *inode,
 				  struct ext4_migrate_run *run)
 {
 	struct ext4_extent extent;
@@ -978,7 +976,7 @@ out_unlock:
 	return err;
 }
 
-static int ifs_ext4_local_ext4_migrate_add_block(handle_t *handle, struct inode *inode,
+static int ext4_migrate_add_block(handle_t *handle, struct inode *inode,
 				  ext4_fsblk_t physical,
 				  struct ext4_migrate_run *run)
 {
@@ -992,7 +990,7 @@ static int ifs_ext4_local_ext4_migrate_add_block(handle_t *handle, struct inode 
 		return 0;
 	}
 
-	err = ifs_ext4_local_ext4_migrate_flush_run(handle, inode, run);
+	err = ext4_migrate_flush_run(handle, inode, run);
 	if (err)
 		return err;
 
@@ -1003,7 +1001,7 @@ static int ifs_ext4_local_ext4_migrate_add_block(handle_t *handle, struct inode 
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_migrate_scan_indirect(handle_t *handle, struct inode *inode,
+static int ext4_migrate_scan_indirect(handle_t *handle, struct inode *inode,
 				      ext4_fsblk_t block,
 				      unsigned int depth,
 				      struct ext4_migrate_run *run)
@@ -1016,7 +1014,7 @@ static int ifs_ext4_local_ext4_migrate_scan_indirect(handle_t *handle, struct in
 	int err = 0;
 
 	if (depth == 0)
-		return ifs_ext4_local_ext4_migrate_add_block(handle, inode, block, run);
+		return ext4_migrate_add_block(handle, inode, block, run);
 
 	for (i = 1; i < depth; ++i)
 		hole_advance *= per_block;
@@ -1028,7 +1026,7 @@ static int ifs_ext4_local_ext4_migrate_scan_indirect(handle_t *handle, struct in
 	entries = (__le32 *)bh->b_data;
 	for (i = 0; i < per_block; ++i) {
 		if (entries[i]) {
-			err = ifs_ext4_local_ext4_migrate_scan_indirect(
+			err = ext4_migrate_scan_indirect(
 				handle, inode, le32_to_cpu(entries[i]),
 				depth - 1, run);
 			if (err)
@@ -1047,7 +1045,7 @@ static int ifs_ext4_local_ext4_migrate_scan_indirect(handle_t *handle, struct in
 	return err;
 }
 
-static int ifs_ext4_local_ext4_migrate_free_indirect_tree(handle_t *handle,
+static int ext4_migrate_free_indirect_tree(handle_t *handle,
 					    struct inode *inode,
 					    ext4_fsblk_t block,
 					    unsigned int depth)
@@ -1070,7 +1068,7 @@ static int ifs_ext4_local_ext4_migrate_free_indirect_tree(handle_t *handle,
 		for (i = 0; i < per_block; ++i) {
 			if (!entries[i])
 				continue;
-			err = ifs_ext4_local_ext4_migrate_free_indirect_tree(
+			err = ext4_migrate_free_indirect_tree(
 				handle, inode, le32_to_cpu(entries[i]),
 				depth - 1);
 			if (err) {
@@ -1093,25 +1091,25 @@ static int ifs_ext4_local_ext4_migrate_free_indirect_tree(handle_t *handle,
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_migrate_free_old_indirects(handle_t *handle,
+static int ext4_migrate_free_old_indirects(handle_t *handle,
 					    struct inode *inode,
 					    const __le32 saved[3])
 {
 	int err;
 
-	err = ifs_ext4_local_ext4_migrate_free_indirect_tree(
+	err = ext4_migrate_free_indirect_tree(
 		handle, inode, le32_to_cpu(saved[0]), 1);
 	if (err)
 		return err;
-	err = ifs_ext4_local_ext4_migrate_free_indirect_tree(
+	err = ext4_migrate_free_indirect_tree(
 		handle, inode, le32_to_cpu(saved[1]), 2);
 	if (err)
 		return err;
-	return ifs_ext4_local_ext4_migrate_free_indirect_tree(
+	return ext4_migrate_free_indirect_tree(
 		handle, inode, le32_to_cpu(saved[2]), 3);
 }
 
-static int ifs_ext4_local_ext4_migrate_swap_to_extents(handle_t *handle,
+static int ext4_migrate_swap_to_extents(handle_t *handle,
 					 struct inode *inode,
 					 struct inode *temp)
 {
@@ -1143,14 +1141,14 @@ static int ifs_ext4_local_ext4_migrate_swap_to_extents(handle_t *handle,
 	spin_unlock(&inode->i_lock);
 	up_write(&dst->i_data_sem);
 
-	err = ifs_ext4_local_ext4_migrate_free_old_indirects(handle, inode, saved);
+	err = ext4_migrate_free_old_indirects(handle, inode, saved);
 	mark_err = ext4_mark_inode_dirty(handle, inode);
 	if (!err)
 		err = mark_err;
 	return err;
 }
 
-static int ifs_ext4_local_ext4_migrate_free_extent_index(handle_t *handle,
+static int ext4_migrate_free_extent_index(handle_t *handle,
 					   struct inode *inode,
 					   struct ext4_extent_idx *index)
 {
@@ -1169,7 +1167,7 @@ static int ifs_ext4_local_ext4_migrate_free_extent_index(handle_t *handle,
 	if (le16_to_cpu(header->eh_depth) != 0) {
 		child = EXT_FIRST_INDEX(header);
 		for (i = 0; i < le16_to_cpu(header->eh_entries); ++i, ++child) {
-			err = ifs_ext4_local_ext4_migrate_free_extent_index(
+			err = ext4_migrate_free_extent_index(
 				handle, inode, child);
 			if (err) {
 				put_bh(bh);
@@ -1191,7 +1189,7 @@ static int ifs_ext4_local_ext4_migrate_free_extent_index(handle_t *handle,
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_migrate_free_extent_tree(handle_t *handle,
+static int ext4_migrate_free_extent_tree(handle_t *handle,
 					  struct inode *inode)
 {
 	struct ext4_extent_header *header = ext_inode_hdr(inode);
@@ -1204,14 +1202,14 @@ static int ifs_ext4_local_ext4_migrate_free_extent_tree(handle_t *handle,
 
 	index = EXT_FIRST_INDEX(header);
 	for (i = 0; i < le16_to_cpu(header->eh_entries); ++i, ++index) {
-		err = ifs_ext4_local_ext4_migrate_free_extent_index(handle, inode, index);
+		err = ext4_migrate_free_extent_index(handle, inode, index);
 		if (err)
 			return err;
 	}
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_migrate_build_extent_tree(handle_t *handle,
+static int ext4_migrate_build_extent_tree(handle_t *handle,
 					   struct inode *source,
 					   struct inode *temp)
 {
@@ -1223,7 +1221,7 @@ static int ifs_ext4_local_ext4_migrate_build_extent_tree(handle_t *handle,
 
 	for (i = 0; i < EXT4_NDIR_BLOCKS; ++i) {
 		if (ei->i_data[i])
-			err = ifs_ext4_local_ext4_migrate_add_block(
+			err = ext4_migrate_add_block(
 				handle, temp, le32_to_cpu(ei->i_data[i]), &run);
 		else {
 			run.logical_cursor++;
@@ -1234,7 +1232,7 @@ static int ifs_ext4_local_ext4_migrate_build_extent_tree(handle_t *handle,
 	}
 
 	if (ei->i_data[EXT4_IND_BLOCK])
-		err = ifs_ext4_local_ext4_migrate_scan_indirect(
+		err = ext4_migrate_scan_indirect(
 			handle, temp,
 			le32_to_cpu(ei->i_data[EXT4_IND_BLOCK]), 1, &run);
 	else {
@@ -1245,7 +1243,7 @@ static int ifs_ext4_local_ext4_migrate_build_extent_tree(handle_t *handle,
 		return err;
 
 	if (ei->i_data[EXT4_DIND_BLOCK])
-		err = ifs_ext4_local_ext4_migrate_scan_indirect(
+		err = ext4_migrate_scan_indirect(
 			handle, temp,
 			le32_to_cpu(ei->i_data[EXT4_DIND_BLOCK]), 2, &run);
 	else {
@@ -1256,14 +1254,14 @@ static int ifs_ext4_local_ext4_migrate_build_extent_tree(handle_t *handle,
 		return err;
 
 	if (ei->i_data[EXT4_TIND_BLOCK]) {
-		err = ifs_ext4_local_ext4_migrate_scan_indirect(
+		err = ext4_migrate_scan_indirect(
 			handle, temp,
 			le32_to_cpu(ei->i_data[EXT4_TIND_BLOCK]), 3, &run);
 		if (err)
 			return err;
 	}
 
-	return ifs_ext4_local_ext4_migrate_flush_run(handle, temp, &run);
+	return ext4_migrate_flush_run(handle, temp, &run);
 }
 
 int ext4_ext_migrate(struct inode *inode)
@@ -1326,11 +1324,11 @@ int ext4_ext_migrate(struct inode *inode)
 		goto out_temp;
 	}
 
-	err = ifs_ext4_local_ext4_migrate_build_extent_tree(handle, inode, temp);
+	err = ext4_migrate_build_extent_tree(handle, inode, temp);
 	if (!err)
-		err = ifs_ext4_local_ext4_migrate_swap_to_extents(handle, inode, temp);
+		err = ext4_migrate_swap_to_extents(handle, inode, temp);
 	if (err)
-		ifs_ext4_local_ext4_migrate_free_extent_tree(handle, temp);
+		ext4_migrate_free_extent_tree(handle, temp);
 
 	if (!ext4_journal_ensure_credits(handle, 1, 0)) {
 		i_size_write(temp, 0);
@@ -1438,7 +1436,7 @@ out_unlock:
 #include "ext4_jbd2.h"
 
 static struct ext4_ext_path *
-ifs_ext4_local_ext4_move_find_path(struct inode *inode, ext4_lblk_t block,
+ext4_move_find_path(struct inode *inode, ext4_lblk_t block,
 		    struct ext4_ext_path *path)
 {
 	path = ext4_find_extent(inode, block, path, EXT4_EX_NOCACHE);
@@ -1471,7 +1469,7 @@ void ext4_double_up_write_data_sem(struct inode *first, struct inode *second)
 	up_write(&EXT4_I(second)->i_data_sem);
 }
 
-static int ifs_ext4_local_ext4_move_same_extent_state(struct inode *inode,
+static int ext4_move_same_extent_state(struct inode *inode,
 				       ext4_lblk_t start,
 				       ext4_lblk_t count,
 				       bool unwritten,
@@ -1486,7 +1484,7 @@ static int ifs_ext4_local_ext4_move_same_extent_state(struct inode *inode,
 		ext4_lblk_t extent_start;
 		ext4_lblk_t extent_end;
 
-		path = ifs_ext4_local_ext4_move_find_path(inode, start, path);
+		path = ext4_move_find_path(inode, start, path);
 		if (IS_ERR(path)) {
 			*err = PTR_ERR(path);
 			return covered;
@@ -1511,7 +1509,7 @@ out:
 	return covered;
 }
 
-static int ifs_ext4_local_ext4_move_lock_folios(struct inode *first_inode,
+static int ext4_move_lock_folios(struct inode *first_inode,
 				  struct inode *second_inode,
 				  pgoff_t first_index,
 				  pgoff_t second_index,
@@ -1555,7 +1553,7 @@ static int ifs_ext4_local_ext4_move_lock_folios(struct inode *first_inode,
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_move_ensure_folio_uptodate(struct folio *folio,
+static int ext4_move_ensure_folio_uptodate(struct folio *folio,
 					   size_t from, size_t to)
 {
 	struct inode *inode = folio->mapping->host;
@@ -1635,7 +1633,7 @@ next_wait:
 	return 0;
 }
 
-static void ifs_ext4_local_ext4_move_unlock_folios(struct folio *folios[2])
+static void ext4_move_unlock_folios(struct folio *folios[2])
 {
 	unsigned int i;
 
@@ -1648,7 +1646,7 @@ static void ifs_ext4_local_ext4_move_unlock_folios(struct folio *folios[2])
 	}
 }
 
-static int ifs_ext4_local_ext4_move_one_folio(struct file *file,
+static int ext4_move_one_folio(struct file *file,
 			       struct inode *donor,
 			       pgoff_t source_page,
 			       pgoff_t donor_page,
@@ -1697,7 +1695,7 @@ retry:
 	}
 	replaced_size = data_size;
 
-	*err = ifs_ext4_local_ext4_move_lock_folios(
+	*err = ext4_move_lock_folios(
 		source, donor, source_page, donor_page, folios);
 	if (*err)
 		goto stop;
@@ -1709,11 +1707,11 @@ retry:
 		bool both_unwritten;
 
 		ext4_double_down_write_data_sem(source, donor);
-		both_unwritten = ifs_ext4_local_ext4_move_same_extent_state(
+		both_unwritten = ext4_move_same_extent_state(
 			source, source_block, block_count, true, err);
 		if (!*err)
 			both_unwritten &=
-				ifs_ext4_local_ext4_move_same_extent_state(
+				ext4_move_same_extent_state(
 					donor, donor_block,
 					block_count, true, err);
 		if (*err) {
@@ -1738,7 +1736,7 @@ retry:
 		ext4_double_up_write_data_sem(source, donor);
 	}
 
-	*err = ifs_ext4_local_ext4_move_ensure_folio_uptodate(
+	*err = ext4_move_ensure_folio_uptodate(
 		folios[0], from, from + replaced_size);
 	if (*err)
 		goto unlock;
@@ -1806,7 +1804,7 @@ rollback:
 	}
 
 unlock:
-	ifs_ext4_local_ext4_move_unlock_folios(folios);
+	ext4_move_unlock_folios(folios);
 stop:
 	ext4_journal_stop(handle);
 
@@ -1822,7 +1820,7 @@ stop:
 	return replaced;
 }
 
-static int ifs_ext4_local_ext4_move_validate(struct inode *source, struct inode *donor,
+static int ext4_move_validate(struct inode *source, struct inode *donor,
 			      __u64 source_start, __u64 donor_start,
 			      __u64 *length)
 {
@@ -1897,7 +1895,7 @@ int ext4_move_extents(struct file *source_file, struct file *donor_file,
 	inode_dio_wait(donor);
 	ext4_double_down_write_data_sem(source, donor);
 
-	err = ifs_ext4_local_ext4_move_validate(
+	err = ext4_move_validate(
 		source, donor, source_block, donor_block, &length);
 	if (err)
 		goto out;
@@ -1915,7 +1913,7 @@ int ext4_move_extents(struct file *source_file, struct file *donor_file,
 		pgoff_t donor_page;
 		bool unwritten;
 
-		path = ifs_ext4_local_ext4_move_find_path(source, source_cursor, path);
+		path = ext4_move_find_path(source, source_cursor, path);
 		if (IS_ERR(path)) {
 			err = PTR_ERR(path);
 			path = NULL;
@@ -1959,7 +1957,7 @@ int ext4_move_extents(struct file *source_file, struct file *donor_file,
 			extent_length = blocks_per_page - block_offset;
 
 		ext4_double_up_write_data_sem(source, donor);
-		*moved += ifs_ext4_local_ext4_move_one_folio(
+		*moved += ext4_move_one_folio(
 			source_file, donor,
 			source_page, donor_page,
 			block_offset, extent_length,
@@ -2022,7 +2020,7 @@ struct ext4_post_read_ctx {
 static struct kmem_cache *ext4_post_read_cache;
 static mempool_t *ext4_post_read_pool;
 
-static void ifs_ext4_local_ext4_finish_read_bio(struct bio *bio)
+static void ext4_finish_read_bio(struct bio *bio)
 {
 	struct folio_iter iter;
 
@@ -2034,20 +2032,20 @@ static void ifs_ext4_local_ext4_finish_read_bio(struct bio *bio)
 	bio_put(bio);
 }
 
-static void ifs_ext4_local_ext4_continue_post_read(struct ext4_post_read_ctx *ctx);
+static void ext4_continue_post_read(struct ext4_post_read_ctx *ctx);
 
-static void ifs_ext4_local_ext4_decrypt_read_work(struct work_struct *work)
+static void ext4_decrypt_read_work(struct work_struct *work)
 {
 	struct ext4_post_read_ctx *ctx =
 		container_of(work, struct ext4_post_read_ctx, work);
 
 	if (fscrypt_decrypt_bio(ctx->bio))
-		ifs_ext4_local_ext4_continue_post_read(ctx);
+		ext4_continue_post_read(ctx);
 	else
-		ifs_ext4_local_ext4_finish_read_bio(ctx->bio);
+		ext4_finish_read_bio(ctx->bio);
 }
 
-static void ifs_ext4_local_ext4_verify_read_work(struct work_struct *work)
+static void ext4_verify_read_work(struct work_struct *work)
 {
 	struct ext4_post_read_ctx *ctx =
 		container_of(work, struct ext4_post_read_ctx, work);
@@ -2056,55 +2054,55 @@ static void ifs_ext4_local_ext4_verify_read_work(struct work_struct *work)
 	mempool_free(ctx, ext4_post_read_pool);
 	bio->bi_private = NULL;
 	fsverity_verify_bio(bio);
-	ifs_ext4_local_ext4_finish_read_bio(bio);
+	ext4_finish_read_bio(bio);
 }
 
-static void ifs_ext4_local_ext4_continue_post_read(struct ext4_post_read_ctx *ctx)
+static void ext4_continue_post_read(struct ext4_post_read_ctx *ctx)
 {
 	for (;;) {
 		ctx->stage++;
 
 		if (ctx->stage == EXT4_POST_READ_DECRYPT &&
 		    (ctx->enabled & BIT(EXT4_POST_READ_DECRYPT))) {
-			INIT_WORK(&ctx->work, ifs_ext4_local_ext4_decrypt_read_work);
+			INIT_WORK(&ctx->work, ext4_decrypt_read_work);
 			fscrypt_enqueue_decrypt_work(&ctx->work);
 			return;
 		}
 
 		if (ctx->stage == EXT4_POST_READ_VERITY &&
 		    (ctx->enabled & BIT(EXT4_POST_READ_VERITY))) {
-			INIT_WORK(&ctx->work, ifs_ext4_local_ext4_verify_read_work);
+			INIT_WORK(&ctx->work, ext4_verify_read_work);
 			fsverity_enqueue_verify_work(&ctx->work);
 			return;
 		}
 
 		if (ctx->stage >= EXT4_POST_READ_DONE) {
-			ifs_ext4_local_ext4_finish_read_bio(ctx->bio);
+			ext4_finish_read_bio(ctx->bio);
 			return;
 		}
 	}
 }
 
-static void ifs_ext4_local_ext4_read_bio_end_io(struct bio *bio)
+static void ext4_read_bio_end_io(struct bio *bio)
 {
 	struct ext4_post_read_ctx *ctx = bio->bi_private;
 
 	if (ctx && !bio->bi_status) {
 		ctx->stage = EXT4_POST_READ_INITIAL;
-		ifs_ext4_local_ext4_continue_post_read(ctx);
+		ext4_continue_post_read(ctx);
 		return;
 	}
 
-	ifs_ext4_local_ext4_finish_read_bio(bio);
+	ext4_finish_read_bio(bio);
 }
 
-static bool ifs_ext4_local_ext4_folio_needs_verity(const struct inode *inode, pgoff_t index)
+static bool ext4_folio_needs_verity(const struct inode *inode, pgoff_t index)
 {
 	return fsverity_active(inode) &&
 	       index < DIV_ROUND_UP(i_size_read(inode), PAGE_SIZE);
 }
 
-static void ifs_ext4_local_ext4_prepare_post_read(struct bio *bio,
+static void ext4_prepare_post_read(struct bio *bio,
 				   const struct inode *inode,
 				   pgoff_t first_index)
 {
@@ -2113,7 +2111,7 @@ static void ifs_ext4_local_ext4_prepare_post_read(struct bio *bio,
 
 	if (fscrypt_inode_uses_fs_layer_crypto(inode))
 		enabled |= BIT(EXT4_POST_READ_DECRYPT);
-	if (ifs_ext4_local_ext4_folio_needs_verity(inode, first_index))
+	if (ext4_folio_needs_verity(inode, first_index))
 		enabled |= BIT(EXT4_POST_READ_VERITY);
 	if (!enabled)
 		return;
@@ -2125,14 +2123,14 @@ static void ifs_ext4_local_ext4_prepare_post_read(struct bio *bio,
 	bio->bi_private = ctx;
 }
 
-static loff_t ifs_ext4_local_ext4_read_limit(const struct inode *inode)
+static loff_t ext4_read_limit(const struct inode *inode)
 {
 	if (IS_ENABLED(CONFIG_FS_VERITY) && IS_VERITY(inode))
 		return inode->i_sb->s_maxbytes;
 	return i_size_read(inode);
 }
 
-static void ifs_ext4_local_ext4_zero_failed_read(struct folio *folio)
+static void ext4_zero_failed_read(struct folio *folio)
 {
 	folio_zero_segment(folio, 0, folio_size(folio));
 	folio_unlock(folio);
@@ -2174,7 +2172,7 @@ int ext4_mpage_readpages(struct inode *inode,
 			(sector_t)folio->index << (PAGE_SHIFT - block_bits);
 		last_logical = logical +
 			(sector_t)(pages + 1) * blocks_per_folio;
-		file_last = (ifs_ext4_local_ext4_read_limit(inode) + block_size - 1) >>
+		file_last = (ext4_read_limit(inode) + block_size - 1) >>
 			    block_bits;
 		if (last_logical > file_last)
 			last_logical = file_last;
@@ -2205,7 +2203,7 @@ int ext4_mpage_readpages(struct inode *inode,
 				map.m_len = last_logical - logical;
 				mapped = ext4_map_blocks(NULL, inode, &map, 0);
 				if (mapped < 0) {
-					ifs_ext4_local_ext4_zero_failed_read(folio);
+					ext4_zero_failed_read(folio);
 					goto next_folio;
 				}
 			} else {
@@ -2245,10 +2243,10 @@ int ext4_mpage_readpages(struct inode *inode,
 				folio, first_hole << block_bits,
 				folio_size(folio));
 			if (first_hole == 0) {
-				if (ifs_ext4_local_ext4_folio_needs_verity(
+				if (ext4_folio_needs_verity(
 					    inode, folio->index) &&
 				    !fsverity_verify_folio(folio)) {
-					ifs_ext4_local_ext4_zero_failed_read(folio);
+					ext4_zero_failed_read(folio);
 					goto next_folio;
 				}
 				folio_end_read(folio, true);
@@ -2273,11 +2271,11 @@ allocate_bio:
 				REQ_OP_READ, GFP_KERNEL);
 			fscrypt_set_bio_crypt_ctx(
 				bio, inode, next_logical, GFP_KERNEL);
-			ifs_ext4_local_ext4_prepare_post_read(
+			ext4_prepare_post_read(
 				bio, inode, folio->index);
 			bio->bi_iter.bi_sector =
 				first_physical << (block_bits - 9);
-			bio->bi_end_io = ifs_ext4_local_ext4_read_bio_end_io;
+			bio->bi_end_io = ext4_read_bio_end_io;
 			if (rac)
 				bio->bi_opf |= REQ_RAHEAD;
 		}

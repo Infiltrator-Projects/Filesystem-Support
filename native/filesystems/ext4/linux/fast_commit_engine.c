@@ -1,10 +1,3 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: fast_commit_engine.c.
- * Project-maintained canonical implementation.
- */
-
 // SPDX-License-Identifier: GPL-2.0
 
 /*
@@ -21,7 +14,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -41,14 +34,14 @@ static struct kmem_cache *ext4_fc_dentry_cachep;
 
 
 /**
- * ifs_ext4_local_ext4_end_buffer_io_sync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
+ * ext4_end_buffer_io_sync - Drives pending state toward the durability guarantee required by the calling VFS or journal interface.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
+static void ext4_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 {
 	BUFFER_TRACE(bh, "");
 	if (uptodate) {
@@ -66,14 +59,14 @@ static void ifs_ext4_local_ext4_end_buffer_io_sync(struct buffer_head *bh, int u
 
 
 /**
- * ifs_ext4_local_ext4_fc_reset_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext4_fc_reset_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ifs_ext4_local_ext4_fc_reset_inode(struct inode *inode)
+static inline void ext4_fc_reset_inode(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
 
@@ -94,7 +87,7 @@ void ext4_fc_init_inode(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
 
-	ifs_ext4_local_ext4_fc_reset_inode(inode);
+	ext4_fc_reset_inode(inode);
 	ext4_clear_inode_state(inode, EXT4_STATE_FC_COMMITTING);
 	INIT_LIST_HEAD(&ei->i_fc_list);
 	INIT_LIST_HEAD(&ei->i_fc_dilist);
@@ -111,7 +104,7 @@ void ext4_fc_init_inode(struct inode *inode)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_fc_wait_committing_inode(struct inode *inode)
+static void ext4_fc_wait_committing_inode(struct inode *inode)
 __releases(&EXT4_SB(inode->i_sb)->s_fc_lock)
 {
 	unsigned long *wait_word = ext4_inode_state_wait_word(inode);
@@ -130,14 +123,14 @@ __releases(&EXT4_SB(inode->i_sb)->s_fc_lock)
 
 
 /**
- * ifs_ext4_local_ext4_fc_disabled - Implements the fc disabled operation within the fast-commit engine subsystem.
+ * ext4_fc_disabled - Implements the fc disabled operation within the fast-commit engine subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ifs_ext4_local_ext4_fc_disabled(struct super_block *sb)
+static bool ext4_fc_disabled(struct super_block *sb)
 {
 	return (!test_opt2(sb, JOURNAL_FAST_COMMIT) ||
 		(EXT4_SB(sb)->s_mount_state & EXT4_FC_REPLAY));
@@ -156,7 +149,7 @@ void ext4_fc_start_update(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
 
-	if (ifs_ext4_local_ext4_fc_disabled(inode->i_sb))
+	if (ext4_fc_disabled(inode->i_sb))
 		return;
 
 restart:
@@ -165,7 +158,7 @@ restart:
 		goto out;
 
 	if (ext4_test_inode_state(inode, EXT4_STATE_FC_COMMITTING)) {
-		ifs_ext4_local_ext4_fc_wait_committing_inode(inode);
+		ext4_fc_wait_committing_inode(inode);
 		goto restart;
 	}
 out:
@@ -186,7 +179,7 @@ void ext4_fc_stop_update(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
 
-	if (ifs_ext4_local_ext4_fc_disabled(inode->i_sb))
+	if (ext4_fc_disabled(inode->i_sb))
 		return;
 
 	if (atomic_dec_and_test(&ei->i_fc_updates))
@@ -208,7 +201,7 @@ void ext4_fc_del(struct inode *inode)
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 	struct ext4_fc_dentry_update *fc_dentry;
 
-	if (ifs_ext4_local_ext4_fc_disabled(inode->i_sb))
+	if (ext4_fc_disabled(inode->i_sb))
 		return;
 
 restart:
@@ -219,7 +212,7 @@ restart:
 	}
 
 	if (ext4_test_inode_state(inode, EXT4_STATE_FC_COMMITTING)) {
-		ifs_ext4_local_ext4_fc_wait_committing_inode(inode);
+		ext4_fc_wait_committing_inode(inode);
 		goto restart;
 	}
 
@@ -264,7 +257,7 @@ void ext4_fc_mark_ineligible(struct super_block *sb, int reason, handle_t *handl
 	bool has_transaction = true;
 	bool is_ineligible;
 
-	if (ifs_ext4_local_ext4_fc_disabled(sb))
+	if (ext4_fc_disabled(sb))
 		return;
 
 	if (handle && !IS_ERR(handle))
@@ -291,14 +284,14 @@ void ext4_fc_mark_ineligible(struct super_block *sb, int reason, handle_t *handl
 
 
 /**
- * ifs_ext4_local_ext4_fc_track_template - Implements the fc track template operation within the fast-commit engine subsystem.
+ * ext4_fc_track_template - Implements the fc track template operation within the fast-commit engine subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_track_template(
+static int ext4_fc_track_template(
 	handle_t *handle, struct inode *inode,
 	int (*__fc_track_fn)(handle_t *handle, struct inode *, void *, bool),
 	void *args, int enqueue)
@@ -314,7 +307,7 @@ static int ifs_ext4_local_ext4_fc_track_template(
 	if (tid == ei->i_sync_tid) {
 		update = true;
 	} else {
-		ifs_ext4_local_ext4_fc_reset_inode(inode);
+		ext4_fc_reset_inode(inode);
 		ei->i_sync_tid = tid;
 	}
 	ret = __fc_track_fn(handle, inode, args, update);
@@ -349,14 +342,14 @@ struct __track_dentry_update_args {
 
 
 /**
- * ifs_ext4_local___track_dentry_update - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * __track_dentry_update - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local___track_dentry_update(handle_t *handle, struct inode *inode,
+static int __track_dentry_update(handle_t *handle, struct inode *inode,
 				 void *arg, bool update)
 {
 	struct ext4_fc_dentry_update *node;
@@ -441,7 +434,7 @@ void __ext4_fc_track_unlink(handle_t *handle,
 	args.dentry = dentry;
 	args.op = EXT4_FC_TAG_UNLINK;
 
-	ret = ifs_ext4_local_ext4_fc_track_template(handle, inode, ifs_ext4_local___track_dentry_update,
+	ret = ext4_fc_track_template(handle, inode, __track_dentry_update,
 					(void *)&args, 0);
 	trace_ext4_fc_track_unlink(handle, inode, dentry, ret);
 }
@@ -459,7 +452,7 @@ void ext4_fc_track_unlink(handle_t *handle, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
 
-	if (ifs_ext4_local_ext4_fc_disabled(inode->i_sb))
+	if (ext4_fc_disabled(inode->i_sb))
 		return;
 
 	if (ext4_test_mount_flag(inode->i_sb, EXT4_MF_FC_INELIGIBLE))
@@ -486,7 +479,7 @@ void __ext4_fc_track_link(handle_t *handle,
 	args.dentry = dentry;
 	args.op = EXT4_FC_TAG_LINK;
 
-	ret = ifs_ext4_local_ext4_fc_track_template(handle, inode, ifs_ext4_local___track_dentry_update,
+	ret = ext4_fc_track_template(handle, inode, __track_dentry_update,
 					(void *)&args, 0);
 	trace_ext4_fc_track_link(handle, inode, dentry, ret);
 }
@@ -504,7 +497,7 @@ void ext4_fc_track_link(handle_t *handle, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
 
-	if (ifs_ext4_local_ext4_fc_disabled(inode->i_sb))
+	if (ext4_fc_disabled(inode->i_sb))
 		return;
 
 	if (ext4_test_mount_flag(inode->i_sb, EXT4_MF_FC_INELIGIBLE))
@@ -531,7 +524,7 @@ void __ext4_fc_track_create(handle_t *handle, struct inode *inode,
 	args.dentry = dentry;
 	args.op = EXT4_FC_TAG_CREAT;
 
-	ret = ifs_ext4_local_ext4_fc_track_template(handle, inode, ifs_ext4_local___track_dentry_update,
+	ret = ext4_fc_track_template(handle, inode, __track_dentry_update,
 					(void *)&args, 0);
 	trace_ext4_fc_track_create(handle, inode, dentry, ret);
 }
@@ -549,7 +542,7 @@ void ext4_fc_track_create(handle_t *handle, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
 
-	if (ifs_ext4_local_ext4_fc_disabled(inode->i_sb))
+	if (ext4_fc_disabled(inode->i_sb))
 		return;
 
 	if (ext4_test_mount_flag(inode->i_sb, EXT4_MF_FC_INELIGIBLE))
@@ -560,14 +553,14 @@ void ext4_fc_track_create(handle_t *handle, struct dentry *dentry)
 
 
 /**
- * ifs_ext4_local___track_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * __track_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local___track_inode(handle_t *handle, struct inode *inode, void *arg,
+static int __track_inode(handle_t *handle, struct inode *inode, void *arg,
 			 bool update)
 {
 	if (update)
@@ -594,7 +587,7 @@ void ext4_fc_track_inode(handle_t *handle, struct inode *inode)
 	if (S_ISDIR(inode->i_mode))
 		return;
 
-	if (ifs_ext4_local_ext4_fc_disabled(inode->i_sb))
+	if (ext4_fc_disabled(inode->i_sb))
 		return;
 
 	if (ext4_should_journal_data(inode)) {
@@ -606,7 +599,7 @@ void ext4_fc_track_inode(handle_t *handle, struct inode *inode)
 	if (ext4_test_mount_flag(inode->i_sb, EXT4_MF_FC_INELIGIBLE))
 		return;
 
-	ret = ifs_ext4_local_ext4_fc_track_template(handle, inode, ifs_ext4_local___track_inode, NULL, 1);
+	ret = ext4_fc_track_template(handle, inode, __track_inode, NULL, 1);
 	trace_ext4_fc_track_inode(handle, inode, ret);
 }
 
@@ -623,14 +616,14 @@ struct __track_range_args {
 
 
 /**
- * ifs_ext4_local___track_range - Implements the track range operation within the fast-commit engine subsystem.
+ * __track_range - Implements the track range operation within the fast-commit engine subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local___track_range(handle_t *handle, struct inode *inode, void *arg,
+static int __track_range(handle_t *handle, struct inode *inode, void *arg,
 			 bool update)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -676,7 +669,7 @@ void ext4_fc_track_range(handle_t *handle, struct inode *inode, ext4_lblk_t star
 	if (S_ISDIR(inode->i_mode))
 		return;
 
-	if (ifs_ext4_local_ext4_fc_disabled(inode->i_sb))
+	if (ext4_fc_disabled(inode->i_sb))
 		return;
 
 	if (ext4_test_mount_flag(inode->i_sb, EXT4_MF_FC_INELIGIBLE))
@@ -691,21 +684,21 @@ void ext4_fc_track_range(handle_t *handle, struct inode *inode, ext4_lblk_t star
 	args.start = start;
 	args.end = end;
 
-	ret = ifs_ext4_local_ext4_fc_track_template(handle, inode,  ifs_ext4_local___track_range, &args, 1);
+	ret = ext4_fc_track_template(handle, inode,  __track_range, &args, 1);
 
 	trace_ext4_fc_track_range(handle, inode, start, end, ret);
 }
 
 
 /**
- * ifs_ext4_local_ext4_fc_submit_bh - Implements the fc submit bh operation within the fast-commit engine subsystem.
+ * ext4_fc_submit_bh - Implements the fc submit bh operation within the fast-commit engine subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_fc_submit_bh(struct super_block *sb, bool is_tail)
+static void ext4_fc_submit_bh(struct super_block *sb, bool is_tail)
 {
 	blk_opf_t write_flags = JBD2_JOURNAL_REQ_FLAGS;
 	struct buffer_head *bh = EXT4_SB(sb)->s_fc_bh;
@@ -716,7 +709,7 @@ static void ifs_ext4_local_ext4_fc_submit_bh(struct super_block *sb, bool is_tai
 	lock_buffer(bh);
 	set_buffer_dirty(bh);
 	set_buffer_uptodate(bh);
-	bh->b_end_io = ifs_ext4_local_ext4_end_buffer_io_sync;
+	bh->b_end_io = ext4_end_buffer_io_sync;
 	submit_bh(REQ_OP_WRITE | write_flags, bh);
 	EXT4_SB(sb)->s_fc_bh = NULL;
 }
@@ -766,7 +759,7 @@ static u8 *ext4_fc_reserve_space(struct super_block *sb, int len, u32 *crc)
 	memset(dst + EXT4_FC_TAG_BASE_LEN, 0, remaining);
 	*crc = ext4_chksum(sbi, *crc, sbi->s_fc_bh->b_data, bsize);
 
-	ifs_ext4_local_ext4_fc_submit_bh(sb, false);
+	ext4_fc_submit_bh(sb, false);
 
 	ret = jbd2_fc_get_buf(EXT4_SB(sb)->s_journal, &bh);
 	if (ret)
@@ -778,14 +771,14 @@ static u8 *ext4_fc_reserve_space(struct super_block *sb, int len, u32 *crc)
 
 
 /**
- * ifs_ext4_local_ext4_fc_write_tail - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext4_fc_write_tail - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_write_tail(struct super_block *sb, u32 crc)
+static int ext4_fc_write_tail(struct super_block *sb, u32 crc)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ext4_fc_tl tl;
@@ -816,21 +809,21 @@ static int ifs_ext4_local_ext4_fc_write_tail(struct super_block *sb, u32 crc)
 	dst += sizeof(tail.fc_crc);
 	memset(dst, 0, bsize - off);
 
-	ifs_ext4_local_ext4_fc_submit_bh(sb, true);
+	ext4_fc_submit_bh(sb, true);
 
 	return 0;
 }
 
 
 /**
- * ifs_ext4_local_ext4_fc_add_tlv - Implements the fc add tlv operation within the fast-commit engine subsystem.
+ * ext4_fc_add_tlv - Implements the fc add tlv operation within the fast-commit engine subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ifs_ext4_local_ext4_fc_add_tlv(struct super_block *sb, u16 tag, u16 len, u8 *val,
+static bool ext4_fc_add_tlv(struct super_block *sb, u16 tag, u16 len, u8 *val,
 			   u32 *crc)
 {
 	struct ext4_fc_tl tl;
@@ -851,14 +844,14 @@ static bool ifs_ext4_local_ext4_fc_add_tlv(struct super_block *sb, u16 tag, u16 
 
 
 /**
- * ifs_ext4_local_ext4_fc_add_dentry_tlv - Implements the fc add dentry tlv operation within the fast-commit engine subsystem.
+ * ext4_fc_add_dentry_tlv - Implements the fc add dentry tlv operation within the fast-commit engine subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ifs_ext4_local_ext4_fc_add_dentry_tlv(struct super_block *sb, u32 *crc,
+static bool ext4_fc_add_dentry_tlv(struct super_block *sb, u32 *crc,
 				   struct ext4_fc_dentry_update *fc_dentry)
 {
 	struct ext4_fc_dentry_info fcd;
@@ -885,14 +878,14 @@ static bool ifs_ext4_local_ext4_fc_add_dentry_tlv(struct super_block *sb, u32 *c
 
 
 /**
- * ifs_ext4_local_ext4_fc_write_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext4_fc_write_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_write_inode(struct inode *inode, u32 *crc)
+static int ext4_fc_write_inode(struct inode *inode, u32 *crc)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
 	int inode_len = EXT4_GOOD_OLD_INODE_SIZE;
@@ -934,14 +927,14 @@ err:
 
 
 /**
- * ifs_ext4_local_ext4_fc_write_inode_data - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext4_fc_write_inode_data - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_write_inode_data(struct inode *inode, u32 *crc)
+static int ext4_fc_write_inode_data(struct inode *inode, u32 *crc)
 {
 	ext4_lblk_t old_blk_size, cur_lblk_off, new_blk_size;
 	struct ext4_inode_info *ei = EXT4_I(inode);
@@ -981,7 +974,7 @@ static int ifs_ext4_local_ext4_fc_write_inode_data(struct inode *inode, u32 *crc
 			lrange.fc_ino = cpu_to_le32(inode->i_ino);
 			lrange.fc_lblk = cpu_to_le32(map.m_lblk);
 			lrange.fc_len = cpu_to_le32(map.m_len);
-			if (!ifs_ext4_local_ext4_fc_add_tlv(inode->i_sb, EXT4_FC_TAG_DEL_RANGE,
+			if (!ext4_fc_add_tlv(inode->i_sb, EXT4_FC_TAG_DEL_RANGE,
 					    sizeof(lrange), (u8 *)&lrange, crc))
 				return -ENOSPC;
 		} else {
@@ -1000,7 +993,7 @@ static int ifs_ext4_local_ext4_fc_write_inode_data(struct inode *inode, u32 *crc
 				ext4_ext_mark_unwritten(ex);
 			else
 				ext4_ext_mark_initialized(ex);
-			if (!ifs_ext4_local_ext4_fc_add_tlv(inode->i_sb, EXT4_FC_TAG_ADD_RANGE,
+			if (!ext4_fc_add_tlv(inode->i_sb, EXT4_FC_TAG_ADD_RANGE,
 					    sizeof(fc_ext), (u8 *)&fc_ext, crc))
 				return -ENOSPC;
 		}
@@ -1013,14 +1006,14 @@ static int ifs_ext4_local_ext4_fc_write_inode_data(struct inode *inode, u32 *crc
 
 
 /**
- * ifs_ext4_local_ext4_fc_submit_inode_data_all - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext4_fc_submit_inode_data_all - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_submit_inode_data_all(journal_t *journal)
+static int ext4_fc_submit_inode_data_all(journal_t *journal)
 {
 	struct super_block *sb = journal->j_private;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -1055,14 +1048,14 @@ static int ifs_ext4_local_ext4_fc_submit_inode_data_all(journal_t *journal)
 
 
 /**
- * ifs_ext4_local_ext4_fc_wait_inode_data_all - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext4_fc_wait_inode_data_all - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_wait_inode_data_all(journal_t *journal)
+static int ext4_fc_wait_inode_data_all(journal_t *journal)
 {
 	struct super_block *sb = journal->j_private;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -1095,7 +1088,7 @@ static int ifs_ext4_local_ext4_fc_wait_inode_data_all(journal_t *journal)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_commit_dentry_updates(journal_t *journal, u32 *crc)
+static int ext4_fc_commit_dentry_updates(journal_t *journal, u32 *crc)
 __acquires(&sbi->s_fc_lock)
 __releases(&sbi->s_fc_lock)
 {
@@ -1112,7 +1105,7 @@ __releases(&sbi->s_fc_lock)
 				 &sbi->s_fc_dentry_q[FC_Q_MAIN], fcd_list) {
 		if (fc_dentry->fcd_op != EXT4_FC_TAG_CREAT) {
 			spin_unlock(&sbi->s_fc_lock);
-			if (!ifs_ext4_local_ext4_fc_add_dentry_tlv(sb, crc, fc_dentry)) {
+			if (!ext4_fc_add_dentry_tlv(sb, crc, fc_dentry)) {
 				ret = -ENOSPC;
 				goto lock_and_exit;
 			}
@@ -1130,15 +1123,15 @@ __releases(&sbi->s_fc_lock)
 		spin_unlock(&sbi->s_fc_lock);
 
 
-		ret = ifs_ext4_local_ext4_fc_write_inode(inode, crc);
+		ret = ext4_fc_write_inode(inode, crc);
 		if (ret)
 			goto lock_and_exit;
 
-		ret = ifs_ext4_local_ext4_fc_write_inode_data(inode, crc);
+		ret = ext4_fc_write_inode_data(inode, crc);
 		if (ret)
 			goto lock_and_exit;
 
-		if (!ifs_ext4_local_ext4_fc_add_dentry_tlv(sb, crc, fc_dentry)) {
+		if (!ext4_fc_add_dentry_tlv(sb, crc, fc_dentry)) {
 			ret = -ENOSPC;
 			goto lock_and_exit;
 		}
@@ -1153,14 +1146,14 @@ lock_and_exit:
 
 
 /**
- * ifs_ext4_local_ext4_fc_perform_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
+ * ext4_fc_perform_commit - Advances journalled state toward a durable transaction or checkpoint boundary.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_perform_commit(journal_t *journal)
+static int ext4_fc_perform_commit(journal_t *journal)
 {
 	struct super_block *sb = journal->j_private;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -1171,11 +1164,11 @@ static int ifs_ext4_local_ext4_fc_perform_commit(journal_t *journal)
 	int ret = 0;
 	u32 crc = 0;
 
-	ret = ifs_ext4_local_ext4_fc_submit_inode_data_all(journal);
+	ret = ext4_fc_submit_inode_data_all(journal);
 	if (ret)
 		return ret;
 
-	ret = ifs_ext4_local_ext4_fc_wait_inode_data_all(journal);
+	ret = ext4_fc_wait_inode_data_all(journal);
 	if (ret)
 		return ret;
 
@@ -1190,7 +1183,7 @@ static int ifs_ext4_local_ext4_fc_perform_commit(journal_t *journal)
 		head.fc_features = cpu_to_le32(EXT4_FC_SUPPORTED_FEATURES);
 		head.fc_tid = cpu_to_le32(
 			sbi->s_journal->j_running_transaction->t_tid);
-		if (!ifs_ext4_local_ext4_fc_add_tlv(sb, EXT4_FC_TAG_HEAD, sizeof(head),
+		if (!ext4_fc_add_tlv(sb, EXT4_FC_TAG_HEAD, sizeof(head),
 			(u8 *)&head, &crc)) {
 			ret = -ENOSPC;
 			goto out;
@@ -1198,7 +1191,7 @@ static int ifs_ext4_local_ext4_fc_perform_commit(journal_t *journal)
 	}
 
 	spin_lock(&sbi->s_fc_lock);
-	ret = ifs_ext4_local_ext4_fc_commit_dentry_updates(journal, &crc);
+	ret = ext4_fc_commit_dentry_updates(journal, &crc);
 	if (ret) {
 		spin_unlock(&sbi->s_fc_lock);
 		goto out;
@@ -1210,17 +1203,17 @@ static int ifs_ext4_local_ext4_fc_perform_commit(journal_t *journal)
 			continue;
 
 		spin_unlock(&sbi->s_fc_lock);
-		ret = ifs_ext4_local_ext4_fc_write_inode_data(inode, &crc);
+		ret = ext4_fc_write_inode_data(inode, &crc);
 		if (ret)
 			goto out;
-		ret = ifs_ext4_local_ext4_fc_write_inode(inode, &crc);
+		ret = ext4_fc_write_inode(inode, &crc);
 		if (ret)
 			goto out;
 		spin_lock(&sbi->s_fc_lock);
 	}
 	spin_unlock(&sbi->s_fc_lock);
 
-	ret = ifs_ext4_local_ext4_fc_write_tail(sb, crc);
+	ret = ext4_fc_write_tail(sb, crc);
 
 out:
 	blk_finish_plug(&plug);
@@ -1229,14 +1222,14 @@ out:
 
 
 /**
- * ifs_ext4_local_ext4_fc_update_stats - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext4_fc_update_stats - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_fc_update_stats(struct super_block *sb, int status,
+static void ext4_fc_update_stats(struct super_block *sb, int status,
 				 u64 commit_time, int nblks, tid_t commit_tid)
 {
 	struct ext4_fc_stats *stats = &EXT4_SB(sb)->s_fc_stats;
@@ -1295,13 +1288,13 @@ restart_fc:
 		if (atomic_read(&sbi->s_fc_subtid) <= subtid &&
 		    tid_gt(commit_tid, journal->j_commit_sequence))
 			goto restart_fc;
-		ifs_ext4_local_ext4_fc_update_stats(sb, EXT4_FC_STATUS_SKIPPED, 0, 0,
+		ext4_fc_update_stats(sb, EXT4_FC_STATUS_SKIPPED, 0, 0,
 				commit_tid);
 		return 0;
 	} else if (ret) {
 
 
-		ifs_ext4_local_ext4_fc_update_stats(sb, EXT4_FC_STATUS_FAILED, 0, 0,
+		ext4_fc_update_stats(sb, EXT4_FC_STATUS_FAILED, 0, 0,
 				commit_tid);
 		return jbd2_complete_transaction(journal, commit_tid);
 	}
@@ -1313,7 +1306,7 @@ restart_fc:
 	}
 
 	fc_bufs_before = (sbi->s_fc_bytes + bsize - 1) / bsize;
-	ret = ifs_ext4_local_ext4_fc_perform_commit(journal);
+	ret = ext4_fc_perform_commit(journal);
 	if (ret < 0) {
 		status = EXT4_FC_STATUS_FAILED;
 		goto fallback;
@@ -1329,25 +1322,25 @@ restart_fc:
 
 
 	commit_time = ktime_to_ns(ktime_sub(ktime_get(), start_time));
-	ifs_ext4_local_ext4_fc_update_stats(sb, status, commit_time, nblks, commit_tid);
+	ext4_fc_update_stats(sb, status, commit_time, nblks, commit_tid);
 	return ret;
 
 fallback:
 	ret = jbd2_fc_end_commit_fallback(journal);
-	ifs_ext4_local_ext4_fc_update_stats(sb, status, 0, 0, commit_tid);
+	ext4_fc_update_stats(sb, status, 0, 0, commit_tid);
 	return ret;
 }
 
 
 /**
- * ifs_ext4_local_ext4_fc_cleanup - Implements the fc cleanup operation within the fast-commit engine subsystem.
+ * ext4_fc_cleanup - Implements the fc cleanup operation within the fast-commit engine subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_fc_cleanup(journal_t *journal, int full, tid_t tid)
+static void ext4_fc_cleanup(journal_t *journal, int full, tid_t tid)
 {
 	struct super_block *sb = journal->j_private;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -1367,7 +1360,7 @@ static void ifs_ext4_local_ext4_fc_cleanup(journal_t *journal, int full, tid_t t
 		ext4_clear_inode_state(&iter->vfs_inode,
 				       EXT4_STATE_FC_COMMITTING);
 		if (tid_geq(tid, iter->i_sync_tid)) {
-			ifs_ext4_local_ext4_fc_reset_inode(&iter->vfs_inode);
+			ext4_fc_reset_inode(&iter->vfs_inode);
 		} else if (full) {
 
 
@@ -1438,14 +1431,14 @@ struct ext4_fc_tl_mem {
 
 
 /**
- * ifs_ext4_local_tl_to_darg - Implements the tl to darg operation within the fast-commit engine subsystem.
+ * tl_to_darg - Implements the tl to darg operation within the fast-commit engine subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ifs_ext4_local_tl_to_darg(struct dentry_info_args *darg,
+static inline void tl_to_darg(struct dentry_info_args *darg,
 			      struct ext4_fc_tl_mem *tl, u8 *val)
 {
 	struct ext4_fc_dentry_info fcd;
@@ -1460,14 +1453,14 @@ static inline void ifs_ext4_local_tl_to_darg(struct dentry_info_args *darg,
 
 
 /**
- * ifs_ext4_local_ext4_fc_get_tl - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ext4_fc_get_tl - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ifs_ext4_local_ext4_fc_get_tl(struct ext4_fc_tl_mem *tl, u8 *val)
+static inline void ext4_fc_get_tl(struct ext4_fc_tl_mem *tl, u8 *val)
 {
 	struct ext4_fc_tl tl_disk;
 
@@ -1478,14 +1471,14 @@ static inline void ifs_ext4_local_ext4_fc_get_tl(struct ext4_fc_tl_mem *tl, u8 *
 
 
 /**
- * ifs_ext4_local_ext4_fc_replay_unlink - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ext4_fc_replay_unlink - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_replay_unlink(struct super_block *sb,
+static int ext4_fc_replay_unlink(struct super_block *sb,
 				 struct ext4_fc_tl_mem *tl, u8 *val)
 {
 	struct inode *inode, *old_parent;
@@ -1493,7 +1486,7 @@ static int ifs_ext4_local_ext4_fc_replay_unlink(struct super_block *sb,
 	struct dentry_info_args darg;
 	int ret = 0;
 
-	ifs_ext4_local_tl_to_darg(&darg, tl, val);
+	tl_to_darg(&darg, tl, val);
 
 	trace_ext4_fc_replay(sb, EXT4_FC_TAG_UNLINK, darg.ino,
 			darg.parent_ino, darg.dname_len);
@@ -1526,14 +1519,14 @@ static int ifs_ext4_local_ext4_fc_replay_unlink(struct super_block *sb,
 
 
 /**
- * ifs_ext4_local_ext4_fc_replay_link_internal - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ext4_fc_replay_link_internal - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_replay_link_internal(struct super_block *sb,
+static int ext4_fc_replay_link_internal(struct super_block *sb,
 				struct dentry_info_args *darg,
 				struct inode *inode)
 {
@@ -1589,21 +1582,21 @@ out:
 
 
 /**
- * ifs_ext4_local_ext4_fc_replay_link - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ext4_fc_replay_link - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_replay_link(struct super_block *sb,
+static int ext4_fc_replay_link(struct super_block *sb,
 			       struct ext4_fc_tl_mem *tl, u8 *val)
 {
 	struct inode *inode;
 	struct dentry_info_args darg;
 	int ret = 0;
 
-	ifs_ext4_local_tl_to_darg(&darg, tl, val);
+	tl_to_darg(&darg, tl, val);
 	trace_ext4_fc_replay(sb, EXT4_FC_TAG_LINK, darg.ino,
 			darg.parent_ino, darg.dname_len);
 
@@ -1613,21 +1606,21 @@ static int ifs_ext4_local_ext4_fc_replay_link(struct super_block *sb,
 		return 0;
 	}
 
-	ret = ifs_ext4_local_ext4_fc_replay_link_internal(sb, &darg, inode);
+	ret = ext4_fc_replay_link_internal(sb, &darg, inode);
 	iput(inode);
 	return ret;
 }
 
 
 /**
- * ifs_ext4_local_ext4_fc_record_modified_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext4_fc_record_modified_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_record_modified_inode(struct super_block *sb, int ino)
+static int ext4_fc_record_modified_inode(struct super_block *sb, int ino)
 {
 	struct ext4_fc_replay_state *state;
 	int i;
@@ -1659,14 +1652,14 @@ static int ifs_ext4_local_ext4_fc_record_modified_inode(struct super_block *sb, 
 
 
 /**
- * ifs_ext4_local_ext4_fc_replay_inode - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ext4_fc_replay_inode - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_replay_inode(struct super_block *sb,
+static int ext4_fc_replay_inode(struct super_block *sb,
 				struct ext4_fc_tl_mem *tl, u8 *val)
 {
 	struct ext4_fc_inode fc_inode;
@@ -1690,7 +1683,7 @@ static int ifs_ext4_local_ext4_fc_replay_inode(struct super_block *sb,
 	}
 	inode = NULL;
 
-	ret = ifs_ext4_local_ext4_fc_record_modified_inode(sb, ino);
+	ret = ext4_fc_record_modified_inode(sb, ino);
 	if (ret)
 		goto out;
 
@@ -1763,14 +1756,14 @@ out:
 
 
 /**
- * ifs_ext4_local_ext4_fc_replay_create - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ext4_fc_replay_create - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_replay_create(struct super_block *sb,
+static int ext4_fc_replay_create(struct super_block *sb,
 				 struct ext4_fc_tl_mem *tl, u8 *val)
 {
 	int ret = 0;
@@ -1778,7 +1771,7 @@ static int ifs_ext4_local_ext4_fc_replay_create(struct super_block *sb,
 	struct inode *dir = NULL;
 	struct dentry_info_args darg;
 
-	ifs_ext4_local_tl_to_darg(&darg, tl, val);
+	tl_to_darg(&darg, tl, val);
 
 	trace_ext4_fc_replay(sb, EXT4_FC_TAG_CREAT, darg.ino,
 			darg.parent_ino, darg.dname_len);
@@ -1811,7 +1804,7 @@ static int ifs_ext4_local_ext4_fc_replay_create(struct super_block *sb,
 			goto out;
 		}
 	}
-	ret = ifs_ext4_local_ext4_fc_replay_link_internal(sb, &darg, inode);
+	ret = ext4_fc_replay_link_internal(sb, &darg, inode);
 	if (ret)
 		goto out;
 	set_nlink(inode, 1);
@@ -1870,14 +1863,14 @@ int ext4_fc_record_regions(struct super_block *sb, int ino,
 
 
 /**
- * ifs_ext4_local_ext4_fc_replay_add_range - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ext4_fc_replay_add_range - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_replay_add_range(struct super_block *sb,
+static int ext4_fc_replay_add_range(struct super_block *sb,
 				    struct ext4_fc_tl_mem *tl, u8 *val)
 {
 	struct ext4_fc_add_range fc_add_ex;
@@ -1903,7 +1896,7 @@ static int ifs_ext4_local_ext4_fc_replay_add_range(struct super_block *sb,
 		return 0;
 	}
 
-	ret = ifs_ext4_local_ext4_fc_record_modified_inode(sb, inode->i_ino);
+	ret = ext4_fc_record_modified_inode(sb, inode->i_ino);
 	if (ret)
 		goto out;
 
@@ -1993,7 +1986,7 @@ out:
 
 
 /**
- * ifs_ext4_local_ext4_fc_replay_del_range - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ext4_fc_replay_del_range - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -2001,7 +1994,7 @@ out:
  * rollback, abort or retry policy.
  */
 static int
-ifs_ext4_local_ext4_fc_replay_del_range(struct super_block *sb,
+ext4_fc_replay_del_range(struct super_block *sb,
 			 struct ext4_fc_tl_mem *tl, u8 *val)
 {
 	struct inode *inode;
@@ -2023,7 +2016,7 @@ ifs_ext4_local_ext4_fc_replay_del_range(struct super_block *sb,
 		return 0;
 	}
 
-	ret = ifs_ext4_local_ext4_fc_record_modified_inode(sb, inode->i_ino);
+	ret = ext4_fc_record_modified_inode(sb, inode->i_ino);
 	if (ret)
 		goto out;
 
@@ -2065,14 +2058,14 @@ out:
 
 
 /**
- * ifs_ext4_local_ext4_fc_set_bitmaps_and_counters - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext4_fc_set_bitmaps_and_counters - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_fc_set_bitmaps_and_counters(struct super_block *sb)
+static void ext4_fc_set_bitmaps_and_counters(struct super_block *sb)
 {
 	struct ext4_fc_replay_state *state;
 	struct inode *inode;
@@ -2172,14 +2165,14 @@ void ext4_fc_replay_cleanup(struct super_block *sb)
 
 
 /**
- * ifs_ext4_local_ext4_fc_value_len_isvalid - Implements the fc value len isvalid operation within the fast-commit engine subsystem.
+ * ext4_fc_value_len_isvalid - Implements the fc value len isvalid operation within the fast-commit engine subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ifs_ext4_local_ext4_fc_value_len_isvalid(struct ext4_sb_info *sbi,
+static bool ext4_fc_value_len_isvalid(struct ext4_sb_info *sbi,
 				      int tag, int len)
 {
 	switch (tag) {
@@ -2208,14 +2201,14 @@ static bool ifs_ext4_local_ext4_fc_value_len_isvalid(struct ext4_sb_info *sbi,
 
 
 /**
- * ifs_ext4_local_ext4_fc_replay_scan - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ext4_fc_replay_scan - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_replay_scan(journal_t *journal,
+static int ext4_fc_replay_scan(journal_t *journal,
 				struct buffer_head *bh, int off,
 				tid_t expected_tid)
 {
@@ -2256,10 +2249,10 @@ static int ifs_ext4_local_ext4_fc_replay_scan(journal_t *journal,
 	state->fc_replay_expected_off++;
 	for (cur = start; cur <= end - EXT4_FC_TAG_BASE_LEN;
 	     cur = cur + EXT4_FC_TAG_BASE_LEN + tl.fc_len) {
-		ifs_ext4_local_ext4_fc_get_tl(&tl, cur);
+		ext4_fc_get_tl(&tl, cur);
 		val = cur + EXT4_FC_TAG_BASE_LEN;
 		if (tl.fc_len > end - val ||
-		    !ifs_ext4_local_ext4_fc_value_len_isvalid(sbi, tl.fc_tag, tl.fc_len)) {
+		    !ext4_fc_value_len_isvalid(sbi, tl.fc_tag, tl.fc_len)) {
 			ret = state->fc_replay_num_tags ?
 				JBD2_FC_REPLAY_STOP : -ECANCELED;
 			goto out_err;
@@ -2336,14 +2329,14 @@ out_err:
 
 
 /**
- * ifs_ext4_local_ext4_fc_replay - Participates in crash recovery and reconstruction of durable filesystem state.
+ * ext4_fc_replay - Participates in crash recovery and reconstruction of durable filesystem state.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
+static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 				enum passtype pass, int off, tid_t expected_tid)
 {
 	struct super_block *sb = journal->j_private;
@@ -2356,7 +2349,7 @@ static int ifs_ext4_local_ext4_fc_replay(journal_t *journal, struct buffer_head 
 
 	if (pass == PASS_SCAN) {
 		state->fc_current_pass = PASS_SCAN;
-		return ifs_ext4_local_ext4_fc_replay_scan(journal, bh, off, expected_tid);
+		return ext4_fc_replay_scan(journal, bh, off, expected_tid);
 	}
 
 	if (state->fc_current_pass != pass) {
@@ -2365,7 +2358,7 @@ static int ifs_ext4_local_ext4_fc_replay(journal_t *journal, struct buffer_head 
 	}
 	if (!sbi->s_fc_replay_state.fc_replay_num_tags) {
 		ext4_debug("Replay stops\n");
-		ifs_ext4_local_ext4_fc_set_bitmaps_and_counters(sb);
+		ext4_fc_set_bitmaps_and_counters(sb);
 		return 0;
 	}
 
@@ -2381,12 +2374,12 @@ static int ifs_ext4_local_ext4_fc_replay(journal_t *journal, struct buffer_head 
 
 	for (cur = start; cur <= end - EXT4_FC_TAG_BASE_LEN;
 	     cur = cur + EXT4_FC_TAG_BASE_LEN + tl.fc_len) {
-		ifs_ext4_local_ext4_fc_get_tl(&tl, cur);
+		ext4_fc_get_tl(&tl, cur);
 		val = cur + EXT4_FC_TAG_BASE_LEN;
 
 		if (state->fc_replay_num_tags == 0) {
 			ret = JBD2_FC_REPLAY_STOP;
-			ifs_ext4_local_ext4_fc_set_bitmaps_and_counters(sb);
+			ext4_fc_set_bitmaps_and_counters(sb);
 			break;
 		}
 
@@ -2394,22 +2387,22 @@ static int ifs_ext4_local_ext4_fc_replay(journal_t *journal, struct buffer_head 
 		state->fc_replay_num_tags--;
 		switch (tl.fc_tag) {
 		case EXT4_FC_TAG_LINK:
-			ret = ifs_ext4_local_ext4_fc_replay_link(sb, &tl, val);
+			ret = ext4_fc_replay_link(sb, &tl, val);
 			break;
 		case EXT4_FC_TAG_UNLINK:
-			ret = ifs_ext4_local_ext4_fc_replay_unlink(sb, &tl, val);
+			ret = ext4_fc_replay_unlink(sb, &tl, val);
 			break;
 		case EXT4_FC_TAG_ADD_RANGE:
-			ret = ifs_ext4_local_ext4_fc_replay_add_range(sb, &tl, val);
+			ret = ext4_fc_replay_add_range(sb, &tl, val);
 			break;
 		case EXT4_FC_TAG_CREAT:
-			ret = ifs_ext4_local_ext4_fc_replay_create(sb, &tl, val);
+			ret = ext4_fc_replay_create(sb, &tl, val);
 			break;
 		case EXT4_FC_TAG_DEL_RANGE:
-			ret = ifs_ext4_local_ext4_fc_replay_del_range(sb, &tl, val);
+			ret = ext4_fc_replay_del_range(sb, &tl, val);
 			break;
 		case EXT4_FC_TAG_INODE:
-			ret = ifs_ext4_local_ext4_fc_replay_inode(sb, &tl, val);
+			ret = ext4_fc_replay_inode(sb, &tl, val);
 			break;
 		case EXT4_FC_TAG_PAD:
 			trace_ext4_fc_replay(sb, EXT4_FC_TAG_PAD, 0,
@@ -2448,10 +2441,10 @@ void ext4_fc_init(struct super_block *sb, journal_t *journal)
 {
 
 
-	journal->j_fc_replay_callback = ifs_ext4_local_ext4_fc_replay;
+	journal->j_fc_replay_callback = ext4_fc_replay;
 	if (!test_opt2(sb, JOURNAL_FAST_COMMIT))
 		return;
-	journal->j_fc_cleanup_callback = ifs_ext4_local_ext4_fc_cleanup;
+	journal->j_fc_cleanup_callback = ext4_fc_cleanup;
 }
 
 static const char * const fc_ineligible_reasons[] = {

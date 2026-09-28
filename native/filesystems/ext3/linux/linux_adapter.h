@@ -1,13 +1,26 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT3 Linux adapter: linux_adapter.h.
- * Project-maintained implementation for the canonical EXT3 driver.
- */
-
 #ifndef INFILTRATOR_EXT3_LINUX_ADAPTER_H
 #define INFILTRATOR_EXT3_LINUX_ADAPTER_H
 
+/*
+ * Written by Stephen C. Tweedie <sct@redhat.com>, 1999
+ *
+ * Copyright 1998--1999 Red Hat corp --- All Rights Reserved
+ *
+ * This file is part of the Linux kernel and is made available under
+ * the terms of the GNU General Public License, version 2, or at your
+ * option, any later version, incorporated herein by reference.
+ *
+ * Copyright (C) 1992, 1993, 1994, 1995
+ * Remy Card (card@masi.ibp.fr)
+ * Laboratoire MASI - Institut Blaise Pascal
+ * Universite Pierre et Marie Curie (Paris VI)
+ *
+ *  from
+ *
+ *  linux/include/linux/minix_fs.h
+ *
+ *  Copyright (C) 1991, 1992  Linus Torvalds
+ */
 
 /*
  * EXT3 — EXT3 shared model

@@ -1,10 +1,3 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: extent_cache.c.
- * Project-maintained canonical implementation.
- */
-
 // SPDX-License-Identifier: GPL-2.0
 
 /*
@@ -21,7 +14,7 @@
  *
  * Project rules:
  *   - Register and implement EXT4 only; do not route EXT2 or EXT3 mounts through this module.
- *   - Preserve every valid EXT4 feature path supported by the canonical format and project qualification suite.
+ *   - Preserve every valid EXT4 feature path supported by the pinned implementation.
  *   - Treat journaling, extents, allocation, checksums, recovery and feature negotiation as correctness-critical state machines.
  *
  * Commentary policy:
@@ -40,15 +33,15 @@
 static struct kmem_cache *ext4_es_cachep;
 static struct kmem_cache *ext4_pending_cachep;
 
-static int ifs_ext4_local___es_insert_extent(struct inode *inode, struct extent_status *newes,
+static int __es_insert_extent(struct inode *inode, struct extent_status *newes,
 			      struct extent_status *prealloc);
-static int ifs_ext4_local___es_remove_extent(struct inode *inode, ext4_lblk_t lblk,
+static int __es_remove_extent(struct inode *inode, ext4_lblk_t lblk,
 			      ext4_lblk_t end, int *reserved,
 			      struct extent_status *prealloc);
-static int ifs_ext4_local_es_reclaim_extents(struct ext4_inode_info *ei, int *nr_to_scan);
-static int ifs_ext4_local___es_shrink(struct ext4_sb_info *sbi, int nr_to_scan,
+static int es_reclaim_extents(struct ext4_inode_info *ei, int *nr_to_scan);
+static int __es_shrink(struct ext4_sb_info *sbi, int nr_to_scan,
 		       struct ext4_inode_info *locked_ei);
-static int ifs_ext4_local___revise_pending(struct inode *inode, ext4_lblk_t lblk,
+static int __revise_pending(struct inode *inode, ext4_lblk_t lblk,
 			    ext4_lblk_t len,
 			    struct pending_reservation **prealloc);
 
@@ -102,14 +95,14 @@ void ext4_es_init_tree(struct ext4_es_tree *tree)
 
 
 /**
- * ifs_ext4_local_ext4_es_print_tree - Implements the es print tree operation within the extent-status cache subsystem.
+ * ext4_es_print_tree - Implements the es print tree operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_es_print_tree(struct inode *inode)
+static void ext4_es_print_tree(struct inode *inode)
 {
 	struct ext4_es_tree *tree;
 	struct rb_node *node;
@@ -128,19 +121,19 @@ static void ifs_ext4_local_ext4_es_print_tree(struct inode *inode)
 	printk(KERN_DEBUG "\n");
 }
 #else
-#define ifs_ext4_local_ext4_es_print_tree(inode)
+#define ext4_es_print_tree(inode)
 #endif
 
 
 /**
- * ifs_ext4_local_ext4_es_end - Implements the es end operation within the extent-status cache subsystem.
+ * ext4_es_end - Implements the es end operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline ext4_lblk_t ifs_ext4_local_ext4_es_end(struct extent_status *es)
+static inline ext4_lblk_t ext4_es_end(struct extent_status *es)
 {
 	BUG_ON(es->es_lblk + es->es_len < es->es_lblk);
 	return es->es_lblk + es->es_len - 1;
@@ -165,7 +158,7 @@ static struct extent_status *__es_tree_search(struct rb_root *root,
 		es = rb_entry(node, struct extent_status, rb_node);
 		if (lblk < es->es_lblk)
 			node = node->rb_left;
-		else if (lblk > ifs_ext4_local_ext4_es_end(es))
+		else if (lblk > ext4_es_end(es))
 			node = node->rb_right;
 		else
 			return es;
@@ -174,7 +167,7 @@ static struct extent_status *__es_tree_search(struct rb_root *root,
 	if (es && lblk < es->es_lblk)
 		return es;
 
-	if (es && lblk > ifs_ext4_local_ext4_es_end(es)) {
+	if (es && lblk > ext4_es_end(es)) {
 		node = rb_next(&es->rb_node);
 		return node ? rb_entry(node, struct extent_status, rb_node) :
 			      NULL;
@@ -185,14 +178,14 @@ static struct extent_status *__es_tree_search(struct rb_root *root,
 
 
 /**
- * ifs_ext4_local___es_find_extent_range - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * __es_find_extent_range - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local___es_find_extent_range(struct inode *inode,
+static void __es_find_extent_range(struct inode *inode,
 				   int (*matching_fn)(struct extent_status *es),
 				   ext4_lblk_t lblk, ext4_lblk_t end,
 				   struct extent_status *es)
@@ -262,7 +255,7 @@ void ext4_es_find_extent_range(struct inode *inode,
 	trace_ext4_es_find_extent_range_enter(inode, lblk);
 
 	read_lock(&EXT4_I(inode)->i_es_lock);
-	ifs_ext4_local___es_find_extent_range(inode, matching_fn, lblk, end, es);
+	__es_find_extent_range(inode, matching_fn, lblk, end, es);
 	read_unlock(&EXT4_I(inode)->i_es_lock);
 
 	trace_ext4_es_find_extent_range_exit(inode, es);
@@ -270,20 +263,20 @@ void ext4_es_find_extent_range(struct inode *inode,
 
 
 /**
- * ifs_ext4_local___es_scan_range - Implements the es scan range operation within the extent-status cache subsystem.
+ * __es_scan_range - Implements the es scan range operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ifs_ext4_local___es_scan_range(struct inode *inode,
+static bool __es_scan_range(struct inode *inode,
 			    int (*matching_fn)(struct extent_status *es),
 			    ext4_lblk_t start, ext4_lblk_t end)
 {
 	struct extent_status es;
 
-	ifs_ext4_local___es_find_extent_range(inode, matching_fn, start, end, &es);
+	__es_find_extent_range(inode, matching_fn, start, end, &es);
 	if (es.es_len == 0)
 		return false;
 	else if (es.es_lblk <= start &&
@@ -314,7 +307,7 @@ bool ext4_es_scan_range(struct inode *inode,
 		return false;
 
 	read_lock(&EXT4_I(inode)->i_es_lock);
-	ret = ifs_ext4_local___es_scan_range(inode, matching_fn, lblk, end);
+	ret = __es_scan_range(inode, matching_fn, lblk, end);
 	read_unlock(&EXT4_I(inode)->i_es_lock);
 
 	return ret;
@@ -322,14 +315,14 @@ bool ext4_es_scan_range(struct inode *inode,
 
 
 /**
- * ifs_ext4_local___es_scan_clu - Implements the es scan clu operation within the extent-status cache subsystem.
+ * __es_scan_clu - Implements the es scan clu operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ifs_ext4_local___es_scan_clu(struct inode *inode,
+static bool __es_scan_clu(struct inode *inode,
 			  int (*matching_fn)(struct extent_status *es),
 			  ext4_lblk_t lblk)
 {
@@ -339,7 +332,7 @@ static bool ifs_ext4_local___es_scan_clu(struct inode *inode,
 	lblk_start = EXT4_LBLK_CMASK(sbi, lblk);
 	lblk_end = lblk_start + sbi->s_cluster_ratio - 1;
 
-	return ifs_ext4_local___es_scan_range(inode, matching_fn, lblk_start, lblk_end);
+	return __es_scan_range(inode, matching_fn, lblk_start, lblk_end);
 }
 
 
@@ -361,7 +354,7 @@ bool ext4_es_scan_clu(struct inode *inode,
 		return false;
 
 	read_lock(&EXT4_I(inode)->i_es_lock);
-	ret = ifs_ext4_local___es_scan_clu(inode, matching_fn, lblk);
+	ret = __es_scan_clu(inode, matching_fn, lblk);
 	read_unlock(&EXT4_I(inode)->i_es_lock);
 
 	return ret;
@@ -369,14 +362,14 @@ bool ext4_es_scan_clu(struct inode *inode,
 
 
 /**
- * ifs_ext4_local_ext4_es_list_add - Implements the es list add operation within the extent-status cache subsystem.
+ * ext4_es_list_add - Implements the es list add operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_es_list_add(struct inode *inode)
+static void ext4_es_list_add(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
@@ -394,14 +387,14 @@ static void ifs_ext4_local_ext4_es_list_add(struct inode *inode)
 
 
 /**
- * ifs_ext4_local_ext4_es_list_del - Implements the es list del operation within the extent-status cache subsystem.
+ * ext4_es_list_del - Implements the es list del operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_es_list_del(struct inode *inode)
+static void ext4_es_list_del(struct inode *inode)
 {
 	struct ext4_inode_info *ei = EXT4_I(inode);
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
@@ -434,28 +427,28 @@ static inline struct pending_reservation *__alloc_pending(bool nofail)
 
 
 /**
- * ifs_ext4_local___free_pending - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * __free_pending - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ifs_ext4_local___free_pending(struct pending_reservation *pr)
+static inline void __free_pending(struct pending_reservation *pr)
 {
 	kmem_cache_free(ext4_pending_cachep, pr);
 }
 
 
 /**
- * ifs_ext4_local_ext4_es_must_keep - Implements the es must keep operation within the extent-status cache subsystem.
+ * ext4_es_must_keep - Implements the es must keep operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline bool ifs_ext4_local_ext4_es_must_keep(struct extent_status *es)
+static inline bool ext4_es_must_keep(struct extent_status *es)
 {
 
 	if (ext4_es_is_delayed(es))
@@ -483,14 +476,14 @@ static inline struct extent_status *__es_alloc_extent(bool nofail)
 
 
 /**
- * ifs_ext4_local_ext4_es_init_extent - Initialises subsystem state and establishes the resources required by later operations.
+ * ext4_es_init_extent - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_es_init_extent(struct inode *inode, struct extent_status *es,
+static void ext4_es_init_extent(struct inode *inode, struct extent_status *es,
 		ext4_lblk_t lblk, ext4_lblk_t len, ext4_fsblk_t pblk)
 {
 	es->es_lblk = lblk;
@@ -498,9 +491,9 @@ static void ifs_ext4_local_ext4_es_init_extent(struct inode *inode, struct exten
 	es->es_pblk = pblk;
 
 
-	if (!ifs_ext4_local_ext4_es_must_keep(es)) {
+	if (!ext4_es_must_keep(es)) {
 		if (!EXT4_I(inode)->i_es_shk_nr++)
-			ifs_ext4_local_ext4_es_list_add(inode);
+			ext4_es_list_add(inode);
 		percpu_counter_inc(&EXT4_SB(inode->i_sb)->
 					s_es_stats.es_stats_shk_cnt);
 	}
@@ -511,54 +504,54 @@ static void ifs_ext4_local_ext4_es_init_extent(struct inode *inode, struct exten
 
 
 /**
- * ifs_ext4_local___es_free_extent - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * __es_free_extent - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ifs_ext4_local___es_free_extent(struct extent_status *es)
+static inline void __es_free_extent(struct extent_status *es)
 {
 	kmem_cache_free(ext4_es_cachep, es);
 }
 
 
 /**
- * ifs_ext4_local_ext4_es_free_extent - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext4_es_free_extent - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_es_free_extent(struct inode *inode, struct extent_status *es)
+static void ext4_es_free_extent(struct inode *inode, struct extent_status *es)
 {
 	EXT4_I(inode)->i_es_all_nr--;
 	percpu_counter_dec(&EXT4_SB(inode->i_sb)->s_es_stats.es_stats_all_cnt);
 
 
-	if (!ifs_ext4_local_ext4_es_must_keep(es)) {
+	if (!ext4_es_must_keep(es)) {
 		BUG_ON(EXT4_I(inode)->i_es_shk_nr == 0);
 		if (!--EXT4_I(inode)->i_es_shk_nr)
-			ifs_ext4_local_ext4_es_list_del(inode);
+			ext4_es_list_del(inode);
 		percpu_counter_dec(&EXT4_SB(inode->i_sb)->
 					s_es_stats.es_stats_shk_cnt);
 	}
 
-	ifs_ext4_local___es_free_extent(es);
+	__es_free_extent(es);
 }
 
 
 /**
- * ifs_ext4_local_ext4_es_can_be_merged - Implements the es can be merged operation within the extent-status cache subsystem.
+ * ext4_es_can_be_merged - Implements the es can be merged operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_ext4_es_can_be_merged(struct extent_status *es1,
+static int ext4_es_can_be_merged(struct extent_status *es1,
 				 struct extent_status *es2)
 {
 	if (ext4_es_type(es1) != ext4_es_type(es2))
@@ -592,7 +585,7 @@ static int ifs_ext4_local_ext4_es_can_be_merged(struct extent_status *es1,
 
 
 /**
- * ifs_ext4_local_ext4_es_try_to_merge_left - Implements the es try to merge left operation within the extent-status cache subsystem.
+ * ext4_es_try_to_merge_left - Implements the es try to merge left operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -600,7 +593,7 @@ static int ifs_ext4_local_ext4_es_can_be_merged(struct extent_status *es1,
  * rollback, abort or retry policy.
  */
 static struct extent_status *
-ifs_ext4_local_ext4_es_try_to_merge_left(struct inode *inode, struct extent_status *es)
+ext4_es_try_to_merge_left(struct inode *inode, struct extent_status *es)
 {
 	struct ext4_es_tree *tree = &EXT4_I(inode)->i_es_tree;
 	struct extent_status *es1;
@@ -611,12 +604,12 @@ ifs_ext4_local_ext4_es_try_to_merge_left(struct inode *inode, struct extent_stat
 		return es;
 
 	es1 = rb_entry(node, struct extent_status, rb_node);
-	if (ifs_ext4_local_ext4_es_can_be_merged(es1, es)) {
+	if (ext4_es_can_be_merged(es1, es)) {
 		es1->es_len += es->es_len;
 		if (ext4_es_is_referenced(es))
 			ext4_es_set_referenced(es1);
 		rb_erase(&es->rb_node, &tree->root);
-		ifs_ext4_local_ext4_es_free_extent(inode, es);
+		ext4_es_free_extent(inode, es);
 		es = es1;
 	}
 
@@ -625,7 +618,7 @@ ifs_ext4_local_ext4_es_try_to_merge_left(struct inode *inode, struct extent_stat
 
 
 /**
- * ifs_ext4_local_ext4_es_try_to_merge_right - Implements the es try to merge right operation within the extent-status cache subsystem.
+ * ext4_es_try_to_merge_right - Implements the es try to merge right operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
@@ -633,7 +626,7 @@ ifs_ext4_local_ext4_es_try_to_merge_left(struct inode *inode, struct extent_stat
  * rollback, abort or retry policy.
  */
 static struct extent_status *
-ifs_ext4_local_ext4_es_try_to_merge_right(struct inode *inode, struct extent_status *es)
+ext4_es_try_to_merge_right(struct inode *inode, struct extent_status *es)
 {
 	struct ext4_es_tree *tree = &EXT4_I(inode)->i_es_tree;
 	struct extent_status *es1;
@@ -644,12 +637,12 @@ ifs_ext4_local_ext4_es_try_to_merge_right(struct inode *inode, struct extent_sta
 		return es;
 
 	es1 = rb_entry(node, struct extent_status, rb_node);
-	if (ifs_ext4_local_ext4_es_can_be_merged(es, es1)) {
+	if (ext4_es_can_be_merged(es, es1)) {
 		es->es_len += es1->es_len;
 		if (ext4_es_is_referenced(es1))
 			ext4_es_set_referenced(es);
 		rb_erase(node, &tree->root);
-		ifs_ext4_local_ext4_es_free_extent(inode, es1);
+		ext4_es_free_extent(inode, es1);
 	}
 
 	return es;
@@ -660,14 +653,14 @@ ifs_ext4_local_ext4_es_try_to_merge_right(struct inode *inode, struct extent_sta
 
 
 /**
- * ifs_ext4_local_ext4_es_insert_extent_ext_check - Validates state before it is trusted by the remainder of the filesystem.
+ * ext4_es_insert_extent_ext_check - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_es_insert_extent_ext_check(struct inode *inode,
+static void ext4_es_insert_extent_ext_check(struct inode *inode,
 					    struct extent_status *es)
 {
 	struct ext4_ext_path *path = NULL;
@@ -747,14 +740,14 @@ out:
 
 
 /**
- * ifs_ext4_local_ext4_es_insert_extent_ind_check - Validates state before it is trusted by the remainder of the filesystem.
+ * ext4_es_insert_extent_ind_check - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_es_insert_extent_ind_check(struct inode *inode,
+static void ext4_es_insert_extent_ind_check(struct inode *inode,
 					    struct extent_status *es)
 {
 	struct ext4_map_blocks map;
@@ -809,36 +802,36 @@ static void ifs_ext4_local_ext4_es_insert_extent_ind_check(struct inode *inode,
 
 
 /**
- * ifs_ext4_local_ext4_es_insert_extent_check - Validates state before it is trusted by the remainder of the filesystem.
+ * ext4_es_insert_extent_check - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ifs_ext4_local_ext4_es_insert_extent_check(struct inode *inode,
+static inline void ext4_es_insert_extent_check(struct inode *inode,
 					       struct extent_status *es)
 {
 
 
 	BUG_ON(!rwsem_is_locked(&EXT4_I(inode)->i_data_sem));
 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
-		ifs_ext4_local_ext4_es_insert_extent_ext_check(inode, es);
+		ext4_es_insert_extent_ext_check(inode, es);
 	else
-		ifs_ext4_local_ext4_es_insert_extent_ind_check(inode, es);
+		ext4_es_insert_extent_ind_check(inode, es);
 }
 #else
 
 
 /**
- * ifs_ext4_local_ext4_es_insert_extent_check - Validates state before it is trusted by the remainder of the filesystem.
+ * ext4_es_insert_extent_check - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ifs_ext4_local_ext4_es_insert_extent_check(struct inode *inode,
+static inline void ext4_es_insert_extent_check(struct inode *inode,
 					       struct extent_status *es)
 {
 }
@@ -846,14 +839,14 @@ static inline void ifs_ext4_local_ext4_es_insert_extent_check(struct inode *inod
 
 
 /**
- * ifs_ext4_local___es_insert_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ * __es_insert_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local___es_insert_extent(struct inode *inode, struct extent_status *newes,
+static int __es_insert_extent(struct inode *inode, struct extent_status *newes,
 			      struct extent_status *prealloc)
 {
 	struct ext4_es_tree *tree = &EXT4_I(inode)->i_es_tree;
@@ -866,7 +859,7 @@ static int ifs_ext4_local___es_insert_extent(struct inode *inode, struct extent_
 		es = rb_entry(parent, struct extent_status, rb_node);
 
 		if (newes->es_lblk < es->es_lblk) {
-			if (ifs_ext4_local_ext4_es_can_be_merged(newes, es)) {
+			if (ext4_es_can_be_merged(newes, es)) {
 
 
 				es->es_lblk = newes->es_lblk;
@@ -875,14 +868,14 @@ static int ifs_ext4_local___es_insert_extent(struct inode *inode, struct extent_
 				    ext4_es_is_unwritten(es))
 					ext4_es_store_pblock(es,
 							     newes->es_pblk);
-				es = ifs_ext4_local_ext4_es_try_to_merge_left(inode, es);
+				es = ext4_es_try_to_merge_left(inode, es);
 				goto out;
 			}
 			p = &(*p)->rb_left;
-		} else if (newes->es_lblk > ifs_ext4_local_ext4_es_end(es)) {
-			if (ifs_ext4_local_ext4_es_can_be_merged(es, newes)) {
+		} else if (newes->es_lblk > ext4_es_end(es)) {
+			if (ext4_es_can_be_merged(es, newes)) {
 				es->es_len += newes->es_len;
-				es = ifs_ext4_local_ext4_es_try_to_merge_right(inode, es);
+				es = ext4_es_try_to_merge_right(inode, es);
 				goto out;
 			}
 			p = &(*p)->rb_right;
@@ -898,7 +891,7 @@ static int ifs_ext4_local___es_insert_extent(struct inode *inode, struct extent_
 		es = __es_alloc_extent(false);
 	if (!es)
 		return -ENOMEM;
-	ifs_ext4_local_ext4_es_init_extent(inode, es, newes->es_lblk, newes->es_len,
+	ext4_es_init_extent(inode, es, newes->es_lblk, newes->es_len,
 			    newes->es_pblk);
 
 	rb_link_node(&es->rb_node, parent, p);
@@ -949,7 +942,7 @@ void ext4_es_insert_extent(struct inode *inode, ext4_lblk_t lblk,
 	ext4_es_store_pblock_status(&newes, pblk, status);
 	trace_ext4_es_insert_extent(inode, &newes);
 
-	ifs_ext4_local_ext4_es_insert_extent_check(inode, &newes);
+	ext4_es_insert_extent_check(inode, &newes);
 
 	revise_pending = sbi->s_cluster_ratio > 1 &&
 			 test_opt(inode->i_sb, DELALLOC) &&
@@ -964,34 +957,34 @@ retry:
 		pr = __alloc_pending(true);
 	write_lock(&EXT4_I(inode)->i_es_lock);
 
-	err1 = ifs_ext4_local___es_remove_extent(inode, lblk, end, &resv_used, es1);
+	err1 = __es_remove_extent(inode, lblk, end, &resv_used, es1);
 	if (err1 != 0)
 		goto error;
 
 	if (es1) {
 		if (!es1->es_len)
-			ifs_ext4_local___es_free_extent(es1);
+			__es_free_extent(es1);
 		es1 = NULL;
 	}
 
-	err2 = ifs_ext4_local___es_insert_extent(inode, &newes, es2);
-	if (err2 == -ENOMEM && !ifs_ext4_local_ext4_es_must_keep(&newes))
+	err2 = __es_insert_extent(inode, &newes, es2);
+	if (err2 == -ENOMEM && !ext4_es_must_keep(&newes))
 		err2 = 0;
 	if (err2 != 0)
 		goto error;
 
 	if (es2) {
 		if (!es2->es_len)
-			ifs_ext4_local___es_free_extent(es2);
+			__es_free_extent(es2);
 		es2 = NULL;
 	}
 
 	if (revise_pending) {
-		err3 = ifs_ext4_local___revise_pending(inode, lblk, len, &pr);
+		err3 = __revise_pending(inode, lblk, len, &pr);
 		if (err3 < 0)
 			goto error;
 		if (pr) {
-			ifs_ext4_local___free_pending(pr);
+			__free_pending(pr);
 			pr = NULL;
 		}
 		pending = err3;
@@ -1008,7 +1001,7 @@ error:
 	if (err1 || err2 || err3 < 0)
 		goto retry;
 
-	ifs_ext4_local_ext4_es_print_tree(inode);
+	ext4_es_print_tree(inode);
 	return;
 }
 
@@ -1046,7 +1039,7 @@ void ext4_es_cache_extent(struct inode *inode, ext4_lblk_t lblk,
 
 	es = __es_tree_search(&EXT4_I(inode)->i_es_tree.root, lblk);
 	if (!es || es->es_lblk > end)
-		ifs_ext4_local___es_insert_extent(inode, &newes, NULL);
+		__es_insert_extent(inode, &newes, NULL);
 	write_unlock(&EXT4_I(inode)->i_es_lock);
 }
 
@@ -1093,7 +1086,7 @@ int ext4_es_lookup_extent(struct inode *inode, ext4_lblk_t lblk,
 		es1 = rb_entry(node, struct extent_status, rb_node);
 		if (lblk < es1->es_lblk)
 			node = node->rb_left;
-		else if (lblk > ifs_ext4_local_ext4_es_end(es1))
+		else if (lblk > ext4_es_end(es1))
 			node = node->rb_right;
 		else {
 			found = 1;
@@ -1149,14 +1142,14 @@ struct rsvd_count {
 
 
 /**
- * ifs_ext4_local_init_rsvd - Initialises subsystem state and establishes the resources required by later operations.
+ * init_rsvd - Initialises subsystem state and establishes the resources required by later operations.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_init_rsvd(struct inode *inode, ext4_lblk_t lblk,
+static void init_rsvd(struct inode *inode, ext4_lblk_t lblk,
 		      struct extent_status *es, struct rsvd_count *rc)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
@@ -1181,14 +1174,14 @@ static void ifs_ext4_local_init_rsvd(struct inode *inode, ext4_lblk_t lblk,
 
 
 /**
- * ifs_ext4_local_count_rsvd - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * count_rsvd - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_count_rsvd(struct inode *inode, ext4_lblk_t lblk, long len,
+static void count_rsvd(struct inode *inode, ext4_lblk_t lblk, long len,
 		       struct extent_status *es, struct rsvd_count *rc)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
@@ -1207,7 +1200,7 @@ static void ifs_ext4_local_count_rsvd(struct inode *inode, ext4_lblk_t lblk, lon
 
 	i = (lblk < es->es_lblk) ? es->es_lblk : lblk;
 	end = lblk + (ext4_lblk_t) len - 1;
-	end = (end > ifs_ext4_local_ext4_es_end(es)) ? ifs_ext4_local_ext4_es_end(es) : end;
+	end = (end > ext4_es_end(es)) ? ext4_es_end(es) : end;
 
 
 	if (!rc->first_do_lblk_found) {
@@ -1283,14 +1276,14 @@ static struct pending_reservation *__pr_tree_search(struct rb_root *root,
 
 
 /**
- * ifs_ext4_local_get_rsvd - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * get_rsvd - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static unsigned int ifs_ext4_local_get_rsvd(struct inode *inode, ext4_lblk_t end,
+static unsigned int get_rsvd(struct inode *inode, ext4_lblk_t end,
 			     struct extent_status *right_es,
 			     struct rsvd_count *rc)
 {
@@ -1317,7 +1310,7 @@ static unsigned int ifs_ext4_local_get_rsvd(struct inode *inode, ext4_lblk_t end
 		left_delayed = right_delayed = false;
 
 		es = rc->left_es;
-		while (es && ifs_ext4_local_ext4_es_end(es) >=
+		while (es && ext4_es_end(es) >=
 		       EXT4_LBLK_CMASK(sbi, rc->first_do_lblk)) {
 			if (ext4_es_is_delayed(es)) {
 				rc->ndelayed--;
@@ -1330,7 +1323,7 @@ static unsigned int ifs_ext4_local_get_rsvd(struct inode *inode, ext4_lblk_t end
 			es = rb_entry(node, struct extent_status, rb_node);
 		}
 		if (right_es && (!left_delayed || first_lclu != last_lclu)) {
-			if (end < ifs_ext4_local_ext4_es_end(right_es)) {
+			if (end < ext4_es_end(right_es)) {
 				es = right_es;
 			} else {
 				node = rb_next(&right_es->rb_node);
@@ -1376,7 +1369,7 @@ static unsigned int ifs_ext4_local_get_rsvd(struct inode *inode, ext4_lblk_t end
 				rc->ndelayed--;
 				node = rb_next(&pr->rb_node);
 				rb_erase(&pr->rb_node, &tree->root);
-				ifs_ext4_local___free_pending(pr);
+				__free_pending(pr);
 				if (!node)
 					break;
 				pr = rb_entry(node, struct pending_reservation,
@@ -1389,14 +1382,14 @@ static unsigned int ifs_ext4_local_get_rsvd(struct inode *inode, ext4_lblk_t end
 
 
 /**
- * ifs_ext4_local___es_remove_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ * __es_remove_extent - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local___es_remove_extent(struct inode *inode, ext4_lblk_t lblk,
+static int __es_remove_extent(struct inode *inode, ext4_lblk_t lblk,
 			      ext4_lblk_t end, int *reserved,
 			      struct extent_status *prealloc)
 {
@@ -1422,14 +1415,14 @@ static int ifs_ext4_local___es_remove_extent(struct inode *inode, ext4_lblk_t lb
 
 	tree->cache_es = NULL;
 	if (count_reserved)
-		ifs_ext4_local_init_rsvd(inode, lblk, es, &rc);
+		init_rsvd(inode, lblk, es, &rc);
 
 	orig_es.es_lblk = es->es_lblk;
 	orig_es.es_len = es->es_len;
 	orig_es.es_pblk = es->es_pblk;
 
 	len1 = lblk > es->es_lblk ? lblk - es->es_lblk : 0;
-	len2 = ifs_ext4_local_ext4_es_end(es) > end ? ifs_ext4_local_ext4_es_end(es) - end : 0;
+	len2 = ext4_es_end(es) > end ? ext4_es_end(es) - end : 0;
 	if (len1 > 0)
 		es->es_len = len1;
 	if (len2 > 0) {
@@ -1445,9 +1438,9 @@ static int ifs_ext4_local___es_remove_extent(struct inode *inode, ext4_lblk_t lb
 					orig_es.es_len - len2;
 			ext4_es_store_pblock_status(&newes, block,
 						    ext4_es_status(&orig_es));
-			err = ifs_ext4_local___es_insert_extent(inode, &newes, prealloc);
+			err = __es_insert_extent(inode, &newes, prealloc);
 			if (err) {
-				if (!ifs_ext4_local_ext4_es_must_keep(&newes))
+				if (!ext4_es_must_keep(&newes))
 					return 0;
 
 				es->es_lblk = orig_es.es_lblk;
@@ -1464,14 +1457,14 @@ static int ifs_ext4_local___es_remove_extent(struct inode *inode, ext4_lblk_t lb
 			}
 		}
 		if (count_reserved)
-			ifs_ext4_local_count_rsvd(inode, orig_es.es_lblk + len1,
+			count_rsvd(inode, orig_es.es_lblk + len1,
 				   orig_es.es_len - len1 - len2, &orig_es, &rc);
 		goto out_get_reserved;
 	}
 
 	if (len1 > 0) {
 		if (count_reserved)
-			ifs_ext4_local_count_rsvd(inode, lblk, orig_es.es_len - len1,
+			count_rsvd(inode, lblk, orig_es.es_len - len1,
 				   &orig_es, &rc);
 		node = rb_next(&es->rb_node);
 		if (node)
@@ -1480,12 +1473,12 @@ static int ifs_ext4_local___es_remove_extent(struct inode *inode, ext4_lblk_t lb
 			es = NULL;
 	}
 
-	while (es && ifs_ext4_local_ext4_es_end(es) <= end) {
+	while (es && ext4_es_end(es) <= end) {
 		if (count_reserved)
-			ifs_ext4_local_count_rsvd(inode, es->es_lblk, es->es_len, es, &rc);
+			count_rsvd(inode, es->es_lblk, es->es_len, es, &rc);
 		node = rb_next(&es->rb_node);
 		rb_erase(&es->rb_node, &tree->root);
-		ifs_ext4_local_ext4_es_free_extent(inode, es);
+		ext4_es_free_extent(inode, es);
 		if (!node) {
 			es = NULL;
 			break;
@@ -1496,9 +1489,9 @@ static int ifs_ext4_local___es_remove_extent(struct inode *inode, ext4_lblk_t lb
 	if (es && es->es_lblk < end + 1) {
 		ext4_lblk_t orig_len = es->es_len;
 
-		len1 = ifs_ext4_local_ext4_es_end(es) - end;
+		len1 = ext4_es_end(es) - end;
 		if (count_reserved)
-			ifs_ext4_local_count_rsvd(inode, es->es_lblk, orig_len - len1,
+			count_rsvd(inode, es->es_lblk, orig_len - len1,
 				   es, &rc);
 		es->es_lblk = end + 1;
 		es->es_len = len1;
@@ -1510,7 +1503,7 @@ static int ifs_ext4_local___es_remove_extent(struct inode *inode, ext4_lblk_t lb
 
 out_get_reserved:
 	if (count_reserved)
-		*reserved = ifs_ext4_local_get_rsvd(inode, end, es, &rc);
+		*reserved = get_rsvd(inode, end, es, &rc);
 out:
 	return err;
 }
@@ -1551,32 +1544,32 @@ retry:
 
 
 	write_lock(&EXT4_I(inode)->i_es_lock);
-	err = ifs_ext4_local___es_remove_extent(inode, lblk, end, &reserved, es);
+	err = __es_remove_extent(inode, lblk, end, &reserved, es);
 
 	if (es) {
 		if (!es->es_len)
-			ifs_ext4_local___es_free_extent(es);
+			__es_free_extent(es);
 		es = NULL;
 	}
 	write_unlock(&EXT4_I(inode)->i_es_lock);
 	if (err)
 		goto retry;
 
-	ifs_ext4_local_ext4_es_print_tree(inode);
+	ext4_es_print_tree(inode);
 	ext4_da_release_space(inode, reserved);
 	return;
 }
 
 
 /**
- * ifs_ext4_local___es_shrink - Implements the es shrink operation within the extent-status cache subsystem.
+ * __es_shrink - Implements the es shrink operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local___es_shrink(struct ext4_sb_info *sbi, int nr_to_scan,
+static int __es_shrink(struct ext4_sb_info *sbi, int nr_to_scan,
 		       struct ext4_inode_info *locked_ei)
 {
 	struct ext4_inode_info *ei;
@@ -1618,7 +1611,7 @@ retry:
 
 		spin_unlock(&sbi->s_es_lock);
 
-		nr_shrunk += ifs_ext4_local_es_reclaim_extents(ei, &nr_to_scan);
+		nr_shrunk += es_reclaim_extents(ei, &nr_to_scan);
 		write_unlock(&ei->i_es_lock);
 
 		if (nr_to_scan <= 0)
@@ -1634,7 +1627,7 @@ retry:
 	}
 
 	if (locked_ei && nr_shrunk == 0)
-		nr_shrunk = ifs_ext4_local_es_reclaim_extents(locked_ei, &nr_to_scan);
+		nr_shrunk = es_reclaim_extents(locked_ei, &nr_to_scan);
 
 out:
 	scan_time = ktime_to_ns(ktime_sub(ktime_get(), start_time));
@@ -1658,14 +1651,14 @@ out:
 
 
 /**
- * ifs_ext4_local_ext4_es_count - Computes derived filesystem state used for validation, accounting or policy decisions.
+ * ext4_es_count - Computes derived filesystem state used for validation, accounting or policy decisions.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static unsigned long ifs_ext4_local_ext4_es_count(struct shrinker *shrink,
+static unsigned long ext4_es_count(struct shrinker *shrink,
 				   struct shrink_control *sc)
 {
 	unsigned long nr;
@@ -1679,14 +1672,14 @@ static unsigned long ifs_ext4_local_ext4_es_count(struct shrinker *shrink,
 
 
 /**
- * ifs_ext4_local_ext4_es_scan - Implements the es scan operation within the extent-status cache subsystem.
+ * ext4_es_scan - Implements the es scan operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static unsigned long ifs_ext4_local_ext4_es_scan(struct shrinker *shrink,
+static unsigned long ext4_es_scan(struct shrinker *shrink,
 				  struct shrink_control *sc)
 {
 	struct ext4_sb_info *sbi = shrink->private_data;
@@ -1696,7 +1689,7 @@ static unsigned long ifs_ext4_local_ext4_es_scan(struct shrinker *shrink,
 	ret = percpu_counter_read_positive(&sbi->s_es_stats.es_stats_shk_cnt);
 	trace_ext4_es_shrink_scan_enter(sbi->s_sb, nr_to_scan, ret);
 
-	nr_shrunk = ifs_ext4_local___es_shrink(sbi, nr_to_scan, NULL);
+	nr_shrunk = __es_shrink(sbi, nr_to_scan, NULL);
 
 	ret = percpu_counter_read_positive(&sbi->s_es_stats.es_stats_shk_cnt);
 	trace_ext4_es_shrink_scan_exit(sbi->s_sb, nr_shrunk, ret);
@@ -1797,8 +1790,8 @@ int ext4_es_register_shrinker(struct ext4_sb_info *sbi)
 		goto err4;
 	}
 
-	sbi->s_es_shrinker->scan_objects = ifs_ext4_local_ext4_es_scan;
-	sbi->s_es_shrinker->count_objects = ifs_ext4_local_ext4_es_count;
+	sbi->s_es_shrinker->scan_objects = ext4_es_scan;
+	sbi->s_es_shrinker->count_objects = ext4_es_count;
 	sbi->s_es_shrinker->private_data = sbi;
 
 	shrinker_register(sbi->s_es_shrinker);
@@ -1835,14 +1828,14 @@ void ext4_es_unregister_shrinker(struct ext4_sb_info *sbi)
 
 
 /**
- * ifs_ext4_local_es_do_reclaim_extents - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ * es_do_reclaim_extents - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_es_do_reclaim_extents(struct ext4_inode_info *ei, ext4_lblk_t end,
+static int es_do_reclaim_extents(struct ext4_inode_info *ei, ext4_lblk_t end,
 				 int *nr_to_scan, int *nr_shrunk)
 {
 	struct inode *inode = &ei->vfs_inode;
@@ -1863,7 +1856,7 @@ static int ifs_ext4_local_es_do_reclaim_extents(struct ext4_inode_info *ei, ext4
 		(*nr_to_scan)--;
 		node = rb_next(&es->rb_node);
 
-		if (ifs_ext4_local_ext4_es_must_keep(es))
+		if (ext4_es_must_keep(es))
 			goto next;
 		if (ext4_es_is_referenced(es)) {
 			ext4_es_clear_referenced(es);
@@ -1871,7 +1864,7 @@ static int ifs_ext4_local_es_do_reclaim_extents(struct ext4_inode_info *ei, ext4
 		}
 
 		rb_erase(&es->rb_node, &tree->root);
-		ifs_ext4_local_ext4_es_free_extent(inode, es);
+		ext4_es_free_extent(inode, es);
 		(*nr_shrunk)++;
 next:
 		if (!node)
@@ -1887,14 +1880,14 @@ out_wrap:
 
 
 /**
- * ifs_ext4_local_es_reclaim_extents - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
+ * es_reclaim_extents - Operates on logical-to-physical extent state while preserving extent-tree ordering and range invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local_es_reclaim_extents(struct ext4_inode_info *ei, int *nr_to_scan)
+static int es_reclaim_extents(struct ext4_inode_info *ei, int *nr_to_scan)
 {
 	struct inode *inode = &ei->vfs_inode;
 	int nr_shrunk = 0;
@@ -1909,9 +1902,9 @@ static int ifs_ext4_local_es_reclaim_extents(struct ext4_inode_info *ei, int *nr
 	    __ratelimit(&_rs))
 		ext4_warning(inode->i_sb, "forced shrink of precached extents");
 
-	if (!ifs_ext4_local_es_do_reclaim_extents(ei, EXT_MAX_BLOCKS, nr_to_scan, &nr_shrunk) &&
+	if (!es_do_reclaim_extents(ei, EXT_MAX_BLOCKS, nr_to_scan, &nr_shrunk) &&
 	    start != 0)
-		ifs_ext4_local_es_do_reclaim_extents(ei, start - 1, nr_to_scan, &nr_shrunk);
+		es_do_reclaim_extents(ei, start - 1, nr_to_scan, &nr_shrunk);
 
 	ei->i_es_tree.cache_es = NULL;
 	return nr_shrunk;
@@ -1940,9 +1933,9 @@ void ext4_clear_inode_es(struct inode *inode)
 	while (node) {
 		es = rb_entry(node, struct extent_status, rb_node);
 		node = rb_next(node);
-		if (!ifs_ext4_local_ext4_es_must_keep(es)) {
+		if (!ext4_es_must_keep(es)) {
 			rb_erase(&es->rb_node, &tree->root);
-			ifs_ext4_local_ext4_es_free_extent(inode, es);
+			ext4_es_free_extent(inode, es);
 		}
 	}
 	ext4_clear_inode_state(inode, EXT4_STATE_EXT_PRECACHED);
@@ -1953,14 +1946,14 @@ void ext4_clear_inode_es(struct inode *inode)
 
 
 /**
- * ifs_ext4_local_ext4_print_pending_tree - Implements the print pending tree operation within the extent-status cache subsystem.
+ * ext4_print_pending_tree - Implements the print pending tree operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local_ext4_print_pending_tree(struct inode *inode)
+static void ext4_print_pending_tree(struct inode *inode)
 {
 	struct ext4_pending_tree *tree;
 	struct rb_node *node;
@@ -1977,7 +1970,7 @@ static void ifs_ext4_local_ext4_print_pending_tree(struct inode *inode)
 	printk(KERN_DEBUG "\n");
 }
 #else
-#define ifs_ext4_local_ext4_print_pending_tree(inode)
+#define ext4_print_pending_tree(inode)
 #endif
 
 
@@ -2058,14 +2051,14 @@ static struct pending_reservation *__get_pending(struct inode *inode,
 
 
 /**
- * ifs_ext4_local___insert_pending - Implements the insert pending operation within the extent-status cache subsystem.
+ * __insert_pending - Implements the insert pending operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local___insert_pending(struct inode *inode, ext4_lblk_t lblk,
+static int __insert_pending(struct inode *inode, ext4_lblk_t lblk,
 			    struct pending_reservation **prealloc)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
@@ -2114,14 +2107,14 @@ out:
 
 
 /**
- * ifs_ext4_local___remove_pending - Implements the remove pending operation within the extent-status cache subsystem.
+ * __remove_pending - Implements the remove pending operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext4_local___remove_pending(struct inode *inode, ext4_lblk_t lblk)
+static void __remove_pending(struct inode *inode, ext4_lblk_t lblk)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 	struct pending_reservation *pr;
@@ -2131,7 +2124,7 @@ static void ifs_ext4_local___remove_pending(struct inode *inode, ext4_lblk_t lbl
 	if (pr != NULL) {
 		tree = &EXT4_I(inode)->i_pending_tree;
 		rb_erase(&pr->rb_node, &tree->root);
-		ifs_ext4_local___free_pending(pr);
+		__free_pending(pr);
 	}
 }
 
@@ -2149,7 +2142,7 @@ void ext4_remove_pending(struct inode *inode, ext4_lblk_t lblk)
 	struct ext4_inode_info *ei = EXT4_I(inode);
 
 	write_lock(&ei->i_es_lock);
-	ifs_ext4_local___remove_pending(inode, lblk);
+	__remove_pending(inode, lblk);
 	write_unlock(&ei->i_es_lock);
 }
 
@@ -2214,7 +2207,7 @@ void ext4_es_insert_delayed_extent(struct inode *inode, ext4_lblk_t lblk,
 	trace_ext4_es_insert_delayed_extent(inode, &newes, lclu_allocated,
 					    end_allocated);
 
-	ifs_ext4_local_ext4_es_insert_extent_check(inode, &newes);
+	ext4_es_insert_extent_check(inode, &newes);
 
 retry:
 	if (err1 && !es1)
@@ -2229,41 +2222,41 @@ retry:
 	}
 	write_lock(&EXT4_I(inode)->i_es_lock);
 
-	err1 = ifs_ext4_local___es_remove_extent(inode, lblk, end, NULL, es1);
+	err1 = __es_remove_extent(inode, lblk, end, NULL, es1);
 	if (err1 != 0)
 		goto error;
 
 	if (es1) {
 		if (!es1->es_len)
-			ifs_ext4_local___es_free_extent(es1);
+			__es_free_extent(es1);
 		es1 = NULL;
 	}
 
-	err2 = ifs_ext4_local___es_insert_extent(inode, &newes, es2);
+	err2 = __es_insert_extent(inode, &newes, es2);
 	if (err2 != 0)
 		goto error;
 
 	if (es2) {
 		if (!es2->es_len)
-			ifs_ext4_local___es_free_extent(es2);
+			__es_free_extent(es2);
 		es2 = NULL;
 	}
 
 	if (lclu_allocated) {
-		err3 = ifs_ext4_local___insert_pending(inode, lblk, &pr1);
+		err3 = __insert_pending(inode, lblk, &pr1);
 		if (err3 < 0)
 			goto error;
 		if (pr1) {
-			ifs_ext4_local___free_pending(pr1);
+			__free_pending(pr1);
 			pr1 = NULL;
 		}
 	}
 	if (end_allocated) {
-		err3 = ifs_ext4_local___insert_pending(inode, end, &pr2);
+		err3 = __insert_pending(inode, end, &pr2);
 		if (err3 < 0)
 			goto error;
 		if (pr2) {
-			ifs_ext4_local___free_pending(pr2);
+			__free_pending(pr2);
 			pr2 = NULL;
 		}
 	}
@@ -2272,21 +2265,21 @@ error:
 	if (err1 || err2 || err3 < 0)
 		goto retry;
 
-	ifs_ext4_local_ext4_es_print_tree(inode);
-	ifs_ext4_local_ext4_print_pending_tree(inode);
+	ext4_es_print_tree(inode);
+	ext4_print_pending_tree(inode);
 	return;
 }
 
 
 /**
- * ifs_ext4_local___revise_pending - Implements the revise pending operation within the extent-status cache subsystem.
+ * __revise_pending - Implements the revise pending operation within the extent-status cache subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT4
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext4_local___revise_pending(struct inode *inode, ext4_lblk_t lblk,
+static int __revise_pending(struct inode *inode, ext4_lblk_t lblk,
 			    ext4_lblk_t len,
 			    struct pending_reservation **prealloc)
 {
@@ -2304,10 +2297,10 @@ static int ifs_ext4_local___revise_pending(struct inode *inode, ext4_lblk_t lblk
 	if (EXT4_B2C(sbi, lblk) == EXT4_B2C(sbi, end)) {
 		first = EXT4_LBLK_CMASK(sbi, lblk);
 		if (first != lblk)
-			f_del = ifs_ext4_local___es_scan_range(inode, &ext4_es_is_delayed,
+			f_del = __es_scan_range(inode, &ext4_es_is_delayed,
 						first, lblk - 1);
 		if (f_del) {
-			ret = ifs_ext4_local___insert_pending(inode, first, prealloc);
+			ret = __insert_pending(inode, first, prealloc);
 			if (ret < 0)
 				goto out;
 			pendings += ret;
@@ -2315,41 +2308,41 @@ static int ifs_ext4_local___revise_pending(struct inode *inode, ext4_lblk_t lblk
 			last = EXT4_LBLK_CMASK(sbi, end) +
 			       sbi->s_cluster_ratio - 1;
 			if (last != end)
-				l_del = ifs_ext4_local___es_scan_range(inode,
+				l_del = __es_scan_range(inode,
 							&ext4_es_is_delayed,
 							end + 1, last);
 			if (l_del) {
-				ret = ifs_ext4_local___insert_pending(inode, last, prealloc);
+				ret = __insert_pending(inode, last, prealloc);
 				if (ret < 0)
 					goto out;
 				pendings += ret;
 			} else
-				ifs_ext4_local___remove_pending(inode, last);
+				__remove_pending(inode, last);
 		}
 	} else {
 		first = EXT4_LBLK_CMASK(sbi, lblk);
 		if (first != lblk)
-			f_del = ifs_ext4_local___es_scan_range(inode, &ext4_es_is_delayed,
+			f_del = __es_scan_range(inode, &ext4_es_is_delayed,
 						first, lblk - 1);
 		if (f_del) {
-			ret = ifs_ext4_local___insert_pending(inode, first, prealloc);
+			ret = __insert_pending(inode, first, prealloc);
 			if (ret < 0)
 				goto out;
 			pendings += ret;
 		} else
-			ifs_ext4_local___remove_pending(inode, first);
+			__remove_pending(inode, first);
 
 		last = EXT4_LBLK_CMASK(sbi, end) + sbi->s_cluster_ratio - 1;
 		if (last != end)
-			l_del = ifs_ext4_local___es_scan_range(inode, &ext4_es_is_delayed,
+			l_del = __es_scan_range(inode, &ext4_es_is_delayed,
 						end + 1, last);
 		if (l_del) {
-			ret = ifs_ext4_local___insert_pending(inode, last, prealloc);
+			ret = __insert_pending(inode, last, prealloc);
 			if (ret < 0)
 				goto out;
 			pendings += ret;
 		} else
-			ifs_ext4_local___remove_pending(inode, last);
+			__remove_pending(inode, last);
 	}
 out:
 	return (ret < 0) ? ret : pendings;

@@ -1,8 +1,6 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: volume_admin.c.
- * Project-maintained canonical implementation.
+/* Infiltrator Filesystem Support — EXT4 Linux volume administration.
+ * Physical mapping queries, multiple-mount protection and sysfs exposure are
+ * grouped as host administration around the canonical EXT4 engine.
  */
 
 #include "ext4.h"
@@ -56,7 +54,7 @@ void ext4_fsmap_to_internal(struct super_block *sb, struct ext4_fsmap *dst,
 	dst->fmr_length = src->fmr_length >> sb->s_blocksize_bits;
 }
 
-static int ifs_ext4_local_ext4_fsmap_device_compare(const void *a, const void *b)
+static int ext4_fsmap_device_compare(const void *a, const void *b)
 {
 	const struct ext4_fsmap_device *left = a;
 	const struct ext4_fsmap_device *right = b;
@@ -68,18 +66,18 @@ static int ifs_ext4_local_ext4_fsmap_device_compare(const void *a, const void *b
 	return 0;
 }
 
-static ext4_fsblk_t ifs_ext4_local_ext4_fsmap_end(const struct ext4_fsmap *record)
+static ext4_fsblk_t ext4_fsmap_end(const struct ext4_fsmap *record)
 {
 	return record->fmr_physical + record->fmr_length;
 }
 
-static bool ifs_ext4_local_ext4_fsmap_before_low(const struct ext4_fsmap_query *query,
+static bool ext4_fsmap_before_low(const struct ext4_fsmap_query *query,
 				  const struct ext4_fsmap *record)
 {
-	return ifs_ext4_local_ext4_fsmap_end(record) <= query->low.fmr_physical;
+	return ext4_fsmap_end(record) <= query->low.fmr_physical;
 }
 
-static int ifs_ext4_local_ext4_fsmap_emit(struct super_block *sb,
+static int ext4_fsmap_emit(struct super_block *sb,
 			    struct ext4_fsmap_query *query,
 			    struct ext4_fsmap *record)
 {
@@ -93,8 +91,8 @@ static int ifs_ext4_local_ext4_fsmap_emit(struct super_block *sb,
 	if (fatal_signal_pending(current))
 		return -EINTR;
 
-	if (ifs_ext4_local_ext4_fsmap_before_low(query, record)) {
-		end = ifs_ext4_local_ext4_fsmap_end(record);
+	if (ext4_fsmap_before_low(query, record)) {
+		end = ext4_fsmap_end(record);
 		if (query->next_block < end)
 			query->next_block = end;
 		return EXT4_QUERY_RANGE_CONTINUE;
@@ -108,7 +106,7 @@ static int ifs_ext4_local_ext4_fsmap_emit(struct super_block *sb,
 		if (!query->final_record)
 			query->head->fmh_entries++;
 
-		end = ifs_ext4_local_ext4_fsmap_end(record);
+		end = ext4_fsmap_end(record);
 		if (query->next_block < end)
 			query->next_block = end;
 		return EXT4_QUERY_RANGE_CONTINUE;
@@ -156,13 +154,13 @@ static int ifs_ext4_local_ext4_fsmap_emit(struct super_block *sb,
 		query->head->fmh_entries++;
 	}
 
-	end = ifs_ext4_local_ext4_fsmap_end(record);
+	end = ext4_fsmap_end(record);
 	if (query->next_block < end)
 		query->next_block = end;
 	return EXT4_QUERY_RANGE_CONTINUE;
 }
 
-static int ifs_ext4_local_ext4_fsmap_metadata_compare(void *priv,
+static int ext4_fsmap_metadata_compare(void *priv,
 				       const struct list_head *a,
 				       const struct list_head *b)
 {
@@ -178,7 +176,7 @@ static int ifs_ext4_local_ext4_fsmap_metadata_compare(void *priv,
 	return 0;
 }
 
-static void ifs_ext4_local_ext4_fsmap_free_metadata(struct list_head *head)
+static void ext4_fsmap_free_metadata(struct list_head *head)
 {
 	struct ext4_fsmap *record;
 	struct ext4_fsmap *next;
@@ -189,7 +187,7 @@ static void ifs_ext4_local_ext4_fsmap_free_metadata(struct list_head *head)
 	}
 }
 
-static int ifs_ext4_local_ext4_fsmap_add_metadata(struct list_head *head,
+static int ext4_fsmap_add_metadata(struct list_head *head,
 				   ext4_fsblk_t block,
 				   ext4_fsblk_t length,
 				   u64 owner)
@@ -210,7 +208,7 @@ static int ifs_ext4_local_ext4_fsmap_add_metadata(struct list_head *head,
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_fsmap_add_group_prefix(struct super_block *sb,
+static int ext4_fsmap_add_group_prefix(struct super_block *sb,
 				       ext4_group_t group,
 				       struct list_head *head)
 {
@@ -225,7 +223,7 @@ static int ifs_ext4_local_ext4_fsmap_add_group_prefix(struct super_block *sb,
 	int err;
 
 	if (ext4_bg_has_super(sb, group)) {
-		err = ifs_ext4_local_ext4_fsmap_add_metadata(
+		err = ext4_fsmap_add_metadata(
 			head, block, 1, EXT4_FMR_OWN_FS);
 		if (err)
 			return err;
@@ -233,7 +231,7 @@ static int ifs_ext4_local_ext4_fsmap_add_group_prefix(struct super_block *sb,
 	}
 
 	gdt_blocks = ext4_bg_num_gdb(sb, group);
-	err = ifs_ext4_local_ext4_fsmap_add_metadata(
+	err = ext4_fsmap_add_metadata(
 		head, block, gdt_blocks, EXT4_FMR_OWN_GDT);
 	if (err)
 		return err;
@@ -244,11 +242,11 @@ static int ifs_ext4_local_ext4_fsmap_add_group_prefix(struct super_block *sb,
 		return 0;
 
 	reserved = le16_to_cpu(sbi->s_es->s_reserved_gdt_blocks);
-	return ifs_ext4_local_ext4_fsmap_add_metadata(
+	return ext4_fsmap_add_metadata(
 		head, block, reserved, EXT4_FMR_OWN_RESV_GDT);
 }
 
-static void ifs_ext4_local_ext4_fsmap_merge_metadata(struct list_head *head)
+static void ext4_fsmap_merge_metadata(struct list_head *head)
 {
 	struct ext4_fsmap *record;
 	struct ext4_fsmap *next;
@@ -257,7 +255,7 @@ static void ifs_ext4_local_ext4_fsmap_merge_metadata(struct list_head *head)
 	list_for_each_entry_safe(record, next, head, fmr_list) {
 		if (previous &&
 		    previous->fmr_owner == record->fmr_owner &&
-		    ifs_ext4_local_ext4_fsmap_end(previous) == record->fmr_physical) {
+		    ext4_fsmap_end(previous) == record->fmr_physical) {
 			previous->fmr_length += record->fmr_length;
 			list_del(&record->fmr_list);
 			kfree(record);
@@ -267,7 +265,7 @@ static void ifs_ext4_local_ext4_fsmap_merge_metadata(struct list_head *head)
 	}
 }
 
-static int ifs_ext4_local_ext4_fsmap_build_metadata(struct super_block *sb,
+static int ext4_fsmap_build_metadata(struct super_block *sb,
 				     struct list_head *head)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -284,39 +282,39 @@ static int ifs_ext4_local_ext4_fsmap_build_metadata(struct super_block *sb,
 			goto fail;
 		}
 
-		err = ifs_ext4_local_ext4_fsmap_add_group_prefix(sb, group, head);
+		err = ext4_fsmap_add_group_prefix(sb, group, head);
 		if (err)
 			goto fail;
 
-		err = ifs_ext4_local_ext4_fsmap_add_metadata(
+		err = ext4_fsmap_add_metadata(
 			head, ext4_block_bitmap(sb, desc), 1,
 			EXT4_FMR_OWN_BLKBM);
 		if (err)
 			goto fail;
 
-		err = ifs_ext4_local_ext4_fsmap_add_metadata(
+		err = ext4_fsmap_add_metadata(
 			head, ext4_inode_bitmap(sb, desc), 1,
 			EXT4_FMR_OWN_INOBM);
 		if (err)
 			goto fail;
 
-		err = ifs_ext4_local_ext4_fsmap_add_metadata(
+		err = ext4_fsmap_add_metadata(
 			head, ext4_inode_table(sb, desc),
 			sbi->s_itb_per_group, EXT4_FMR_OWN_INODES);
 		if (err)
 			goto fail;
 	}
 
-	list_sort(NULL, head, ifs_ext4_local_ext4_fsmap_metadata_compare);
-	ifs_ext4_local_ext4_fsmap_merge_metadata(head);
+	list_sort(NULL, head, ext4_fsmap_metadata_compare);
+	ext4_fsmap_merge_metadata(head);
 	return 0;
 
 fail:
-	ifs_ext4_local_ext4_fsmap_free_metadata(head);
+	ext4_fsmap_free_metadata(head);
 	return err;
 }
 
-static int ifs_ext4_local_ext4_fsmap_flush_metadata_before(
+static int ext4_fsmap_flush_metadata_before(
 	struct super_block *sb, struct ext4_fsmap_query *query,
 	ext4_fsblk_t block)
 {
@@ -325,7 +323,7 @@ static int ifs_ext4_local_ext4_fsmap_flush_metadata_before(
 	int err;
 
 	list_for_each_entry_safe(record, next, &query->metadata, fmr_list) {
-		if (ifs_ext4_local_ext4_fsmap_end(record) <= query->next_block) {
+		if (ext4_fsmap_end(record) <= query->next_block) {
 			list_del(&record->fmr_list);
 			kfree(record);
 			continue;
@@ -333,7 +331,7 @@ static int ifs_ext4_local_ext4_fsmap_flush_metadata_before(
 		if (record->fmr_physical >= block)
 			break;
 
-		err = ifs_ext4_local_ext4_fsmap_emit(sb, query, record);
+		err = ext4_fsmap_emit(sb, query, record);
 		if (err)
 			return err;
 		list_del(&record->fmr_list);
@@ -343,7 +341,7 @@ static int ifs_ext4_local_ext4_fsmap_flush_metadata_before(
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_fsmap_metadata_query(struct super_block *sb,
+static int ext4_fsmap_metadata_query(struct super_block *sb,
 				     ext4_group_t group,
 				     ext4_grpblk_t start,
 				     ext4_grpblk_t length,
@@ -361,25 +359,25 @@ static int ifs_ext4_local_ext4_fsmap_metadata_query(struct super_block *sb,
 	int err;
 
 	list_for_each_entry_safe(record, next, &query->metadata, fmr_list) {
-		if (ifs_ext4_local_ext4_fsmap_end(record) <= query->next_block) {
+		if (ext4_fsmap_end(record) <= query->next_block) {
 			list_del(&record->fmr_list);
 			kfree(record);
 			continue;
 		}
 
 		if (record->fmr_physical > end ||
-		    ifs_ext4_local_ext4_fsmap_end(record) <= first)
+		    ext4_fsmap_end(record) <= first)
 			continue;
 
 		if (query->pending_free.fmr_owner) {
-			err = ifs_ext4_local_ext4_fsmap_emit(
+			err = ext4_fsmap_emit(
 				sb, query, &query->pending_free);
 			if (err)
 				return err;
 			query->pending_free.fmr_owner = 0;
 		}
 
-		err = ifs_ext4_local_ext4_fsmap_emit(sb, query, record);
+		err = ext4_fsmap_emit(sb, query, record);
 		if (err)
 			return err;
 		list_del(&record->fmr_list);
@@ -391,7 +389,7 @@ static int ifs_ext4_local_ext4_fsmap_metadata_query(struct super_block *sb,
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_fsmap_free_query(struct super_block *sb,
+static int ext4_fsmap_free_query(struct super_block *sb,
 				 ext4_group_t group,
 				 ext4_grpblk_t start,
 				 ext4_grpblk_t length,
@@ -411,32 +409,32 @@ static int ifs_ext4_local_ext4_fsmap_free_query(struct super_block *sb,
 	int err;
 
 	if (query->pending_free.fmr_owner &&
-	    ifs_ext4_local_ext4_fsmap_end(&query->pending_free) == first) {
+	    ext4_fsmap_end(&query->pending_free) == first) {
 		query->pending_free.fmr_length += blocks;
 		return 0;
 	}
 
 	if (query->pending_free.fmr_owner) {
-		err = ifs_ext4_local_ext4_fsmap_emit(sb, query, &query->pending_free);
+		err = ext4_fsmap_emit(sb, query, &query->pending_free);
 		if (err)
 			return err;
 		query->pending_free.fmr_owner = 0;
 	}
 
-	err = ifs_ext4_local_ext4_fsmap_flush_metadata_before(sb, query, first);
+	err = ext4_fsmap_flush_metadata_before(sb, query, first);
 	if (err)
 		return err;
 
-	if (ifs_ext4_local_ext4_fsmap_end(&record) ==
+	if (ext4_fsmap_end(&record) ==
 	    ext4_group_first_block_no(sb, group + 1)) {
 		query->pending_free = record;
 		return 0;
 	}
 
-	return ifs_ext4_local_ext4_fsmap_emit(sb, query, &record);
+	return ext4_fsmap_emit(sb, query, &record);
 }
 
-static int ifs_ext4_local_ext4_fsmap_query_log(struct super_block *sb,
+static int ext4_fsmap_query_log(struct super_block *sb,
 				struct ext4_fsmap *keys,
 				struct ext4_fsmap_query *query)
 {
@@ -454,10 +452,10 @@ static int ifs_ext4_local_ext4_fsmap_query_log(struct super_block *sb,
 	record.fmr_physical = journal->j_blk_offset;
 	record.fmr_length = journal->j_total_len;
 	record.fmr_owner = EXT4_FMR_OWN_LOG;
-	return ifs_ext4_local_ext4_fsmap_emit(sb, query, &record);
+	return ext4_fsmap_emit(sb, query, &record);
 }
 
-static int ifs_ext4_local_ext4_fsmap_query_data(struct super_block *sb,
+static int ext4_fsmap_query_data(struct super_block *sb,
 				 struct ext4_fsmap *keys,
 				 struct ext4_fsmap_query *query)
 {
@@ -494,7 +492,7 @@ static int ifs_ext4_local_ext4_fsmap_query_data(struct super_block *sb,
 	query->low.fmr_length = 0;
 	memset(&query->high, 0xff, sizeof(query->high));
 
-	err = ifs_ext4_local_ext4_fsmap_build_metadata(sb, &query->metadata);
+	err = ext4_fsmap_build_metadata(sb, &query->metadata);
 	if (err)
 		return err;
 
@@ -512,8 +510,8 @@ static int ifs_ext4_local_ext4_fsmap_query_data(struct super_block *sb,
 			sb, query->group,
 			EXT4_B2C(sbi, query->low.fmr_physical),
 			EXT4_B2C(sbi, query->high.fmr_physical),
-			ifs_ext4_local_ext4_fsmap_metadata_query,
-			ifs_ext4_local_ext4_fsmap_free_query, query);
+			ext4_fsmap_metadata_query,
+			ext4_fsmap_free_query, query);
 		if (err)
 			goto out;
 
@@ -522,7 +520,7 @@ static int ifs_ext4_local_ext4_fsmap_query_data(struct super_block *sb,
 	}
 
 	if (query->pending_free.fmr_owner) {
-		err = ifs_ext4_local_ext4_fsmap_emit(
+		err = ext4_fsmap_emit(
 			sb, query, &query->pending_free);
 		if (err)
 			goto out;
@@ -535,15 +533,15 @@ static int ifs_ext4_local_ext4_fsmap_query_data(struct super_block *sb,
 			.fmr_owner = EXT4_FMR_OWN_FREE,
 		};
 		query->final_record = true;
-		err = ifs_ext4_local_ext4_fsmap_emit(sb, query, &sentinel);
+		err = ext4_fsmap_emit(sb, query, &sentinel);
 	}
 
 out:
-	ifs_ext4_local_ext4_fsmap_free_metadata(&query->metadata);
+	ext4_fsmap_free_metadata(&query->metadata);
 	return err;
 }
 
-static bool ifs_ext4_local_ext4_fsmap_device_valid(struct super_block *sb,
+static bool ext4_fsmap_device_valid(struct super_block *sb,
 				    const struct ext4_fsmap *key)
 {
 	if (key->fmr_device == 0 ||
@@ -556,7 +554,7 @@ static bool ifs_ext4_local_ext4_fsmap_device_valid(struct super_block *sb,
 		       file_bdev(EXT4_SB(sb)->s_journal_bdev_file)->bd_dev);
 }
 
-static bool ifs_ext4_local_ext4_fsmap_keys_ordered(const struct ext4_fsmap *low,
+static bool ext4_fsmap_keys_ordered(const struct ext4_fsmap *low,
 				    const struct ext4_fsmap *high)
 {
 	if (low->fmr_device != high->fmr_device)
@@ -583,22 +581,22 @@ int ext4_getfsmap(struct super_block *sb, struct ext4_fsmap_head *head,
 
 	if (head->fmh_iflags & ~FMH_IF_VALID)
 		return -EINVAL;
-	if (!ifs_ext4_local_ext4_fsmap_device_valid(sb, &head->fmh_keys[0]) ||
-	    !ifs_ext4_local_ext4_fsmap_device_valid(sb, &head->fmh_keys[1]))
+	if (!ext4_fsmap_device_valid(sb, &head->fmh_keys[0]) ||
+	    !ext4_fsmap_device_valid(sb, &head->fmh_keys[1]))
 		return -EINVAL;
 
 	head->fmh_entries = 0;
 	devices[0].device = new_encode_dev(sb->s_bdev->bd_dev);
-	devices[0].query = ifs_ext4_local_ext4_fsmap_query_data;
+	devices[0].query = ext4_fsmap_query_data;
 
 	if (EXT4_SB(sb)->s_journal_bdev_file) {
 		devices[1].device = new_encode_dev(
 			file_bdev(EXT4_SB(sb)->s_journal_bdev_file)->bd_dev);
-		devices[1].query = ifs_ext4_local_ext4_fsmap_query_log;
+		devices[1].query = ext4_fsmap_query_log;
 	}
 
 	sort(devices, EXT4_FSMAP_DEVICE_COUNT,
-	     sizeof(devices[0]), ifs_ext4_local_ext4_fsmap_device_compare, NULL);
+	     sizeof(devices[0]), ext4_fsmap_device_compare, NULL);
 
 	keys[0] = head->fmh_keys[0];
 	keys[0].fmr_physical += keys[0].fmr_length;
@@ -606,7 +604,7 @@ int ext4_getfsmap(struct super_block *sb, struct ext4_fsmap_head *head,
 	keys[0].fmr_length = 0;
 	memset(&keys[1], 0xff, sizeof(keys[1]));
 
-	if (!ifs_ext4_local_ext4_fsmap_keys_ordered(keys, &head->fmh_keys[1]))
+	if (!ext4_fsmap_keys_ordered(keys, &head->fmh_keys[1]))
 		return -EINVAL;
 
 	query.next_block =
@@ -649,7 +647,7 @@ int ext4_getfsmap(struct super_block *sb, struct ext4_fsmap_head *head,
 
 #include "ext4.h"
 
-static __le32 ifs_ext4_local_ext4_mmp_checksum(struct super_block *sb,
+static __le32 ext4_mmp_checksum(struct super_block *sb,
 				const struct mmp_struct *mmp)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -659,26 +657,26 @@ static __le32 ifs_ext4_local_ext4_mmp_checksum(struct super_block *sb,
 		ext4_chksum(sbi, sbi->s_csum_seed, (const char *)mmp, length));
 }
 
-static bool ifs_ext4_local_ext4_mmp_checksum_valid(struct super_block *sb,
+static bool ext4_mmp_checksum_valid(struct super_block *sb,
 				    const struct mmp_struct *mmp)
 {
 	return !ext4_has_metadata_csum(sb) ||
-	       mmp->mmp_checksum == ifs_ext4_local_ext4_mmp_checksum(sb, mmp);
+	       mmp->mmp_checksum == ext4_mmp_checksum(sb, mmp);
 }
 
-static void ifs_ext4_local_ext4_mmp_update_checksum(struct super_block *sb,
+static void ext4_mmp_update_checksum(struct super_block *sb,
 				     struct mmp_struct *mmp)
 {
 	if (ext4_has_metadata_csum(sb))
-		mmp->mmp_checksum = ifs_ext4_local_ext4_mmp_checksum(sb, mmp);
+		mmp->mmp_checksum = ext4_mmp_checksum(sb, mmp);
 }
 
-static int ifs_ext4_local_ext4_mmp_write_unfrozen(struct super_block *sb,
+static int ext4_mmp_write_unfrozen(struct super_block *sb,
 				    struct buffer_head *bh)
 {
 	struct mmp_struct *mmp = (struct mmp_struct *)bh->b_data;
 
-	ifs_ext4_local_ext4_mmp_update_checksum(sb, mmp);
+	ext4_mmp_update_checksum(sb, mmp);
 	lock_buffer(bh);
 	bh->b_end_io = end_buffer_write_sync;
 	get_bh(bh);
@@ -687,17 +685,17 @@ static int ifs_ext4_local_ext4_mmp_write_unfrozen(struct super_block *sb,
 	return buffer_uptodate(bh) ? 0 : -EIO;
 }
 
-static int ifs_ext4_local_ext4_mmp_write(struct super_block *sb, struct buffer_head *bh)
+static int ext4_mmp_write(struct super_block *sb, struct buffer_head *bh)
 {
 	int err;
 
 	sb_start_write(sb);
-	err = ifs_ext4_local_ext4_mmp_write_unfrozen(sb, bh);
+	err = ext4_mmp_write_unfrozen(sb, bh);
 	sb_end_write(sb);
 	return err;
 }
 
-static int ifs_ext4_local_ext4_mmp_read(struct super_block *sb, struct buffer_head **bh,
+static int ext4_mmp_read(struct super_block *sb, struct buffer_head **bh,
 			 ext4_fsblk_t block)
 {
 	struct mmp_struct *mmp;
@@ -721,7 +719,7 @@ static int ifs_ext4_local_ext4_mmp_read(struct super_block *sb, struct buffer_he
 		err = -EFSCORRUPTED;
 		goto fail;
 	}
-	if (!ifs_ext4_local_ext4_mmp_checksum_valid(sb, mmp)) {
+	if (!ext4_mmp_checksum_valid(sb, mmp)) {
 		err = -EFSBADCRC;
 		goto fail;
 	}
@@ -748,12 +746,12 @@ void __dump_mmp_msg(struct super_block *sb, struct mmp_struct *mmp,
 		(int)sizeof(mmp->mmp_bdevname), mmp->mmp_bdevname);
 }
 
-static unsigned int ifs_ext4_local_ext4_mmp_random_sequence(void)
+static unsigned int ext4_mmp_random_sequence(void)
 {
 	return get_random_u32_below(EXT4_MMP_SEQ_MAX + 1U);
 }
 
-static unsigned int ifs_ext4_local_ext4_mmp_check_interval(
+static unsigned int ext4_mmp_check_interval(
 	unsigned int configured, unsigned long elapsed_jiffies)
 {
 	unsigned int measured = EXT4_MMP_CHECK_MULT *
@@ -767,7 +765,7 @@ static unsigned int ifs_ext4_local_ext4_mmp_check_interval(
 	return max(configured, measured);
 }
 
-static int ifs_ext4_local_ext4_mmp_thread(void *data)
+static int ext4_mmp_thread(void *data)
 {
 	struct super_block *sb = data;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
@@ -807,7 +805,7 @@ static int ifs_ext4_local_ext4_mmp_thread(void *data)
 		mmp->mmp_time = cpu_to_le64(ktime_get_real_seconds());
 		started = jiffies;
 
-		err = ifs_ext4_local_ext4_mmp_write(sb, bh);
+		err = ext4_mmp_write(sb, bh);
 		if (err && (failed_writes++ % 60UL) == 0)
 			ext4_error_err(sb, -err, "error writing MMP heartbeat");
 
@@ -821,7 +819,7 @@ static int ifs_ext4_local_ext4_mmp_thread(void *data)
 			struct buffer_head *verify_bh = NULL;
 			struct mmp_struct *verify;
 
-			err = ifs_ext4_local_ext4_mmp_read(sb, &verify_bh, block);
+			err = ext4_mmp_read(sb, &verify_bh, block);
 			if (err)
 				break;
 
@@ -841,7 +839,7 @@ static int ifs_ext4_local_ext4_mmp_thread(void *data)
 		}
 
 		check_interval =
-			ifs_ext4_local_ext4_mmp_check_interval(update_interval, elapsed);
+			ext4_mmp_check_interval(update_interval, elapsed);
 		mmp->mmp_check_interval = cpu_to_le16(check_interval);
 	}
 
@@ -849,7 +847,7 @@ static int ifs_ext4_local_ext4_mmp_thread(void *data)
 		mmp->mmp_seq = cpu_to_le32(EXT4_MMP_SEQ_CLEAN);
 		mmp->mmp_time = cpu_to_le64(ktime_get_real_seconds());
 		if (!err)
-			err = ifs_ext4_local_ext4_mmp_write(sb, bh);
+			err = ext4_mmp_write(sb, bh);
 	}
 
 	while (!kthread_should_stop()) {
@@ -888,7 +886,7 @@ int ext4_multi_mount_protect(struct super_block *sb, ext4_fsblk_t mmp_block)
 	    mmp_block >= ext4_blocks_count(es))
 		return -EINVAL;
 
-	err = ifs_ext4_local_ext4_mmp_read(sb, &bh, mmp_block);
+	err = ext4_mmp_read(sb, &bh, mmp_block);
 	if (err)
 		return err;
 
@@ -917,7 +915,7 @@ int ext4_multi_mount_protect(struct super_block *sb, ext4_fsblk_t mmp_block)
 			goto fail;
 		}
 
-		err = ifs_ext4_local_ext4_mmp_read(sb, &bh, mmp_block);
+		err = ext4_mmp_read(sb, &bh, mmp_block);
 		if (err)
 			goto fail;
 
@@ -929,9 +927,9 @@ int ext4_multi_mount_protect(struct super_block *sb, ext4_fsblk_t mmp_block)
 		}
 	}
 
-	claimed_sequence = ifs_ext4_local_ext4_mmp_random_sequence();
+	claimed_sequence = ext4_mmp_random_sequence();
 	mmp->mmp_seq = cpu_to_le32(claimed_sequence);
-	err = ifs_ext4_local_ext4_mmp_write_unfrozen(sb, bh);
+	err = ext4_mmp_write_unfrozen(sb, bh);
 	if (err)
 		goto fail;
 
@@ -940,7 +938,7 @@ int ext4_multi_mount_protect(struct super_block *sb, ext4_fsblk_t mmp_block)
 		goto fail;
 	}
 
-	err = ifs_ext4_local_ext4_mmp_read(sb, &bh, mmp_block);
+	err = ext4_mmp_read(sb, &bh, mmp_block);
 	if (err)
 		goto fail;
 
@@ -957,7 +955,7 @@ int ext4_multi_mount_protect(struct super_block *sb, ext4_fsblk_t mmp_block)
 		 "%pg", bh->b_bdev);
 
 	sbi->s_mmp_tsk = kthread_run(
-		ifs_ext4_local_ext4_mmp_thread, sb, "kmmpd-%.*s",
+		ext4_mmp_thread, sb, "kmmpd-%.*s",
 		(int)sizeof(mmp->mmp_bdevname), mmp->mmp_bdevname);
 	if (IS_ERR(sbi->s_mmp_tsk)) {
 		err = PTR_ERR(sbi->s_mmp_tsk);
@@ -1046,7 +1044,7 @@ static void *ext4_attr_pointer(struct ext4_attr *attr,
 	}
 }
 
-static ssize_t ifs_ext4_local_ext4_show_session_writes(struct ext4_sb_info *sbi, char *buf)
+static ssize_t ext4_show_session_writes(struct ext4_sb_info *sbi, char *buf)
 {
 	struct super_block *sb = sbi->s_buddy_cache->i_sb;
 	const unsigned long sectors =
@@ -1057,7 +1055,7 @@ static ssize_t ifs_ext4_local_ext4_show_session_writes(struct ext4_sb_info *sbi,
 		(sectors - sbi->s_sectors_written_start) >> 1);
 }
 
-static ssize_t ifs_ext4_local_ext4_show_lifetime_writes(struct ext4_sb_info *sbi, char *buf)
+static ssize_t ext4_show_lifetime_writes(struct ext4_sb_info *sbi, char *buf)
 {
 	struct super_block *sb = sbi->s_buddy_cache->i_sb;
 	const u64 session_kbytes =
@@ -1069,7 +1067,7 @@ static ssize_t ifs_ext4_local_ext4_show_lifetime_writes(struct ext4_sb_info *sbi
 		(unsigned long long)(sbi->s_kbytes_written + session_kbytes));
 }
 
-static ssize_t ifs_ext4_local_ext4_store_inode_readahead(struct ext4_sb_info *sbi,
+static ssize_t ext4_store_inode_readahead(struct ext4_sb_info *sbi,
 					  const char *buf, size_t count)
 {
 	unsigned long value;
@@ -1084,7 +1082,7 @@ static ssize_t ifs_ext4_local_ext4_store_inode_readahead(struct ext4_sb_info *sb
 	return count;
 }
 
-static ssize_t ifs_ext4_local_ext4_store_reserved_clusters(struct ext4_sb_info *sbi,
+static ssize_t ext4_store_reserved_clusters(struct ext4_sb_info *sbi,
 					     const char *buf,
 					     size_t count)
 {
@@ -1102,7 +1100,7 @@ static ssize_t ifs_ext4_local_ext4_store_reserved_clusters(struct ext4_sb_info *
 	return count;
 }
 
-static ssize_t ifs_ext4_local_ext4_store_test_error(struct ext4_sb_info *sbi,
+static ssize_t ext4_store_test_error(struct ext4_sb_info *sbi,
 				     const char *buf, size_t count)
 {
 	size_t length = count;
@@ -1116,7 +1114,7 @@ static ssize_t ifs_ext4_local_ext4_store_test_error(struct ext4_sb_info *sbi,
 	return count;
 }
 
-static ssize_t ifs_ext4_local_ext4_show_journal_task(struct ext4_sb_info *sbi, char *buf)
+static ssize_t ext4_show_journal_task(struct ext4_sb_info *sbi, char *buf)
 {
 	if (!sbi->s_journal)
 		return sysfs_emit(buf, "<none>\n");
@@ -1325,13 +1323,13 @@ static struct attribute *ext4_feat_attrs[] = {
 
 ATTRIBUTE_GROUPS(ext4_feat);
 
-static ssize_t ifs_ext4_local_ext4_show_timestamp(char *buf, __le32 low, __u8 high)
+static ssize_t ext4_show_timestamp(char *buf, __le32 low, __u8 high)
 {
 	const time64_t value = ((time64_t)high << 32) + le32_to_cpu(low);
 	return sysfs_emit(buf, "%lld\n", value);
 }
 
-static ssize_t ifs_ext4_local_ext4_show_generic(struct ext4_attr *attr,
+static ssize_t ext4_show_generic(struct ext4_attr *attr,
 				 struct ext4_sb_info *sbi,
 				 char *buf)
 {
@@ -1368,7 +1366,7 @@ static ssize_t ifs_ext4_local_ext4_show_generic(struct ext4_attr *attr,
 	}
 }
 
-static ssize_t ifs_ext4_local_ext4_attr_show(struct kobject *kobj,
+static ssize_t ext4_attr_show(struct kobject *kobj,
 			      struct attribute *attribute,
 			      char *buf)
 {
@@ -1386,9 +1384,9 @@ static ssize_t ifs_ext4_local_ext4_attr_show(struct kobject *kobj,
 				percpu_counter_sum(
 					&sbi->s_dirtyclusters_counter)));
 	case EXT4_ATTR_SESSION_WRITES:
-		return ifs_ext4_local_ext4_show_session_writes(sbi, buf);
+		return ext4_show_session_writes(sbi, buf);
 	case EXT4_ATTR_LIFETIME_WRITES:
-		return ifs_ext4_local_ext4_show_lifetime_writes(sbi, buf);
+		return ext4_show_lifetime_writes(sbi, buf);
 	case EXT4_ATTR_RESERVED_CLUSTERS:
 		return sysfs_emit(
 			buf, "%llu\n",
@@ -1403,21 +1401,21 @@ static ssize_t ifs_ext4_local_ext4_attr_show(struct kobject *kobj,
 	case EXT4_ATTR_FEATURE:
 		return sysfs_emit(buf, "supported\n");
 	case EXT4_ATTR_FIRST_ERROR_TIME:
-		return ifs_ext4_local_ext4_show_timestamp(
+		return ext4_show_timestamp(
 			buf, sbi->s_es->s_first_error_time,
 			sbi->s_es->s_first_error_time_hi);
 	case EXT4_ATTR_LAST_ERROR_TIME:
-		return ifs_ext4_local_ext4_show_timestamp(
+		return ext4_show_timestamp(
 			buf, sbi->s_es->s_last_error_time,
 			sbi->s_es->s_last_error_time_hi);
 	case EXT4_ATTR_JOURNAL_TASK:
-		return ifs_ext4_local_ext4_show_journal_task(sbi, buf);
+		return ext4_show_journal_task(sbi, buf);
 	default:
-		return ifs_ext4_local_ext4_show_generic(attr, sbi, buf);
+		return ext4_show_generic(attr, sbi, buf);
 	}
 }
 
-static ssize_t ifs_ext4_local_ext4_store_generic(struct ext4_attr *attr,
+static ssize_t ext4_store_generic(struct ext4_attr *attr,
 				  struct ext4_sb_info *sbi,
 				  const char *buf,
 				  size_t count)
@@ -1476,7 +1474,7 @@ static ssize_t ifs_ext4_local_ext4_store_generic(struct ext4_attr *attr,
 	}
 }
 
-static ssize_t ifs_ext4_local_ext4_attr_store(struct kobject *kobj,
+static ssize_t ext4_attr_store(struct kobject *kobj,
 			       struct attribute *attribute,
 			       const char *buf,
 			       size_t count)
@@ -1488,43 +1486,43 @@ static ssize_t ifs_ext4_local_ext4_attr_store(struct kobject *kobj,
 
 	switch (attr->kind) {
 	case EXT4_ATTR_RESERVED_CLUSTERS:
-		return ifs_ext4_local_ext4_store_reserved_clusters(sbi, buf, count);
+		return ext4_store_reserved_clusters(sbi, buf, count);
 	case EXT4_ATTR_INODE_READAHEAD:
-		return ifs_ext4_local_ext4_store_inode_readahead(sbi, buf, count);
+		return ext4_store_inode_readahead(sbi, buf, count);
 	case EXT4_ATTR_TRIGGER_ERROR:
-		return ifs_ext4_local_ext4_store_test_error(sbi, buf, count);
+		return ext4_store_test_error(sbi, buf, count);
 	default:
-		return ifs_ext4_local_ext4_store_generic(attr, sbi, buf, count);
+		return ext4_store_generic(attr, sbi, buf, count);
 	}
 }
 
-static void ifs_ext4_local_ext4_sb_kobj_release(struct kobject *kobj)
+static void ext4_sb_kobj_release(struct kobject *kobj)
 {
 	struct ext4_sb_info *sbi =
 		container_of(kobj, struct ext4_sb_info, s_kobj);
 	complete(&sbi->s_kobj_unregister);
 }
 
-static void ifs_ext4_local_ext4_feature_kobj_release(struct kobject *kobj)
+static void ext4_feature_kobj_release(struct kobject *kobj)
 {
 	kfree(kobj);
 }
 
 static const struct sysfs_ops ext4_sysfs_ops = {
-	.show = ifs_ext4_local_ext4_attr_show,
-	.store = ifs_ext4_local_ext4_attr_store,
+	.show = ext4_attr_show,
+	.store = ext4_attr_store,
 };
 
 static const struct kobj_type ext4_sb_ktype = {
 	.default_groups = ext4_groups,
 	.sysfs_ops = &ext4_sysfs_ops,
-	.release = ifs_ext4_local_ext4_sb_kobj_release,
+	.release = ext4_sb_kobj_release,
 };
 
 static const struct kobj_type ext4_feature_ktype = {
 	.default_groups = ext4_feat_groups,
 	.sysfs_ops = &ext4_sysfs_ops,
-	.release = ifs_ext4_local_ext4_feature_kobj_release,
+	.release = ext4_feature_kobj_release,
 };
 
 void ext4_notify_error_sysfs(struct ext4_sb_info *sbi)

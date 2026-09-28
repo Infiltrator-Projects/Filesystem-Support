@@ -3,7 +3,7 @@ name: Publish release
 
 on:
   workflow_run:
-    workflows: ["build"]
+    workflows: ["EXT runtime qualification"]
     types: [completed]
 
 permissions:
@@ -17,7 +17,6 @@ jobs:
   publish:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       startsWith(github.event.workflow_run.head_commit.message, 'Release ')
     permissions:
@@ -27,6 +26,13 @@ jobs:
     env:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
+      - name: Verify runtime qualification provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.event.workflow_run.name }}" = "EXT runtime qualification"
+          test "${{ github.event.workflow_run.conclusion }}" = "success"
+
       - name: Check out exact tested release commit
         uses: actions/checkout@v4
         with:

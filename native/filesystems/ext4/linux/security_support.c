@@ -1,9 +1,4 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: security_support.c.
- * Project-maintained canonical implementation.
- */
+/* Infiltrator Filesystem Support — EXT4 Linux integrity and secrecy adapters. */
 
 #ifdef CONFIG_FS_ENCRYPTION
 #include <linux/quotaops.h>
@@ -13,7 +8,7 @@
 #include "xattr.h"
 #include "ext4_jbd2.h"
 
-static void ifs_ext4_local_ext4_copy_fscrypt_name(struct ext4_filename *dst,
+static void ext4_copy_fscrypt_name(struct ext4_filename *dst,
 				   const struct fscrypt_name *src)
 {
 	memset(dst, 0, sizeof(*dst));
@@ -34,7 +29,7 @@ int ext4_fname_setup_filename(struct inode *dir, const struct qstr *iname,
 	if (err)
 		return err;
 
-	ifs_ext4_local_ext4_copy_fscrypt_name(fname, &fsname);
+	ext4_copy_fscrypt_name(fname, &fsname);
 	err = ext4_fname_setup_ci_filename(dir, iname, fname);
 	if (err)
 		ext4_fname_free_filename(fname);
@@ -51,7 +46,7 @@ int ext4_fname_prepare_lookup(struct inode *dir, struct dentry *dentry,
 	if (err)
 		return err;
 
-	ifs_ext4_local_ext4_copy_fscrypt_name(fname, &fsname);
+	ext4_copy_fscrypt_name(fname, &fsname);
 	err = ext4_fname_setup_ci_filename(dir, &dentry->d_name, fname);
 	if (err)
 		ext4_fname_free_filename(fname);
@@ -71,7 +66,7 @@ void ext4_fname_free_filename(struct ext4_filename *fname)
 	ext4_fname_free_ci_filename(fname);
 }
 
-static bool ifs_ext4_local_ext4_uuid_all_zero(const __u8 value[16])
+static bool ext4_uuid_all_zero(const __u8 value[16])
 {
 	unsigned int i;
 
@@ -92,7 +87,7 @@ int ext4_ioctl_get_encryption_pwsalt(struct file *file, void __user *arg)
 	if (!ext4_has_feature_encrypt(sb))
 		return -EOPNOTSUPP;
 
-	if (ifs_ext4_local_ext4_uuid_all_zero(sbi->s_es->s_encrypt_pw_salt)) {
+	if (ext4_uuid_all_zero(sbi->s_es->s_encrypt_pw_salt)) {
 		err = mnt_want_write_file(file);
 		if (err)
 			return err;
@@ -129,13 +124,13 @@ out_drop_write:
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_fscrypt_get_context(struct inode *inode, void *ctx, size_t len)
+static int ext4_fscrypt_get_context(struct inode *inode, void *ctx, size_t len)
 {
 	return ext4_xattr_get(inode, EXT4_XATTR_INDEX_ENCRYPTION,
 			      EXT4_XATTR_NAME_ENCRYPTION_CONTEXT, ctx, len);
 }
 
-static int ifs_ext4_local_ext4_fscrypt_set_context(struct inode *inode, const void *ctx,
+static int ext4_fscrypt_set_context(struct inode *inode, const void *ctx,
 				    size_t len, void *fs_data)
 {
 	handle_t *handle = fs_data;
@@ -199,12 +194,12 @@ retry:
 }
 
 static const union fscrypt_policy *
-ifs_ext4_local_ext4_fscrypt_dummy_policy(struct super_block *sb)
+ext4_fscrypt_dummy_policy(struct super_block *sb)
 {
 	return EXT4_SB(sb)->s_dummy_enc_policy.policy;
 }
 
-static bool ifs_ext4_local_ext4_fscrypt_has_stable_inodes(struct super_block *sb)
+static bool ext4_fscrypt_has_stable_inodes(struct super_block *sb)
 {
 	return ext4_has_feature_stable_inodes(sb);
 }
@@ -214,11 +209,11 @@ const struct fscrypt_operations ext4_cryptops = {
 	.has_32bit_inodes = 1,
 	.supports_subblock_data_units = 1,
 	.legacy_key_prefix = "ext4:",
-	.get_context = ifs_ext4_local_ext4_fscrypt_get_context,
-	.set_context = ifs_ext4_local_ext4_fscrypt_set_context,
-	.get_dummy_policy = ifs_ext4_local_ext4_fscrypt_dummy_policy,
+	.get_context = ext4_fscrypt_get_context,
+	.set_context = ext4_fscrypt_set_context,
+	.get_dummy_policy = ext4_fscrypt_dummy_policy,
 	.empty_dir = ext4_empty_dir,
-	.has_stable_inodes = ifs_ext4_local_ext4_fscrypt_has_stable_inodes,
+	.has_stable_inodes = ext4_fscrypt_has_stable_inodes,
 };
 
 
@@ -231,12 +226,12 @@ const struct fscrypt_operations ext4_cryptops = {
 #include "ext4_extents.h"
 #include "ext4_jbd2.h"
 
-static inline loff_t ifs_ext4_local_ext4_verity_area_start(const struct inode *inode)
+static inline loff_t ext4_verity_area_start(const struct inode *inode)
 {
 	return round_up(inode->i_size, 65536);
 }
 
-static int ifs_ext4_local_ext4_verity_read(struct inode *inode, void *buffer,
+static int ext4_verity_read(struct inode *inode, void *buffer,
 			    size_t count, loff_t position)
 {
 	while (count != 0) {
@@ -261,7 +256,7 @@ static int ifs_ext4_local_ext4_verity_read(struct inode *inode, void *buffer,
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_verity_write(struct inode *inode, const void *buffer,
+static int ext4_verity_write(struct inode *inode, const void *buffer,
 			     size_t count, loff_t position)
 {
 	struct address_space *mapping = inode->i_mapping;
@@ -301,7 +296,7 @@ static int ifs_ext4_local_ext4_verity_write(struct inode *inode, const void *buf
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_verity_begin(struct file *file)
+static int ext4_verity_begin(struct file *file)
 {
 	struct inode *inode = file_inode(file);
 	handle_t *handle;
@@ -344,12 +339,12 @@ static int ifs_ext4_local_ext4_verity_begin(struct file *file)
 	return err;
 }
 
-static int ifs_ext4_local_ext4_verity_store_descriptor(
+static int ext4_verity_store_descriptor(
 	struct inode *inode, const void *descriptor,
 	size_t descriptor_size, u64 tree_size)
 {
 	const u64 descriptor_pos =
-		round_up(ifs_ext4_local_ext4_verity_area_start(inode) + tree_size,
+		round_up(ext4_verity_area_start(inode) + tree_size,
 			 i_blocksize(inode));
 	const u64 descriptor_end = descriptor_pos + descriptor_size;
 	const __le32 encoded_size = cpu_to_le32(descriptor_size);
@@ -358,16 +353,16 @@ static int ifs_ext4_local_ext4_verity_store_descriptor(
 			 i_blocksize(inode)) - sizeof(encoded_size);
 	int err;
 
-	err = ifs_ext4_local_ext4_verity_write(
+	err = ext4_verity_write(
 		inode, descriptor, descriptor_size, descriptor_pos);
 	if (err)
 		return err;
 
-	return ifs_ext4_local_ext4_verity_write(
+	return ext4_verity_write(
 		inode, &encoded_size, sizeof(encoded_size), size_pos);
 }
 
-static void ifs_ext4_local_ext4_verity_abort_enable(struct inode *inode)
+static void ext4_verity_abort_enable(struct inode *inode)
 {
 	truncate_inode_pages(inode->i_mapping, inode->i_size);
 	ext4_truncate(inode);
@@ -375,7 +370,7 @@ static void ifs_ext4_local_ext4_verity_abort_enable(struct inode *inode)
 	ext4_clear_inode_state(inode, EXT4_STATE_VERITY_IN_PROGRESS);
 }
 
-static int ifs_ext4_local_ext4_verity_finish(struct file *file, const void *descriptor,
+static int ext4_verity_finish(struct file *file, const void *descriptor,
 			      size_t descriptor_size, u64 tree_size)
 {
 	struct inode *inode = file_inode(file);
@@ -384,11 +379,11 @@ static int ifs_ext4_local_ext4_verity_finish(struct file *file, const void *desc
 	int err;
 
 	if (!descriptor) {
-		ifs_ext4_local_ext4_verity_abort_enable(inode);
+		ext4_verity_abort_enable(inode);
 		return 0;
 	}
 
-	err = ifs_ext4_local_ext4_verity_store_descriptor(
+	err = ext4_verity_store_descriptor(
 		inode, descriptor, descriptor_size, tree_size);
 	if (err)
 		goto fail;
@@ -420,11 +415,11 @@ static int ifs_ext4_local_ext4_verity_finish(struct file *file, const void *desc
 	return 0;
 
 fail:
-	ifs_ext4_local_ext4_verity_abort_enable(inode);
+	ext4_verity_abort_enable(inode);
 	return err;
 }
 
-static int ifs_ext4_local_ext4_verity_descriptor_location(
+static int ext4_verity_descriptor_location(
 	struct inode *inode, size_t *descriptor_size,
 	u64 *descriptor_pos)
 {
@@ -459,7 +454,7 @@ static int ifs_ext4_local_ext4_verity_descriptor_location(
 		return -EFSCORRUPTED;
 	size_pos -= sizeof(encoded_size);
 
-	err = ifs_ext4_local_ext4_verity_read(
+	err = ext4_verity_read(
 		inode, &encoded_size, sizeof(encoded_size), size_pos);
 	if (err)
 		return err;
@@ -469,7 +464,7 @@ static int ifs_ext4_local_ext4_verity_descriptor_location(
 		return -EFSCORRUPTED;
 
 	pos = round_down(size_pos - size, i_blocksize(inode));
-	if (pos < ifs_ext4_local_ext4_verity_area_start(inode))
+	if (pos < ext4_verity_area_start(inode))
 		return -EFSCORRUPTED;
 
 	*descriptor_size = size;
@@ -477,14 +472,14 @@ static int ifs_ext4_local_ext4_verity_descriptor_location(
 	return 0;
 }
 
-static int ifs_ext4_local_ext4_verity_get_descriptor(
+static int ext4_verity_get_descriptor(
 	struct inode *inode, void *buffer, size_t buffer_size)
 {
 	size_t size;
 	u64 position;
 	int err;
 
-	err = ifs_ext4_local_ext4_verity_descriptor_location(inode, &size, &position);
+	err = ext4_verity_descriptor_location(inode, &size, &position);
 	if (err)
 		return err;
 	if (!buffer_size)
@@ -492,7 +487,7 @@ static int ifs_ext4_local_ext4_verity_get_descriptor(
 	if (size > buffer_size)
 		return -ERANGE;
 
-	err = ifs_ext4_local_ext4_verity_read(inode, buffer, size, position);
+	err = ext4_verity_read(inode, buffer, size, position);
 	return err ? err : (int)size;
 }
 
@@ -501,7 +496,7 @@ static struct page *ext4_verity_read_tree_page(
 {
 	struct folio *folio;
 
-	index += ifs_ext4_local_ext4_verity_area_start(inode) >> PAGE_SHIFT;
+	index += ext4_verity_area_start(inode) >> PAGE_SHIFT;
 	folio = __filemap_get_folio(
 		inode->i_mapping, index, FGP_ACCESSED, 0);
 
@@ -523,21 +518,21 @@ static struct page *ext4_verity_read_tree_page(
 	return folio_file_page(folio, index);
 }
 
-static int ifs_ext4_local_ext4_verity_write_tree_block(
+static int ext4_verity_write_tree_block(
 	struct inode *inode, const void *buffer,
 	u64 position, unsigned int size)
 {
-	return ifs_ext4_local_ext4_verity_write(
+	return ext4_verity_write(
 		inode, buffer, size,
-		position + ifs_ext4_local_ext4_verity_area_start(inode));
+		position + ext4_verity_area_start(inode));
 }
 
 const struct fsverity_operations ext4_verityops = {
-	.begin_enable_verity = ifs_ext4_local_ext4_verity_begin,
-	.end_enable_verity = ifs_ext4_local_ext4_verity_finish,
-	.get_verity_descriptor = ifs_ext4_local_ext4_verity_get_descriptor,
+	.begin_enable_verity = ext4_verity_begin,
+	.end_enable_verity = ext4_verity_finish,
+	.get_verity_descriptor = ext4_verity_get_descriptor,
 	.read_merkle_tree_page = ext4_verity_read_tree_page,
-	.write_merkle_tree_block = ifs_ext4_local_ext4_verity_write_tree_block,
+	.write_merkle_tree_block = ext4_verity_write_tree_block,
 };
 
 

@@ -16,8 +16,8 @@ Linux deployment produces exactly one independently deployable module:
 ext4.ko
 ```
 
-The module uses Linux kernel JBD2 interfaces. Its former private journal
-engine is absent; journal operations depend on kernel JBD2 support.
+JBD2 functionality required by the filesystem is embedded in that module; no
+separate project `jbd2.ko` or metadata-cache helper module is deployed.
 
 ## Permanent responsibility layout
 
@@ -46,6 +46,9 @@ native/filesystems/ext4/
     inline_data.c
     inode_adapter.c
     control.c
+    journal_core.c
+    journal_durability.c
+    journal_transactions.c
     mapping_support.c
     multiblock_allocation.c
     namespace_mutation.c
@@ -57,6 +60,7 @@ native/filesystems/ext4/
     extended_metadata.c
     security_support.c
 
+    embedded_jbd2.h
     ext4.h
     ext4_extents.h
     ext4_jbd2.h
@@ -67,6 +71,8 @@ native/filesystems/ext4/
     truncate.h
     xattr.h
 
+    include/linux/jbd2.h
+    include/trace/events/jbd2.h
 
   windows/
     README.md
@@ -105,19 +111,62 @@ objects never belong in the canonical core.
 The Linux directory is cut by project responsibility, not upstream
 translation-unit history.
 
-### Current source and provenance
+### Project-authored active units
 
-The active Linux tree is listed in the layout above. The earlier per-file lists
-in this document classified removed journal files and relied on migration
-records that are no longer current. File names, comments and responsibility
-recuts do not establish authorship of current implementation bodies. Consult
-[`EXT_SOURCE_PROVENANCE.md`](EXT_SOURCE_PROVENANCE.md) for the current
-limitations, and review the bodies and history before making an authorship
-claim.
+The authoritative provenance ledger currently classifies these Linux-side
+units as project-authored:
 
-Journal operations call Linux kernel JBD2 interfaces. The private
-`journal_core.c`, `journal_durability.c`, `journal_transactions.c`,
-`embedded_jbd2.h` and private JBD2 include files are absent.
+- `core_bridge.c`
+- `storage_guard.c`
+- `directory_io.c`
+- `mapping_support.c`
+- `volume_admin.c`
+- `journal_durability.c`
+- `security_support.c`
+- `embedded_jbd2.h`
+- `truncate.h`
+- `fsmap.h`
+- `fast_commit.h`
+- `ext4_jbd2.h`
+- `mballoc.h`
+- `extents_status.h`
+- `ext4_extents.h`
+- `xattr.h`
+
+These files remain Linux adapter or adapter-contract code where they contain
+host integration. Host-neutral EXT4 rules continue to migrate into `core/`
+when that strengthens the architecture.
+
+### Migration implementation
+
+The following responsibility-named units still contain materially inherited
+implementation and remain migration code until their bodies are independently
+replaced:
+
+- `extent_tree.c`
+- `extent_cache.c`
+- `fast_commit_engine.c`
+- `file_io.c`
+- `inode_allocation.c`
+- `inline_data.c`
+- `inode_adapter.c`
+- `control.c`
+- `journal_core.c`
+- `journal_transactions.c`
+- `multiblock_allocation.c`
+- `namespace_mutation.c`
+- `orphan_recovery.c`
+- `writeback_io.c`
+- `online_resize.c`
+- `lifecycle.c`
+- `extended_metadata.c`
+- `ext4.h`
+- `include/linux/jbd2.h`
+- `include/trace/events/jbd2.h`
+
+The trace-event include hierarchy is retained because Linux tracepoint
+generation requires that path. It is Linux-only diagnostic migration material,
+not canonical EXT4/JBD2 semantics.
 
 ## Linux module boundary
 
@@ -126,10 +175,10 @@ The active Kbuild contract produces one module:
 ```text
 obj-m += ext4.o
 
-ext4-y := core_bridge.o storage_guard.o directory_io.o \
+ext4-y := core_bridge.o storage_guard.o directory_io.o journal_durability.o \
           extent_tree.o extent_cache.o fast_commit_engine.o file_io.o \
           inode_allocation.o inline_data.o inode_adapter.o control.o \
-          mapping_support.o \
+          journal_core.o journal_transactions.o mapping_support.o \
           multiblock_allocation.o namespace_mutation.o orphan_recovery.o \
           writeback_io.o online_resize.o lifecycle.o volume_admin.o \
           extended_metadata.o security_support.o
@@ -195,10 +244,20 @@ VFS objects remains adapter work.
 
 ## JBD2
 
-EXT4 journal operations currently use Linux kernel JBD2 interfaces. The old
-private journal implementation is no longer part of `ext4.ko`. The journal's
-on-disk structures are big-endian; EXT filesystem metadata is little-endian.
-Recovery and durability behaviour must be verified against the current code.
+EXT4 uses JBD2, whose on-disk structures are big-endian while EXT filesystem
+metadata is little-endian.
+
+The project source responsibilities are deliberately split into:
+
+- `journal_durability.c` — project-authored checkpoint/commit/recovery/revoke
+  durability implementation;
+- `journal_core.c` — journal object/ring integration, still migration source;
+- `journal_transactions.c` — handle/credit/transaction-state integration,
+  still migration source.
+
+Only complete committed transactions are replayable. Journal geometry,
+descriptor/tag layouts, revoke width, checksums and sequence/ring state must be
+validated before replay.
 
 ## Fast commit
 
@@ -239,9 +298,8 @@ EXT4 production source must not be refreshed from or mechanically reshaped from
 Linux.
 
 External implementations may be studied for behaviour, compatibility and test
-evidence. A claim that a unit is project-authored requires examination of its current
-implementation body and history; the previous file-by-file classification is
-stale.
+evidence. A migration unit becomes project-authored only when its
+implementation body has actually been independently replaced and qualified.
 
 Renaming, merging, recommenting or moving inherited implementation does not
 change provenance.

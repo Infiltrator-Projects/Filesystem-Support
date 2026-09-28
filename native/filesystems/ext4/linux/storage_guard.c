@@ -1,8 +1,6 @@
-/*
- * Copyright (C) 2026 Shannon Smith
- *
- * Infiltrator Filesystem Support EXT4 Linux adapter: storage_guard.c.
- * Project-maintained canonical implementation.
+/* Infiltrator Filesystem Support — EXT4 Linux storage guard.
+ * Block-group accounting and protected-range validation are one host-facing
+ * storage responsibility; canonical geometry remains in the EXT4 core.
  */
 
 /*

@@ -1,8 +1,25 @@
 /*
- * Copyright (C) 2026 Shannon Smith
+ *  linux/fs/ext3/inode.c
  *
- * Infiltrator Filesystem Support EXT3 Linux adapter: inode_adapter.c.
- * Project-maintained implementation for the canonical EXT3 driver.
+ * Copyright (C) 1992, 1993, 1994, 1995
+ * Remy Card (card@masi.ibp.fr)
+ * Laboratoire MASI - Institut Blaise Pascal
+ * Universite Pierre et Marie Curie (Paris VI)
+ *
+ *  from
+ *
+ *  linux/fs/minix/inode.c
+ *
+ *  Copyright (C) 1991, 1992  Linus Torvalds
+ *
+ *  Goal-directed block allocation by Stephen Tweedie
+ *	(sct@redhat.com), 1993, 1998
+ *  Big-endian to little-endian byte-swapping/bitmaps by
+ *        David S. Miller (davem@caip.rutgers.edu), 1995
+ *  64-bit file support on 64-bit platforms by Jakub Jelinek
+ *	(jj@sunsite.ms.mff.cuni.cz)
+ *
+ *  Assorted race fixes, rewrite of ext3_get_block() by Al Viro, 2000
  */
 
 /*
@@ -37,8 +54,8 @@
 #include <linux/uio.h>
 #include "linux_adapter.h"
 
-static int ifs_ext3_local_ext3_writepage_trans_blocks(struct inode *inode);
-static int ifs_ext3_local_ext3_block_truncate_page(struct inode *inode, loff_t from);
+static int ext3_writepage_trans_blocks(struct inode *inode);
+static int ext3_block_truncate_page(struct inode *inode, loff_t from);
 
 
 /*
@@ -47,7 +64,7 @@ static int ifs_ext3_local_ext3_block_truncate_page(struct inode *inode, loff_t f
  * only these thin boundary helpers while retaining the exported
  * __block_write_full_folio() implementation for actual buffered writeback.
  */
-static int ifs_ext3_local_ext3_block_write_full_folio(struct folio *folio,
+static int ext3_block_write_full_folio(struct folio *folio,
 				       struct writeback_control *wbc,
 				       get_block_t *get_block)
 {
@@ -67,7 +84,7 @@ static int ifs_ext3_local_ext3_block_write_full_folio(struct folio *folio,
 	return __block_write_full_folio(inode, folio, get_block, wbc);
 }
 
-static void ifs_ext3_local_ext3_buffer_check_dirty_writeback(struct folio *folio,
+static void ext3_buffer_check_dirty_writeback(struct folio *folio,
 					       bool *dirty,
 					       bool *writeback)
 {
@@ -98,14 +115,14 @@ static void ifs_ext3_local_ext3_buffer_check_dirty_writeback(struct folio *folio
 
 
 /**
- * ifs_ext3_local_ext3_inode_is_fast_symlink - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext3_inode_is_fast_symlink - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_inode_is_fast_symlink(struct inode *inode)
+static int ext3_inode_is_fast_symlink(struct inode *inode)
 {
 	int ea_blocks = EXT3_I(inode)->i_file_acl ?
 		(inode->i_sb->s_blocksize >> 9) : 0;
@@ -159,14 +176,14 @@ int ext3_forget(handle_t *handle, int is_metadata, struct inode *inode,
 
 
 /**
- * ifs_ext3_local_blocks_for_truncate - Implements the blocks for truncate operation within the inode mapping and lifecycle subsystem.
+ * blocks_for_truncate - Implements the blocks for truncate operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static unsigned long ifs_ext3_local_blocks_for_truncate(struct inode *inode)
+static unsigned long blocks_for_truncate(struct inode *inode)
 {
 	unsigned long needed;
 
@@ -196,7 +213,7 @@ static handle_t *start_transaction(struct inode *inode)
 {
 	handle_t *result;
 
-	result = ext3_journal_start(inode, ifs_ext3_local_blocks_for_truncate(inode));
+	result = ext3_journal_start(inode, blocks_for_truncate(inode));
 	if (!IS_ERR(result))
 		return result;
 
@@ -206,32 +223,32 @@ static handle_t *start_transaction(struct inode *inode)
 
 
 /**
- * ifs_ext3_local_try_to_extend_transaction - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * try_to_extend_transaction - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_try_to_extend_transaction(handle_t *handle, struct inode *inode)
+static int try_to_extend_transaction(handle_t *handle, struct inode *inode)
 {
-	if (handle->h_total_credits > EXT3_RESERVE_TRANS_BLOCKS)
+	if (handle->h_buffer_credits > EXT3_RESERVE_TRANS_BLOCKS)
 		return 0;
-	if (!ext3_journal_extend(handle, ifs_ext3_local_blocks_for_truncate(inode)))
+	if (!ext3_journal_extend(handle, blocks_for_truncate(inode)))
 		return 0;
 	return 1;
 }
 
 
 /**
- * ifs_ext3_local_truncate_restart_transaction - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * truncate_restart_transaction - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_truncate_restart_transaction(handle_t *handle, struct inode *inode)
+static int truncate_restart_transaction(handle_t *handle, struct inode *inode)
 {
 	int ret;
 
@@ -239,7 +256,7 @@ static int ifs_ext3_local_truncate_restart_transaction(handle_t *handle, struct 
 
 
 	mutex_unlock(&EXT3_I(inode)->truncate_mutex);
-	ret = ext3_journal_restart(handle, ifs_ext3_local_blocks_for_truncate(inode));
+	ret = ext3_journal_restart(handle, blocks_for_truncate(inode));
 	mutex_lock(&EXT3_I(inode)->truncate_mutex);
 	return ret;
 }
@@ -334,14 +351,14 @@ typedef struct {
 
 
 /**
- * ifs_ext3_local_add_chain - Implements the add chain operation within the inode mapping and lifecycle subsystem.
+ * add_chain - Implements the add chain operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline void ifs_ext3_local_add_chain(Indirect *p, struct buffer_head *bh, __le32 *v)
+static inline void add_chain(Indirect *p, struct buffer_head *bh, __le32 *v)
 {
 	p->key = *(p->p = v);
 	p->bh = bh;
@@ -349,14 +366,14 @@ static inline void ifs_ext3_local_add_chain(Indirect *p, struct buffer_head *bh,
 
 
 /**
- * ifs_ext3_local_verify_chain - Validates state before it is trusted by the remainder of the filesystem.
+ * verify_chain - Validates state before it is trusted by the remainder of the filesystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_verify_chain(Indirect *from, Indirect *to)
+static int verify_chain(Indirect *from, Indirect *to)
 {
 	while (from <= to && from->key == *from->p)
 		from++;
@@ -365,14 +382,14 @@ static int ifs_ext3_local_verify_chain(Indirect *from, Indirect *to)
 
 
 /**
- * ifs_ext3_local_ext3_block_to_path - Implements the block to path operation within the inode mapping and lifecycle subsystem.
+ * ext3_block_to_path - Implements the block to path operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_block_to_path(struct inode *inode,
+static int ext3_block_to_path(struct inode *inode,
 			long i_block, int offsets[4], int *boundary)
 {
 	ifs_ext3_u32 core_offsets[4] = { 0U, 0U, 0U, 0U };
@@ -383,7 +400,7 @@ static int ifs_ext3_local_ext3_block_to_path(struct inode *inode,
 	int index;
 
 	if (i_block < 0) {
-		ext3_warning(inode->i_sb, "ifs_ext3_local_ext3_block_to_path", "block < 0");
+		ext3_warning(inode->i_sb, "ext3_block_to_path", "block < 0");
 		return 0;
 	}
 
@@ -391,7 +408,7 @@ static int ifs_ext3_local_ext3_block_to_path(struct inode *inode,
 		(ifs_ext3_u64)i_block, ptrs, ptrs_bits,
 		core_offsets, boundary ? &core_boundary : NULL);
 	if (depth == 0) {
-		ext3_warning(inode->i_sb, "ifs_ext3_local_ext3_block_to_path", "block > big");
+		ext3_warning(inode->i_sb, "ext3_block_to_path", "block > big");
 		return 0;
 	}
 
@@ -420,7 +437,7 @@ static Indirect *ext3_get_branch(struct inode *inode, int depth, int *offsets,
 
 	*err = 0;
 
-	ifs_ext3_local_add_chain (chain, NULL, EXT3_I(inode)->i_data + *offsets);
+	add_chain (chain, NULL, EXT3_I(inode)->i_data + *offsets);
 	if (!p->key)
 		goto no_block;
 	while (--depth) {
@@ -428,9 +445,9 @@ static Indirect *ext3_get_branch(struct inode *inode, int depth, int *offsets,
 		if (!bh)
 			goto failure;
 
-		if (!ifs_ext3_local_verify_chain(chain, p))
+		if (!verify_chain(chain, p))
 			goto changed;
-		ifs_ext3_local_add_chain(++p, bh, (__le32*)bh->b_data + *++offsets);
+		add_chain(++p, bh, (__le32*)bh->b_data + *++offsets);
 
 		if (!p->key)
 			goto no_block;
@@ -449,14 +466,14 @@ no_block:
 
 
 /**
- * ifs_ext3_local_ext3_find_near - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ext3_find_near - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ext3_fsblk_t ifs_ext3_local_ext3_find_near(struct inode *inode, Indirect *ind)
+static ext3_fsblk_t ext3_find_near(struct inode *inode, Indirect *ind)
 {
 	struct ext3_inode_info *ei = EXT3_I(inode);
 	__le32 *start = ind->bh ? (__le32*) ind->bh->b_data : ei->i_data;
@@ -483,14 +500,14 @@ static ext3_fsblk_t ifs_ext3_local_ext3_find_near(struct inode *inode, Indirect 
 
 
 /**
- * ifs_ext3_local_ext3_find_goal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ext3_find_goal - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ext3_fsblk_t ifs_ext3_local_ext3_find_goal(struct inode *inode, long block,
+static ext3_fsblk_t ext3_find_goal(struct inode *inode, long block,
 				   Indirect *partial)
 {
 	struct ext3_block_alloc_info *block_i;
@@ -503,19 +520,19 @@ static ext3_fsblk_t ifs_ext3_local_ext3_find_goal(struct inode *inode, long bloc
 		return block_i->last_alloc_physical_block + 1;
 	}
 
-	return ifs_ext3_local_ext3_find_near(inode, partial);
+	return ext3_find_near(inode, partial);
 }
 
 
 /**
- * ifs_ext3_local_ext3_blks_to_allocate - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ext3_blks_to_allocate - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_blks_to_allocate(Indirect *branch, int k, unsigned long blks,
+static int ext3_blks_to_allocate(Indirect *branch, int k, unsigned long blks,
 		int blocks_to_boundary)
 {
 	unsigned long count = 0;
@@ -540,14 +557,14 @@ static int ifs_ext3_local_ext3_blks_to_allocate(Indirect *branch, int k, unsigne
 
 
 /**
- * ifs_ext3_local_ext3_alloc_blocks - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ext3_alloc_blocks - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_alloc_blocks(handle_t *handle, struct inode *inode,
+static int ext3_alloc_blocks(handle_t *handle, struct inode *inode,
 			ext3_fsblk_t goal, int indirect_blks, int blks,
 			ext3_fsblk_t new_blocks[4], int *err)
 {
@@ -593,14 +610,14 @@ failed_out:
 
 
 /**
- * ifs_ext3_local_ext3_alloc_branch - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
+ * ext3_alloc_branch - Allocates or reserves filesystem state while maintaining the owning allocator's accounting invariants.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_alloc_branch(handle_t *handle, struct inode *inode,
+static int ext3_alloc_branch(handle_t *handle, struct inode *inode,
 			int indirect_blks, int *blks, ext3_fsblk_t goal,
 			int *offsets, Indirect *branch)
 {
@@ -612,7 +629,7 @@ static int ifs_ext3_local_ext3_alloc_branch(handle_t *handle, struct inode *inod
 	ext3_fsblk_t new_blocks[4];
 	ext3_fsblk_t current_block;
 
-	num = ifs_ext3_local_ext3_alloc_blocks(handle, inode, goal, indirect_blks,
+	num = ext3_alloc_blocks(handle, inode, goal, indirect_blks,
 				*blks, new_blocks, &err);
 	if (err)
 		return err;
@@ -676,14 +693,14 @@ failed:
 
 
 /**
- * ifs_ext3_local_ext3_splice_branch - Implements the splice branch operation within the inode mapping and lifecycle subsystem.
+ * ext3_splice_branch - Implements the splice branch operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_splice_branch(handle_t *handle, struct inode *inode,
+static int ext3_splice_branch(handle_t *handle, struct inode *inode,
 			long block, Indirect *where, int num, int blks)
 {
 	int i;
@@ -785,8 +802,9 @@ int ext3_get_blocks_handle(handle_t *handle, struct inode *inode,
 	ext3_fsblk_t first_block = 0;
 
 
+
 	J_ASSERT(handle != NULL || create == 0);
-	depth = ifs_ext3_local_ext3_block_to_path(inode,iblock,offsets,&blocks_to_boundary);
+	depth = ext3_block_to_path(inode,iblock,offsets,&blocks_to_boundary);
 
 	if (depth == 0)
 		goto out;
@@ -802,7 +820,7 @@ int ext3_get_blocks_handle(handle_t *handle, struct inode *inode,
 		while (count < maxblocks && count <= blocks_to_boundary) {
 			ext3_fsblk_t blk;
 
-			if (!ifs_ext3_local_verify_chain(chain, chain + depth - 1)) {
+			if (!verify_chain(chain, chain + depth - 1)) {
 
 
 				err = -EAGAIN;
@@ -828,7 +846,7 @@ int ext3_get_blocks_handle(handle_t *handle, struct inode *inode,
 	mutex_lock(&ei->truncate_mutex);
 
 
-	if (err == -EAGAIN || !ifs_ext3_local_verify_chain(chain, partial)) {
+	if (err == -EAGAIN || !verify_chain(chain, partial)) {
 		while (partial > chain) {
 			brelse(partial->bh);
 			partial--;
@@ -848,20 +866,20 @@ int ext3_get_blocks_handle(handle_t *handle, struct inode *inode,
 	if (S_ISREG(inode->i_mode) && (!ei->i_block_alloc_info))
 		ext3_init_block_alloc_info(inode);
 
-	goal = ifs_ext3_local_ext3_find_goal(inode, iblock, partial);
+	goal = ext3_find_goal(inode, iblock, partial);
 
 
 	indirect_blks = (chain + depth) - partial - 1;
 
 
-	count = ifs_ext3_local_ext3_blks_to_allocate(partial, indirect_blks,
+	count = ext3_blks_to_allocate(partial, indirect_blks,
 					maxblocks, blocks_to_boundary);
-	err = ifs_ext3_local_ext3_alloc_branch(handle, inode, indirect_blks, &count, goal,
+	err = ext3_alloc_branch(handle, inode, indirect_blks, &count, goal,
 				offsets + (partial - chain), partial);
 
 
 	if (!err)
-		err = ifs_ext3_local_ext3_splice_branch(handle, inode, iblock,
+		err = ext3_splice_branch(handle, inode, iblock,
 					partial, indirect_blks, count);
 	mutex_unlock(&ei->truncate_mutex);
 	if (err)
@@ -895,14 +913,14 @@ out:
 
 
 /**
- * ifs_ext3_local_ext3_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ext3_get_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_get_block(struct inode *inode, sector_t iblock,
+static int ext3_get_block(struct inode *inode, sector_t iblock,
 			struct buffer_head *bh_result, int create)
 {
 	handle_t *handle = ext3_journal_current_handle();
@@ -942,13 +960,13 @@ out:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline sector_t ifs_ext3_local_ext3_logical_to_blk(struct inode *inode,
+static inline sector_t ext3_logical_to_blk(struct inode *inode,
 					       loff_t offset)
 {
 	return offset >> inode->i_blkbits;
 }
 
-static inline loff_t ifs_ext3_local_ext3_blk_to_logical(struct inode *inode, sector_t block)
+static inline loff_t ext3_blk_to_logical(struct inode *inode, sector_t block)
 {
 	return (loff_t)block << inode->i_blkbits;
 }
@@ -978,24 +996,24 @@ int ext3_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 	if (!len)
 		goto out_unlock;
 
-	if (ifs_ext3_local_ext3_logical_to_blk(inode, len) == 0)
-		len = ifs_ext3_local_ext3_blk_to_logical(inode, 1);
+	if (ext3_logical_to_blk(inode, len) == 0)
+		len = ext3_blk_to_logical(inode, 1);
 
-	start_blk = ifs_ext3_local_ext3_logical_to_blk(inode, start);
-	last_blk = ifs_ext3_local_ext3_logical_to_blk(inode, start + len - 1);
+	start_blk = ext3_logical_to_blk(inode, start);
+	last_blk = ext3_logical_to_blk(inode, start + len - 1);
 
 	for (;;) {
 		memset(&map_bh, 0, sizeof(map_bh));
 		map_bh.b_size = len;
 
-		ret = ifs_ext3_local_ext3_get_block(inode, start_blk, &map_bh, 0);
+		ret = ext3_get_block(inode, start_blk, &map_bh, 0);
 		if (ret)
 			break;
 
 		if (!buffer_mapped(&map_bh)) {
 			start_blk++;
 			if (!past_eof &&
-			    ifs_ext3_local_ext3_blk_to_logical(inode, start_blk) >= isize)
+			    ext3_blk_to_logical(inode, start_blk) >= isize)
 				past_eof = true;
 
 			if (past_eof && size) {
@@ -1024,11 +1042,11 @@ int ext3_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 					break;
 			}
 
-			logical = ifs_ext3_local_ext3_blk_to_logical(inode, start_blk);
-			phys = ifs_ext3_local_ext3_blk_to_logical(inode, map_bh.b_blocknr);
+			logical = ext3_blk_to_logical(inode, start_blk);
+			phys = ext3_blk_to_logical(inode, map_bh.b_blocknr);
 			size = map_bh.b_size;
 			flags = FIEMAP_EXTENT_MERGED;
-			start_blk += ifs_ext3_local_ext3_logical_to_blk(inode, size);
+			start_blk += ext3_logical_to_blk(inode, size);
 
 			if (!past_eof && logical + size >= isize)
 				past_eof = true;
@@ -1147,14 +1165,14 @@ struct buffer_head *ext3_bread(handle_t *handle, struct inode *inode,
 
 
 /**
- * ifs_ext3_local_walk_page_buffers - Implements the walk page buffers operation within the inode mapping and lifecycle subsystem.
+ * walk_page_buffers - Implements the walk page buffers operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_walk_page_buffers(	handle_t *handle,
+static int walk_page_buffers(	handle_t *handle,
 				struct buffer_head *head,
 				unsigned from,
 				unsigned to,
@@ -1188,14 +1206,14 @@ static int ifs_ext3_local_walk_page_buffers(	handle_t *handle,
 
 
 /**
- * ifs_ext3_local_do_journal_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * do_journal_get_write_access - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_do_journal_get_write_access(handle_t *handle,
+static int do_journal_get_write_access(handle_t *handle,
 					struct buffer_head *bh)
 {
 	int dirty = buffer_dirty(bh);
@@ -1215,14 +1233,14 @@ static int ifs_ext3_local_do_journal_get_write_access(handle_t *handle,
 
 
 /**
- * ifs_ext3_local_ext3_truncate_failed_write - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext3_truncate_failed_write - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext3_local_ext3_truncate_failed_write(struct inode *inode)
+static void ext3_truncate_failed_write(struct inode *inode)
 {
 	truncate_inode_pages(inode->i_mapping, inode->i_size);
 	ext3_truncate(inode);
@@ -1230,29 +1248,29 @@ static void ifs_ext3_local_ext3_truncate_failed_write(struct inode *inode)
 
 
 /**
- * ifs_ext3_local_ext3_truncate_failed_direct_write - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext3_truncate_failed_direct_write - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext3_local_ext3_truncate_failed_direct_write(struct inode *inode)
+static void ext3_truncate_failed_direct_write(struct inode *inode)
 {
-	ifs_ext3_local_ext3_block_truncate_page(inode, inode->i_size);
+	ext3_block_truncate_page(inode, inode->i_size);
 	ext3_truncate(inode);
 }
 
 
 /**
- * ifs_ext3_local_ext3_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext3_write_begin - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_write_begin(struct file *file,
+static int ext3_write_begin(struct file *file,
 			    struct address_space *mapping,
 			    loff_t pos, unsigned len,
 			    struct folio **foliop, void **fsdata)
@@ -1264,7 +1282,7 @@ static int ifs_ext3_local_ext3_write_begin(struct file *file,
 	struct folio *folio;
 	pgoff_t index;
 	unsigned from, to;
-	int needed_blocks = ifs_ext3_local_ext3_writepage_trans_blocks(inode) + 1;
+	int needed_blocks = ext3_writepage_trans_blocks(inode) + 1;
 
 	index = pos >> PAGE_SHIFT;
 	from = pos & (PAGE_SIZE - 1);
@@ -1300,11 +1318,11 @@ retry_journal:
 	}
 	folio_wait_stable(folio);
 
-	ret = __block_write_begin(folio, pos, len, ifs_ext3_local_ext3_get_block);
+	ret = __block_write_begin(folio, pos, len, ext3_get_block);
 	if (!ret && ext3_should_journal_data(inode))
-		ret = ifs_ext3_local_walk_page_buffers(handle, folio_buffers(folio),
+		ret = walk_page_buffers(handle, folio_buffers(folio),
 					from, to, NULL,
-					ifs_ext3_local_do_journal_get_write_access);
+					do_journal_get_write_access);
 
 	if (ret) {
 		bool extended = pos + len > inode->i_size;
@@ -1315,7 +1333,7 @@ retry_journal:
 		ext3_journal_stop(handle);
 
 		if (extended) {
-			ifs_ext3_local_ext3_truncate_failed_write(inode);
+			ext3_truncate_failed_write(inode);
 			if (inode->i_nlink)
 				ext3_orphan_del(NULL, inode);
 		}
@@ -1352,14 +1370,14 @@ int ext3_journal_dirty_data(handle_t *handle, struct buffer_head *bh)
 
 
 /**
- * ifs_ext3_local_journal_dirty_data_fn - Coordinates a journal transaction or journal-owned buffer/state transition.
+ * journal_dirty_data_fn - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_journal_dirty_data_fn(handle_t *handle, struct buffer_head *bh)
+static int journal_dirty_data_fn(handle_t *handle, struct buffer_head *bh)
 {
 
 
@@ -1370,14 +1388,14 @@ static int ifs_ext3_local_journal_dirty_data_fn(handle_t *handle, struct buffer_
 
 
 /**
- * ifs_ext3_local_write_end_fn - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * write_end_fn - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_write_end_fn(handle_t *handle, struct buffer_head *bh)
+static int write_end_fn(handle_t *handle, struct buffer_head *bh)
 {
 	if (!buffer_mapped(bh) || buffer_freed(bh))
 		return 0;
@@ -1387,14 +1405,14 @@ static int ifs_ext3_local_write_end_fn(handle_t *handle, struct buffer_head *bh)
 
 
 /**
- * ifs_ext3_local_update_file_sizes - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * update_file_sizes - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext3_local_update_file_sizes(struct inode *inode, loff_t pos, unsigned copied)
+static void update_file_sizes(struct inode *inode, loff_t pos, unsigned copied)
 {
 
 	if (pos + copied > inode->i_size)
@@ -1407,14 +1425,14 @@ static void ifs_ext3_local_update_file_sizes(struct inode *inode, loff_t pos, un
 
 
 /**
- * ifs_ext3_local_ext3_ordered_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext3_ordered_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_ordered_write_end(struct file *file,
+static int ext3_ordered_write_end(struct file *file,
 				struct address_space *mapping,
 				loff_t pos, unsigned len, unsigned copied,
 				struct folio *folio, void *fsdata)
@@ -1429,11 +1447,11 @@ static int ifs_ext3_local_ext3_ordered_write_end(struct file *file,
 
 	from = pos & (PAGE_SIZE - 1);
 	to = from + copied;
-	ret = ifs_ext3_local_walk_page_buffers(handle, folio_buffers(folio),
-		from, to, NULL, ifs_ext3_local_journal_dirty_data_fn);
+	ret = walk_page_buffers(handle, folio_buffers(folio),
+		from, to, NULL, journal_dirty_data_fn);
 
 	if (ret == 0)
-		ifs_ext3_local_update_file_sizes(inode, pos, copied);
+		update_file_sizes(inode, pos, copied);
 
 
 	if (pos + len > inode->i_size && ext3_can_truncate(inode))
@@ -1445,20 +1463,20 @@ static int ifs_ext3_local_ext3_ordered_write_end(struct file *file,
 	folio_put(folio);
 
 	if (pos + len > inode->i_size)
-		ifs_ext3_local_ext3_truncate_failed_write(inode);
+		ext3_truncate_failed_write(inode);
 	return ret ? ret : copied;
 }
 
 
 /**
- * ifs_ext3_local_ext3_writeback_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext3_writeback_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_writeback_write_end(struct file *file,
+static int ext3_writeback_write_end(struct file *file,
 				struct address_space *mapping,
 				loff_t pos, unsigned len, unsigned copied,
 				struct folio *folio, void *fsdata)
@@ -1469,7 +1487,7 @@ static int ifs_ext3_local_ext3_writeback_write_end(struct file *file,
 
 
 	copied = block_write_end(file, mapping, pos, len, copied, folio, fsdata);
-	ifs_ext3_local_update_file_sizes(inode, pos, copied);
+	update_file_sizes(inode, pos, copied);
 
 
 	if (pos + len > inode->i_size && ext3_can_truncate(inode))
@@ -1479,20 +1497,20 @@ static int ifs_ext3_local_ext3_writeback_write_end(struct file *file,
 	folio_put(folio);
 
 	if (pos + len > inode->i_size)
-		ifs_ext3_local_ext3_truncate_failed_write(inode);
+		ext3_truncate_failed_write(inode);
 	return ret ? ret : copied;
 }
 
 
 /**
- * ifs_ext3_local_ext3_journalled_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext3_journalled_write_end - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_journalled_write_end(struct file *file,
+static int ext3_journalled_write_end(struct file *file,
 				struct address_space *mapping,
 				loff_t pos, unsigned len, unsigned copied,
 				struct folio *folio, void *fsdata)
@@ -1515,8 +1533,8 @@ static int ifs_ext3_local_ext3_journalled_write_end(struct file *file,
 		to = from + copied;
 	}
 
-	ret = ifs_ext3_local_walk_page_buffers(handle, folio_buffers(folio), from,
-				to, &partial, ifs_ext3_local_write_end_fn);
+	ret = walk_page_buffers(handle, folio_buffers(folio), from,
+				to, &partial, write_end_fn);
 	if (!partial)
 		folio_mark_uptodate(folio);
 
@@ -1542,20 +1560,20 @@ static int ifs_ext3_local_ext3_journalled_write_end(struct file *file,
 	folio_put(folio);
 
 	if (pos + len > inode->i_size)
-		ifs_ext3_local_ext3_truncate_failed_write(inode);
+		ext3_truncate_failed_write(inode);
 	return ret ? ret : copied;
 }
 
 
 /**
- * ifs_ext3_local_ext3_bmap - Implements the bmap operation within the inode mapping and lifecycle subsystem.
+ * ext3_bmap - Implements the bmap operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static sector_t ifs_ext3_local_ext3_bmap(struct address_space *mapping, sector_t block)
+static sector_t ext3_bmap(struct address_space *mapping, sector_t block)
 {
 	struct inode *inode = mapping->host;
 	journal_t *journal;
@@ -1574,19 +1592,19 @@ static sector_t ifs_ext3_local_ext3_bmap(struct address_space *mapping, sector_t
 			return 0;
 	}
 
-	return generic_block_bmap(mapping,block,ifs_ext3_local_ext3_get_block);
+	return generic_block_bmap(mapping,block,ext3_get_block);
 }
 
 
 /**
- * ifs_ext3_local_bget_one - Implements the bget one operation within the inode mapping and lifecycle subsystem.
+ * bget_one - Implements the bget one operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_bget_one(handle_t *handle, struct buffer_head *bh)
+static int bget_one(handle_t *handle, struct buffer_head *bh)
 {
 	get_bh(bh);
 	return 0;
@@ -1594,14 +1612,14 @@ static int ifs_ext3_local_bget_one(handle_t *handle, struct buffer_head *bh)
 
 
 /**
- * ifs_ext3_local_bput_one - Implements the bput one operation within the inode mapping and lifecycle subsystem.
+ * bput_one - Implements the bput one operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_bput_one(handle_t *handle, struct buffer_head *bh)
+static int bput_one(handle_t *handle, struct buffer_head *bh)
 {
 	put_bh(bh);
 	return 0;
@@ -1609,28 +1627,28 @@ static int ifs_ext3_local_bput_one(handle_t *handle, struct buffer_head *bh)
 
 
 /**
- * ifs_ext3_local_buffer_unmapped - Implements the buffer unmapped operation within the inode mapping and lifecycle subsystem.
+ * buffer_unmapped - Implements the buffer unmapped operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_buffer_unmapped(handle_t *handle, struct buffer_head *bh)
+static int buffer_unmapped(handle_t *handle, struct buffer_head *bh)
 {
 	return !buffer_mapped(bh);
 }
 
 
 /**
- * ifs_ext3_local_ext3_ordered_writepage - Implements the ordered writepage operation within the inode mapping and lifecycle subsystem.
+ * ext3_ordered_writepage - Implements the ordered writepage operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_ordered_writepage(struct page *page,
+static int ext3_ordered_writepage(struct page *page,
 				struct writeback_control *wbc)
 {
 	struct inode *inode = page->mapping->host;
@@ -1656,31 +1674,31 @@ static int ifs_ext3_local_ext3_ordered_writepage(struct page *page,
 		page_bufs = page_buffers(page);
 	} else {
 		page_bufs = page_buffers(page);
-		if (!ifs_ext3_local_walk_page_buffers(NULL, page_bufs, 0, PAGE_SIZE,
-				       NULL, ifs_ext3_local_buffer_unmapped)) {
+		if (!walk_page_buffers(NULL, page_bufs, 0, PAGE_SIZE,
+				       NULL, buffer_unmapped)) {
 
 
-			return ifs_ext3_local_ext3_block_write_full_folio(page_folio(page), wbc, NULL);
+			return ext3_block_write_full_folio(page_folio(page), wbc, NULL);
 		}
 	}
-	handle = ext3_journal_start(inode, ifs_ext3_local_ext3_writepage_trans_blocks(inode));
+	handle = ext3_journal_start(inode, ext3_writepage_trans_blocks(inode));
 
 	if (IS_ERR(handle)) {
 		ret = PTR_ERR(handle);
 		goto out_fail;
 	}
 
-	ifs_ext3_local_walk_page_buffers(handle, page_bufs, 0,
-			PAGE_SIZE, NULL, ifs_ext3_local_bget_one);
+	walk_page_buffers(handle, page_bufs, 0,
+			PAGE_SIZE, NULL, bget_one);
 
-	ret = ifs_ext3_local_ext3_block_write_full_folio(page_folio(page), wbc, ifs_ext3_local_ext3_get_block);
+	ret = ext3_block_write_full_folio(page_folio(page), wbc, ext3_get_block);
 
 
 	if (ret == 0)
-		ret = ifs_ext3_local_walk_page_buffers(handle, page_bufs, 0, PAGE_SIZE,
-					NULL, ifs_ext3_local_journal_dirty_data_fn);
-	ifs_ext3_local_walk_page_buffers(handle, page_bufs, 0,
-			PAGE_SIZE, NULL, ifs_ext3_local_bput_one);
+		ret = walk_page_buffers(handle, page_bufs, 0, PAGE_SIZE,
+					NULL, journal_dirty_data_fn);
+	walk_page_buffers(handle, page_bufs, 0,
+			PAGE_SIZE, NULL, bput_one);
 	err = ext3_journal_stop(handle);
 	if (!ret)
 		ret = err;
@@ -1694,14 +1712,14 @@ out_fail:
 
 
 /**
- * ifs_ext3_local_ext3_writeback_writepage - Implements the writeback writepage operation within the inode mapping and lifecycle subsystem.
+ * ext3_writeback_writepage - Implements the writeback writepage operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_writeback_writepage(struct page *page,
+static int ext3_writeback_writepage(struct page *page,
 				struct writeback_control *wbc)
 {
 	struct inode *inode = page->mapping->host;
@@ -1720,21 +1738,21 @@ static int ifs_ext3_local_ext3_writeback_writepage(struct page *page,
 
 
 	if (page_has_buffers(page)) {
-		if (!ifs_ext3_local_walk_page_buffers(NULL, page_buffers(page), 0,
-				      PAGE_SIZE, NULL, ifs_ext3_local_buffer_unmapped)) {
+		if (!walk_page_buffers(NULL, page_buffers(page), 0,
+				      PAGE_SIZE, NULL, buffer_unmapped)) {
 
 
-			return ifs_ext3_local_ext3_block_write_full_folio(page_folio(page), wbc, NULL);
+			return ext3_block_write_full_folio(page_folio(page), wbc, NULL);
 		}
 	}
 
-	handle = ext3_journal_start(inode, ifs_ext3_local_ext3_writepage_trans_blocks(inode));
+	handle = ext3_journal_start(inode, ext3_writepage_trans_blocks(inode));
 	if (IS_ERR(handle)) {
 		ret = PTR_ERR(handle);
 		goto out_fail;
 	}
 
-	ret = ifs_ext3_local_ext3_block_write_full_folio(page_folio(page), wbc, ifs_ext3_local_ext3_get_block);
+	ret = ext3_block_write_full_folio(page_folio(page), wbc, ext3_get_block);
 
 	err = ext3_journal_stop(handle);
 	if (!ret)
@@ -1749,14 +1767,14 @@ out_fail:
 
 
 /**
- * ifs_ext3_local_ext3_journalled_writepage - Implements the journalled writepage operation within the inode mapping and lifecycle subsystem.
+ * ext3_journalled_writepage - Implements the journalled writepage operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_journalled_writepage(struct page *page,
+static int ext3_journalled_writepage(struct page *page,
 				struct writeback_control *wbc)
 {
 	struct inode *inode = page->mapping->host;
@@ -1776,7 +1794,7 @@ static int ifs_ext3_local_ext3_journalled_writepage(struct page *page,
 			goto no_write;
 
 		handle = ext3_journal_start(inode,
-					    ifs_ext3_local_ext3_writepage_trans_blocks(inode));
+					    ext3_writepage_trans_blocks(inode));
 		if (IS_ERR(handle)) {
 			ret = PTR_ERR(handle);
 			goto no_write;
@@ -1785,16 +1803,16 @@ static int ifs_ext3_local_ext3_journalled_writepage(struct page *page,
 
 		ClearPageChecked(page);
 		ret = __block_write_begin(page_folio(page), 0, PAGE_SIZE,
-					  ifs_ext3_local_ext3_get_block);
+					  ext3_get_block);
 		if (ret != 0) {
 			ext3_journal_stop(handle);
 			goto out_unlock;
 		}
-		ret = ifs_ext3_local_walk_page_buffers(handle, page_buffers(page), 0,
-			PAGE_SIZE, NULL, ifs_ext3_local_do_journal_get_write_access);
+		ret = walk_page_buffers(handle, page_buffers(page), 0,
+			PAGE_SIZE, NULL, do_journal_get_write_access);
 
-		err = ifs_ext3_local_walk_page_buffers(handle, page_buffers(page), 0,
-				PAGE_SIZE, NULL, ifs_ext3_local_write_end_fn);
+		err = walk_page_buffers(handle, page_buffers(page), 0,
+				PAGE_SIZE, NULL, write_end_fn);
 		if (ret == 0)
 			ret = err;
 		ext3_set_inode_state(inode, EXT3_STATE_JDATA);
@@ -1807,7 +1825,7 @@ static int ifs_ext3_local_ext3_journalled_writepage(struct page *page,
 	} else {
 
 
-		ret = ifs_ext3_local_ext3_block_write_full_folio(page_folio(page), wbc, NULL);
+		ret = ext3_block_write_full_folio(page_folio(page), wbc, NULL);
 	}
 out:
 	return ret;
@@ -1828,14 +1846,14 @@ out_unlock:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_read_folio(struct file *file, struct folio *folio)
+static int ext3_read_folio(struct file *file, struct folio *folio)
 {
-	return mpage_read_folio(folio, ifs_ext3_local_ext3_get_block);
+	return mpage_read_folio(folio, ext3_get_block);
 }
 
-static void ifs_ext3_local_ext3_readahead(struct readahead_control *rac)
+static void ext3_readahead(struct readahead_control *rac)
 {
-	mpage_readahead(rac, ifs_ext3_local_ext3_get_block);
+	mpage_readahead(rac, ext3_get_block);
 }
 
 
@@ -1847,7 +1865,7 @@ static void ifs_ext3_local_ext3_readahead(struct readahead_control *rac)
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext3_local_ext3_invalidate_folio(struct folio *folio,
+static void ext3_invalidate_folio(struct folio *folio,
 				      size_t offset, size_t length)
 {
 	journal_t *journal = EXT3_JOURNAL(folio->mapping->host);
@@ -1858,7 +1876,7 @@ static void ifs_ext3_local_ext3_invalidate_folio(struct folio *folio,
 	journal_invalidatepage(journal, folio, offset, length);
 }
 
-static bool ifs_ext3_local_ext3_release_folio(struct folio *folio, gfp_t wait)
+static bool ext3_release_folio(struct folio *folio, gfp_t wait)
 {
 	journal_t *journal = EXT3_JOURNAL(folio->mapping->host);
 
@@ -1870,14 +1888,14 @@ static bool ifs_ext3_local_ext3_release_folio(struct folio *folio, gfp_t wait)
 
 
 /**
- * ifs_ext3_local_ext3_direct_IO - Implements the direct IO operation within the inode mapping and lifecycle subsystem.
+ * ext3_direct_IO - Implements the direct IO operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ssize_t ifs_ext3_local_ext3_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
+static ssize_t ext3_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 {
 	struct file *file = iocb->ki_filp;
 	loff_t offset = iocb->ki_pos;
@@ -1888,6 +1906,7 @@ static ssize_t ifs_ext3_local_ext3_direct_IO(struct kiocb *iocb, struct iov_iter
 	int orphan = 0;
 	size_t count = iov_iter_count(iter);
 	int retries = 0;
+
 
 
 	if (iov_iter_rw(iter) == WRITE) {
@@ -1912,7 +1931,7 @@ static ssize_t ifs_ext3_local_ext3_direct_IO(struct kiocb *iocb, struct iov_iter
 	}
 
 retry:
-	ret = blockdev_direct_IO(iocb, inode, iter, ifs_ext3_local_ext3_get_block);
+	ret = blockdev_direct_IO(iocb, inode, iter, ext3_get_block);
 
 
 	if (unlikely(iov_iter_rw(iter) == WRITE && ret < 0)) {
@@ -1920,7 +1939,7 @@ retry:
 		loff_t end = offset + count;
 
 		if (end > isize)
-			ifs_ext3_local_ext3_truncate_failed_direct_write(inode);
+			ext3_truncate_failed_direct_write(inode);
 	}
 	if (ret == -ENOSPC && ext3_should_retry_alloc(inode->i_sb, &retries))
 		goto retry;
@@ -1933,7 +1952,7 @@ retry:
 		if (IS_ERR(handle)) {
 
 
-			ifs_ext3_local_ext3_truncate_failed_direct_write(inode);
+			ext3_truncate_failed_direct_write(inode);
 			ret = PTR_ERR(handle);
 			if (inode->i_nlink)
 				ext3_orphan_del(NULL, inode);
@@ -1969,7 +1988,7 @@ out:
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static bool ifs_ext3_local_ext3_journalled_dirty_folio(struct address_space *mapping,
+static bool ext3_journalled_dirty_folio(struct address_space *mapping,
 					 struct folio *folio)
 {
 	folio_set_checked(folio);
@@ -1977,48 +1996,48 @@ static bool ifs_ext3_local_ext3_journalled_dirty_folio(struct address_space *map
 }
 
 static const struct address_space_operations ext3_ordered_aops = {
-	.read_folio		= ifs_ext3_local_ext3_read_folio,
-	.readahead		= ifs_ext3_local_ext3_readahead,
-	.writepage		= ifs_ext3_local_ext3_ordered_writepage,
-	.write_begin		= ifs_ext3_local_ext3_write_begin,
-	.write_end		= ifs_ext3_local_ext3_ordered_write_end,
+	.read_folio		= ext3_read_folio,
+	.readahead		= ext3_readahead,
+	.writepage		= ext3_ordered_writepage,
+	.write_begin		= ext3_write_begin,
+	.write_end		= ext3_ordered_write_end,
 	.dirty_folio		= block_dirty_folio,
-	.bmap			= ifs_ext3_local_ext3_bmap,
-	.invalidate_folio	= ifs_ext3_local_ext3_invalidate_folio,
-	.release_folio		= ifs_ext3_local_ext3_release_folio,
-	.direct_IO		= ifs_ext3_local_ext3_direct_IO,
+	.bmap			= ext3_bmap,
+	.invalidate_folio	= ext3_invalidate_folio,
+	.release_folio		= ext3_release_folio,
+	.direct_IO		= ext3_direct_IO,
 	.migrate_folio		= buffer_migrate_folio,
 	.is_partially_uptodate  = block_is_partially_uptodate,
-	.is_dirty_writeback	= ifs_ext3_local_ext3_buffer_check_dirty_writeback,
+	.is_dirty_writeback	= ext3_buffer_check_dirty_writeback,
 	.error_remove_folio	= generic_error_remove_folio,
 };
 
 static const struct address_space_operations ext3_writeback_aops = {
-	.read_folio		= ifs_ext3_local_ext3_read_folio,
-	.readahead		= ifs_ext3_local_ext3_readahead,
-	.writepage		= ifs_ext3_local_ext3_writeback_writepage,
-	.write_begin		= ifs_ext3_local_ext3_write_begin,
-	.write_end		= ifs_ext3_local_ext3_writeback_write_end,
+	.read_folio		= ext3_read_folio,
+	.readahead		= ext3_readahead,
+	.writepage		= ext3_writeback_writepage,
+	.write_begin		= ext3_write_begin,
+	.write_end		= ext3_writeback_write_end,
 	.dirty_folio		= block_dirty_folio,
-	.bmap			= ifs_ext3_local_ext3_bmap,
-	.invalidate_folio	= ifs_ext3_local_ext3_invalidate_folio,
-	.release_folio		= ifs_ext3_local_ext3_release_folio,
-	.direct_IO		= ifs_ext3_local_ext3_direct_IO,
+	.bmap			= ext3_bmap,
+	.invalidate_folio	= ext3_invalidate_folio,
+	.release_folio		= ext3_release_folio,
+	.direct_IO		= ext3_direct_IO,
 	.migrate_folio		= buffer_migrate_folio,
 	.is_partially_uptodate  = block_is_partially_uptodate,
 	.error_remove_folio	= generic_error_remove_folio,
 };
 
 static const struct address_space_operations ext3_journalled_aops = {
-	.read_folio		= ifs_ext3_local_ext3_read_folio,
-	.readahead		= ifs_ext3_local_ext3_readahead,
-	.writepage		= ifs_ext3_local_ext3_journalled_writepage,
-	.write_begin		= ifs_ext3_local_ext3_write_begin,
-	.write_end		= ifs_ext3_local_ext3_journalled_write_end,
-	.dirty_folio		= ifs_ext3_local_ext3_journalled_dirty_folio,
-	.bmap			= ifs_ext3_local_ext3_bmap,
-	.invalidate_folio	= ifs_ext3_local_ext3_invalidate_folio,
-	.release_folio		= ifs_ext3_local_ext3_release_folio,
+	.read_folio		= ext3_read_folio,
+	.readahead		= ext3_readahead,
+	.writepage		= ext3_journalled_writepage,
+	.write_begin		= ext3_write_begin,
+	.write_end		= ext3_journalled_write_end,
+	.dirty_folio		= ext3_journalled_dirty_folio,
+	.bmap			= ext3_bmap,
+	.invalidate_folio	= ext3_invalidate_folio,
+	.release_folio		= ext3_release_folio,
 	.migrate_folio		= buffer_migrate_folio_norefs,
 	.is_partially_uptodate  = block_is_partially_uptodate,
 	.error_remove_folio	= generic_error_remove_folio,
@@ -2045,14 +2064,14 @@ void ext3_set_aops(struct inode *inode)
 
 
 /**
- * ifs_ext3_local_ext3_block_truncate_page - Implements the block truncate page operation within the inode mapping and lifecycle subsystem.
+ * ext3_block_truncate_page - Implements the block truncate page operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_block_truncate_page(struct inode *inode, loff_t from)
+static int ext3_block_truncate_page(struct inode *inode, loff_t from)
 {
 	ext3_fsblk_t index = from >> PAGE_SHIFT;
 	unsigned offset = from & (PAGE_SIZE - 1);
@@ -2093,7 +2112,7 @@ static int ifs_ext3_local_ext3_block_truncate_page(struct inode *inode, loff_t f
 
 	if (!buffer_mapped(bh)) {
 		BUFFER_TRACE(bh, "unmapped");
-		ifs_ext3_local_ext3_get_block(inode, iblock, bh, 0);
+		ext3_get_block(inode, iblock, bh, 0);
 
 		if (!buffer_mapped(bh)) {
 			BUFFER_TRACE(bh, "still unmapped");
@@ -2154,14 +2173,14 @@ unlock:
 
 
 /**
- * ifs_ext3_local_all_zeroes - Implements the all zeroes operation within the inode mapping and lifecycle subsystem.
+ * all_zeroes - Implements the all zeroes operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static inline int ifs_ext3_local_all_zeroes(__le32 *p, __le32 *q)
+static inline int all_zeroes(__le32 *p, __le32 *q)
 {
 	while (p < q)
 		if (*p++)
@@ -2197,7 +2216,7 @@ static Indirect *ext3_find_shared(struct inode *inode, int depth,
 	if (!partial->key && *partial->p)
 
 		goto no_top;
-	for (p=partial; p>chain && ifs_ext3_local_all_zeroes((__le32*)p->bh->b_data,p->p); p--)
+	for (p=partial; p>chain && all_zeroes((__le32*)p->bh->b_data,p->p); p--)
 		;
 
 
@@ -2222,26 +2241,26 @@ no_top:
 
 
 /**
- * ifs_ext3_local_ext3_clear_blocks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
+ * ext3_clear_blocks - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext3_local_ext3_clear_blocks(handle_t *handle, struct inode *inode,
+static void ext3_clear_blocks(handle_t *handle, struct inode *inode,
 		struct buffer_head *bh, ext3_fsblk_t block_to_free,
 		unsigned long count, __le32 *first, __le32 *last)
 {
 	__le32 *p;
-	if (ifs_ext3_local_try_to_extend_transaction(handle, inode)) {
+	if (try_to_extend_transaction(handle, inode)) {
 		if (bh) {
 			BUFFER_TRACE(bh, "call ext3_journal_dirty_metadata");
 			if (ext3_journal_dirty_metadata(handle, bh))
 				return;
 		}
 		ext3_mark_inode_dirty(handle, inode);
-		ifs_ext3_local_truncate_restart_transaction(handle, inode);
+		truncate_restart_transaction(handle, inode);
 		if (bh) {
 			BUFFER_TRACE(bh, "retaking write access");
 			if (ext3_journal_get_write_access(handle, bh))
@@ -2266,14 +2285,14 @@ static void ifs_ext3_local_ext3_clear_blocks(handle_t *handle, struct inode *ino
 
 
 /**
- * ifs_ext3_local_ext3_free_data - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext3_free_data - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext3_local_ext3_free_data(handle_t *handle, struct inode *inode,
+static void ext3_free_data(handle_t *handle, struct inode *inode,
 			   struct buffer_head *this_bh,
 			   __le32 *first, __le32 *last)
 {
@@ -2307,7 +2326,7 @@ static void ifs_ext3_local_ext3_free_data(handle_t *handle, struct inode *inode,
 			} else if (nr == block_to_free + count) {
 				count++;
 			} else {
-				ifs_ext3_local_ext3_clear_blocks(handle, inode, this_bh,
+				ext3_clear_blocks(handle, inode, this_bh,
 						  block_to_free,
 						  count, block_to_free_p, p);
 				block_to_free = nr;
@@ -2318,7 +2337,7 @@ static void ifs_ext3_local_ext3_free_data(handle_t *handle, struct inode *inode,
 	}
 
 	if (count > 0)
-		ifs_ext3_local_ext3_clear_blocks(handle, inode, this_bh, block_to_free,
+		ext3_clear_blocks(handle, inode, this_bh, block_to_free,
 				  count, block_to_free_p, p);
 
 	if (this_bh) {
@@ -2328,7 +2347,7 @@ static void ifs_ext3_local_ext3_free_data(handle_t *handle, struct inode *inode,
 		if (bh2jh(this_bh))
 			ext3_journal_dirty_metadata(handle, this_bh);
 		else
-			ext3_error(inode->i_sb, "ifs_ext3_local_ext3_free_data",
+			ext3_error(inode->i_sb, "ext3_free_data",
 				   "circular indirect block detected, "
 				   "inode=%lu, block=%llu",
 				   inode->i_ino,
@@ -2338,14 +2357,14 @@ static void ifs_ext3_local_ext3_free_data(handle_t *handle, struct inode *inode,
 
 
 /**
- * ifs_ext3_local_ext3_free_branches - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
+ * ext3_free_branches - Releases filesystem state and reconciles the corresponding accounting or ownership metadata.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static void ifs_ext3_local_ext3_free_branches(handle_t *handle, struct inode *inode,
+static void ext3_free_branches(handle_t *handle, struct inode *inode,
 			       struct buffer_head *parent_bh,
 			       __le32 *first, __le32 *last, int depth)
 {
@@ -2369,7 +2388,7 @@ static void ifs_ext3_local_ext3_free_branches(handle_t *handle, struct inode *in
 
 
 			if (!bh) {
-				ext3_error(inode->i_sb, "ifs_ext3_local_ext3_free_branches",
+				ext3_error(inode->i_sb, "ext3_free_branches",
 					   "Read failure, inode=%lu, block="E3FSBLK,
 					   inode->i_ino, nr);
 				continue;
@@ -2377,7 +2396,7 @@ static void ifs_ext3_local_ext3_free_branches(handle_t *handle, struct inode *in
 
 
 			BUFFER_TRACE(bh, "free child branches");
-			ifs_ext3_local_ext3_free_branches(handle, inode, bh,
+			ext3_free_branches(handle, inode, bh,
 					   (__le32*)bh->b_data,
 					   (__le32*)bh->b_data + addr_per_block,
 					   depth);
@@ -2385,9 +2404,9 @@ static void ifs_ext3_local_ext3_free_branches(handle_t *handle, struct inode *in
 
 			if (is_handle_aborted(handle))
 				return;
-			if (ifs_ext3_local_try_to_extend_transaction(handle, inode)) {
+			if (try_to_extend_transaction(handle, inode)) {
 				ext3_mark_inode_dirty(handle, inode);
-				ifs_ext3_local_truncate_restart_transaction(handle, inode);
+				truncate_restart_transaction(handle, inode);
 			}
 
 
@@ -2412,7 +2431,7 @@ static void ifs_ext3_local_ext3_free_branches(handle_t *handle, struct inode *in
 	} else {
 
 		BUFFER_TRACE(parent_bh, "free data blocks");
-		ifs_ext3_local_ext3_free_data(handle, inode, parent_bh, first, last);
+		ext3_free_data(handle, inode, parent_bh, first, last);
 	}
 }
 
@@ -2432,7 +2451,7 @@ int ext3_can_truncate(struct inode *inode)
 	if (S_ISDIR(inode->i_mode))
 		return 1;
 	if (S_ISLNK(inode->i_mode))
-		return !ifs_ext3_local_ext3_inode_is_fast_symlink(inode);
+		return !ext3_inode_is_fast_symlink(inode);
 	return 0;
 }
 
@@ -2460,6 +2479,7 @@ void ext3_truncate(struct inode *inode)
 	unsigned blocksize = inode->i_sb->s_blocksize;
 
 
+
 	if (!ext3_can_truncate(inode))
 		goto out_notrans;
 
@@ -2472,7 +2492,7 @@ void ext3_truncate(struct inode *inode)
 
 	last_block = (inode->i_size + blocksize-1)
 					>> EXT3_BLOCK_SIZE_BITS(inode->i_sb);
-	n = ifs_ext3_local_ext3_block_to_path(inode, last_block, offsets, NULL);
+	n = ext3_block_to_path(inode, last_block, offsets, NULL);
 	if (n == 0)
 		goto out_stop;
 
@@ -2487,7 +2507,7 @@ void ext3_truncate(struct inode *inode)
 	mutex_lock(&ei->truncate_mutex);
 
 	if (n == 1) {
-		ifs_ext3_local_ext3_free_data(handle, inode, NULL, i_data+offsets[0],
+		ext3_free_data(handle, inode, NULL, i_data+offsets[0],
 			       i_data + EXT3_NDIR_BLOCKS);
 		goto do_indirects;
 	}
@@ -2497,21 +2517,21 @@ void ext3_truncate(struct inode *inode)
 	if (nr) {
 		if (partial == chain) {
 
-			ifs_ext3_local_ext3_free_branches(handle, inode, NULL,
+			ext3_free_branches(handle, inode, NULL,
 					   &nr, &nr+1, (chain+n-1) - partial);
 			*partial->p = 0;
 
 
 		} else {
 
-			ifs_ext3_local_ext3_free_branches(handle, inode, partial->bh,
+			ext3_free_branches(handle, inode, partial->bh,
 					partial->p,
 					partial->p+1, (chain+n-1) - partial);
 		}
 	}
 
 	while (partial > chain) {
-		ifs_ext3_local_ext3_free_branches(handle, inode, partial->bh, partial->p + 1,
+		ext3_free_branches(handle, inode, partial->bh, partial->p + 1,
 				   (__le32*)partial->bh->b_data+addr_per_block,
 				   (chain+n-1) - partial);
 		BUFFER_TRACE(partial->bh, "call brelse");
@@ -2524,21 +2544,21 @@ do_indirects:
 	default:
 		nr = i_data[EXT3_IND_BLOCK];
 		if (nr) {
-			ifs_ext3_local_ext3_free_branches(handle, inode, NULL, &nr, &nr+1, 1);
+			ext3_free_branches(handle, inode, NULL, &nr, &nr+1, 1);
 			i_data[EXT3_IND_BLOCK] = 0;
 		}
 		fallthrough;
 	case EXT3_IND_BLOCK:
 		nr = i_data[EXT3_DIND_BLOCK];
 		if (nr) {
-			ifs_ext3_local_ext3_free_branches(handle, inode, NULL, &nr, &nr+1, 2);
+			ext3_free_branches(handle, inode, NULL, &nr, &nr+1, 2);
 			i_data[EXT3_DIND_BLOCK] = 0;
 		}
 		fallthrough;
 	case EXT3_DIND_BLOCK:
 		nr = i_data[EXT3_TIND_BLOCK];
 		if (nr) {
-			ifs_ext3_local_ext3_free_branches(handle, inode, NULL, &nr, &nr+1, 3);
+			ext3_free_branches(handle, inode, NULL, &nr, &nr+1, 3);
 			i_data[EXT3_TIND_BLOCK] = 0;
 		}
 	case EXT3_TIND_BLOCK:
@@ -2573,14 +2593,14 @@ out_notrans:
 
 
 /**
- * ifs_ext3_local_ext3_get_inode_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * ext3_get_inode_block - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static ext3_fsblk_t ifs_ext3_local_ext3_get_inode_block(struct super_block *sb,
+static ext3_fsblk_t ext3_get_inode_block(struct super_block *sb,
 		unsigned long ino, struct ext3_iloc *iloc)
 {
 	unsigned long block_group;
@@ -2612,20 +2632,20 @@ static ext3_fsblk_t ifs_ext3_local_ext3_get_inode_block(struct super_block *sb,
 
 
 /**
- * ifs_ext3_local___ext3_get_inode_loc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
+ * __ext3_get_inode_loc - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local___ext3_get_inode_loc(struct inode *inode,
+static int __ext3_get_inode_loc(struct inode *inode,
 				struct ext3_iloc *iloc, int in_mem)
 {
 	ext3_fsblk_t block;
 	struct buffer_head *bh;
 
-	block = ifs_ext3_local_ext3_get_inode_block(inode->i_sb, inode->i_ino, iloc);
+	block = ext3_get_inode_block(inode->i_sb, inode->i_ino, iloc);
 	if (!block)
 		return -EIO;
 
@@ -2702,6 +2722,7 @@ static int ifs_ext3_local___ext3_get_inode_loc(struct inode *inode,
 make_io:
 
 
+
 		get_bh(bh);
 		bh->b_end_io = end_buffer_read_sync;
 		submit_bh(READ | REQ_META | REQ_PRIO, bh);
@@ -2732,7 +2753,7 @@ has_buffer:
 int ext3_get_inode_loc(struct inode *inode, struct ext3_iloc *iloc)
 {
 
-	return ifs_ext3_local___ext3_get_inode_loc(inode, iloc,
+	return __ext3_get_inode_loc(inode, iloc,
 		!ext3_test_inode_state(inode, EXT3_STATE_XATTR));
 }
 
@@ -2821,7 +2842,7 @@ struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 	ei = EXT3_I(inode);
 	ei->i_block_alloc_info = NULL;
 
-	ret = ifs_ext3_local___ext3_get_inode_loc(inode, &iloc, 0);
+	ret = __ext3_get_inode_loc(inode, &iloc, 0);
 	if (ret < 0)
 		goto bad_inode;
 	bh = iloc.bh;
@@ -2884,7 +2905,7 @@ struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 	if (journal) {
 		tid_t tid;
 
-		read_lock(&journal->j_state_lock);
+		spin_lock(&journal->j_state_lock);
 		if (journal->j_running_transaction)
 			transaction = journal->j_running_transaction;
 		else
@@ -2893,7 +2914,7 @@ struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 			tid = transaction->t_tid;
 		else
 			tid = journal->j_commit_sequence;
-		read_unlock(&journal->j_state_lock);
+		spin_unlock(&journal->j_state_lock);
 		atomic_set(&ei->i_sync_tid, tid);
 		atomic_set(&ei->i_datasync_tid, tid);
 	}
@@ -2931,7 +2952,7 @@ struct inode *ext3_iget(struct super_block *sb, unsigned long ino)
 		inode->i_op = &ext3_dir_inode_operations;
 		inode->i_fop = &ext3_dir_operations;
 	} else if (S_ISLNK(inode->i_mode)) {
-		if (ifs_ext3_local_ext3_inode_is_fast_symlink(inode)) {
+		if (ext3_inode_is_fast_symlink(inode)) {
 			inode->i_op = &ext3_fast_symlink_inode_operations;
 			nd_terminate_link(ei->i_data, inode->i_size,
 				sizeof(ei->i_data) - 1);
@@ -2962,14 +2983,14 @@ bad_inode:
 
 
 /**
- * ifs_ext3_local_ext3_do_update_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext3_do_update_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_do_update_inode(handle_t *handle,
+static int ext3_do_update_inode(handle_t *handle,
 				struct inode *inode,
 				struct ext3_iloc *iloc)
 {
@@ -3202,7 +3223,7 @@ int ext3_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			ext3_orphan_del(NULL, inode);
 			goto err_out;
 		}
-		rc = ifs_ext3_local_ext3_block_truncate_page(inode, attr->ia_size);
+		rc = ext3_block_truncate_page(inode, attr->ia_size);
 		if (rc) {
 
 			handle = ext3_journal_start(inode, 3);
@@ -3237,14 +3258,14 @@ err_out:
 
 
 /**
- * ifs_ext3_local_ext3_writepage_trans_blocks - Implements the writepage trans blocks operation within the inode mapping and lifecycle subsystem.
+ * ext3_writepage_trans_blocks - Implements the writepage trans blocks operation within the inode mapping and lifecycle subsystem.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_writepage_trans_blocks(struct inode *inode)
+static int ext3_writepage_trans_blocks(struct inode *inode)
 {
 	int bpp = ext3_journal_blocks_per_page(inode);
 	int indirects = (EXT3_NDIR_BLOCKS % bpp) ? 5 : 3;
@@ -3282,7 +3303,7 @@ int ext3_mark_iloc_dirty(handle_t *handle,
 	get_bh(iloc->bh);
 
 
-	err = ifs_ext3_local_ext3_do_update_inode(handle, inode, iloc);
+	err = ext3_do_update_inode(handle, inode, iloc);
 	put_bh(iloc->bh);
 	return err;
 }
@@ -3374,14 +3395,14 @@ out:
 
 
 /**
- * ifs_ext3_local_ext3_pin_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
+ * ext3_pin_inode - Implements an inode operation at the boundary between VFS state and the filesystem's persistent representation.
  *
  * Correctness contract: preserve the locking, lifetime, range and
  * transaction preconditions established by the surrounding EXT3
  * subsystem. Failure handling must follow that subsystem's established
  * rollback, abort or retry policy.
  */
-static int ifs_ext3_local_ext3_pin_inode(handle_t *handle, struct inode *inode)
+static int ext3_pin_inode(handle_t *handle, struct inode *inode)
 {
 	struct ext3_iloc iloc;
 
