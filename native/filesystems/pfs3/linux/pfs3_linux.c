@@ -575,8 +575,8 @@ static void pfs3_init_inode_common(struct inode *inode, s8 type,
     const time64_t when = pfs3_datestamp_to_unix(day, minute, tick);
 
     inode->i_mode = pfs3_mode_from_type(type);
-    i_uid_write(inode, GLOBAL_ROOT_UID);
-    i_gid_write(inode, GLOBAL_ROOT_GID);
+    i_uid_write(inode, 0);
+    i_gid_write(inode, 0);
     inode_set_atime(inode, when, 0);
     inode_set_mtime(inode, when, 0);
     inode_set_ctime(inode, when, 0);
