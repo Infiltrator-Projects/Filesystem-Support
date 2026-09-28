@@ -589,8 +589,13 @@ static struct inode *pfs3_iget(struct super_block *sb, u32 anode, s8 type,
 
     if (!inode)
         return ERR_PTR(-ENOMEM);
-    if (!(inode->i_state & I_NEW))
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+    if ((inode_state_read_once(inode) & I_NEW) == 0)
         return inode;
+#else
+    if ((inode->i_state & I_NEW) == 0)
+        return inode;
+#endif
 
     IFS_PFS3_I(inode)->first_anode = anode;
     IFS_PFS3_I(inode)->disk_type = type;
