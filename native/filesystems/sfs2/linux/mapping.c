@@ -3208,13 +3208,16 @@ int ifs_sfs2_truncateblocksinfile(
     struct super_block *sb,
     struct buffer_head *object_bh,
     struct fsObject *object,
-    u32 new_size)
+    u64 new_size)
 {
     struct buffer_head *extent_bh = NULL;
     struct fsExtentBNode *extent = NULL;
-    u32 needed_blocks =
-        DIV_ROUND_UP(
-            new_size, sb->s_blocksize);
+    u64 needed_blocks64 = DIV_ROUND_UP_ULL(new_size, sb->s_blocksize);
+    u32 needed_blocks;
+
+    if (needed_blocks64 > IFS_SFS2_SB(sb)->totalblocks)
+        return -EFBIG;
+    needed_blocks = (u32)needed_blocks64;
     u32 logical = 0U;
     u32 key =
         be32_to_cpu(
