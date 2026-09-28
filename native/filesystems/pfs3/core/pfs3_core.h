@@ -78,6 +78,10 @@ typedef struct IfsPfs3ExtensionRecord {
     ifs_pfs3_u32 extension_options;
     ifs_pfs3_u32 datestamp;
     ifs_pfs3_u32 format_version;
+    ifs_pfs3_u32 postponed_operation;
+    ifs_pfs3_u32 postponed_argument1;
+    ifs_pfs3_u32 postponed_argument2;
+    ifs_pfs3_u32 postponed_argument3;
     ifs_pfs3_u32 reserved_roving;
     ifs_pfs3_u16 roving_bit;
     ifs_pfs3_u16 current_anode_sequence;
