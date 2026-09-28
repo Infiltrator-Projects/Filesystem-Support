@@ -60,3 +60,69 @@ void ext3_msg(struct super_block *sb, const char *prefix,
 	printk("%sEXT3-fs (%s): %pV\n", prefix, sb->s_id, &message);
 	va_end(args);
 }
+
+
+/*
+ * All wrappers in this section have one policy: the journal operation owns
+ * the media-state transition, while EXT3 owns propagation of any failure.
+ * A failed journal request is therefore reported through the common EXT3
+ * abort path before its exact errno is returned to the caller.
+ */
+static int ext3_finish_journal_buffer_op(const char *where,
+					 const char *operation,
+					 struct buffer_head *bh,
+					 handle_t *handle,
+					 int error)
+{
+	if (error)
+		ext3_journal_abort_handle(where, operation, bh, handle, error);
+	return error;
+}
+
+int __ext3_journal_get_undo_access(const char *where, handle_t *handle,
+				   struct buffer_head *bh)
+{
+	return ext3_finish_journal_buffer_op(
+		where, __func__, bh, handle,
+		journal_get_undo_access(handle, bh));
+}
+
+int __ext3_journal_get_write_access(const char *where, handle_t *handle,
+				    struct buffer_head *bh)
+{
+	return ext3_finish_journal_buffer_op(
+		where, __func__, bh, handle,
+		journal_get_write_access(handle, bh));
+}
+
+int __ext3_journal_forget(const char *where, handle_t *handle,
+			  struct buffer_head *bh)
+{
+	return ext3_finish_journal_buffer_op(
+		where, __func__, bh, handle,
+		journal_forget(handle, bh));
+}
+
+int __ext3_journal_revoke(const char *where, handle_t *handle,
+			  unsigned long blocknr, struct buffer_head *bh)
+{
+	return ext3_finish_journal_buffer_op(
+		where, __func__, bh, handle,
+		journal_revoke(handle, blocknr, bh));
+}
+
+int __ext3_journal_get_create_access(const char *where, handle_t *handle,
+				     struct buffer_head *bh)
+{
+	return ext3_finish_journal_buffer_op(
+		where, __func__, bh, handle,
+		journal_get_create_access(handle, bh));
+}
+
+int __ext3_journal_dirty_metadata(const char *where, handle_t *handle,
+				  struct buffer_head *bh)
+{
+	return ext3_finish_journal_buffer_op(
+		where, __func__, bh, handle,
+		journal_dirty_metadata(handle, bh));
+}
