@@ -253,10 +253,20 @@ int ifs_sfs2_truncate(struct inode *inode)
         goto out_unlock;
 
     result = ifs_sfs2_truncateblocksinfile(
-        sb, bh, object, (u32)inode->i_size);
+        sb, bh, object, (u64)inode->i_size);
     if (result == 0) {
-        object->object.file.size =
-            cpu_to_be32((u32)inode->i_size);
+        u32 size_high;
+        u16 size_low;
+
+        if (ifs_sfs2_encode_file_size(
+                (u64)inode->i_size, &size_high, &size_low) != 0) {
+            result = -EFBIG;
+        } else {
+            object->object.file.size = cpu_to_be32(size_high);
+            object->sizeh = cpu_to_be16(size_low);
+        }
+    }
+    if (result == 0) {
         IFS_SFS2_I(inode)->mmu_private = inode->i_size;
         IFS_SFS2_I(inode)->modified = TRUE;
         IFS_SFS2_I(inode)->ext_cache.key = 0U;
@@ -306,10 +316,20 @@ int ifs_sfs2_file_release(struct inode *inode, struct file *file)
 
     if (S_ISREG(inode->i_mode)) {
         result = ifs_sfs2_truncateblocksinfile(
-            sb, bh, object, (u32)inode->i_size);
+            sb, bh, object, (u64)inode->i_size);
         if (result == 0) {
-            object->object.file.size =
-                cpu_to_be32((u32)inode->i_size);
+            u32 size_high;
+            u16 size_low;
+
+            if (ifs_sfs2_encode_file_size(
+                    (u64)inode->i_size, &size_high, &size_low) != 0) {
+                result = -EFBIG;
+            } else {
+                object->object.file.size = cpu_to_be32(size_high);
+                object->sizeh = cpu_to_be16(size_low);
+            }
+        }
+        if (result == 0) {
             IFS_SFS2_I(inode)->mmu_private = inode->i_size;
             inode->i_blocks = DIV_ROUND_UP(
                 (u64)inode->i_size, sb->s_blocksize);
@@ -489,7 +509,9 @@ void ifs_sfs2_read_locked_inode(struct inode *inode, void *argument)
         return;
     }
 
-    inode->i_size = (loff_t)ifs_sfs2_decode_file_size(\n        be32_to_cpu(object->object.file.size),\n        be16_to_cpu(object->sizeh));
+    inode->i_size = (loff_t)ifs_sfs2_decode_file_size(
+        be32_to_cpu(object->object.file.size),
+        be16_to_cpu(object->sizeh));
     inode->i_blocks = DIV_ROUND_UP(
         (u64)inode->i_size, sb->s_blocksize);
     inode->i_mode |= S_IFREG;
