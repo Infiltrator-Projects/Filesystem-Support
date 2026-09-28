@@ -272,6 +272,36 @@ int main(void)
             return fail("PFS fsizex extra field decoded incorrectly");
     }
 
+    {
+        unsigned char raw[32] = {0};
+        ifs_pfs3_u16 link_high = 0U;
+        ifs_pfs3_u16 link_low = 0U;
+
+        /*
+         * PFS3aio treats the 32-bit hard-link object identity as extra-field
+         * words 0 and 1. Packed words are stored in reverse order immediately
+         * before the final presence mask.
+         */
+        raw[0] = 26U;
+        raw[1] = (unsigned char)-4;
+        raw[5] = 7U;
+        raw[17] = 1U;
+        raw[18] = 'l';
+        raw[19] = 0U;
+        raw[20] = 0x56U; raw[21] = 0x78U;
+        raw[22] = 0x12U; raw[23] = 0x34U;
+        raw[24] = 0x00U; raw[25] = 0x03U;
+
+        if (ifs_pfs3_directory_extra_word(
+                raw, sizeof(raw), IFS_PFS3_EXTRA_LINK_HIGH_WORD,
+                &link_high) != 0 ||
+            ifs_pfs3_directory_extra_word(
+                raw, sizeof(raw), IFS_PFS3_EXTRA_LINK_LOW_WORD,
+                &link_low) != 0 ||
+            (((ifs_pfs3_u32)link_high << 16) | link_low) != 0x12345678U)
+            return fail("PFS hard-link object identity decoded incorrectly");
+    }
+
 
     {
         unsigned char raw[64] = {0};
