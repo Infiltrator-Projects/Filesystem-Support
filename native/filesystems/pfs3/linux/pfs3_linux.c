@@ -832,10 +832,8 @@ static int pfs3_load_root(struct super_block *sb)
     if (ifs_pfs3_classify_disk_type(sbi->root.disk_type) ==
             IFS_PFS3_FORMAT_INVALID ||
         (sbi->root.options & (IFS_PFS3_MODE_HARDDISK |
-                              IFS_PFS3_MODE_SPLITTED_ANODES |
-                              IFS_PFS3_MODE_SIZEFIELD)) !=
+                               IFS_PFS3_MODE_SIZEFIELD)) !=
             (IFS_PFS3_MODE_HARDDISK |
-             IFS_PFS3_MODE_SPLITTED_ANODES |
              IFS_PFS3_MODE_SIZEFIELD) ||
         ((sbi->root.options & IFS_PFS3_MODE_LARGEFILE) != 0U &&
          (sbi->root.options & IFS_PFS3_MODE_DIR_EXTENSION) == 0U)) {
