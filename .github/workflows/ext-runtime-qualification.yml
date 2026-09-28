@@ -200,3 +200,130 @@ jobs:
           e2fsck -fn /tmp/ext2.img
           e2fsck -fn /tmp/ext3.img
           e2fsck -fn /tmp/ext4.img
+
+      - name: Qualify EXT4 orphan recovery in both on-disk formats
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          make_image()
+          {
+              image="$1"
+              feature="$2"
+              truncate -s 128M "$image"
+              mkfs.ext4 -F -O "$feature" "$image"
+          }
+
+          make_image /tmp/ext4-orphan-file.img orphan_file
+          make_image /tmp/ext4-orphan-list.img ^orphan_file
+
+          crash_root=/tmp/ext4-orphan-crash-root
+          rm -rf "$crash_root"
+          mkdir -p "$crash_root"/{bin,proc,sys,dev,mnt}
+          cp /usr/bin/busybox "$crash_root/bin/busybox"
+          for app in sh mount mkdir dd sync insmod rm reboot; do
+            ln -s busybox "$crash_root/bin/$app"
+          done
+          cp native/filesystems/ext4/linux/ext4.ko "$crash_root/ext4.ko"
+
+          cat > "$crash_root/init" <<'EOF'
+          #!/bin/sh
+          set -eu
+
+          fail()
+          {
+              echo "EXT4-ORPHAN-CRASH-FAIL: $*" > /dev/ttyS0
+              /bin/busybox poweroff -f
+              exit 1
+          }
+
+          mount -t proc proc /proc || fail proc
+          mount -t sysfs sysfs /sys || fail sysfs
+          mount -t devtmpfs devtmpfs /dev || fail devtmpfs
+          insmod /ext4.ko || fail insmod
+          mount -t ext4 /dev/vda /mnt || fail mount
+          exec 3>/mnt/orphan-target
+          dd if=/dev/zero bs=4096 count=64 >&3 || fail payload
+          rm /mnt/orphan-target || fail unlink
+          echo post-unlink-data >&3 || fail open-write
+          sync || fail sync
+          echo "EXT4-ORPHAN-CRASH-ARMED" > /dev/ttyS0
+          /bin/busybox reboot -f
+          fail reboot-returned
+          EOF
+          chmod +x "$crash_root/init"
+          (cd "$crash_root" && find . -print0 | cpio --null -ov --format=newc | gzip -9) \
+            > /tmp/ext4-orphan-crash-initramfs.cpio.gz
+
+          recover_root=/tmp/ext4-orphan-recover-root
+          rm -rf "$recover_root"
+          mkdir -p "$recover_root"/{bin,proc,sys,dev,mnt}
+          cp /usr/bin/busybox "$recover_root/bin/busybox"
+          for app in sh mount umount cat echo sync insmod ls test poweroff; do
+            ln -s busybox "$recover_root/bin/$app"
+          done
+          cp native/filesystems/ext4/linux/ext4.ko "$recover_root/ext4.ko"
+
+          cat > "$recover_root/init" <<'EOF'
+          #!/bin/sh
+          set -eu
+
+          fail()
+          {
+              echo "EXT4-ORPHAN-RECOVERY-FAIL: $*" > /dev/ttyS0
+              poweroff -f
+              exit 1
+          }
+
+          mount -t proc proc /proc || fail proc
+          mount -t sysfs sysfs /sys || fail sysfs
+          mount -t devtmpfs devtmpfs /dev || fail devtmpfs
+          insmod /ext4.ko || fail insmod
+          mount -t ext4 /dev/vda /mnt || fail mount
+          test ! -e /mnt/orphan-target || fail namespace
+          echo recovered > /mnt/recovery-marker || fail write
+          sync || fail sync
+          umount /mnt || fail unmount
+          echo "EXT4-ORPHAN-RECOVERY-PASS" > /dev/ttyS0
+          poweroff -f
+          EOF
+          chmod +x "$recover_root/init"
+          (cd "$recover_root" && find . -print0 | cpio --null -ov --format=newc | gzip -9) \
+            > /tmp/ext4-orphan-recover-initramfs.cpio.gz
+
+          qualify_orphan_image()
+          {
+              image="$1"
+              label="$2"
+
+              timeout 120 qemu-system-x86_64 \
+                -machine accel=tcg \
+                -m 768 \
+                -nographic \
+                -no-reboot \
+                -kernel /tmp/linux-6.12.107/arch/x86/boot/bzImage \
+                -initrd /tmp/ext4-orphan-crash-initramfs.cpio.gz \
+                -append 'console=ttyS0 panic=1 rdinit=/init' \
+                -drive file="$image",format=raw,if=virtio \
+                2>&1 | tee "/tmp/${label}-crash.log"
+              grep -Fq 'EXT4-ORPHAN-CRASH-ARMED' "/tmp/${label}-crash.log"
+              ! grep -Fq 'EXT4-ORPHAN-CRASH-FAIL' "/tmp/${label}-crash.log"
+
+              timeout 120 qemu-system-x86_64 \
+                -machine accel=tcg \
+                -m 768 \
+                -nographic \
+                -no-reboot \
+                -kernel /tmp/linux-6.12.107/arch/x86/boot/bzImage \
+                -initrd /tmp/ext4-orphan-recover-initramfs.cpio.gz \
+                -append 'console=ttyS0 panic=1 rdinit=/init' \
+                -drive file="$image",format=raw,if=virtio \
+                2>&1 | tee "/tmp/${label}-recover.log"
+              grep -Fq 'EXT4-ORPHAN-RECOVERY-PASS' "/tmp/${label}-recover.log"
+              ! grep -Fq 'EXT4-ORPHAN-RECOVERY-FAIL' "/tmp/${label}-recover.log"
+
+              e2fsck -fn "$image"
+          }
+
+          qualify_orphan_image /tmp/ext4-orphan-file.img orphan-file
+          qualify_orphan_image /tmp/ext4-orphan-list.img orphan-list
