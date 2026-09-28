@@ -726,12 +726,23 @@ static int pfs3_readdir_visit(struct super_block *sb,
                               void *opaque)
 {
     struct pfs3_readdir_ctx *walk = opaque;
+    const struct ifs_pfs3_dir_entry *visible = entry;
+    struct ifs_pfs3_dir_entry target;
 
-    (void)sb;
     if (walk->ordinal++ < walk->ctx->pos - 2)
         return 0;
+
+    if (entry->type == IFS_PFS3_ST_LINKFILE ||
+        entry->type == IFS_PFS3_ST_LINKDIR) {
+        int rc = pfs3_resolve_hardlink(sb, entry, &target);
+
+        if (rc != 0)
+            return rc;
+        visible = &target;
+    }
+
     if (!dir_emit(walk->ctx, entry->name, entry->name_length,
-                  entry->anode, pfs3_dir_type_to_dtype(entry->type)))
+                  visible->anode, pfs3_dir_type_to_dtype(visible->type)))
         return 1;
     walk->ctx->pos++;
     return 0;
