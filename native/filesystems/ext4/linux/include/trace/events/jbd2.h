@@ -9,7 +9,7 @@
  */
 
 #undef TRACE_SYSTEM
-#define TRACE_SYSTEM infiltratr_ext4_journal
+#define TRACE_SYSTEM infiltratr_ext4_jbd2
 
 #if !defined(INFILTRATOR_EXT4_JOURNAL_TRACE_H) || defined(TRACE_HEADER_MULTI_READ)
 #define INFILTRATOR_EXT4_JOURNAL_TRACE_H
