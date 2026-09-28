@@ -214,6 +214,45 @@ sector_t ifs_sfs_bmap(struct address_space *mapping, sector_t block)
 
 #ifdef CONFIG_IFS_SFS_RW
 
+static int sfs_zero_range(struct inode *inode, loff_t from, loff_t to)
+{
+    struct super_block *sb = inode->i_sb;
+    const u32 block_size = sb->s_blocksize;
+
+    if (from < 0 || to < from || block_size == 0U)
+        return -EINVAL;
+
+    while (from < to) {
+        const sector_t logical = (sector_t)((u64)from / block_size);
+        const u32 within = (u32)((u64)from % block_size);
+        const u32 bytes = min_t(u64, (u64)block_size - within,
+                                (u64)(to - from));
+        struct buffer_head mapped = { 0 };
+        struct buffer_head *bh;
+        int result;
+
+        result = sfs_map_block(inode, logical, &mapped, 1);
+        if (result != 0)
+            return result;
+        if (!buffer_mapped(&mapped))
+            return -EIO;
+
+        bh = sb_bread(sb, mapped.b_blocknr);
+        if (!bh)
+            return -EIO;
+
+        lock_buffer(bh);
+        memset(bh->b_data + within, 0, bytes);
+        set_buffer_uptodate(bh);
+        unlock_buffer(bh);
+        mark_buffer_dirty_inode(bh, inode);
+        brelse(bh);
+        from += bytes;
+    }
+
+    return 0;
+}
+
 int ifs_sfs_writepages(
     struct address_space *mapping,
     struct writeback_control *writeback)
@@ -229,8 +268,19 @@ int ifs_sfs_write_begin(
     struct folio **folio,
     void **fsdata)
 {
+    struct inode *inode = mapping->host;
+    const loff_t old_size = i_size_read(inode);
+    int result;
+
     (void)IFS_SFS_AOPS_WRITE_CONTEXT_ARG;
     (void)fsdata;
+
+    if (position > old_size) {
+        result = sfs_zero_range(inode, old_size, position);
+        if (result != 0)
+            return result;
+    }
+
     return block_write_begin(
         mapping, position, length, folio, sfs_map_block);
 }
@@ -243,7 +293,7 @@ int ifs_sfs_truncate(struct inode *inode)
     int result;
 
     if (inode->i_size > IFS_SFS_I(inode)->mmu_private)
-        return -EOPNOTSUPP;
+        return -EUCLEAN;
 
     mutex_lock(&IFS_SFS_SB(sb)->lock);
 
@@ -911,8 +961,12 @@ static int sfs_setattr(
 
     if ((attributes->ia_valid & ATTR_SIZE) != 0 &&
         attributes->ia_size != old_size) {
-        if (attributes->ia_size > IFS_SFS_I(inode)->mmu_private)
-            return -EOPNOTSUPP;
+        if (attributes->ia_size > old_size) {
+            result = sfs_zero_range(
+                inode, old_size, attributes->ia_size);
+            if (result != 0)
+                return result;
+        }
 
         truncate_setsize(inode, attributes->ia_size);
         result = ifs_sfs_truncate(inode);
