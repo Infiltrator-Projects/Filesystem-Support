@@ -93,8 +93,12 @@ static int pfs3_read_sector(struct super_block *sb, u32 sector, u8 *out)
 {
     struct buffer_head *bh;
 
-    if ((u64)sector >= (u64)IFS_PFS3_SB(sb)->root.disk_size)
+    if (IFS_PFS3_SB(sb)->root.disk_size != 0U) {
+        if ((u64)sector >= (u64)IFS_PFS3_SB(sb)->root.disk_size)
+            return -EUCLEAN;
+    } else if ((u64)sector >= (u64)bdev_nr_sectors(sb->s_bdev)) {
         return -EUCLEAN;
+    }
     bh = sb_bread(sb, sector);
     if (!bh)
         return -EIO;
@@ -513,6 +517,7 @@ static struct dentry *pfs3_lookup(struct inode *dir, struct dentry *dentry,
 
 struct pfs3_readdir_ctx {
     struct dir_context *ctx;
+    loff_t ordinal;
 };
 
 static int pfs3_readdir_visit(struct super_block *sb,
@@ -522,9 +527,8 @@ static int pfs3_readdir_visit(struct super_block *sb,
     struct pfs3_readdir_ctx *walk = opaque;
 
     (void)sb;
-    if (walk->ctx->pos < 2) {
-        walk->ctx->pos = 2;
-    }
+    if (walk->ordinal++ < walk->ctx->pos - 2)
+        return 0;
     if (!dir_emit(walk->ctx, entry->name, entry->name_length,
                   entry->anode, pfs3_dir_type_to_dtype(entry->type)))
         return 1;
@@ -535,7 +539,7 @@ static int pfs3_readdir_visit(struct super_block *sb,
 static int pfs3_iterate(struct file *file, struct dir_context *ctx)
 {
     struct inode *inode = file_inode(file);
-    struct pfs3_readdir_ctx walk = { .ctx = ctx };
+    struct pfs3_readdir_ctx walk = { .ctx = ctx, .ordinal = 0 };
 
     if (!dir_emit_dots(file, ctx))
         return 0;
@@ -809,11 +813,13 @@ static int pfs3_get_tree(struct fs_context *fc)
     return get_tree_bdev(fc, pfs3_fill_super);
 }
 
+static const struct fs_context_operations pfs3_context_ops = {
+    .get_tree = pfs3_get_tree,
+};
+
 static int pfs3_init_fs_context(struct fs_context *fc)
 {
-    fc->ops = &(const struct fs_context_operations) {
-        .get_tree = pfs3_get_tree,
-    };
+    fc->ops = &pfs3_context_ops;
     return 0;
 }
 #else
