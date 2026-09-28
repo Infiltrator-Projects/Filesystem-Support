@@ -2233,10 +2233,39 @@ static int sfs2_remove_object_container(
         sb, own_block);
 }
 
+static u64 sfs2_file_size(const struct fsObject *object)
+{
+    return ifs_sfs2_decode_file_size(
+        be32_to_cpu(object->object.file.size),
+        be16_to_cpu(object->sizeh));
+}
+
+static int sfs2_adjust_u32_s64(u32 current, s64 delta, u32 *result)
+{
+    u64 magnitude;
+
+    if (!result)
+        return -EINVAL;
+
+    if (delta < 0) {
+        magnitude = (u64)(-delta);
+        if (magnitude > current)
+            return -EUCLEAN;
+        *result = current - (u32)magnitude;
+        return 0;
+    }
+
+    magnitude = (u64)delta;
+    if (magnitude > (u64)U32_MAX - current)
+        return -EUCLEAN;
+    *result = current + (u32)magnitude;
+    return 0;
+}
+
 static int sfs2_adjust_recycled_info(
     struct super_block *sb,
-    s32 deleted_files,
-    s32 deleted_blocks)
+    s64 deleted_files,
+    s64 deleted_blocks)
 {
     struct buffer_head *bh;
     struct fsRootInfo *root_info;
@@ -2258,11 +2287,11 @@ static int sfs2_adjust_recycled_info(
          sb->s_blocksize -
          sizeof(struct fsRootInfo));
 
-    if (ifs_sfs2_adjust_counter(
+    if (sfs2_adjust_u32_s64(
             be32_to_cpu(
                 root_info->deletedfiles),
             deleted_files, &files) != 0 ||
-        ifs_sfs2_adjust_counter(
+        sfs2_adjust_u32_s64(
             be32_to_cpu(
                 root_info->deletedblocks),
             deleted_blocks, &blocks) != 0) {
@@ -2299,14 +2328,15 @@ static int sfs2_remove_packed_object(
 
     if (be32_to_cpu(container->parent) ==
         IFS_SFS2_RECYCLEDNODE) {
-        const u32 file_blocks =
-            DIV_ROUND_UP(
-                be32_to_cpu(
-                    object->object.file.size),
-                sb->s_blocksize);
-        int result =
-            sfs2_adjust_recycled_info(
-                sb, -1, -(s32)file_blocks);
+        const u64 file_size = sfs2_file_size(object);
+        const u64 file_blocks =
+            DIV_ROUND_UP_ULL(file_size, sb->s_blocksize);
+        int result;
+
+        if (file_blocks > U32_MAX)
+            return -EUCLEAN;
+        result = sfs2_adjust_recycled_info(
+            sb, -1, -(s64)file_blocks);
 
         if (result != 0)
             return result;
@@ -3158,15 +3188,17 @@ int ifs_sfs2_renameobject(
     if (result == 0) {
         if (new_parent ==
             IFS_SFS2_RECYCLEDNODE) {
-            const s32 file_blocks =
-                (s32)DIV_ROUND_UP(
-                    be32_to_cpu(
-                        saved_object.
-                            object.file.size),
-                    sb->s_blocksize);
+            const u64 file_size =
+                sfs2_file_size(&saved_object);
+            const u64 file_blocks =
+                DIV_ROUND_UP_ULL(
+                    file_size, sb->s_blocksize);
+
+            if (file_blocks > U32_MAX)
+                return -EUCLEAN;
             result =
                 sfs2_adjust_recycled_info(
-                    sb, 1, file_blocks);
+                    sb, 1, (s64)file_blocks);
         }
         return result;
     }
