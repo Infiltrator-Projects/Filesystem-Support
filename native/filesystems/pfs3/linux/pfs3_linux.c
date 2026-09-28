@@ -1042,6 +1042,12 @@ static int pfs3_load_root(struct super_block *sb)
             rc = -EUCLEAN;
             goto out;
         }
+        if (ext.postponed_operation != IFS_PFS3_POSTPONED_NONE) {
+            pr_warn("pfs3: unfinished postponed operation %u on %s\n",
+                    ext.postponed_operation, sb->s_id);
+            rc = -EUCLEAN;
+            goto out;
+        }
 
         if ((sbi->root.options & IFS_PFS3_MODE_SUPERINDEX) != 0U) {
             if (sbi->root.reserved_block_size <
