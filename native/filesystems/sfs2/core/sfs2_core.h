@@ -17,56 +17,6 @@ typedef uint32_t ifs_sfs2_u32;
 typedef uint64_t ifs_sfs2_u64;
 typedef int32_t ifs_sfs2_i32;
 typedef int64_t ifs_sfs2_i64;
-typedef enum IfsSfs2NameStatus {
-    IFS_SFS2_NAME_OK = 0,
-    IFS_SFS2_NAME_TOO_LONG,
-    IFS_SFS2_NAME_INVALID_CHARACTER
-} IfsSfs2NameStatus;
-
-IfsSfs2NameStatus ifs_sfs2_validate_name(
-    const ifs_sfs2_u8 *name, ifs_sfs2_u32 length);
-ifs_sfs2_u8 ifs_sfs2_fold_character(ifs_sfs2_u8 character);
-ifs_sfs2_u8 ifs_sfs2_lower_character(ifs_sfs2_u8 character);
-ifs_sfs2_u16 ifs_sfs2_component_hash(
-    const ifs_sfs2_u8 *name, int case_sensitive);
-
-int ifs_sfs2_has_allocation_headroom(
-    ifs_sfs2_u32 free_blocks, ifs_sfs2_u32 requested_blocks,
-    ifs_sfs2_u32 always_free_blocks);
-int ifs_sfs2_adminspace_block_mask(
-    ifs_sfs2_u32 area_start, ifs_sfs2_u32 block, ifs_sfs2_u32 *mask);
-int ifs_sfs2_bitmap_word_find_set(ifs_sfs2_u32 word, ifs_sfs2_u32 start_bit);
-int ifs_sfs2_bitmap_word_find_zero(ifs_sfs2_u32 word, ifs_sfs2_u32 start_bit);
-ifs_sfs2_u32 ifs_sfs2_bitmap_word_set(
-    ifs_sfs2_u32 word, ifs_sfs2_u32 start_bit, ifs_sfs2_u32 bit_count);
-ifs_sfs2_u32 ifs_sfs2_bitmap_word_clear(
-    ifs_sfs2_u32 word, ifs_sfs2_u32 start_bit, ifs_sfs2_u32 bit_count);
-int ifs_sfs2_free_count_after_allocate(
-    ifs_sfs2_u32 current_free, ifs_sfs2_u32 allocated_blocks,
-    ifs_sfs2_u32 *new_free);
-int ifs_sfs2_free_count_after_release(
-    ifs_sfs2_u32 current_free, ifs_sfs2_u32 released_blocks,
-    ifs_sfs2_u32 total_blocks, ifs_sfs2_u32 *new_free);
-
-#define IFS_SFS2_NODE_CONTAINER_FIXED_SIZE 20U
-#define IFS_SFS2_OBJECT_NODE_SIZE 10U
-#define IFS_SFS2_NODE_INDEX_ENTRY_SIZE 4U
-#define IFS_SFS2_BNODE_CONTAINER_FIXED_SIZE 16U
-#define IFS_SFS2_BTREE_INTERNAL_NODE_MIN_SIZE 8U
-#define IFS_SFS2_BTREE_EXTENT_NODE_MIN_SIZE 16U
-
-int ifs_sfs2_node_leaf_slot(
-    ifs_sfs2_u32 block_size, ifs_sfs2_u32 base_node,
-    ifs_sfs2_u32 target_node, ifs_sfs2_u32 *slot);
-int ifs_sfs2_node_index_slot(
-    ifs_sfs2_u32 block_size, ifs_sfs2_u32 base_node,
-    ifs_sfs2_u32 nodes_per_entry, ifs_sfs2_u32 target_node,
-    ifs_sfs2_u32 *slot);
-int ifs_sfs2_validate_btree_layout(
-    ifs_sfs2_u32 block_size, ifs_sfs2_u32 node_count,
-    ifs_sfs2_u32 node_size, int is_leaf, ifs_sfs2_u32 *capacity);
-int ifs_sfs2_adjust_counter(
-    ifs_sfs2_u32 current_value, ifs_sfs2_i32 delta, ifs_sfs2_u32 *result);
 
 #endif
 
@@ -204,5 +154,57 @@ int ifs_sfs2_validate_extent(
     ifs_sfs2_u32 next,
     ifs_sfs2_u32 block_count,
     ifs_sfs2_u32 total_blocks);
+
+typedef enum IfsSfs2NameStatus {
+    IFS_SFS2_NAME_OK = 0,
+    IFS_SFS2_NAME_TOO_LONG,
+    IFS_SFS2_NAME_INVALID_CHARACTER
+} IfsSfs2NameStatus;
+
+IfsSfs2NameStatus ifs_sfs2_validate_name(
+    const ifs_sfs2_u8 *name, ifs_sfs2_u32 length);
+ifs_sfs2_u8 ifs_sfs2_fold_character(ifs_sfs2_u8 character);
+ifs_sfs2_u8 ifs_sfs2_lower_character(ifs_sfs2_u8 character);
+ifs_sfs2_u16 ifs_sfs2_component_hash(
+    const ifs_sfs2_u8 *name, int case_sensitive);
+
+int ifs_sfs2_has_allocation_headroom(
+    ifs_sfs2_u32 free_blocks, ifs_sfs2_u32 requested_blocks,
+    ifs_sfs2_u32 always_free_blocks);
+int ifs_sfs2_adminspace_block_mask(
+    ifs_sfs2_u32 area_start, ifs_sfs2_u32 block, ifs_sfs2_u32 *mask);
+int ifs_sfs2_bitmap_word_find_set(ifs_sfs2_u32 word, ifs_sfs2_u32 start_bit);
+int ifs_sfs2_bitmap_word_find_zero(ifs_sfs2_u32 word, ifs_sfs2_u32 start_bit);
+ifs_sfs2_u32 ifs_sfs2_bitmap_word_set(
+    ifs_sfs2_u32 word, ifs_sfs2_u32 start_bit, ifs_sfs2_u32 bit_count);
+ifs_sfs2_u32 ifs_sfs2_bitmap_word_clear(
+    ifs_sfs2_u32 word, ifs_sfs2_u32 start_bit, ifs_sfs2_u32 bit_count);
+int ifs_sfs2_free_count_after_allocate(
+    ifs_sfs2_u32 current_free, ifs_sfs2_u32 allocated_blocks,
+    ifs_sfs2_u32 *new_free);
+int ifs_sfs2_free_count_after_release(
+    ifs_sfs2_u32 current_free, ifs_sfs2_u32 released_blocks,
+    ifs_sfs2_u32 total_blocks, ifs_sfs2_u32 *new_free);
+
+#define IFS_SFS2_NODE_CONTAINER_FIXED_SIZE 20U
+#define IFS_SFS2_OBJECT_NODE_SIZE 10U
+#define IFS_SFS2_NODE_INDEX_ENTRY_SIZE 4U
+#define IFS_SFS2_BNODE_CONTAINER_FIXED_SIZE 16U
+#define IFS_SFS2_BTREE_INTERNAL_NODE_MIN_SIZE 8U
+#define IFS_SFS2_BTREE_EXTENT_NODE_MIN_SIZE 16U
+
+int ifs_sfs2_node_leaf_slot(
+    ifs_sfs2_u32 block_size, ifs_sfs2_u32 base_node,
+    ifs_sfs2_u32 target_node, ifs_sfs2_u32 *slot);
+int ifs_sfs2_node_index_slot(
+    ifs_sfs2_u32 block_size, ifs_sfs2_u32 base_node,
+    ifs_sfs2_u32 nodes_per_entry, ifs_sfs2_u32 target_node,
+    ifs_sfs2_u32 *slot);
+int ifs_sfs2_validate_btree_layout(
+    ifs_sfs2_u32 block_size, ifs_sfs2_u32 node_count,
+    ifs_sfs2_u32 node_size, int is_leaf, ifs_sfs2_u32 *capacity);
+int ifs_sfs2_adjust_counter(
+    ifs_sfs2_u32 current_value, ifs_sfs2_i32 delta, ifs_sfs2_u32 *result);
+
 
 #endif
