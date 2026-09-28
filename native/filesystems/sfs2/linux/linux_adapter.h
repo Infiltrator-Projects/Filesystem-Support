@@ -262,7 +262,7 @@ int ifs_sfs2_addblockstofile(struct super_block *sb, struct buffer_head *objcb,
 		    struct fsObject *o, u32 blocks, u32 * newspace,
 		    u32 * addedblocks);
 int ifs_sfs2_truncateblocksinfile(struct super_block *sb, struct buffer_head *bh,
-			 struct fsObject *o, u32 newsize);
+			 struct fsObject *o, u64 newsize);
 
 /* symlink.c */
 const char *ifs_sfs2_get_link(struct dentry *dentry, struct inode *inode,
