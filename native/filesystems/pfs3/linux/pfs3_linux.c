@@ -684,7 +684,60 @@ static const struct inode_operations pfs3_dir_iops = {
     .lookup = pfs3_lookup,
 };
 
+static void pfs3_free_link(void *link)
+{
+    kfree(link);
+}
+
+static const char *pfs3_get_link(struct dentry *dentry, struct inode *inode,
+                                 struct delayed_call *done)
+{
+    IfsPfs3AnodeRecord anode;
+    char *target;
+    size_t length;
+    int rc;
+
+    (void)dentry;
+    if (!inode)
+        return ERR_PTR(-ECHILD);
+    if (IFS_PFS3_I(inode)->disk_type != IFS_PFS3_ST_SOFTLINK)
+        return ERR_PTR(-EINVAL);
+
+    rc = pfs3_read_anode(
+        inode->i_sb, IFS_PFS3_I(inode)->first_anode, &anode);
+    if (rc)
+        return ERR_PTR(rc);
+    if (anode.cluster_size == 0U ||
+        anode.block_number <= IFS_PFS3_SB(inode->i_sb)->root.last_reserved ||
+        ifs_pfs3_validate_anode_extent(
+            &anode, IFS_PFS3_SB(inode->i_sb)->root.disk_size) != 0)
+        return ERR_PTR(-EUCLEAN);
+
+    target = kmalloc(IFS_PFS3_SECTOR_SIZE + 1U, GFP_KERNEL);
+    if (!target)
+        return ERR_PTR(-ENOMEM);
+
+    rc = pfs3_read_sector(inode->i_sb, anode.block_number, (u8 *)target);
+    if (rc) {
+        kfree(target);
+        return ERR_PTR(rc);
+    }
+    target[IFS_PFS3_SECTOR_SIZE] = '\0';
+    length = strnlen(target, IFS_PFS3_SECTOR_SIZE);
+    if (length == IFS_PFS3_SECTOR_SIZE) {
+        kfree(target);
+        return ERR_PTR(-EUCLEAN);
+    }
+
+    set_delayed_call(done, pfs3_free_link, target);
+    return target;
+}
+
 static const struct inode_operations pfs3_file_iops = {
+};
+
+static const struct inode_operations pfs3_symlink_iops = {
+    .get_link = pfs3_get_link,
 };
 
 static void pfs3_init_inode_common(struct inode *inode, s8 type,
@@ -729,10 +782,16 @@ static struct inode *pfs3_iget(struct super_block *sb, u32 anode, s8 type,
     case IFS_PFS3_ST_FILE:
     case IFS_PFS3_ST_ROLLOVERFILE:
         inode->i_size = size;
-        inode->i_blocks = DIV_ROUND_UP((u64)size, 512ULL);
+        inode->i_blocks = DIV_ROUND_UP_ULL(size, IFS_PFS3_SECTOR_SIZE);
         inode->i_op = &pfs3_file_iops;
         inode->i_fop = &pfs3_file_ops;
         inode->i_mapping->a_ops = &pfs3_aops;
+        set_nlink(inode, 1);
+        break;
+    case IFS_PFS3_ST_SOFTLINK:
+        inode->i_size = 0;
+        inode->i_blocks = 1;
+        inode->i_op = &pfs3_symlink_iops;
         set_nlink(inode, 1);
         break;
     default:
