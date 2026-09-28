@@ -95,10 +95,11 @@ static u32 pfs3_be32(const u8 *p)
 
 static u32 pfs3_media_blocks(struct super_block *sb)
 {
+    const struct ifs_pfs3_sb_info *sbi = IFS_PFS3_SB(sb);
     const u64 sectors = (u64)bdev_nr_sectors(sb->s_bdev);
 
-    if (IFS_PFS3_SB(sb)->root.disk_size != 0U)
-        return IFS_PFS3_SB(sb)->root.disk_size;
+    if ((sbi->root.options & IFS_PFS3_MODE_SIZEFIELD) != 0U)
+        return sbi->root.disk_size;
     return sectors > U32_MAX ? U32_MAX : (u32)sectors;
 }
 
@@ -106,7 +107,7 @@ static int pfs3_read_sector(struct super_block *sb, u32 sector, u8 *out)
 {
     struct buffer_head *bh;
 
-    if (IFS_PFS3_SB(sb)->root.disk_size != 0U) {
+    if ((IFS_PFS3_SB(sb)->root.options & IFS_PFS3_MODE_SIZEFIELD) != 0U) {
         if ((u64)sector >= (u64)IFS_PFS3_SB(sb)->root.disk_size)
             return -EUCLEAN;
     } else if ((u64)sector >= (u64)bdev_nr_sectors(sb->s_bdev)) {
@@ -991,11 +992,19 @@ static int pfs3_load_root(struct super_block *sb)
         goto out;
     }
 
-    if (ifs_pfs3_validate_root_record(
-            &sbi->root, IFS_PFS3_SECTOR_SIZE,
-            (u32)(bdev_nr_sectors(sb->s_bdev))) != IFS_PFS3_MEDIA_OK) {
-        rc = -EUCLEAN;
-        goto out;
+    {
+        const u64 device_sectors = (u64)bdev_nr_sectors(sb->s_bdev);
+
+        if (device_sectors == 0U || device_sectors > U32_MAX) {
+            rc = -EFBIG;
+            goto out;
+        }
+        if (ifs_pfs3_validate_root_record(
+                &sbi->root, IFS_PFS3_SECTOR_SIZE,
+                (u32)device_sectors) != IFS_PFS3_MEDIA_OK) {
+            rc = -EUCLEAN;
+            goto out;
+        }
     }
 
     if (sbi->root.reserved_block_size < IFS_PFS3_SECTOR_SIZE ||
