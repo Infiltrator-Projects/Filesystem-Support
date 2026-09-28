@@ -555,7 +555,7 @@ out:
 }
 
 static struct inode *pfs3_iget(struct super_block *sb, u32 anode, s8 type,
-                               u32 size, u16 day, u16 minute, u16 tick);
+                               u64 size, u16 day, u16 minute, u16 tick);
 
 struct pfs3_lookup_ctx {
     const struct qstr *name;
@@ -734,7 +734,7 @@ static void pfs3_init_inode_common(struct inode *inode, s8 type,
 }
 
 static struct inode *pfs3_iget(struct super_block *sb, u32 anode, s8 type,
-                               u32 size, u16 day, u16 minute, u16 tick)
+                               u64 size, u16 day, u16 minute, u16 tick)
 {
     struct inode *inode = iget_locked(sb, anode);
 
