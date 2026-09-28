@@ -1,6 +1,13 @@
 name: EXT runtime qualification
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "native/filesystems/ext2/**"
+      - "native/filesystems/ext3/**"
+      - "native/filesystems/ext4/**"
+      - ".github/workflows/ext-runtime-qualification.yml"
   workflow_run:
     workflows: ["build"]
     types: [completed]
