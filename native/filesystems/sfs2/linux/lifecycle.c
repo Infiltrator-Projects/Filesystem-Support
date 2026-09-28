@@ -489,11 +489,11 @@ static int sfs2_fill_super_data(struct super_block *sb, void *data, int silent)
 		goto fail;
 
 	/*
-	 * SFS2 writer/recovery qualification is deliberately separate from
-	 * read compatibility.  Never expose mutation until the version-4
-	 * transaction path has passed destructive interoperability tests.
+	 * Writable SFS2 is permitted only when the independently validated root
+	 * pair and runtime transaction marker leave the volume writable.  The
+	 * runtime-state loader sets IFS_SFS2_READONLY for a missing root copy,
+	 * TRFA/incomplete transaction, invalid marker, or other unsafe state.
 	 */
-	sbi->flags |= IFS_SFS2_READONLY;
 
 	result = sfs2_load_nls(sbi);
 	if (result)
