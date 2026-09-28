@@ -92,6 +92,15 @@ static u32 pfs3_be32(const u8 *p)
            ((u32)p[2] << 8) | (u32)p[3];
 }
 
+static u32 pfs3_media_blocks(struct super_block *sb)
+{
+    const u64 sectors = (u64)bdev_nr_sectors(sb->s_bdev);
+
+    if (IFS_PFS3_SB(sb)->root.disk_size != 0U)
+        return IFS_PFS3_SB(sb)->root.disk_size;
+    return sectors > U32_MAX ? U32_MAX : (u32)sectors;
+}
+
 static int pfs3_read_sector(struct super_block *sb, u32 sector, u8 *out)
 {
     struct buffer_head *bh;
@@ -306,7 +315,7 @@ static int pfs3_map_file_sector(struct inode *inode, sector_t logical,
             return -EUCLEAN;
         if (anode.block_number <= IFS_PFS3_SB(sb)->root.last_reserved ||
             ifs_pfs3_validate_anode_extent(
-                &anode, IFS_PFS3_SB(sb)->root.disk_size) != 0)
+                &anode, pfs3_media_blocks(sb)) != 0)
             return -EUCLEAN;
 
         if (remaining < anode.cluster_size) {
@@ -710,7 +719,7 @@ static const char *pfs3_get_link(struct dentry *dentry, struct inode *inode,
     if (anode.cluster_size == 0U ||
         anode.block_number <= IFS_PFS3_SB(inode->i_sb)->root.last_reserved ||
         ifs_pfs3_validate_anode_extent(
-            &anode, IFS_PFS3_SB(inode->i_sb)->root.disk_size) != 0)
+            &anode, pfs3_media_blocks(inode->i_sb)) != 0)
         return ERR_PTR(-EUCLEAN);
 
     target = kmalloc(IFS_PFS3_SECTOR_SIZE + 1U, GFP_KERNEL);
@@ -819,7 +828,7 @@ static int pfs3_statfs(struct dentry *dentry, struct kstatfs *buf)
 
     buf->f_type = IFS_PFS3_MAGIC;
     buf->f_bsize = IFS_PFS3_SECTOR_SIZE;
-    buf->f_blocks = sbi->root.disk_size;
+    buf->f_blocks = pfs3_media_blocks(dentry->d_sb);
     buf->f_bfree = sbi->root.blocks_free;
     buf->f_bavail = sbi->root.blocks_free > sbi->root.always_free ?
         sbi->root.blocks_free - sbi->root.always_free : 0U;
@@ -890,10 +899,7 @@ static int pfs3_load_root(struct super_block *sb)
 
     if (ifs_pfs3_classify_disk_type(sbi->root.disk_type) ==
             IFS_PFS3_FORMAT_INVALID ||
-        (sbi->root.options & (IFS_PFS3_MODE_HARDDISK |
-                               IFS_PFS3_MODE_SIZEFIELD)) !=
-            (IFS_PFS3_MODE_HARDDISK |
-             IFS_PFS3_MODE_SIZEFIELD) ||
+        (sbi->root.options & IFS_PFS3_MODE_HARDDISK) == 0U ||
         ((sbi->root.options & IFS_PFS3_MODE_LARGEFILE) != 0U &&
          (sbi->root.options & IFS_PFS3_MODE_DIR_EXTENSION) == 0U)) {
         rc = -EUCLEAN;
