@@ -6,11 +6,13 @@
 typedef u16 ifs_sfs2_u16;
 typedef u32 ifs_sfs2_u32;
 typedef u64 ifs_sfs2_u64;
+typedef s32 ifs_sfs2_i32;
 #else
 #include <stdint.h>
 typedef uint16_t ifs_sfs2_u16;
 typedef uint32_t ifs_sfs2_u32;
 typedef uint64_t ifs_sfs2_u64;
+typedef int32_t ifs_sfs2_i32;
 typedef enum IfsSfs2NameStatus {
     IFS_SFS2_NAME_OK = 0,
     IFS_SFS2_NAME_TOO_LONG,
@@ -60,7 +62,7 @@ int ifs_sfs2_validate_btree_layout(
     ifs_sfs2_u32 block_size, ifs_sfs2_u32 node_count,
     ifs_sfs2_u32 node_size, int is_leaf, ifs_sfs2_u32 *capacity);
 int ifs_sfs2_adjust_counter(
-    ifs_sfs2_u32 current_value, int32_t delta, ifs_sfs2_u32 *result);
+    ifs_sfs2_u32 current_value, ifs_sfs2_i32 delta, ifs_sfs2_u32 *result);
 
 #endif
 
