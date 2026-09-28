@@ -13,7 +13,8 @@ concurrency:
 
 jobs:
   source-boundary:
-    runs-on: ${{ startsWith(github.event.head_commit.message, 'Release ') && 'ubuntu-24.04' || 'linux-native' }}
+    # This job requires the Git CLI for history/tag provenance checks.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
