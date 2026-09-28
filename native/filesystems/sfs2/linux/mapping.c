@@ -2240,7 +2240,7 @@ static u64 sfs2_file_size(const struct fsObject *object)
         be16_to_cpu(object->sizeh));
 }
 
-static int sfs2_adjust_u32_s64(u32 current, s64 delta, u32 *result)
+static int sfs2_adjust_u32_s64(u32 value, s64 delta, u32 *result)
 {
     u64 magnitude;
 
@@ -2249,16 +2249,16 @@ static int sfs2_adjust_u32_s64(u32 current, s64 delta, u32 *result)
 
     if (delta < 0) {
         magnitude = (u64)(-delta);
-        if (magnitude > current)
+        if (magnitude > value)
             return -EUCLEAN;
-        *result = current - (u32)magnitude;
+        *result = value - (u32)magnitude;
         return 0;
     }
 
     magnitude = (u64)delta;
-    if (magnitude > (u64)U32_MAX - current)
+    if (magnitude > (u64)U32_MAX - value)
         return -EUCLEAN;
-    *result = current + (u32)magnitude;
+    *result = value + (u32)magnitude;
     return 0;
 }
 
