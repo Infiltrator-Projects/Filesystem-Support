@@ -166,7 +166,7 @@ jobs:
           rm -rf "$root"
           mkdir -p "$root"/{bin,proc,sys,dev,mnt/ext2,mnt/ext3,mnt/ext4}
           cp /usr/bin/busybox "$root/bin/busybox"
-          for app in sh mount umount mkdir cat echo dd ln mv sync poweroff insmod ls stat; do
+          for app in sh mount umount mkdir cat echo dd ln mv sync poweroff insmod ls stat grep; do
             ln -s busybox "$root/bin/$app"
           done
 
@@ -201,6 +201,13 @@ jobs:
           insmod /ffs.ko || fail "insmod ffs"
           insmod /sfs.ko || fail "insmod sfs"
 
+          mount -t tracefs tracefs /sys/kernel/tracing ||
+              fail "mount tracefs"
+          trace_group=/sys/kernel/tracing/events/infiltratr_ext4_jbd2
+          test -d "$trace_group" || fail "EXT4 trace group"
+          echo 1 > "$trace_group/enable" || fail "enable EXT4 journal tracing"
+          : > /sys/kernel/tracing/trace
+
           qualify()
           {
               fs="$1"
@@ -225,6 +232,11 @@ jobs:
           qualify ext2 /dev/vda
           qualify ext3 /dev/vdb
           qualify ext4 /dev/vdc
+
+          grep -q 'jbd2_' /sys/kernel/tracing/trace ||
+              fail "EXT4 journal trace events"
+          echo 0 > "$trace_group/enable" ||
+              fail "disable EXT4 journal tracing"
 
           echo "EXT-RUNTIME-PASS" > /dev/ttyS0
           poweroff -f
