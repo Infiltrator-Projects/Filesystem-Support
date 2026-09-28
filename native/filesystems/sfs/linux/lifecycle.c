@@ -289,12 +289,34 @@ static int sfs_load_runtime_state(struct super_block *sb)
 	}
 
 #ifdef CONFIG_IFS_SFS_RW
-	bh = ifs_sfs_breadcheck(
-		sb, sbi->rootobjectcontainer + 2U,
-		IFS_SFS_TRANSACTIONFAILURE_ID);
-	if (bh) {
+	/*
+	 * The transaction marker is format state, not an optional hint.
+	 * A clean volume carries TROK.  TRFA means an interrupted commit that
+	 * must not be modified until the recorded transaction has been replayed.
+	 * Any other value (including a stray TRST block) is corrupt metadata.
+	 */
+	bh = sb_bread(sb, sbi->rootobjectcontainer + 2U);
+	if (!bh) {
 		sbi->flags |= IFS_SFS_READONLY;
-		ifs_sfs_brelse(bh);
+	} else {
+		struct fsBlockHeader *marker = (struct fsBlockHeader *)bh->b_data;
+		const u32 marker_id = be32_to_cpu(marker->id);
+		const u32 marker_block = sbi->rootobjectcontainer + 2U;
+		const bool clean =
+			marker_id == IFS_SFS_TRANSACTIONOK_ID &&
+			ifs_sfs_check_block(marker, sb->s_blocksize,
+					    marker_block, IFS_SFS_TRANSACTIONOK_ID);
+		const bool interrupted =
+			marker_id == IFS_SFS_TRANSACTIONFAILURE_ID &&
+			ifs_sfs_check_block(marker, sb->s_blocksize,
+					    marker_block, IFS_SFS_TRANSACTIONFAILURE_ID);
+
+		if (!clean) {
+			sbi->flags |= IFS_SFS_READONLY;
+			if (!interrupted)
+				pr_err("sfs: invalid transaction marker on %s\n", sb->s_id);
+		}
+		brelse(bh);
 	}
 #else
 	sbi->flags |= IFS_SFS_READONLY;
