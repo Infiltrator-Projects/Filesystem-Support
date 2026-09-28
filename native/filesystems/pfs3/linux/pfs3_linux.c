@@ -592,6 +592,71 @@ struct pfs3_lookup_ctx {
     int error;
 };
 
+struct pfs3_find_object_ctx {
+    u32 object_anode;
+    struct ifs_pfs3_dir_entry entry;
+    bool found;
+};
+
+static int pfs3_find_object_visit(
+    struct super_block *sb,
+    const struct ifs_pfs3_dir_entry *entry,
+    void *opaque)
+{
+    struct pfs3_find_object_ctx *ctx = opaque;
+
+    (void)sb;
+    if (entry->anode != ctx->object_anode)
+        return 0;
+
+    ctx->entry = *entry;
+    ctx->found = true;
+    return 1;
+}
+
+static int pfs3_resolve_hardlink(
+    struct super_block *sb,
+    const struct ifs_pfs3_dir_entry *link,
+    struct ifs_pfs3_dir_entry *target)
+{
+    IfsPfs3AnodeRecord link_anode;
+    struct pfs3_find_object_ctx find = {
+        .object_anode = link->link_object,
+        .found = false,
+    };
+    int rc;
+
+    if (!target || link->link_object < IFS_PFS3_FIRST_USER_ANODE)
+        return -EUCLEAN;
+
+    rc = pfs3_read_anode(sb, link->anode, &link_anode);
+    if (rc != 0)
+        return rc;
+
+    /*
+     * PFS3aio stores the directory containing the real object in the
+     * link-anode clustersize field.  The packed link extra field stores the
+     * real object's anode/object identity.
+     */
+    if (link_anode.cluster_size < IFS_PFS3_ROOT_ANODE ||
+        link_anode.cluster_size >= pfs3_media_blocks(sb))
+        return -EUCLEAN;
+
+    rc = pfs3_walk_directory(
+        sb, link_anode.cluster_size, pfs3_find_object_visit, &find);
+    if (rc < 0)
+        return rc;
+    if (!find.found)
+        return -ENOENT;
+
+    if (find.entry.type == IFS_PFS3_ST_LINKFILE ||
+        find.entry.type == IFS_PFS3_ST_LINKDIR)
+        return -EUCLEAN;
+
+    *target = find.entry;
+    return 0;
+}
+
 static int pfs3_lookup_visit(struct super_block *sb,
                              const struct ifs_pfs3_dir_entry *entry,
                              void *opaque)
@@ -602,14 +667,23 @@ static int pfs3_lookup_visit(struct super_block *sb,
         return 0;
 
     if (entry->type == IFS_PFS3_ST_LINKFILE ||
-        entry->type == IFS_PFS3_ST_LINKDIR ||
-        entry->type == IFS_PFS3_ST_ROLLOVERFILE) {
+        entry->type == IFS_PFS3_ST_LINKDIR) {
+        struct ifs_pfs3_dir_entry target;
+
+        ctx->error = pfs3_resolve_hardlink(sb, entry, &target);
+        if (ctx->error != 0)
+            return 1;
+        ctx->inode = pfs3_iget(
+            sb, target.anode, target.type, target.size,
+            target.day, target.minute, target.tick);
+    } else if (entry->type == IFS_PFS3_ST_ROLLOVERFILE) {
         ctx->error = -EOPNOTSUPP;
         return 1;
+    } else {
+        ctx->inode = pfs3_iget(
+            sb, entry->anode, entry->type, entry->size,
+            entry->day, entry->minute, entry->tick);
     }
-    ctx->inode = pfs3_iget(
-        sb, entry->anode, entry->type, entry->size,
-        entry->day, entry->minute, entry->tick);
     if (IS_ERR(ctx->inode)) {
         ctx->error = PTR_ERR(ctx->inode);
         ctx->inode = NULL;
