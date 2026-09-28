@@ -254,6 +254,10 @@ int ifs_pfs3_decode_extension(
     extension->extension_options = ifs_pfs3_read_be32(bytes + 4U);
     extension->datestamp = ifs_pfs3_read_be32(bytes + 8U);
     extension->format_version = ifs_pfs3_read_be32(bytes + 12U);
+    extension->postponed_operation = ifs_pfs3_read_be32(bytes + 28U);
+    extension->postponed_argument1 = ifs_pfs3_read_be32(bytes + 32U);
+    extension->postponed_argument2 = ifs_pfs3_read_be32(bytes + 36U);
+    extension->postponed_argument3 = ifs_pfs3_read_be32(bytes + 40U);
     extension->reserved_roving = ifs_pfs3_read_be32(bytes + 44U);
     extension->roving_bit = ifs_pfs3_read_be16(bytes + 48U);
     extension->current_anode_sequence = ifs_pfs3_read_be16(bytes + 50U);
@@ -273,6 +277,8 @@ int ifs_pfs3_validate_extension(
     if (extension == 0 || effective_filename_size == 0)
         return -1;
     if (extension->id != IFS_PFS3_EXTENSION_ID)
+        return -1;
+    if (extension->postponed_operation > IFS_PFS3_POSTPONED_FREEANODECHAIN)
         return -1;
     if (extension->roving_bit > 31U)
         return -1;
