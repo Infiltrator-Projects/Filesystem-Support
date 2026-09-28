@@ -424,4 +424,9 @@ TRACE_EVENT(jbd2_shrink_checkpoint_list,
 
 #endif /* INFILTRATOR_EXT4_JOURNAL_TRACE_H */
 
+#undef TRACE_INCLUDE_PATH
+#define TRACE_INCLUDE_PATH include/trace/events
+#undef TRACE_INCLUDE_FILE
+#define TRACE_INCLUDE_FILE jbd2
+
 #include <trace/define_trace.h>

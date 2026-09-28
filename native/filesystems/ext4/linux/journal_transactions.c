@@ -50,7 +50,7 @@
 #include <linux/module.h>
 #include <linux/sched/mm.h>
 
-#include <trace/events/jbd2.h>
+#include "include/trace/events/jbd2.h"
 
 static void __jbd2_journal_temp_unlink_buffer(struct journal_head *jh);
 static void __jbd2_journal_unfile_buffer(struct journal_head *jh);

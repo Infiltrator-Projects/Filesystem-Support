@@ -368,7 +368,7 @@ int __ext4_handle_dirty_metadata(const char *where, unsigned int line,
 #include <linux/fs.h>
 #include <linux/jbd2.h>
 #include <linux/sched.h>
-#include <trace/events/jbd2.h>
+#include "include/trace/events/jbd2.h"
 
 static void ifs_jbd2_unlink_checkpoint_head(struct journal_head *jh)
 {
@@ -925,7 +925,7 @@ void __jbd2_journal_drop_transaction(
 #include <linux/pagemap.h>
 #include <linux/slab.h>
 #include <linux/writeback.h>
-#include <trace/events/jbd2.h>
+#include "include/trace/events/jbd2.h"
 
 static void ifs_jbd2_commit_end_io(
 	struct buffer_head *bh, int uptodate)

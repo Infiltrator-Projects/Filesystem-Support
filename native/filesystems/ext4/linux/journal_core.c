@@ -65,7 +65,7 @@
 #include <linux/sched/mm.h>
 
 #define CREATE_TRACE_POINTS
-#include <trace/events/jbd2.h>
+#include "include/trace/events/jbd2.h"
 
 #include <linux/uaccess.h>
 #include <asm/page.h>
