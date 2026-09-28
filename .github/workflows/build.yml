@@ -1052,6 +1052,7 @@ jobs:
           inode_adapter.c
           journal_core.c
           journal_durability.c
+          journal_frontend.c
           journal_internal.h
           journal_transactions.c
           lifecycle.c
@@ -1080,6 +1081,7 @@ jobs:
             native/filesystems/ext3/linux/directory_io.c
             native/filesystems/ext3/linux/file_io.c
             native/filesystems/ext3/linux/journal_durability.c
+            native/filesystems/ext3/linux/journal_frontend.c
             native/filesystems/ext3/linux/core_bridge.c
           )
           for file in "${rewritten[@]}"; do
