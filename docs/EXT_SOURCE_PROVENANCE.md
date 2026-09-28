@@ -212,6 +212,14 @@ other filesystems that have not yet entered rewrite state. Those trees remain
 reference/import implementations and retain their upstream provenance until
 their own rewrite begins.
 
+## Incremental rewrite gate
+
+EXT3 and EXT4 migration work is performed in deliberately small, independently
+qualified units. A migrated function or responsibility is moved into a new
+project-authored unit, then the full module build and EXT runtime qualification
+must pass before the next inherited responsibility is replaced. Attribution is
+retained on any unit that still contains inherited implementation.
+
 ## Promotion rule
 
 Before moving a migration unit into the project-authored set:
