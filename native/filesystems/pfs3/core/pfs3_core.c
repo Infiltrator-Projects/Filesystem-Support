@@ -201,6 +201,46 @@ IfsPfs3DirEntryStatus ifs_pfs3_decode_directory_entry(
     return IFS_PFS3_DIRENTRY_OK;
 }
 
+int ifs_pfs3_directory_extra_word(
+    const unsigned char *const bytes,
+    const ifs_pfs3_u32 available_bytes,
+    const ifs_pfs3_u16 field_index,
+    ifs_pfs3_u16 *const value)
+{
+    IfsPfs3DirEntryView entry;
+    IfsPfs3DirEntryStatus status;
+    ifs_pfs3_u32 cursor;
+    ifs_pfs3_u16 index;
+
+    if (bytes == 0 || value == 0 ||
+        field_index >= IFS_PFS3_EXTRA_FIELD_WORDS)
+        return -1;
+
+    status = ifs_pfs3_decode_directory_entry(
+        bytes, available_bytes, 1, &entry);
+    if (status != IFS_PFS3_DIRENTRY_OK)
+        return -1;
+
+    *value = 0U;
+    if ((entry.extra_flags & (1U << field_index)) == 0U)
+        return 0;
+
+    cursor = entry.record_bytes - 2U;
+    for (index = 0U; index <= field_index; ++index) {
+        if ((entry.extra_flags & (1U << index)) == 0U)
+            continue;
+        if (cursor < 2U)
+            return -1;
+        cursor -= 2U;
+        if (index == field_index) {
+            *value = ifs_pfs3_read_be16(bytes + cursor);
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
 int ifs_pfs3_decode_extension(
     const unsigned char *const bytes,
     const ifs_pfs3_u32 byte_count,
