@@ -134,6 +134,10 @@ int ifs_sfs2_decode_root(
 
 int ifs_sfs2_validate_root_record(const IfsSfs2RootRecord *root);
 
+IfsSfs2RootStatus ifs_sfs2_validate_root_probe(
+    ifs_sfs2_u32 id, ifs_sfs2_u32 version,
+    ifs_sfs2_u32 block_size, ifs_sfs2_u32 total_blocks);
+
 IfsSfs2RootStatus ifs_sfs2_validate_root_layout(
     ifs_sfs2_u32 id,
     ifs_sfs2_u32 version,
