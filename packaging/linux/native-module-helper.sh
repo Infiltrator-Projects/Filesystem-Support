@@ -18,7 +18,7 @@ filesystem=$2
 module=$3
 
 case "$filesystem:$module" in
-    ext2:ext2|ext3:ext3|ext4:ext4|ofs:ofs|ffs:ffs|sfs:sfs) ;;
+    ext2:ext2|ext3:ext3|ext4:ext4|ofs:ofs|ffs:ffs|sfs:sfs|sfs2:sfs2|pfs3:pfs3) ;;
     *)
         echo "refusing unmanaged native filesystem module: $filesystem/$module" >&2
         exit 2
