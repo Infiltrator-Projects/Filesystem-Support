@@ -1,0 +1,1 @@
+/* Linux build bridge for the canonical PFS3 core. */\n#include "../core/pfs3_core.c"\n
