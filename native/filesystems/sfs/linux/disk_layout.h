@@ -15,7 +15,9 @@
 #define IFS_SFS_SOFTLINK_ID            IFS_SFS_MAKE_ID('S','L','N','K')
 #define IFS_SFS_ADMINSPACECONTAINER_ID IFS_SFS_MAKE_ID('A','D','M','C')
 #define IFS_SFS_BITMAP_ID              IFS_SFS_MAKE_ID('B','T','M','P')
+#define IFS_SFS_TRANSACTIONSTORAGE_ID  IFS_SFS_MAKE_ID('T','R','S','T')
 #define IFS_SFS_TRANSACTIONFAILURE_ID  IFS_SFS_MAKE_ID('T','R','F','A')
+#define IFS_SFS_TRANSACTIONOK_ID       IFS_SFS_MAKE_ID('T','R','O','K')
 
 /* Amiga SFS defines and magic values */
 
