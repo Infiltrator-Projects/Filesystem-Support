@@ -1347,7 +1347,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for fs in ofs ffs sfs; do
+          for fs in ofs ffs sfs sfs2; do
             make -C /tmp/linux-7.0 \
               M="$PWD/native/filesystems/$fs/linux" \
               KBUILD_MODPOST_WARN=1 modules 2>&1 | tee "/tmp/$fs-v7-build.log"
