@@ -428,38 +428,6 @@ static bool pfs3_name_equal(const u8 *disk_name, u8 disk_len,
     return true;
 }
 
-static int pfs3_extra_u16(const u8 *record,
-                          const IfsPfs3DirEntryView *decoded,
-                          unsigned int field_index,
-                          u16 *value)
-{
-    u32 cursor;
-    unsigned int index;
-
-    if (!record || !decoded || !value ||
-        field_index >= IFS_PFS3_EXTRA_FIELD_WORDS)
-        return -EINVAL;
-
-    *value = 0U;
-    if ((decoded->extra_flags & (1U << field_index)) == 0U)
-        return 0;
-
-    cursor = decoded->record_bytes - 2U;
-    for (index = 0U; index <= field_index; ++index) {
-        if ((decoded->extra_flags & (1U << index)) == 0U)
-            continue;
-        if (cursor < 2U)
-            return -EUCLEAN;
-        cursor -= 2U;
-        if (index == field_index) {
-            *value = pfs3_be16(record + cursor);
-            return 0;
-        }
-    }
-
-    return -EUCLEAN;
-}
-
 typedef int (*pfs3_entry_visitor)(struct super_block *,
                                  const struct ifs_pfs3_dir_entry *,
                                  void *);
@@ -550,8 +518,11 @@ static int pfs3_walk_directory(struct super_block *sb, u32 first_anode,
                 if ((sbi->root.options & IFS_PFS3_MODE_LARGEFILE) != 0U) {
                     u16 size_high;
 
-                    rc = pfs3_extra_u16(
-                        block + offset, &decoded, 10U, &size_high);
+                    rc = ifs_pfs3_directory_extra_word(
+                        block + offset,
+                        sbi->root.reserved_block_size - offset,
+                        IFS_PFS3_EXTRA_FILE_SIZE_HIGH_WORD,
+                        &size_high);
                     if (rc != 0)
                         goto out;
                     entry.size |= (u64)size_high << 32;
