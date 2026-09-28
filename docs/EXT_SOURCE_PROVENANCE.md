@@ -101,6 +101,7 @@ implementation-ownership boundary are:
 - `native/filesystems/ext3/linux/directory_io.c`
 - `native/filesystems/ext3/linux/file_io.c`
 - `native/filesystems/ext3/linux/journal_durability.c`
+- `native/filesystems/ext3/linux/journal_frontend.c`
 
 `allocation.c` owns the project-authored block/inode allocation and online
 growth adapter. `journal_durability.c` owns the project-authored checkpoint,

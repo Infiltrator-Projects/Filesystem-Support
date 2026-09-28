@@ -85,59 +85,6 @@ static int ext3_freeze(struct super_block *sb);
 
 
 /**
- * ext3_journal_start_sb - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-handle_t *ext3_journal_start_sb(struct super_block *sb, int nblocks)
-{
-	journal_t *journal;
-
-	if (sb->s_flags & SB_RDONLY)
-		return ERR_PTR(-EROFS);
-
-
-	journal = EXT3_SB(sb)->s_journal;
-	if (is_journal_aborted(journal)) {
-		ext3_abort(sb, __func__,
-			   "Detected aborted journal");
-		return ERR_PTR(-EROFS);
-	}
-
-	return journal_start(journal, nblocks);
-}
-
-
-/**
- * __ext3_journal_stop - Coordinates a journal transaction or journal-owned buffer/state transition.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-int __ext3_journal_stop(const char *where, handle_t *handle)
-{
-	struct super_block *sb;
-	int err;
-	int rc;
-
-	sb = handle->h_transaction->t_journal->j_private;
-	err = handle->h_err;
-	rc = journal_stop(handle);
-
-	if (!err)
-		err = rc;
-	if (err)
-		__ext3_std_error(sb, where, err);
-	return err;
-}
-
-
-/**
  * ext3_journal_abort_handle - Coordinates a journal transaction or journal-owned buffer/state transition.
  *
  * Correctness contract: preserve the locking, lifetime, range and
@@ -164,31 +111,6 @@ void ext3_journal_abort_handle(const char *caller, const char *err_fn,
 		caller, errstr, err_fn);
 
 	journal_abort_handle(handle);
-}
-
-
-/**
- * ext3_msg - Implements the msg operation within the mount, superblock and module lifecycle subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext3_msg(struct super_block *sb, const char *prefix,
-		const char *fmt, ...)
-{
-	struct va_format vaf;
-	va_list args;
-
-	va_start(args, fmt);
-
-	vaf.fmt = fmt;
-	vaf.va = &args;
-
-	printk("%sEXT3-fs (%s): %pV\n", prefix, sb->s_id, &vaf);
-
-	va_end(args);
 }
 
 
