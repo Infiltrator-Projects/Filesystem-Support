@@ -1051,7 +1051,7 @@ int ifs_sfs2_addblocks(
             cpu_to_be32(previous_key);
         extent->next = 0U;
         extent->blocks =
-            cpu_to_be16(blocks);
+            cpu_to_be32(blocks);
         ifs_sfs2_bstore(sb, bh);
         ifs_sfs2_brelse(bh);
         bh = NULL;
