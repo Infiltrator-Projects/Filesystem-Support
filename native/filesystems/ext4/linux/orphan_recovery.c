@@ -376,7 +376,7 @@ static bool ifs_ext4_enable_cleanup_quotas(struct super_block *sb,
 	}
 
 	for (type = 0; type < EXT4_MAXQUOTAS; ++type) {
-		const char *name;
+		char *name;
 
 		name = rcu_dereference_protected(
 			sbi->s_qf_names[type],
