@@ -1191,7 +1191,7 @@ jobs:
           DESTDIR=/tmp/filesystem-support-stage cmake --install build --prefix /usr
           helper=/tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native-module-helper
           test -x "$helper"
-          for fs in ext2 ext3 ext4 ofs ffs sfs; do
+          for fs in ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
             base="/tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native/filesystems/$fs"
             test -f "$base/linux/Makefile"
             test -d "$base/core"
