@@ -958,7 +958,7 @@ int ifs_sfs2_deleteextents(
         struct fsExtentBNode *extent = NULL;
         u32 next;
         u32 extent_key;
-        u16 blocks;
+        u32 blocks;
         int result;
 
         if (budget-- == 0U)
@@ -991,7 +991,7 @@ int ifs_sfs2_deleteextents(
 
 int ifs_sfs2_addblocks(
     struct super_block *sb,
-    u16 blocks,
+    u32 blocks,
     u32 new_space,
     u32 object_node,
     u32 *last_extent)
@@ -3021,7 +3021,7 @@ int ifs_sfs2_addblockstofile(
         u32 new_last = last_extent;
 
         result = ifs_sfs2_addblocks(
-            sb, (u16)found_blocks,
+            sb, found_blocks,
             found_block,
             be32_to_cpu(object->objectnode),
             &new_last);
@@ -3294,7 +3294,7 @@ int ifs_sfs2_truncateblocksinfile(
         if (keep_blocks != 0U) {
             extent->blocks =
                 cpu_to_be32(
-                    (u16)keep_blocks);
+                    keep_blocks);
             extent->next = 0U;
             ifs_sfs2_bstore(sb, extent_bh);
             ifs_sfs2_brelse(extent_bh);
