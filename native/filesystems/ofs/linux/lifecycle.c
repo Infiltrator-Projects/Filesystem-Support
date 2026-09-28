@@ -591,7 +591,10 @@ static int ifs_ofs_fill_super_config(
     memcpy(signature, boot_bh->b_data, sizeof(signature));
     brelse(boot_bh);
     boot_bh = NULL;
-    dostype = be32_to_cpu(*(__be32 *)signature);
+    dostype = ((u32)signature[0] << 24) |
+              ((u32)signature[1] << 16) |
+              ((u32)signature[2] << 8) |
+              (u32)signature[3];
 
     result = ifs_ofs_apply_format_identity(sb, dostype);
     if (result != 0)
