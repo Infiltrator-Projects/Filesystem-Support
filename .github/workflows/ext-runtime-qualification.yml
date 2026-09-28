@@ -16,7 +16,7 @@ on:
 concurrency:
   # EXT qualification is isolated by tested commit so unrelated filesystem
   # work cannot cancel a rewrite chunk that is already being proved.
-  group: filesystem-support-ext-runtime-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  group: filesystem-support-ext-runtime-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -43,8 +43,17 @@ jobs:
           fi
 
           subject=$(git log -1 --format=%s)
-          if [[ "$subject" == Release\ * ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
+
+          # Ordinary EXT rewrite chunks are qualified directly by the push
+          # trigger.  The build-completion trigger is retained only so a
+          # Release commit is forced through runtime qualification even when
+          # the release commit itself changes no EXT source.
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            if [[ "$subject" == Release\ * ]]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
 
