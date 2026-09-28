@@ -3,6 +3,7 @@
 
 #if defined(__KERNEL__)
 #include <linux/types.h>
+typedef u8 ifs_sfs2_u8;
 typedef u16 ifs_sfs2_u16;
 typedef u32 ifs_sfs2_u32;
 typedef u64 ifs_sfs2_u64;
@@ -10,6 +11,7 @@ typedef s32 ifs_sfs2_i32;
 typedef s64 ifs_sfs2_i64;
 #else
 #include <stdint.h>
+typedef uint8_t ifs_sfs2_u8;
 typedef uint16_t ifs_sfs2_u16;
 typedef uint32_t ifs_sfs2_u32;
 typedef uint64_t ifs_sfs2_u64;
