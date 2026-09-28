@@ -27,6 +27,8 @@
 #define IFS_PFS3_SECTOR_SIZE 512U
 #define IFS_PFS3_ROOT_SECTOR 2U
 #define IFS_PFS3_INDEX_ID 0x4942U
+#define IFS_PFS3_SUPER_ID 0x5342U
+#define IFS_PFS3_MAX_SUPER_INDEX 16U
 #define IFS_PFS3_ROOT_ANODE 5U
 #define IFS_PFS3_FIRST_USER_ANODE 6U
 #define IFS_PFS3_ST_FILE (-3)
@@ -44,6 +46,7 @@ struct ifs_pfs3_sb_info {
     struct mutex lock;
     IfsPfs3RootRecord root;
     u32 index_blocks[IFS_PFS3_MAX_DIRECT_INDEX];
+    u32 superindex_blocks[IFS_PFS3_MAX_SUPER_INDEX];
     u16 filename_size;
     u32 sectors_per_reserved;
 };
@@ -139,6 +142,60 @@ static int pfs3_read_reserved(struct super_block *sb, u32 sector, u8 *out)
     return 0;
 }
 
+static int pfs3_index_block_sector(struct super_block *sb,
+                                   u32 index_number,
+                                   u32 index_per_block,
+                                   u32 *sector_out)
+{
+    struct ifs_pfs3_sb_info *sbi = IFS_PFS3_SB(sb);
+
+    if (!sector_out || index_per_block == 0U)
+        return -EINVAL;
+
+    if ((sbi->root.options & IFS_PFS3_MODE_SUPERINDEX) == 0U) {
+        if (index_number >= IFS_PFS3_MAX_DIRECT_INDEX ||
+            sbi->index_blocks[index_number] == 0U)
+            return -ENOENT;
+        *sector_out = sbi->index_blocks[index_number];
+        return 0;
+    }
+
+    {
+        const u32 super_number = index_number / index_per_block;
+        const u32 super_offset = index_number % index_per_block;
+        u8 *super_block;
+        u32 sector;
+        int rc;
+
+        if (super_number >= IFS_PFS3_MAX_SUPER_INDEX ||
+            sbi->superindex_blocks[super_number] == 0U)
+            return -ENOENT;
+
+        super_block = kmalloc(sbi->root.reserved_block_size, GFP_KERNEL);
+        if (!super_block)
+            return -ENOMEM;
+
+        rc = pfs3_read_reserved(
+            sb, sbi->superindex_blocks[super_number], super_block);
+        if (rc == 0 &&
+            (pfs3_be16(super_block) != IFS_PFS3_SUPER_ID ||
+             pfs3_be32(super_block + 8U) != super_number))
+            rc = -EUCLEAN;
+
+        if (rc == 0) {
+            sector = pfs3_be32(
+                super_block + IFS_PFS3_INDEX_HEADER + super_offset * 4U);
+            if (sector == 0U || !pfs3_reserved_pointer_valid(sb, sector))
+                rc = sector == 0U ? -ENOENT : -EUCLEAN;
+            else
+                *sector_out = sector;
+        }
+
+        kfree(super_block);
+        return rc;
+    }
+}
+
 static int pfs3_read_anode(struct super_block *sb, u32 number,
                            IfsPfs3AnodeRecord *record)
 {
@@ -154,14 +211,13 @@ static int pfs3_read_anode(struct super_block *sb, u32 number,
     const u32 index_offset = sequence % index_per_block;
     u8 *index_block;
     u8 *anode_block;
+    u32 index_block_sector;
     u32 anode_block_sector;
     size_t anode_offset;
     int rc;
 
     if (number == 0U || nodes_per_block == 0U || index_per_block == 0U ||
-        offset >= nodes_per_block ||
-        index_sequence >= IFS_PFS3_MAX_DIRECT_INDEX ||
-        sbi->index_blocks[index_sequence] == 0U)
+        offset >= nodes_per_block)
         return -EUCLEAN;
 
     index_block = kmalloc(sbi->root.reserved_block_size, GFP_KERNEL);
@@ -171,7 +227,12 @@ static int pfs3_read_anode(struct super_block *sb, u32 number,
         goto out;
     }
 
-    rc = pfs3_read_reserved(sb, sbi->index_blocks[index_sequence], index_block);
+    rc = pfs3_index_block_sector(
+        sb, index_sequence, index_per_block, &index_block_sector);
+    if (rc)
+        goto out;
+
+    rc = pfs3_read_reserved(sb, index_block_sector, index_block);
     if (rc)
         goto out;
     if (pfs3_be16(index_block) != IFS_PFS3_INDEX_ID ||
@@ -711,15 +772,15 @@ static int pfs3_load_root(struct super_block *sb)
         goto out;
     }
 
-    if (sbi->root.disk_type != IFS_PFS3_DISK_PFS1 ||
+    if (ifs_pfs3_classify_disk_type(sbi->root.disk_type) ==
+            IFS_PFS3_FORMAT_INVALID ||
         (sbi->root.options & (IFS_PFS3_MODE_HARDDISK |
                               IFS_PFS3_MODE_SPLITTED_ANODES |
                               IFS_PFS3_MODE_SIZEFIELD)) !=
             (IFS_PFS3_MODE_HARDDISK |
              IFS_PFS3_MODE_SPLITTED_ANODES |
              IFS_PFS3_MODE_SIZEFIELD) ||
-        (sbi->root.options &
-         (IFS_PFS3_MODE_SUPERINDEX | IFS_PFS3_MODE_LARGEFILE)) != 0U) {
+        (sbi->root.options & IFS_PFS3_MODE_LARGEFILE) != 0U) {
         rc = -EOPNOTSUPP;
         goto out;
     }
@@ -766,6 +827,27 @@ static int pfs3_load_root(struct super_block *sb)
             rc = -EUCLEAN;
             goto out;
         }
+
+        if ((sbi->root.options & IFS_PFS3_MODE_SUPERINDEX) != 0U) {
+            if (sbi->root.reserved_block_size <
+                64U + IFS_PFS3_MAX_SUPER_INDEX * 4U) {
+                rc = -EUCLEAN;
+                goto out;
+            }
+            for (i = 0U; i < IFS_PFS3_MAX_SUPER_INDEX; ++i) {
+                sbi->superindex_blocks[i] =
+                    pfs3_be32(extension + 64U + i * 4U);
+                if (sbi->superindex_blocks[i] != 0U &&
+                    !pfs3_reserved_pointer_valid(
+                        sb, sbi->superindex_blocks[i])) {
+                    rc = -EUCLEAN;
+                    goto out;
+                }
+            }
+        }
+    } else if ((sbi->root.options & IFS_PFS3_MODE_SUPERINDEX) != 0U) {
+        rc = -EUCLEAN;
+        goto out;
     }
 
     rc = 0;
