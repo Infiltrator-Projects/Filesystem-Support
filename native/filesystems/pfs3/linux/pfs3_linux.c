@@ -65,6 +65,7 @@ struct ifs_pfs3_dir_entry {
     u16 minute;
     u16 tick;
     u8 protection;
+    u32 link_object;
     u8 name_length;
     u8 name[IFS_PFS3_MAX_FILENAME_SIZE + 1U];
 };
@@ -531,6 +532,34 @@ static int pfs3_walk_directory(struct super_block *sb, u32 first_anode,
                 entry.minute = decoded.creation_minute;
                 entry.tick = decoded.creation_tick;
                 entry.protection = decoded.protection;
+                if (entry.type == IFS_PFS3_ST_LINKFILE ||
+                    entry.type == IFS_PFS3_ST_LINKDIR) {
+                    u16 link_high;
+                    u16 link_low;
+
+                    if ((sbi->root.options & IFS_PFS3_MODE_DIR_EXTENSION) == 0U) {
+                        rc = -EUCLEAN;
+                        goto out;
+                    }
+                    rc = ifs_pfs3_directory_extra_word(
+                        block + offset,
+                        sbi->root.reserved_block_size - offset,
+                        IFS_PFS3_EXTRA_LINK_HIGH_WORD, &link_high);
+                    if (rc != 0)
+                        goto out;
+                    rc = ifs_pfs3_directory_extra_word(
+                        block + offset,
+                        sbi->root.reserved_block_size - offset,
+                        IFS_PFS3_EXTRA_LINK_LOW_WORD, &link_low);
+                    if (rc != 0)
+                        goto out;
+                    entry.link_object =
+                        ((u32)link_high << 16) | (u32)link_low;
+                    if (entry.link_object < IFS_PFS3_FIRST_USER_ANODE) {
+                        rc = -EUCLEAN;
+                        goto out;
+                    }
+                }
                 entry.name_length = decoded.name_length;
                 memcpy(entry.name,
                        block + offset + IFS_PFS3_DIRENTRY_NAME_OFFSET,
