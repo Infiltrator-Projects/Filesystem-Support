@@ -288,7 +288,7 @@ static const struct address_space_operations pfs3_aops = {
 static const struct file_operations pfs3_file_ops = {
     .llseek = generic_file_llseek,
     .read_iter = generic_file_read_iter,
-    .mmap = generic_file_readonly_mmap,
+    .mmap = generic_file_mmap,
     .splice_read = filemap_splice_read,
 };
 
@@ -548,9 +548,12 @@ static int pfs3_iterate(struct file *file, struct dir_context *ctx)
      * Directory records do not carry a stable ordinal cookie.  Restarting a
      * full scan is safe; skip already-emitted records according to ctx->pos.
      */
-    return pfs3_walk_directory(
-        inode->i_sb, IFS_PFS3_I(inode)->first_anode,
-        pfs3_readdir_visit, &walk);
+    {
+        const int rc = pfs3_walk_directory(
+            inode->i_sb, IFS_PFS3_I(inode)->first_anode,
+            pfs3_readdir_visit, &walk);
+        return rc < 0 ? rc : 0;
+    }
 }
 
 static const struct file_operations pfs3_dir_ops = {
@@ -767,13 +770,12 @@ out:
     return rc;
 }
 
-static int pfs3_fill_super(struct super_block *sb, void *data, int silent)
+static int pfs3_fill_super_data(struct super_block *sb, int silent)
 {
     struct ifs_pfs3_sb_info *sbi;
     struct inode *root;
     int rc;
 
-    (void)data;
     (void)silent;
 
     sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
@@ -808,8 +810,15 @@ fail:
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 0, 0)
+static int pfs3_fill_super(struct super_block *sb, struct fs_context *fc)
+{
+    return pfs3_fill_super_data(
+        sb, (fc->sb_flags & SB_SILENT) != 0);
+}
+
 static int pfs3_get_tree(struct fs_context *fc)
 {
+    fc->sb_flags |= SB_RDONLY;
     return get_tree_bdev(fc, pfs3_fill_super);
 }
 
@@ -819,14 +828,22 @@ static const struct fs_context_operations pfs3_context_ops = {
 
 static int pfs3_init_fs_context(struct fs_context *fc)
 {
+    fc->sb_flags |= SB_RDONLY;
     fc->ops = &pfs3_context_ops;
     return 0;
 }
 #else
+static int pfs3_fill_super_legacy(struct super_block *sb, void *data, int silent)
+{
+    (void)data;
+    return pfs3_fill_super_data(sb, silent);
+}
+
 static struct dentry *pfs3_mount(struct file_system_type *type, int flags,
                                  const char *dev_name, void *data)
 {
-    return mount_bdev(type, flags | SB_RDONLY, dev_name, data, pfs3_fill_super);
+    return mount_bdev(
+        type, flags | SB_RDONLY, dev_name, data, pfs3_fill_super_legacy);
 }
 #endif
 
