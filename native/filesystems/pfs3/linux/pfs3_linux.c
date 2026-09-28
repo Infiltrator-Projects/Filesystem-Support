@@ -205,10 +205,10 @@ static int pfs3_read_anode(struct super_block *sb, u32 number,
         IFS_PFS3_ANODE_BYTES;
     const u32 index_per_block =
         (sbi->root.reserved_block_size - IFS_PFS3_INDEX_HEADER) / 4U;
-    const u32 sequence = number >> 16;
-    const u32 offset = number & 0xffffU;
-    const u32 index_sequence = sequence / index_per_block;
-    const u32 index_offset = sequence % index_per_block;
+    u32 sequence;
+    u32 offset;
+    u32 index_sequence;
+    u32 index_offset;
     u8 *index_block;
     u8 *anode_block;
     u32 index_block_sector;
@@ -216,9 +216,22 @@ static int pfs3_read_anode(struct super_block *sb, u32 number,
     size_t anode_offset;
     int rc;
 
-    if (number == 0U || nodes_per_block == 0U || index_per_block == 0U ||
-        offset >= nodes_per_block)
+    if (number == 0U || nodes_per_block == 0U || index_per_block == 0U)
         return -EUCLEAN;
+
+    if ((sbi->root.options & IFS_PFS3_MODE_SPLITTED_ANODES) != 0U) {
+        sequence = number >> 16;
+        offset = number & 0xffffU;
+    } else {
+        sequence = number / nodes_per_block;
+        offset = number % nodes_per_block;
+    }
+
+    if (offset >= nodes_per_block)
+        return -EUCLEAN;
+
+    index_sequence = sequence / index_per_block;
+    index_offset = sequence % index_per_block;
 
     index_block = kmalloc(sbi->root.reserved_block_size, GFP_KERNEL);
     anode_block = kmalloc(sbi->root.reserved_block_size, GFP_KERNEL);
