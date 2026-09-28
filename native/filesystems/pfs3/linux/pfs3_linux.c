@@ -476,18 +476,21 @@ static int pfs3_walk_directory(struct super_block *sb, u32 first_anode,
 
         extent_sector = anode.block_number;
         for (extent_index = 0U; extent_index < anode.cluster_size;
-             extent_index += sbi->sectors_per_reserved) {
+             ++extent_index) {
             IfsPfs3DirBlockView view;
             u32 entry_count = 0U;
             u32 offset = IFS_PFS3_DIRBLOCK_HEADER_BYTES;
+            u64 physical =
+                (u64)extent_sector +
+                (u64)extent_index * sbi->sectors_per_reserved;
 
-            if (extent_index + sbi->sectors_per_reserved >
-                anode.cluster_size) {
+            if (physical > U32_MAX ||
+                !pfs3_reserved_pointer_valid(sb, (u32)physical)) {
                 rc = -EUCLEAN;
                 goto out;
             }
             rc = pfs3_read_reserved(
-                sb, extent_sector + extent_index, block);
+                sb, (u32)physical, block);
             if (rc)
                 goto out;
             if (ifs_pfs3_decode_directory_block(
