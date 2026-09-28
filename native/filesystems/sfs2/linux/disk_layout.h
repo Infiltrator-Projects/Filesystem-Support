@@ -7,7 +7,7 @@
 #define IFS_SFS2_MAKE_ID(a,b,c,d) (((a)&0xff)<<24|((b)&0xff)<<16|((c)&0xff)<<8|((d)&0xff))
 
 /* Amiga SFS block IDs */
-#define IFS_SFS2_ROOTID                 IFS_SFS2_MAKE_ID('S','F','S','\0')
+#define IFS_SFS2_ROOTID                 IFS_SFS2_MAKE_ID('S','F','S',0x02)
 #define IFS_SFS2_OBJECTCONTAINER_ID     IFS_SFS2_MAKE_ID('O','B','J','C')
 #define IFS_SFS2_BNODECONTAINER_ID      IFS_SFS2_MAKE_ID('B','N','D','C')
 #define IFS_SFS2_NODECONTAINER_ID       IFS_SFS2_MAKE_ID('N','D','C',' ')
