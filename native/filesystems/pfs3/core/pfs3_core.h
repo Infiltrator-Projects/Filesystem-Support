@@ -28,6 +28,7 @@ typedef uint32_t ifs_pfs3_u32;
 #define IFS_PFS3_DIRENTRY_BYTES 20U
 #define IFS_PFS3_DIRENTRY_NAME_OFFSET 18U
 #define IFS_PFS3_EXTRA_FIELD_WORDS 11U
+#define IFS_PFS3_EXTRA_FILE_SIZE_HIGH_WORD 10U
 #define IFS_PFS3_DIRBLOCK_ID 0x4442U
 #define IFS_PFS3_DIRBLOCK_HEADER_BYTES 20U
 #define IFS_PFS3_ANODEBLOCK_ID 0x4142U
@@ -183,6 +184,12 @@ IfsPfs3DirEntryStatus ifs_pfs3_decode_directory_entry(
     ifs_pfs3_u32 available_bytes,
     int directory_extensions,
     IfsPfs3DirEntryView *entry);
+
+int ifs_pfs3_directory_extra_word(
+    const unsigned char *bytes,
+    ifs_pfs3_u32 available_bytes,
+    ifs_pfs3_u16 field_index,
+    ifs_pfs3_u16 *value);
 
 int ifs_pfs3_decode_extension(
     const unsigned char *bytes,
