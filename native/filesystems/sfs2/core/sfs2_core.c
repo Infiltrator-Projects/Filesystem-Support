@@ -110,6 +110,23 @@ int ifs_sfs2_validate_root_record(const IfsSfs2RootRecord *const root)
         IFS_SFS2_ROOT_OK ? 0 : -1;
 }
 
+IfsSfs2RootStatus ifs_sfs2_validate_root_probe(
+    const ifs_sfs2_u32 id,
+    const ifs_sfs2_u32 version,
+    const ifs_sfs2_u32 block_size,
+    const ifs_sfs2_u32 total_blocks)
+{
+    if (id != IFS_SFS2_ROOT_ID)
+        return IFS_SFS2_ROOT_BAD_ID;
+    if (version != IFS_SFS2_STRUCTURE_VERSION)
+        return IFS_SFS2_ROOT_BAD_VERSION;
+    if (block_size < 512U || !ifs_sfs2_is_power_of_two(block_size))
+        return IFS_SFS2_ROOT_INVALID_BLOCK_SIZE;
+    if (total_blocks < 2U)
+        return IFS_SFS2_ROOT_INVALID_TOTAL_BLOCKS;
+    return IFS_SFS2_ROOT_OK;
+}
+
 IfsSfs2RootStatus ifs_sfs2_validate_root_layout(
     const ifs_sfs2_u32 id,
     const ifs_sfs2_u32 version,
