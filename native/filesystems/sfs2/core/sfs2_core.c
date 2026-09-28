@@ -314,3 +314,304 @@ int ifs_sfs2_validate_extent(
         return -1;
     return 0;
 }
+
+
+/* Portable SFS-family mechanics specialised for the SFS\\2 layout. */
+IfsSfs2NameStatus ifs_sfs2_validate_name(
+    const ifs_sfs2_u8 *const name,
+    const ifs_sfs2_u32 length)
+{
+    ifs_sfs2_u32 index;
+
+    if (name == 0 && length != 0U)
+        return IFS_SFS2_NAME_INVALID_CHARACTER;
+    if (length > IFS_SFS2_MAX_FILENAME)
+        return IFS_SFS2_NAME_TOO_LONG;
+
+    for (index = 0U; index < length; ++index) {
+        const ifs_sfs2_u8 character = name[index];
+
+        if (character < 0x20U || character == (ifs_sfs2_u8)':' ||
+            (character > 0x7eU && character < 0xa0U))
+            return IFS_SFS2_NAME_INVALID_CHARACTER;
+    }
+
+    return IFS_SFS2_NAME_OK;
+}
+
+ifs_sfs2_u8 ifs_sfs2_fold_character(const ifs_sfs2_u8 character)
+{
+    if ((character >= (ifs_sfs2_u8)'a' &&
+         character <= (ifs_sfs2_u8)'z') ||
+        (character >= 0xe0U && character <= 0xfeU &&
+         character != 0xf7U))
+        return (ifs_sfs2_u8)(character - 0x20U);
+
+    return character;
+}
+
+ifs_sfs2_u8 ifs_sfs2_lower_character(const ifs_sfs2_u8 character)
+{
+    if ((character >= (ifs_sfs2_u8)'A' &&
+         character <= (ifs_sfs2_u8)'Z') ||
+        (character >= 0xc0U && character <= 0xdeU &&
+         character != 0xd7U))
+        return (ifs_sfs2_u8)(character + 0x20U);
+
+    return character;
+}
+
+ifs_sfs2_u16 ifs_sfs2_component_hash(
+    const ifs_sfs2_u8 *const name,
+    const int case_sensitive)
+{
+    ifs_sfs2_u16 hash = 0U;
+    ifs_sfs2_u16 length = 0U;
+    const ifs_sfs2_u8 *cursor = name;
+
+    if (name == 0)
+        return 0U;
+
+    while (cursor[length] != 0U &&
+           cursor[length] != (ifs_sfs2_u8)'/' &&
+           length < IFS_SFS2_MAX_FILENAME)
+        length++;
+
+    hash = length;
+    while (*cursor != 0U && *cursor != (ifs_sfs2_u8)'/') {
+        const ifs_sfs2_u8 character =
+            case_sensitive != 0 ? *cursor : ifs_sfs2_fold_character(*cursor);
+
+        hash = (ifs_sfs2_u16)(hash * 13U + character);
+        cursor++;
+    }
+
+    return hash;
+}
+
+
+int ifs_sfs2_has_allocation_headroom(
+    const ifs_sfs2_u32 free_blocks,
+    const ifs_sfs2_u32 requested_blocks,
+    const ifs_sfs2_u32 always_free_blocks)
+{
+    if (free_blocks <= always_free_blocks)
+        return 0;
+
+    return requested_blocks <= free_blocks - always_free_blocks;
+}
+
+int ifs_sfs2_adminspace_block_mask(
+    const ifs_sfs2_u32 area_start,
+    const ifs_sfs2_u32 block,
+    ifs_sfs2_u32 *const mask)
+{
+    ifs_sfs2_u32 offset;
+
+    if (mask == 0 || area_start == 0U || block < area_start)
+        return -1;
+
+    offset = block - area_start;
+    if (offset >= 32U)
+        return -1;
+
+    *mask = 1U << (31U - offset);
+    return 0;
+}
+
+int ifs_sfs2_bitmap_word_find_set(
+    const ifs_sfs2_u32 word,
+    const ifs_sfs2_u32 start_bit)
+{
+    ifs_sfs2_u32 bit;
+
+    if (start_bit >= 32U)
+        return -1;
+
+    for (bit = start_bit; bit < 32U; ++bit) {
+        if ((word & (1U << (31U - bit))) != 0U)
+            return (int)bit;
+    }
+
+    return -1;
+}
+
+int ifs_sfs2_bitmap_word_find_zero(
+    const ifs_sfs2_u32 word,
+    const ifs_sfs2_u32 start_bit)
+{
+    return ifs_sfs2_bitmap_word_find_set(~word, start_bit);
+}
+
+ifs_sfs2_u32 ifs_sfs2_bitmap_word_set(
+    ifs_sfs2_u32 word,
+    const ifs_sfs2_u32 start_bit,
+    ifs_sfs2_u32 bit_count)
+{
+    ifs_sfs2_u32 bit;
+
+    if (start_bit >= 32U || bit_count == 0U)
+        return word;
+    if (bit_count > 32U - start_bit)
+        bit_count = 32U - start_bit;
+
+    for (bit = 0U; bit < bit_count; ++bit)
+        word |= 1U << (31U - start_bit - bit);
+
+    return word;
+}
+
+ifs_sfs2_u32 ifs_sfs2_bitmap_word_clear(
+    ifs_sfs2_u32 word,
+    const ifs_sfs2_u32 start_bit,
+    ifs_sfs2_u32 bit_count)
+{
+    ifs_sfs2_u32 bit;
+
+    if (start_bit >= 32U || bit_count == 0U)
+        return word;
+    if (bit_count > 32U - start_bit)
+        bit_count = 32U - start_bit;
+
+    for (bit = 0U; bit < bit_count; ++bit)
+        word &= ~(1U << (31U - start_bit - bit));
+
+    return word;
+}
+
+int ifs_sfs2_free_count_after_allocate(
+    const ifs_sfs2_u32 current_free,
+    const ifs_sfs2_u32 allocated_blocks,
+    ifs_sfs2_u32 *const new_free)
+{
+    if (new_free == 0 || allocated_blocks > current_free)
+        return -1;
+
+    *new_free = current_free - allocated_blocks;
+    return 0;
+}
+
+int ifs_sfs2_free_count_after_release(
+    const ifs_sfs2_u32 current_free,
+    const ifs_sfs2_u32 released_blocks,
+    const ifs_sfs2_u32 total_blocks,
+    ifs_sfs2_u32 *const new_free)
+{
+    if (new_free == 0 || current_free > total_blocks ||
+        released_blocks > total_blocks - current_free)
+        return -1;
+
+    *new_free = current_free + released_blocks;
+    return 0;
+}
+
+
+int ifs_sfs2_node_leaf_slot(
+    const ifs_sfs2_u32 block_size,
+    const ifs_sfs2_u32 base_node,
+    const ifs_sfs2_u32 target_node,
+    ifs_sfs2_u32 *const slot)
+{
+    ifs_sfs2_u32 capacity;
+    ifs_sfs2_u32 offset;
+
+    if (slot == 0 || block_size <= IFS_SFS2_NODE_CONTAINER_FIXED_SIZE ||
+        target_node < base_node)
+        return -1;
+
+    capacity =
+        (block_size - IFS_SFS2_NODE_CONTAINER_FIXED_SIZE) /
+        IFS_SFS2_OBJECT_NODE_SIZE;
+    offset = target_node - base_node;
+    if (offset >= capacity)
+        return -1;
+
+    *slot = offset;
+    return 0;
+}
+
+int ifs_sfs2_node_index_slot(
+    const ifs_sfs2_u32 block_size,
+    const ifs_sfs2_u32 base_node,
+    const ifs_sfs2_u32 nodes_per_entry,
+    const ifs_sfs2_u32 target_node,
+    ifs_sfs2_u32 *const slot)
+{
+    ifs_sfs2_u32 capacity;
+    ifs_sfs2_u32 offset;
+    ifs_sfs2_u32 index;
+
+    if (slot == 0 || block_size <= IFS_SFS2_NODE_CONTAINER_FIXED_SIZE ||
+        nodes_per_entry <= 1U || target_node < base_node)
+        return -1;
+
+    capacity =
+        (block_size - IFS_SFS2_NODE_CONTAINER_FIXED_SIZE) /
+        IFS_SFS2_NODE_INDEX_ENTRY_SIZE;
+    offset = target_node - base_node;
+    index = offset / nodes_per_entry;
+    if (index >= capacity)
+        return -1;
+
+    *slot = index;
+    return 0;
+}
+
+int ifs_sfs2_validate_btree_layout(
+    const ifs_sfs2_u32 block_size,
+    const ifs_sfs2_u32 node_count,
+    const ifs_sfs2_u32 node_size,
+    const int is_leaf,
+    ifs_sfs2_u32 *const capacity)
+{
+    ifs_sfs2_u32 minimum_node_size;
+    ifs_sfs2_u32 available_nodes;
+
+    if (capacity == 0 ||
+        block_size <= IFS_SFS2_BNODE_CONTAINER_FIXED_SIZE ||
+        (is_leaf != 0 && is_leaf != 1) ||
+        node_size == 0U || (node_size & 1U) != 0U)
+        return -1;
+
+    minimum_node_size = is_leaf != 0 ?
+        IFS_SFS2_BTREE_EXTENT_NODE_MIN_SIZE :
+        IFS_SFS2_BTREE_INTERNAL_NODE_MIN_SIZE;
+    if (node_size < minimum_node_size)
+        return -1;
+
+    available_nodes =
+        (block_size - IFS_SFS2_BNODE_CONTAINER_FIXED_SIZE) / node_size;
+    if (available_nodes == 0U || node_count > available_nodes)
+        return -1;
+
+    *capacity = available_nodes;
+    return 0;
+}
+
+
+int ifs_sfs2_adjust_counter(
+    const ifs_sfs2_u32 current_value,
+    const ifs_sfs2_i32 delta,
+    ifs_sfs2_u32 *const result)
+{
+    ifs_sfs2_u64 amount;
+
+    if (result == 0)
+        return -1;
+
+    if (delta < 0) {
+        amount = (ifs_sfs2_u64)(-(int64_t)delta);
+        if (amount > current_value)
+            return -1;
+        *result = current_value - (ifs_sfs2_u32)amount;
+        return 0;
+    }
+
+    amount = (ifs_sfs2_u64)delta;
+    if (amount > 0xffffffffULL - current_value)
+        return -1;
+    *result = current_value + (ifs_sfs2_u32)amount;
+    return 0;
+}
+
+
