@@ -1009,11 +1009,18 @@ jobs:
             native/filesystems/ext4/linux/extents_status.h
             native/filesystems/ext4/linux/ext4_extents.h
             native/filesystems/ext4/linux/xattr.h
+            native/filesystems/ext4/linux/orphan_recovery.c
           )
           for file in "${rewritten[@]}"; do
             test -s "$file"
-            ! grep -Eiq 'SPDX-License-Identifier|Copyright|Remy Card|Linus Torvalds|Stephen Tweedie|Darrick J\. Wong|GPL-2\.0' "$file"
+            ! grep -Eiq 'SPDX-License-Identifier|Remy Card|Linus Torvalds|Stephen Tweedie|Darrick J\. Wong|Theodore Ts.o|Red Hat|Cluster File Systems|Bull S\.A\.|GPL-2\.0' "$file"
+            if grep -Ein 'Copyright' "$file" | grep -Eiv 'Shannon Smith|Infiltrator Projects'; then
+              echo "Unexpected third-party copyright in project-authored EXT4 source: $file" >&2
+              exit 1
+            fi
           done
+          grep -Fq 'Copyright (C) 2026 Shannon Smith' \
+            native/filesystems/ext4/linux/orphan_recovery.c
 
       - name: Enforce permanent EXT3 source layout
         shell: bash
