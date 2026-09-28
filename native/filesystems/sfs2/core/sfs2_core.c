@@ -600,7 +600,7 @@ int ifs_sfs2_adjust_counter(
         return -1;
 
     if (delta < 0) {
-        amount = (ifs_sfs2_u64)(-(int64_t)delta);
+        amount = (ifs_sfs2_u64)(-(ifs_sfs2_i64)delta);
         if (amount > current_value)
             return -1;
         *result = current_value - (ifs_sfs2_u32)amount;
