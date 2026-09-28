@@ -232,7 +232,7 @@ if(UNIX)
         DESTINATION "lib/infiltrator-filesystem-support"
         RENAME native-module-helper)
 
-    foreach(native_fs IN ITEMS ext2 ext3 ext4 ofs ffs sfs)
+    foreach(native_fs IN ITEMS ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3)
         install(DIRECTORY
             "native/filesystems/${native_fs}/core"
             "native/filesystems/${native_fs}/linux"
