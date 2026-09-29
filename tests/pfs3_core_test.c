@@ -128,6 +128,10 @@ int main(void)
         ifs_pfs3_u16 effective = 0U;
 
         raw[0] = 0x45; raw[1] = 0x58;
+        raw[31] = IFS_PFS3_POSTPONED_FREEBLOCKS_KEEP;
+        raw[35] = 7U;
+        raw[39] = 8U;
+        raw[43] = 9U;
         raw[47] = 5U;
         raw[49] = 3U;
         raw[53] = 30U;
@@ -136,6 +140,11 @@ int main(void)
 
         if (ifs_pfs3_decode_extension(raw, sizeof(raw), &extension) != 0)
             return fail("PFS extension decoder failed");
+        if (extension.postponed_operation != IFS_PFS3_POSTPONED_FREEBLOCKS_KEEP ||
+            extension.postponed_argument1 != 7U ||
+            extension.postponed_argument2 != 8U ||
+            extension.postponed_argument3 != 9U)
+            return fail("PFS postponed operation decoded incorrectly");
         if (ifs_pfs3_validate_extension(&extension, 100U, &effective) != 0 ||
             effective != 107U)
             return fail("valid PFS extension rejected");
@@ -148,6 +157,11 @@ int main(void)
         extension.roving_bit = 32U;
         if (ifs_pfs3_validate_extension(&extension, 100U, &effective) == 0)
             return fail("out-of-range PFS bitmap roving bit accepted");
+
+        extension.roving_bit = 0U;
+        extension.postponed_operation = 4U;
+        if (ifs_pfs3_validate_extension(&extension, 100U, &effective) == 0)
+            return fail("unknown PFS postponed operation accepted");
     }
 
 
