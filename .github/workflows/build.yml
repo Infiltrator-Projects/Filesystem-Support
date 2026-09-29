@@ -921,6 +921,16 @@ jobs:
             ! grep -Fq 'reference' "$makefile"
           done
 
+          # Preserve the working ASFS mount-policy behaviour during rewriting:
+          # a valid TRFA forces read-only; clean/legacy media must not require
+          # a TROK block merely to remain writable.
+          for lifecycle in \
+            native/filesystems/sfs/linux/lifecycle.c \
+            native/filesystems/sfs2/linux/lifecycle.c; do
+            grep -Fq 'TRANSACTIONFAILURE_ID' "$lifecycle"
+            ! grep -q 'marker_id == .*TRANSACTIONOK_ID' "$lifecycle"
+          done
+
       - name: Enforce ZFS ownership layout
         shell: bash
         run: |
