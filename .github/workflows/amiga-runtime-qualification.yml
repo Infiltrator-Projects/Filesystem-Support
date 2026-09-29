@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone https://github.com/Infiltrator-Projects/Defragmenter.git /tmp/defragger
-          git -C /tmp/defragger checkout d750767595ee505889a7c6d7aa18f22d0bfbb24b
+          git -C /tmp/defragger checkout c57f94fcc242a77170cb4175835222cab8f5c17c
           git -C /tmp/defragger submodule update --init --recursive
           cmake -S /tmp/defragger/defragger -B /tmp/defrag-build             -G Ninja -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build /tmp/defrag-build --target             linux-defragger-test-media-mkfs-ofs             linux-defragger-test-media-mkfs-ffs             linux-defragger-sfs-native-test             linux-defragger-pfs3-native-test
