@@ -9,6 +9,8 @@
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
+#include <linux/blkdev.h>
+#include <linux/mpage.h>
 #include <linux/pagemap.h>
 #include <linux/slab.h>
 #include <linux/statfs.h>
@@ -299,17 +301,17 @@ static int pfs3_map_file_sector(struct inode *inode, sector_t logical,
                                 sector_t *physical)
 {
     struct super_block *sb = inode->i_sb;
-    u32 current = IFS_PFS3_I(inode)->first_anode;
+    u32 anode_number = IFS_PFS3_I(inode)->first_anode;
     u64 remaining = logical;
     u32 guard = 0U;
 
-    while (current != 0U) {
+    while (anode_number != 0U) {
         IfsPfs3AnodeRecord anode;
         int rc;
 
         if (++guard > IFS_PFS3_MAX_CHAIN)
             return -ELOOP;
-        rc = pfs3_read_anode(sb, current, &anode);
+        rc = pfs3_read_anode(sb, anode_number, &anode);
         if (rc)
             return rc;
 
@@ -325,7 +327,7 @@ static int pfs3_map_file_sector(struct inode *inode, sector_t logical,
             return 0;
         }
         remaining -= anode.cluster_size;
-        current = anode.next_anode;
+        anode_number = anode.next_anode;
     }
     return -EIO;
 }
@@ -438,7 +440,7 @@ static int pfs3_walk_directory(struct super_block *sb, u32 first_anode,
                                pfs3_entry_visitor visitor, void *opaque)
 {
     struct ifs_pfs3_sb_info *sbi = IFS_PFS3_SB(sb);
-    u32 current = first_anode;
+    u32 anode_number = first_anode;
     u32 guard = 0U;
     u8 *block;
     int rc = 0;
@@ -447,7 +449,7 @@ static int pfs3_walk_directory(struct super_block *sb, u32 first_anode,
     if (!block)
         return -ENOMEM;
 
-    while (current != 0U) {
+    while (anode_number != 0U) {
         IfsPfs3AnodeRecord anode;
         u32 extent_sector;
         u32 extent_index;
@@ -456,7 +458,7 @@ static int pfs3_walk_directory(struct super_block *sb, u32 first_anode,
             rc = -ELOOP;
             break;
         }
-        rc = pfs3_read_anode(sb, current, &anode);
+        rc = pfs3_read_anode(sb, anode_number, &anode);
         if (rc)
             break;
         if (anode.cluster_size == 0U ||
@@ -577,7 +579,7 @@ static int pfs3_walk_directory(struct super_block *sb, u32 first_anode,
                 offset += decoded.record_bytes;
             }
         }
-        current = anode.next_anode;
+        anode_number = anode.next_anode;
     }
 out:
     kfree(block);
