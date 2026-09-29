@@ -1,6 +1,6 @@
 # Amiga filesystem architecture
 
-Filesystem Support maintains five independent canonical filesystem
+Filesystem Support maintains five independent canonical Amiga filesystem
 implementations:
 
 - OFS
@@ -13,74 +13,63 @@ Historical relationships do not make their on-disk semantics interchangeable.
 
 ## Permanent layout
 
-```text
-native/filesystems/ofs/
-  core/
-  linux/
-  windows/
+Each filesystem owns its own `core/` and host adapters.  The Linux result is
+one independently deployable module per filesystem: `ofs.ko`, `ffs.ko`,
+`sfs.ko`, `sfs2.ko` and `pfs3.ko`.
 
-native/filesystems/ffs/
-  core/
-  linux/
-  windows/
+OFS and FFS have independent project-owned cores and Linux VFS adapters.
+SFS and SFS2 have independent project-owned cores and Linux VFS adapters with
+their respective format widths and identities.  PFS3 has a project-owned
+canonical core plus a native Linux adapter; the current PFS3 Linux mutation
+surface remains intentionally narrower than its read surface and must not be
+described as full read/write parity until runtime qualification proves it.
 
-native/filesystems/sfs/
-  core/
-  linux/
-  windows/
+## Incremental rewrite rule
 
-native/filesystems/sfs2/
-  core/
-  linux/
-  windows/
+A working/reference implementation is evidence for a rewrite, not shipping
+source.  It must remain available until every replacement responsibility has
+equivalent behavioural evidence.  Rewriting a source unit never authorises
+removing a capability merely because the replacement compiles.
 
-native/filesystems/pfs3/
-  core/
-  linux/
-  windows/
-```
+The repository therefore retains non-shipping reference baselines for the
+active Amiga rewrite work:
 
-Each `core/` owns that filesystem's format interpretation, allocation and
-mapping, directory and metadata rules, validation, mutation and recovery
-semantics. Linux and Windows are host adapters around that filesystem's own
-core.
+- the historical ASFS Linux SFS source used to establish Linux VFS behaviour;
+- the SFS2 format/tool references used to establish the SFS2-specific layout;
+- the PFS3aio source used to establish PFS3 on-disk and recovery semantics.
+
+Reference source is never linked into the project modules. CI enforces that
+active source contains project-owned implementations and that the module
+Makefiles/CMake graph do not consume `reference/`.
+
+OFS/FFS are continuously checked against the independently maintained Linux
+AFFS behaviour and AmigaDOS disk-format invariants; the project-owned OFS and
+FFS implementations remain separate rather than sharing one semantic engine.
+
+## Qualification rule
+
+Compilation is necessary but is not filesystem qualification.
+
+For every Amiga filesystem, qualification requires as applicable:
+
+1. build the module against supported kernel APIs;
+2. load the project module with the host's competing driver disabled;
+3. mount independently-created genuine media;
+4. traverse directories and verify known payload bytes;
+5. exercise create/write/grow/truncate/link/symlink/rename/unlink/rmdir where
+   the implementation claims those operations;
+6. unmount and remount;
+7. verify the resulting image with an independent implementation or checker;
+8. exercise malformed-media rejection;
+9. for transactional filesystems, exercise interrupted-update recovery before
+   writable support is called qualified.
+
+A green compile-only CI job must never be used as evidence that a filesystem
+works on media.
 
 ## Independence rule
 
-OFS, FFS, SFS, SFS2 and PFS3 must remain implementation-independent.
-
-Code that implements filesystem semantics is not shared between filesystem
-directories, even when two formats currently use identical arithmetic or
-layout rules. If OFS and FFS need the same checksum, bitmap or name operation,
-each filesystem owns its own implementation in its own core. This prevents a
-future change to one filesystem from silently changing another.
-
-Only genuinely filesystem-neutral infrastructure may be shared through
-`native/core/` or Infiltratr Common. Filesystem-specific parsing, allocation,
-mapping, namespace, metadata, recovery and format helpers stay with the owning
-filesystem.
-
-## Current ownership state
-
-OFS and FFS now own separate canonical cores and permanent responsibility-cut
-Linux adapters. Their on-disk layout contracts live independently in
-`core/ofs_disk_layout.h` and `core/ffs_disk_layout.h`; each Linux tree is
-therefore reduced to `core_bridge.c`, `storage.c`, `namespace.c`,
-`lifecycle.c` and `linux_adapter.h`. Neither filesystem depends on a shared
-Amiga filesystem layer and neither retains the migration filenames `affs.h`
-or `amigaffs.h`.
-
-SFS now uses the same project layout principle: `core_bridge.c`,
-`allocation.c`, `mapping.c`, `io.c`, `namespace.c`, `lifecycle.c`,
-`linux_adapter.h` and `disk_layout.h`. The old ASFS file boundaries and
-historical Changes file are not active source.
-
-SFS2 and PFS3 currently expose project-owned canonical format cores. Their host
-adapters remain separate work and must bind directly to those cores rather than
-introducing alternate implementations.
-
-## Binary rule
-
-The intended Linux result is one independently deployable module per
-filesystem: `ofs.ko`, `ffs.ko`, `sfs.ko`, `sfs2.ko`, and `pfs3.ko`
-as each implementation reaches qualification.
+OFS, FFS, SFS, SFS2 and PFS3 remain implementation-independent.  Filesystem
+semantics are not shared between their directories merely because arithmetic
+or structures look similar. Only genuinely filesystem-neutral infrastructure
+may live in `native/core/` or Infiltratr Common.
