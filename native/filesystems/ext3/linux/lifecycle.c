@@ -311,34 +311,6 @@ void ext3_warning(struct super_block *sb, const char *function,
 
 
 /**
- * ext3_update_dynamic_rev - Updates filesystem state under the ordering and persistence rules of the surrounding subsystem.
- *
- * Correctness contract: preserve the locking, lifetime, range and
- * transaction preconditions established by the surrounding EXT3
- * subsystem. Failure handling must follow that subsystem's established
- * rollback, abort or retry policy.
- */
-void ext3_update_dynamic_rev(struct super_block *sb)
-{
-	struct ext3_super_block *es = EXT3_SB(sb)->s_es;
-
-	if (le32_to_cpu(es->s_rev_level) > EXT3_GOOD_OLD_REV)
-		return;
-
-	ext3_msg(sb, KERN_WARNING,
-		"warning: updating to rev %d because of "
-		"new feature flag, running e2fsck is recommended",
-		EXT3_DYNAMIC_REV);
-
-	es->s_first_ino = cpu_to_le32(EXT3_GOOD_OLD_FIRST_INO);
-	es->s_inode_size = cpu_to_le16(EXT3_GOOD_OLD_INODE_SIZE);
-	es->s_rev_level = cpu_to_le32(EXT3_DYNAMIC_REV);
-
-
-}
-
-
-/**
  * ext3_blkdev_get - Retrieves or materialises filesystem state for validation or higher-level processing without changing ownership by default.
  *
  * Correctness contract: preserve the locking, lifetime, range and

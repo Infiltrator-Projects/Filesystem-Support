@@ -1071,6 +1071,7 @@ jobs:
           journal_transactions.c
           lifecycle.c
           linux_adapter.h
+          revision_policy.c
           namespace_mutation.c
           EOF
           sed -i 's/^          //' /tmp/ext3-linux.expected
@@ -1096,6 +1097,7 @@ jobs:
             native/filesystems/ext3/linux/file_io.c
             native/filesystems/ext3/linux/journal_durability.c
             native/filesystems/ext3/linux/journal_frontend.c
+            native/filesystems/ext3/linux/revision_policy.c
             native/filesystems/ext3/linux/core_bridge.c
           )
           for file in "${rewritten[@]}"; do
@@ -1106,6 +1108,10 @@ jobs:
               exit 1
             fi
           done
+          grep -Fq 'Copyright (C) 2026 Shannon Smith' \
+            native/filesystems/ext3/linux/journal_frontend.c
+          grep -Fq 'Copyright (C) 2026 Shannon Smith' \
+            native/filesystems/ext3/linux/revision_policy.c
 
       - name: Preserve provenance on inherited EXT3 units
         shell: bash

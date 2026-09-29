@@ -102,6 +102,7 @@ implementation-ownership boundary are:
 - `native/filesystems/ext3/linux/file_io.c`
 - `native/filesystems/ext3/linux/journal_durability.c`
 - `native/filesystems/ext3/linux/journal_frontend.c`
+- `native/filesystems/ext3/linux/revision_policy.c`
 
 `allocation.c` owns the project-authored block/inode allocation and online
 growth adapter. `journal_durability.c` owns the project-authored checkpoint,
@@ -121,6 +122,10 @@ and therefore remain outside the project-authored set:
 - `native/filesystems/ext3/linux/journal_transactions.c`
 - `native/filesystems/ext3/linux/linux_adapter.h`
 - `native/filesystems/ext3/linux/journal_internal.h`
+
+`revision_policy.c` is an independently written bounded replacement for the
+original-revision to dynamic-revision transition. It owns only the three
+revision-dependent superblock defaults and the transition diagnostic.
 
 Historical attribution remains intact in those units until the implementation
 body itself is replaced. EXT3 remains one `ext3.ko`; old filenames such as
