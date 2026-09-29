@@ -887,24 +887,38 @@ jobs:
           done
           ! grep -R -Eq 'IFS_FFS_IS_OFS|SF_OFS|AFFS_MOUNT_SF_OFS|affs_aops_ofs|ifs_ffs_ofs_|AFFS_DATA_HEAD|AFFS_DATA\(' native/filesystems/ffs/linux
 
-      - name: Reject external Amiga provenance in active sources
+      - name: Keep Amiga reference baselines outside active sources
         shell: bash
         run: |
           set -euo pipefail
-          active=(native/filesystems/ofs native/filesystems/ffs native/filesystems/sfs)
-          ! grep -R -Eiq             'Copyright \(C\).*(Marek|John Hendrikx|Ray Burr|Hans-Joachim|Linus|Janos|Volker|Paal|Gertjan)|linux/fs/affs|twojstaryzdomu/asfs|pfs3aio|Aaru.Filesystems|AmiPart'             "${active[@]}"
-          test ! -e native/filesystems/sfs/reference
-          test ! -e native/filesystems/sfs2/reference
-          test ! -e native/filesystems/pfs3/reference
-          for legacy in \
-            native/filesystems/ofs/linux/affs.h \
-            native/filesystems/ofs/linux/amigaffs.h \
-            native/filesystems/ffs/linux/affs.h \
-            native/filesystems/ffs/linux/amigaffs.h \
-            native/filesystems/sfs/linux/asfs_fs.h \
-            native/filesystems/sfs/linux/amigasfs.h \
-            native/filesystems/sfs/linux/bitfuncs.h; do
-            test ! -e "$legacy"
+          active=(
+            native/filesystems/ofs/core native/filesystems/ofs/linux
+            native/filesystems/ffs/core native/filesystems/ffs/linux
+            native/filesystems/sfs/core native/filesystems/sfs/linux
+            native/filesystems/sfs2/core native/filesystems/sfs2/linux
+            native/filesystems/pfs3/core native/filesystems/pfs3/linux
+          )
+          ! grep -R -Eiq --exclude-dir=reference \
+            'Copyright \\(C\\).*(Marek|John Hendrikx|Ray Burr|Hans-Joachim|Linus|Janos|Volker|Paal|Gertjan)|linux/fs/affs|twojstaryzdomu/asfs|pfs3aio|Aaru.Filesystems|AmiPart' \
+            "${active[@]}"
+
+          # Incremental rewrites keep the known implementation/reference
+          # evidence until the replacement has runtime-equivalence evidence.
+          # Reference trees are never compiled or packaged as active code.
+          test -s native/filesystems/sfs/reference/asfs/super.c
+          test -s native/filesystems/sfs/reference/asfs/extents.c
+          test -s native/filesystems/sfs2/reference/amipart/src/nativefmt.c
+          test -s native/filesystems/pfs3/reference/pfs3aio/allocation.c
+          test -s native/filesystems/pfs3/reference/pfs3aio/update.c
+
+          ! grep -Fq '/reference' CMakeLists.txt
+          for makefile in \
+            native/filesystems/ofs/linux/Makefile \
+            native/filesystems/ffs/linux/Makefile \
+            native/filesystems/sfs/linux/Makefile \
+            native/filesystems/sfs2/linux/Makefile \
+            native/filesystems/pfs3/linux/Makefile; do
+            ! grep -Fq 'reference' "$makefile"
           done
 
       - name: Enforce ZFS ownership layout
