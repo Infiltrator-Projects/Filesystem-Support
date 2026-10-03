@@ -26,13 +26,15 @@ int main(int argc, char** argv)
         return fail("catalogue validation failed");
     }
 
-    if (catalog().size() != 107U) {
-        return fail("catalogue size is not the documented 107 entries");
+    if (catalog().size() != 109U) {
+        return fail("catalogue size is not the documented 109 entries");
     }
 
     bool found_ofs = false;
     bool found_ffs = false;
     bool found_sfs = false;
+    bool found_sfs2 = false;
+    bool found_pfs3 = false;
     bool found_adfs = false;
     bool found_apfs_fuse = false;
     bool found_apfs_dkms = false;
@@ -53,6 +55,12 @@ int main(int argc, char** argv)
     std::size_t tools_only = 0U;
 
     for (const auto& entry : catalog()) {
+        if (entry.id == std::string_view("sfs2")) {
+    found_sfs2 = true;
+} else if (entry.id == std::string_view("pfs3")) {
+    found_pfs3 = true;
+}
+
         if (entry.id == std::string_view("fuse2fs")) {
             return fail("fuse2fs must not be exposed alongside canonical EXT2/EXT3/EXT4");
         }
@@ -141,7 +149,7 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!found_ofs || !found_ffs || !found_sfs || !found_adfs) {
+    if (!found_ofs || !found_ffs || !found_sfs || !found_sfs2 || !found_pfs3 || !found_adfs) {
         return fail("native Amiga or Acorn filesystem coverage is missing");
     }
     if (!found_apfs_fuse || !found_apfs_dkms) {
@@ -159,7 +167,7 @@ int main(int argc, char** argv)
     if (hfs_uses_removed_package) {
         return fail("HFS still references hfsutils, which is not in Debian trixie stable");
     }
-    if (kernel_only != 22U || kernel_with_userspace != 26U ||
+    if (kernel_only != 24U || kernel_with_userspace != 26U ||
         dkms != 3U || userspace != 52U || tools_only != 4U) {
         return fail("support-provider classification counts changed unexpectedly");
     }
@@ -185,6 +193,13 @@ int main(int argc, char** argv)
             "definitely-not-a-filesystem", "ext3")) {
         return fail("project-native Linux module policy is inconsistent");
     }
+
+    if (!filesystem_support::module_is_catalogued("sfs2") ||
+    !filesystem_support::module_is_catalogued("pfs3") ||
+    !filesystem_support::linux_native_module_is_managed("sfs2", "sfs2") ||
+    !filesystem_support::linux_native_module_is_managed("pfs3", "pfs3")) {
+    return fail("SFS2/PFS3 project-native catalogue coverage is incomplete");
+}
 
     if (argc != 2) {
         return fail("support-matrix path was not supplied");
