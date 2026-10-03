@@ -406,12 +406,12 @@ static int sfs2_hash_dentry(const struct dentry *parent, struct qstr *name)
 }
 
 static int sfs2_compare_dentry(
-    const struct dentry *parent,
+    const struct dentry *dentry,
     unsigned int existing_length,
     const char *existing_name,
     const struct qstr *candidate)
 {
-    struct super_block *sb = d_inode(parent)->i_sb;
+    struct super_block *sb = dentry->d_sb;
     struct nls_table *nls = IFS_SFS2_SB(sb)->nls_io;
     const bool case_sensitive =
         (IFS_SFS2_SB(sb)->flags & IFS_SFS2_ROOTBITS_CASESENSITIVE) != 0;
