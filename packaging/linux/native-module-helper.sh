@@ -81,7 +81,7 @@ secure_boot_enabled() {
     fi
 
     local variable
-    variable=$(find /sys/firmware/efi/efivars -maxdepth 1         -name 'SecureBoot-*' -type f -print -quit 2>/dev/null || true)
+    variable=$(find /sys/firmware/efi/efivars -maxdepth 1 -name 'SecureBoot-*' -type f -print -quit 2>/dev/null || true)
     [[ -n "$variable" ]] || return 1
 
     [[ "$(od -An -t u1 -j 4 -N 1 "$variable" 2>/dev/null | tr -d '[:space:]')" == "1" ]]
@@ -93,7 +93,7 @@ kernel_build_compiler() {
 
     if [[ -r "$compile_header" ]]; then
         compiler=$(
-            sed -n 's/^#define LINUX_COMPILER "\([^ ]*\).*/\1/p'                 "$compile_header" | head -n1
+            sed -n 's/^#define LINUX_COMPILER "\([^ ]*\).*/\1/p' "$compile_header" | head -n1
         )
     fi
 
@@ -158,6 +158,40 @@ EOF
         echo "kernel module signing completed without a readable signer; refusing installation" >&2
         exit 1
     }
+}
+
+install_amiga_detection() {
+    case "$filesystem" in
+        ofs|ffs|sfs|sfs2|pfs3) ;;
+        *) return 0 ;;
+    esac
+
+    local detection_source="$self_dir/native/filesystems/ofs/core/amiga_fs_identify.c"
+    local rule_source="$self_dir/native/filesystems/ofs/core/59-infiltrator-amiga-filesystems.rules"
+    local detection_dir=/usr/lib/infiltrator-filesystem-support
+    local detector="$detection_dir/amiga-fs-identify"
+    local rules_dir=/usr/lib/udev/rules.d
+    local rule="$rules_dir/59-infiltrator-amiga-filesystems.rules"
+    local compiler
+
+    [[ -r "$detection_source" && -r "$rule_source" ]] || {
+        echo "packaged Amiga media detection sources are missing" >&2
+        exit 1
+    }
+
+    compiler=$(command -v gcc)
+    mkdir -p "$detection_dir" "$rules_dir"
+    "$compiler" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+        "$detection_source" -o "$detector.tmp"
+    install -m 0755 "$detector.tmp" "$detector"
+    rm -f "$detector.tmp"
+    install -m 0644 "$rule_source" "$rule"
+
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules
+        udevadm trigger --subsystem-match=block --action=change || true
+        udevadm settle || true
+    fi
 }
 
 install_native() {
@@ -245,6 +279,7 @@ install_native() {
         exit 1
     fi
 
+    install_amiga_detection
     echo "$filesystem native module installed and loaded for kernel $kernel"
 }
 
