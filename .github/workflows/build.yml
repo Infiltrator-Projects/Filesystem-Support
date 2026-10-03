@@ -19,22 +19,20 @@ jobs:
       - name: Check out exact desktop integration source
         uses: actions/checkout@v4
 
-      - name: Enable distribution sources and install desktop build dependencies
+      - name: Install stock desktop and extension build dependencies
         run: |
-          sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential devscripts dpkg-dev python3
-          sudo apt-get build-dep -y udisks2
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libglib2.0-dev dpkg-dev python3 \
+            libudisks2-0 gnome-disk-utility xvfb xauth
 
-      - name: Build and exercise the distribution UDisks client
+      - name: Build and exercise isolated Disks display names
         run: bash packaging/build-desktop-client.sh dist-desktop
 
-      - name: Verify managed installation and runtime display names
-        run: |
-          sudo apt-get install -y --no-install-recommends ./dist-desktop/*.deb
-          sudo apt-get check
-          python3 tests/udisks_display_test.py
-          dpkg-query -S /usr/lib/x86_64-linux-gnu/libudisks2.so.0 | grep -Fq infiltrator-filesystem-support-udisks
+      - name: Verify install, upgrade recovery and removal without library replacement
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tests/desktop_package_test.sh dist-desktop/*.deb
 
       - name: Preserve qualified desktop client for release assembly
         uses: actions/upload-artifact@v4

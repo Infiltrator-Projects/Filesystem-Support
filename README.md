@@ -51,15 +51,22 @@ GPL-3.0-or-later.
 
 ## Releases
 
-A normal package installation also installs the managed
-`infiltrator-filesystem-support-udisks` client package. It is built from the
-configured distribution's UDisks source with only the five native Amiga
-filesystem descriptions added. Both GNOME Disks' Contents field and its
-volume map therefore recognise OFS, FFS, SFS, SFS2 and PFS3 by name; publishing
-`ID_FS_TYPE` and `UDISKS_NAME` alone does not change that client-side table.
-The native `.run` installer carries the same qualified client package and
-installs it through APT. The filesystem modules remain independently built
-and installed by each **Install native** action.
+A normal package installation also installs
+`infiltrator-filesystem-support-udisks`, a private display-name extension for
+GNOME Disks. It adds OFS, FFS, SFS, SFS2 and PFS3 names to the Contents field
+and volume map. The distribution's `libudisks2-0` remains installed, retains
+its own library files and receives distribution updates normally. All other
+identifiers are displayed by the stock UDisks client.
+
+The package uses a reversible `dpkg-divert` launcher wrapper for Disks; the
+original executable stays owned and updated by `gnome-disk-utility`. The
+extension does not propagate into programs launched by Disks. Removing the
+extension restores the stock launch path. Version 0.5.5 also restores the
+stock client package on machines that installed the 0.5.4 replacement.
+
+The native `.run` installer carries the same qualified extension and installs
+it through APT with package removals prohibited. The filesystem modules
+remain independently built and installed by each **Install native** action.
 
 A successful release commit publishes a GitHub release with:
 

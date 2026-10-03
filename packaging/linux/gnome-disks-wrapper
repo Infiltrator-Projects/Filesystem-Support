@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -eu
+names=/usr/lib/infiltrator-filesystem-support/udisks-amiga-names.so
+original=/usr/bin/gnome-disks.filesystem-support-original
+if [ -r "$names" ]; then
+    if [ "${LD_PRELOAD+x}" = x ]; then
+        INFILTRATOR_DISKS_PRELOAD_SET=yes
+    else
+        INFILTRATOR_DISKS_PRELOAD_SET=no
+    fi
+    INFILTRATOR_DISKS_PRELOAD_VALUE=${LD_PRELOAD-}
+    LD_PRELOAD="$names${LD_PRELOAD:+:$LD_PRELOAD}"
+    export INFILTRATOR_DISKS_PRELOAD_SET INFILTRATOR_DISKS_PRELOAD_VALUE LD_PRELOAD
+fi
+exec "$original" "$@"

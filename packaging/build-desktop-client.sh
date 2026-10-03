@@ -9,86 +9,55 @@ output=$(realpath -m "$1")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$output"
-cd "$work"
-
-# Use the configured distribution's source and its Debian build rules. Do not
-# copy a client library built for a different UDisks version or architecture.
-apt-get source udisks2
-mapfile -t sources < <(find "$work" -mindepth 1 -maxdepth 1 -type d -name 'udisks2-*')
-[[ ${#sources[@]} -eq 1 ]] || { echo "Expected one UDisks source tree" >&2; exit 1; }
-source=${sources[0]}
-patch -d "$source" -p1 --forward --fuzz=0 < "$root/packaging/linux/udisks2-amiga-display.patch"
-(cd "$source"; DEB_BUILD_OPTIONS="${DEB_BUILD_OPTIONS:-nocheck}" dpkg-buildpackage -b -uc -us)
-
 arch=$(dpkg --print-architecture)
-mapfile -t libraries < <(find "$work" -maxdepth 1 -type f -name "libudisks2-0_*_${arch}.deb")
-[[ ${#libraries[@]} -eq 1 ]] || { echo "Expected one UDisks client package" >&2; exit 1; }
-stock=${libraries[0]}
-base_version=$(dpkg-deb -f "$stock" Version)
 package=infiltrator-filesystem-support-udisks
 payload="$work/payload"
-dpkg-deb -R "$stock" "$payload"
+private="$payload/usr/lib/infiltrator-filesystem-support"
+mkdir -p "$private" "$payload/usr/bin" "$payload/DEBIAN"
 
-python3 - "$payload/DEBIAN/control" "$package" "$version" "$base_version" <<'PY'
-from pathlib import Path
-import sys
+# A tiny private display extension replaces no distribution library. GNOME
+# Disks alone loads it, and unknown/non-Amiga IDs delegate to the stock client.
+cc -shared -fPIC -fvisibility=hidden -O2 -Wall -Wextra -Werror \
+    $(pkg-config --cflags glib-2.0) \
+    "$root/packaging/linux/udisks-amiga-names.c" \
+    -o "$private/udisks-amiga-names.so" \
+    $(pkg-config --libs glib-2.0) -ldl -pthread
+strip --strip-unneeded "$private/udisks-amiga-names.so"
+install -m 0755 "$root/packaging/linux/gnome-disks-wrapper" "$payload/usr/bin/gnome-disks"
+install -m 0755 "$root/packaging/linux/desktop-preinst" "$payload/DEBIAN/preinst"
+install -m 0755 "$root/packaging/linux/desktop-postrm" "$payload/DEBIAN/postrm"
+mkdir -p "$work/debian"
+printf 'Source: infiltrator-filesystem-support\n' > "$work/debian/control"
+dependencies=$(cd "$work"; dpkg-shlibdeps -O -e"$private/udisks-amiga-names.so")
+dependencies=${dependencies#shlibs:Depends=}
+cat > "$payload/DEBIAN/control" <<EOF
+Package: $package
+Version: $version
+Architecture: $arch
+Maintainer: Shannon Smith
+Section: utils
+Priority: optional
+Depends: $dependencies, libudisks2-0, gnome-disk-utility
+Homepage: https://github.com/Infiltrator-Projects/Filesystem-Support
+Description: Private Amiga filesystem names for GNOME Disks
+ Adds OFS, FFS, SFS, SFS2 and PFS3 display names only inside GNOME Disks.
+ Keeps the distribution libudisks2-0 package and library files untouched.
+ The original Disks executable remains managed by gnome-disk-utility;
+ removing this package restores its normal launch path.
+EOF
+mkdir -p "$payload/usr/share/doc/$package"
+cat > "$payload/usr/share/doc/$package/copyright" <<'COPYRIGHT'
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Filesystem Support
+Source: https://github.com/Infiltrator-Projects/Filesystem-Support
 
-path = Path(sys.argv[1])
-package, version, base_version = sys.argv[2:]
-fields = {}
-current = None
-for line in path.read_text().splitlines():
-    if line[:1].isspace() and current:
-        fields[current] += "\n" + line
-    elif ":" in line:
-        current, value = line.split(":", 1)
-        fields[current] = value.lstrip()
-fields["Package"] = package
-fields["Version"] = version
-fields["Source"] = f"udisks2 ({base_version})"
-fields["Maintainer"] = "Shannon Smith"
-fields["Homepage"] = "https://github.com/Infiltrator-Projects/Filesystem-Support"
-for key, value in (("Provides", f"libudisks2-0 (= {base_version})"),
-                   ("Conflicts", "libudisks2-0"), ("Replaces", "libudisks2-0")):
-    fields[key] = ", ".join(part for part in (fields.get(key, ""), value) if part)
-fields["Description"] = (
-    "UDisks client with native Amiga filesystem display names\n"
-    " Distribution-built UDisks client library with OFS, FFS, SFS, SFS2 and\n"
-    " PFS3 names for GNOME Disks and other UDisks clients. The library ABI,\n"
-    " detection and mount behaviour remain those of the distribution."
-)
-path.write_text("\n".join(f"{key}: {value}" for key, value in fields.items()) + "\n")
-PY
-
-# Debian's dependency metadata must point at the package which owns the library.
-for metadata in shlibs symbols; do
-    if [[ -f "$payload/DEBIAN/$metadata" ]]; then
-        sed -i "s/libudisks2-0/$package/g" "$payload/DEBIAN/$metadata"
-    fi
-done
-if [[ -f "$payload/DEBIAN/shlibs" ]]; then
-    sed -i "s/(>= [^)]*)/(>= $version)/g" "$payload/DEBIAN/shlibs"
-fi
-if [[ -f "$payload/DEBIAN/symbols" ]]; then
-    python3 - "$payload/DEBIAN/symbols" "$version" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-lines = []
-for line in path.read_text().splitlines():
-    # The new package first provides every stock export at its own initial
-    # version, not at the upstream library's numerically unrelated version.
-    if line.startswith(" "):
-        fields = line.split()
-        if len(fields) >= 2:
-            fields[1] = sys.argv[2]
-            line = " " + " ".join(fields)
-    lines.append(line)
-path.write_text("\n".join(lines) + "\n")
-PY
-fi
-
+Files: *
+Copyright: 2026 Shannon Smith
+License: GPL-3+
+ On Debian systems the complete GPL version 3 text is available in
+ /usr/share/common-licenses/GPL-3.
+COPYRIGHT
 deb="$output/${package}_${version}_${arch}.deb"
 dpkg-deb --root-owner-group --build "$payload" "$deb"
 python3 "$root/tests/udisks_display_test.py" --package "$deb"
-printf 'Built %s against distribution libudisks2-0 %s\n' "$deb" "$base_version"
+printf 'Built isolated GNOME Disks names package: %s\n' "$deb"

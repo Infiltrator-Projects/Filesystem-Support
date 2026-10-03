@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -e
+case "$1" in
+    install|upgrade)
+        dpkg-divert --package infiltrator-filesystem-support-udisks \
+            --add --rename --divert /usr/bin/gnome-disks.filesystem-support-original \
+            /usr/bin/gnome-disks
+        ;;
+esac

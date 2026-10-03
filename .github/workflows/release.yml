@@ -48,7 +48,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config libgtk-3-dev \
-            dpkg-dev policykit-1 udev
+            dpkg-dev policykit-1 udev libudisks2-0
 
       - name: Verify release identity
         shell: bash
@@ -181,7 +181,7 @@ jobs:
           - canonical format validation, including AFFS midpoint root/checksum validation rather than signature-only matching
           - udev/UDisks ID_FS_* publication so Amiga volumes are detected by desktop disk tooling even though stock libblkid lacks these recognisers
           - automatic module loading and safe desktop mount policy, with PFS3 forced read-only
-          - proper Amiga OFS/FFS/SFS/SFS2/PFS3 names in GNOME Disks Contents and the volume map through an ABI-matched managed UDisks client package
+          - proper Amiga OFS/FFS/SFS/SFS2/PFS3 names in GNOME Disks Contents and the volume map through a private Disks display extension that preserves stock libudisks2-0
           - installer-time udev reload/retrigger so already-connected Amiga media is re-identified without a reboot
           - matching detector, udev rule and all eight native filesystem source payloads in both the Debian package and native .run installer
           - independent runtime qualification for EXT and Amiga implementations with host filesystem implementations disabled where applicable
@@ -189,7 +189,7 @@ jobs:
           Release assets:
           - Generic AMD64 Debian package
           - Native self-extracting .run installer
-          - Managed distribution-built UDisks client package (installed as a dependency)
+          - Private GNOME Disks display extension (installed as a dependency)
           - SHA-256 checksum manifest
 
           GitHub also provides immutable source code ZIP and TAR.GZ archives for this tag.

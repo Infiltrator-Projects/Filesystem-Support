@@ -69,12 +69,12 @@ Installs:
   /usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop
   /usr/local/lib/infiltrator-filesystem-support/native-module-helper
   native module source for EXT2/EXT3/EXT4/OFS/FFS/SFS/SFS2/PFS3
-  infiltrator-filesystem-support-udisks (managed UDisks client package)
+  infiltrator-filesystem-support-udisks (private GNOME Disks names extension)
 
 The filesystem detector publishes OFS/FFS/SFS/SFS2/PFS3 ID_FS_* properties
 for udev/UDisks so supported Amiga media is visible to desktop disk tools.
-The bundled distribution-built UDisks client supplies the Amiga filesystem
-names displayed by GNOME Disks in Contents and the volume map.
+The private extension supplies Amiga names in GNOME Disks Contents and the
+volume map while preserving the distribution libudisks2-0 package.
 
 Run the file normally. PolicyKit will request administrator authentication if needed.
 HELP
@@ -110,7 +110,7 @@ tail -n +"$archive_line" "$self" | tar -xz -C "$tmp"
 # Let APT own the ABI-matched library replacement and dependency transaction.
 # Install it before copying the application, so failure cannot be reported as
 # a successful installation with a missing desktop display-name component.
-apt-get install -y --no-install-recommends "$tmp/desktop-packages/desktop-client.deb"
+apt-get install -y --no-remove --no-install-recommends "$tmp/desktop-packages/desktop-client.deb"
 
 install -m 0755 "$tmp/usr/local/bin/filesystem-support" /usr/local/bin/filesystem-support
 install -d -m 0755 /usr/bin

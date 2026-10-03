@@ -7,10 +7,16 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import sys
 
 
-def check(library_path):
-    client = ctypes.CDLL(str(library_path))
+def check(stock_only=False):
+    # Resolve the same dynamic symbol as Disks: preloaded extension first,
+    # then the distribution client for non-Amiga identifiers.
+    stock_path = os.environ.get("UDISKS_STOCK_LIBRARY") or ctypes.util.find_library("udisks2")
+    assert stock_path, "Install the stock libudisks2-0 package"
+    ctypes.CDLL(stock_path, mode=ctypes.RTLD_GLOBAL)
+    client = ctypes.CDLL(None)
     glib = ctypes.CDLL(ctypes.util.find_library("glib-2.0"))
     display = client.udisks_client_get_id_for_display
     display.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p,
@@ -35,6 +41,9 @@ def check(library_path):
         ("pfs3", "PFS/1", "Amiga Professional File System 3", "Amiga PFS3"),
     )
     for kind, version, long_name, short_name in cases:
+        if stock_only:
+            assert name("filesystem", kind, version, True) == f"Unknown ({kind} {version})"
+            continue
         qualifier = f"version {version}" if kind in ("sfs", "sfs2") else version
         assert name("filesystem", kind, version, True) == f"{long_name} ({qualifier})"
         assert name("filesystem", kind, version, False) == short_name
@@ -54,22 +63,43 @@ def check(library_path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", type=Path)
-    parser.add_argument("--library", type=Path)
+    parser.add_argument("--preloaded", action="store_true")
+    parser.add_argument("--stock", action="store_true")
     args = parser.parse_args()
     os.environ["LANGUAGE"] = "C"
+    os.environ["LC_ALL"] = "C"
+    expected = os.environ.get("FSUPPORT_TEST_PRELOAD")
+    if expected is not None:
+        assert os.environ.get("LD_PRELOAD") == (None if expected == "unset" else expected)
+        assert "INFILTRATOR_DISKS_PRELOAD_SET" not in os.environ
+        assert "INFILTRATOR_DISKS_PRELOAD_VALUE" not in os.environ
     if args.package:
-        package = subprocess.check_output(["dpkg-deb", "-f", str(args.package), "Package"], text=True).strip()
-        assert package == "infiltrator-filesystem-support-udisks", package
-        for field in ("Provides", "Conflicts", "Replaces"):
-            value = subprocess.check_output(["dpkg-deb", "-f", str(args.package), field], text=True)
-            assert "libudisks2-0" in value, (field, value)
+        def field(name):
+            return subprocess.check_output(["dpkg-deb", "-f", str(args.package), name], text=True).strip()
+        assert field("Package") == "infiltrator-filesystem-support-udisks"
+        for name in ("Provides", "Conflicts", "Replaces", "Breaks"):
+            assert not field(name), (name, field(name))
+        assert "libudisks2-0" in field("Depends")
+        assert "gnome-disk-utility" in field("Depends")
         with tempfile.TemporaryDirectory() as directory:
-            subprocess.run(["dpkg-deb", "-x", str(args.package), directory], check=True)
-            libraries = list(Path(directory).glob("usr/lib/*/libudisks2.so.0"))
-            assert len(libraries) == 1, libraries
-            check(libraries[0])
+            subprocess.run(["dpkg-deb", "-R", str(args.package), directory], check=True)
+            root = Path(directory)
+            shim = root / "usr/lib/infiltrator-filesystem-support/udisks-amiga-names.so"
+            assert shim.is_file()
+            assert not list(root.glob("usr/lib/*/libudisks*"))
+            assert not list(root.glob("usr/share/doc/libudisks*"))
+            assert (root / "usr/bin/gnome-disks").is_file()
+            for script in ("preinst", "postrm"):
+                assert "dpkg-divert --package infiltrator-filesystem-support-udisks" in (root / "DEBIAN" / script).read_text()
+            env = dict(os.environ, LD_PRELOAD=str(shim))
+            subprocess.run([sys.executable, __file__, "--preloaded"], env=env, check=True)
+            for was_set, previous, expected in (("no", "", "unset"), ("yes", "libm.so.6", "libm.so.6")):
+                isolated = dict(env, INFILTRATOR_DISKS_PRELOAD_SET=was_set,
+                                INFILTRATOR_DISKS_PRELOAD_VALUE=previous,
+                                FSUPPORT_TEST_PRELOAD=expected)
+                subprocess.run([sys.executable, __file__, "--preloaded"], env=isolated, check=True)
     else:
-        check(args.library or ctypes.util.find_library("udisks2"))
+        check(stock_only=args.stock)
 
 
 if __name__ == "__main__":
