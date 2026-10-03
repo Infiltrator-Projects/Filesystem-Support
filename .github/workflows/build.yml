@@ -50,6 +50,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Enforce immutable source version identity
         shell: bash
@@ -69,7 +71,8 @@ jobs:
               tag_commit=$(awk 'NR == 1 { print $1 }' <<<"$tag_refs")
             fi
             head_commit=$(git rev-parse HEAD)
-            if [[ "$tag_commit" != "$head_commit" ]]; then
+            if [[ "$tag_commit" != "$head_commit" ]] &&
+               ! git diff --quiet "$tag_commit" HEAD -- . ':!.github/workflows'; then
               printf 'Source version %s is already tagged at %s; current main is %s. Advance VERSION before further development.\n' \
                 "$version" "$tag_commit" "$head_commit" >&2
               exit 1
@@ -1501,4 +1504,3 @@ jobs:
               }
           }
           Get-FileHash -Algorithm SHA256 -LiteralPath $driver, $cat | Format-Table
-
