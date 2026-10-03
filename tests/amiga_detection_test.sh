@@ -19,10 +19,35 @@ import sys
 
 out = Path(sys.argv[1])
 
-for name, signature in (("ofs.img", b"DOS\x00"), ("ffs.img", b"DOS\x01")):
-    image = bytearray(2 * 1024 * 1024)
+
+def write_affs(path: Path, signature: bytes) -> None:
+    block_size = 512
+    blocks = 4096
+    image = bytearray(blocks * block_size)
     image[0:4] = signature
-    (out / name).write_bytes(image)
+
+    # Match the kernel adapter's default root search. A valid AFFS root has
+    # T_SHORT at the front, ST_ROOT at the final word and a zero additive
+    # big-endian checksum across the complete block.
+    root_number = (2 + blocks - 1) // 2
+    root = memoryview(image)[root_number * block_size:(root_number + 1) * block_size]
+    struct.pack_into(">I", root, 0, 2)          # T_SHORT
+    struct.pack_into(">I", root, block_size - 4, 1)  # ST_ROOT
+    total = 0
+    for offset in range(0, block_size, 4):
+        total = (total + struct.unpack_from(">I", root, offset)[0]) & 0xFFFFFFFF
+    struct.pack_into(">I", root, 20, (-total) & 0xFFFFFFFF)
+    path.write_bytes(image)
+
+
+write_affs(out / "ofs.img", b"DOS\x00")
+write_affs(out / "ffs.img", b"DOS\x01")
+
+# Signature-only media must not be accepted as OFS/FFS. This is the false
+# positive that root/checksum validation is intended to prevent.
+loose = bytearray(2 * 1024 * 1024)
+loose[0:4] = b"DOS\x00"
+(out / "signature-only.img").write_bytes(loose)
 
 # Minimal PFS\1 root record accepted by the canonical PFS3 geometry validator.
 sectors = 4096
@@ -58,10 +83,23 @@ check_type() {
     image=$1
     expected_type=$2
     expected_version=$3
-    output=$($inspect --udev "$image")
+    output=$("$inspect" --udev "$image")
     printf '%s\n' "$output" | grep -Fxq 'ID_FS_USAGE=filesystem'
     printf '%s\n' "$output" | grep -Fxq "ID_FS_TYPE=$expected_type"
     printf '%s\n' "$output" | grep -Fxq "ID_FS_VERSION=$expected_version"
+}
+
+check_unknown() {
+    image=$1
+    if "$inspect" --udev "$image" >"$work/unknown.out" 2>"$work/unknown.err"; then
+        echo "unknown media was incorrectly identified: $image" >&2
+        exit 1
+    fi
+    if [ -s "$work/unknown.out" ]; then
+        echo "udev mode emitted properties for unknown media: $image" >&2
+        cat "$work/unknown.out" >&2
+        exit 1
+    fi
 }
 
 check_type "$work/ofs.img" ofs DOS/0
@@ -70,17 +108,10 @@ check_type "$work/sfs.img" sfs 3
 check_type "$work/sfs2.img" sfs2 4
 check_type "$work/pfs3.img" pfs3 PFS/1
 
-pfs_output=$($inspect --udev "$work/pfs3.img")
+pfs_output=$("$inspect" --udev "$work/pfs3.img")
 printf '%s\n' "$pfs_output" | grep -Fxq 'ID_FS_LABEL=PFS Test'
 
-if $inspect --udev "$work/unknown.img" >"$work/unknown.out" 2>"$work/unknown.err"; then
-    echo "unknown media was incorrectly identified" >&2
-    exit 1
-fi
-if [ -s "$work/unknown.out" ]; then
-    echo "udev mode emitted properties for unknown media" >&2
-    cat "$work/unknown.out" >&2
-    exit 1
-fi
+check_unknown "$work/signature-only.img"
+check_unknown "$work/unknown.img"
 
 echo "Amiga filesystem desktop detection: PASS"
