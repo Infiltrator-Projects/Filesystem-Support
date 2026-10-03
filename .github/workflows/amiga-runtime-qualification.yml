@@ -9,6 +9,7 @@ on:
       - "native/filesystems/sfs/**"
       - "native/filesystems/sfs2/**"
       - "native/filesystems/pfs3/**"
+      - "packaging/linux/desktop-rules/**"
       - "tools/generate-sfs-runtime-images.py"
       - ".github/workflows/amiga-runtime-qualification.yml"
   workflow_dispatch:
@@ -103,14 +104,29 @@ jobs:
           set -euo pipefail
           root=/tmp/amiga-root
           rm -rf "$root"
-          mkdir -p "$root"/{bin,proc,sys,dev,mnt/ofs,mnt/ffs,mnt/sfs,mnt/sfs2,mnt/pfs3}
+          mkdir -p "$root"/{bin,etc,proc,sys,dev,mnt/ofs,mnt/ffs,mnt/sfs,mnt/sfs2,mnt/pfs3}
           cp /usr/bin/busybox "$root/bin/busybox"
-          for app in sh mount umount mkdir rmdir cat echo dd ln mv rm readlink sync poweroff stat wc insmod; do
+          for app in sh mount umount mkdir rmdir cat echo dd ln mv rm readlink sync poweroff stat wc insmod su id; do
             ln -s busybox "$root/bin/$app"
           done
           for fs in ofs ffs sfs sfs2 pfs3; do
             cp "native/filesystems/$fs/linux/$fs.ko" "$root/$fs.ko"
           done
+          printf 'root:x:0:0:root:/:/bin/sh\ndesktop:x:1000:1000:desktop:/:/bin/sh\nother:x:1001:1001:other:/:/bin/sh\n' > "$root/etc/passwd"
+          printf 'root:x:0:\ndesktop:x:1000:\nother:x:1001:\n' > "$root/etc/group"
+          # Exercise exactly the defaults installed by each format's udev rule.
+          python3 - "$root" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          root=Path(sys.argv[1])
+          for fs in ('ofs','ffs','sfs','sfs2'):
+              rule=Path(f'packaging/linux/desktop-rules/{fs}.rules').read_text()
+              options=re.findall(r'ENV\{UDISKS_MOUNT_OPTIONS_DEFAULTS\}="([^"\n]+)"',rule)[-1]
+              options=options.replace('$$UID','1000').replace('$$GID','1000')
+              assert '$' not in options, (fs, options)
+              (root/f'{fs}.mount-options').write_text(options+'\n')
+          PY
 
           cat > "$root/init" <<'EOF'
           #!/bin/sh
@@ -180,6 +196,27 @@ jobs:
           test -s /mnt/pfs3/frag || fail "fixture-read pfs3"
           cat /mnt/pfs3/frag >/dev/null || fail "payload-read pfs3"
           umount /mnt/pfs3 || fail "unmount pfs3"
+
+          qualify_desktop_user() {
+              fs="$1"; dev="$2"; mnt="/mnt/$fs"
+              options=$(cat "/$fs.mount-options")
+              mount -t "$fs" -o "$options" "$dev" "$mnt" || fail "desktop mount $fs"
+              test "$(stat -c '%u:%g' "$mnt")" = '1000:1000' || fail "desktop ownership $fs"
+              su -s /bin/sh -c 'test "$(id -u)" = 1000 && mkdir "$1/desktop-dir" && echo desktop-write > "$1/desktop-dir/file" && mv "$1/desktop-dir/file" "$1/desktop-dir/renamed"' desktop sh "$mnt" || fail "desktop create/write/rename $fs"
+              if su -s /bin/sh -c 'echo forbidden > "$1/other-user"' other sh "$mnt"; then
+                  fail "unrelated user was allowed to write $fs"
+              fi
+              sync
+              umount "$mnt" || fail "desktop unmount $fs"
+              mount -t "$fs" -o "$options" "$dev" "$mnt" || fail "desktop remount $fs"
+              su -s /bin/sh -c 'test "$(cat "$1/desktop-dir/renamed")" = desktop-write && rm "$1/desktop-dir/renamed" && rmdir "$1/desktop-dir"' desktop sh "$mnt" || fail "desktop persisted read/delete $fs"
+              umount "$mnt" || fail "desktop final unmount $fs"
+              echo "AMIGA-DESKTOP-USER-PASS: $fs" > /dev/ttyS0
+          }
+          qualify_desktop_user ofs /dev/vda
+          qualify_desktop_user ffs /dev/vdb
+          qualify_desktop_user sfs /dev/vdc
+          qualify_desktop_user sfs2 /dev/vdd
 
           echo "AMIGA-RUNTIME-PASS" > /dev/ttyS0
           poweroff -f

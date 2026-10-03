@@ -39,6 +39,8 @@ install_main() {
 }
 python3 "$root/tests/udisks_display_test.py" --package "$deb"
 install_main
+sudo bash "$root/tests/desktop_mount_options_test.sh" "$root"
+verify
 sudo apt-get install -y --no-remove --reinstall gnome-disk-utility
 sudo apt-get install -y --no-remove --reinstall "$deb"
 verify

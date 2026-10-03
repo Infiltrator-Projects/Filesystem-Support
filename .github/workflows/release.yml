@@ -69,6 +69,28 @@ jobs:
             exit 1
           fi
 
+      - name: Require Amiga qualification when the release changes Amiga code or rules
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --name-only HEAD^ HEAD | grep -Eq '^(native/filesystems/(ofs|ffs|sfs|sfs2|pfs3)/|packaging/linux/desktop-rules/|\.github/workflows/amiga-runtime-qualification\.yml$)'; then
+            exit 0
+          fi
+          for attempt in $(seq 1 40); do
+            state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100" \
+              --jq '.workflow_runs | map(select(.name == "Amiga runtime qualification")) | first | if . == null then "pending" elif .status == "completed" then .conclusion else .status end')
+            if [[ "$state" == success ]]; then exit 0; fi
+            case "$state" in failure|cancelled|timed_out|action_required|skipped)
+              echo "Amiga runtime qualification did not pass: $state" >&2
+              exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo 'Amiga runtime qualification has not completed; refusing publication' >&2
+          exit 1
+
       - name: Retrieve the main package qualified for this exact commit
         env:
           GH_TOKEN: ${{ github.token }}

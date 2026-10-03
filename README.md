@@ -58,6 +58,13 @@ udev identification rule and its single-filesystem Disks naming file together.
 FFS, SFS, SFS2 and PFS3 each have separate active files; installing one cannot
 activate another. Installing the manager on a fresh system activates no format.
 
+Desktop mounts of OFS, FFS, SFS and SFS2 pass the requesting user’s UID and
+primary GID through their own `setuid`/`setgid` mount options. This makes the
+volume writable by that user while preserving existing Amiga protection bits
+and other users’ access restrictions. An upgrade updates the active rules;
+already mounted volumes receive the new ownership on their next mount. PFS3
+remains read-only because its Linux adapter does not yet implement mutation.
+
 GNOME Disks uses a launcher that loads only the independently installed naming
 files for drivers present on the running kernel. The stock UDisks library and
 original Disks executable retain their distribution ownership and updates.

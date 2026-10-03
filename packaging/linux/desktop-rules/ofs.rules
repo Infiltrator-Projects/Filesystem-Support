@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Installed and removed only with the project-native ofs driver.
+# Escape the UDisks caller placeholders through udev; never hard-code a user.
 ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_FS_TYPE}=="ofs", ENV{ID_FS_USAGE}="", ENV{ID_FS_TYPE}="", ENV{ID_FS_VERSION}="", ENV{ID_FS_LABEL}="", ENV{ID_FS_LABEL_ENC}="", ENV{ID_FS_BLOCK_SIZE}="", ENV{UDISKS_NAME}="", ENV{UDISKS_ICON_NAME}="", ENV{UDISKS_SYMBOLIC_ICON_NAME}="", ENV{UDISKS_MOUNT_OPTIONS_DEFAULTS}="", ENV{UDISKS_MOUNT_OPTIONS_ALLOW}=""
 ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition|disk", IMPORT{program}="/usr/bin/fsinspect --udev --filesystem ofs /dev/%k"
 ENV{ID_FS_TYPE}=="ofs", RUN+="/sbin/modprobe -q ofs"
 ENV{ID_FS_TYPE}=="ofs", ENV{ID_FS_LABEL}=="", ENV{UDISKS_NAME}="Amiga OFS"
 ENV{ID_FS_TYPE}=="ofs", ENV{UDISKS_ICON_NAME}="drive-harddisk", ENV{UDISKS_SYMBOLIC_ICON_NAME}="drive-harddisk-symbolic"
-ENV{ID_FS_TYPE}=="ofs", ENV{UDISKS_MOUNT_OPTIONS_DEFAULTS}="nodev,nosuid", ENV{UDISKS_MOUNT_OPTIONS_ALLOW}="exec,noexec,nodev,nosuid,atime,noatime,nodiratime,relatime,strictatime,lazytime,ro,sync,dirsync,nosymfollow,rw"
+ENV{ID_FS_TYPE}=="ofs", ENV{UDISKS_MOUNT_OPTIONS_DEFAULTS}="nodev,nosuid,setuid=$$UID,setgid=$$GID", ENV{UDISKS_MOUNT_OPTIONS_ALLOW}="setuid=$$UID,setgid=$$GID,exec,noexec,nodev,nosuid,atime,noatime,nodiratime,relatime,strictatime,lazytime,ro,sync,dirsync,nosymfollow,rw"
