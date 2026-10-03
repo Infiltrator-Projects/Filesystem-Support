@@ -105,19 +105,13 @@ jobs:
               raise SystemExit('unexpected VERSION before release bump')
           version.write_text('0.5.3\n')
 
-          release = Path('.github/workflows/release.yml')
-          rtext = release.read_text()
-          rtext = rtext.replace('107 filesystem', '109 filesystem').replace('108 filesystem', '109 filesystem')
-          release.write_text(rtext)
-
-      - name: Remove one-shot workflow and commit final release state
+      - name: Commit final release state
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/amiga-catalog-hotfix.yml
           git config user.name 'The-First-Infiltrator'
           git config user.email 'infiltratr@yandex.com'
-          git add src/catalog.cpp tests/catalog_test.cpp docs/FILESYSTEM_SUPPORT_MATRIX.md VERSION .github/workflows/release.yml
+          git add src/catalog.cpp tests/catalog_test.cpp docs/FILESYSTEM_SUPPORT_MATRIX.md VERSION
           git diff --cached --check
           git commit -m 'Complete Amiga catalogue and prepare 0.5.3'
           git push origin HEAD:main
