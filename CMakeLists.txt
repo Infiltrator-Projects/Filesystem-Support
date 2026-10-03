@@ -22,8 +22,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(FILESYSTEM_SUPPORT_WARNINGS_AS_ERRORS "Treat warnings as errors" ON)
 
 set(INFILTRATR_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/infiltratr-common")
-set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.35")
-set(INFILTRATR_COMMON_EXPECTED_COMMIT "7cc5de3de0e94ed2cfcff0840bbb5346eb5c9c9f")
+set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.38")
+set(INFILTRATR_COMMON_EXPECTED_COMMIT "7070c5812b50821fd7580101cb2289a3184f6b2c")
 
 if(NOT EXISTS "${INFILTRATR_COMMON_DIR}/VERSION")
     message(FATAL_ERROR "Pinned Infiltratr Common submodule is required")
@@ -94,7 +94,6 @@ add_library(infiltratr-fs-ext2-core STATIC
 target_include_directories(infiltratr-fs-ext2-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext2/core")
 filesystem_support_configure(infiltratr-fs-ext2-core)
-
 
 # Canonical EXT3 feature/format policy. Linux and future Windows adapters
 # consume this exact implementation rather than maintaining independent rules.
