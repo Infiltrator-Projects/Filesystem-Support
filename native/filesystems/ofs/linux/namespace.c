@@ -1249,3 +1249,163 @@ out:
     affs_brelse(new_bh);
     return result;
 }
+
+int affs_rename2(
+    struct mnt_idmap *idmap,
+    struct inode *old_dir, struct dentry *old_dentry,
+    struct inode *new_dir, struct dentry *new_dentry,
+    unsigned int flags)
+{
+    if ((flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE)) != 0U)
+        return -EINVAL;
+
+    if ((flags & RENAME_NOREPLACE) != 0U &&
+        d_really_is_positive(new_dentry))
+        return -EEXIST;
+
+    if ((flags & RENAME_EXCHANGE) != 0U)
+        return ifs_ofs_exchange(
+            old_dir, old_dentry, new_dir, new_dentry);
+
+    return ifs_ofs_rename(
+        old_dir, old_dentry, new_dir, new_dentry);
+}
+
+static struct dentry *ifs_ofs_get_parent(struct dentry *child)
+{
+    struct buffer_head *bh;
+    struct inode *parent;
+    const u32 block = (u32)d_inode(child)->i_ino;
+
+    bh = affs_bread(child->d_sb, block);
+    if (!bh)
+        return ERR_PTR(-EIO);
+
+    parent = affs_iget(
+        child->d_sb, be32_to_cpu(AFFS_TAIL(child->d_sb, bh)->parent));
+    affs_brelse(bh);
+    return d_obtain_alias(parent);
+}
+
+static struct inode *ifs_ofs_export_inode(
+    struct super_block *sb, u64 inode_number, u32 generation)
+{
+    if (inode_number > U32_MAX ||
+        !affs_validblock(sb, (int)inode_number))
+        return ERR_PTR(-ESTALE);
+
+    return affs_iget(sb, (unsigned long)inode_number);
+}
+
+static struct dentry *ifs_ofs_fh_to_dentry(
+    struct super_block *sb, struct fid *fid, int length, int type)
+{
+    return generic_fh_to_dentry(
+        sb, fid, length, type, ifs_ofs_export_inode);
+}
+
+static struct dentry *ifs_ofs_fh_to_parent(
+    struct super_block *sb, struct fid *fid, int length, int type)
+{
+    return generic_fh_to_parent(
+        sb, fid, length, type, ifs_ofs_export_inode);
+}
+
+const struct export_operations affs_export_ops = {
+    .encode_fh = generic_encode_ino32_fh,
+    .fh_to_dentry = ifs_ofs_fh_to_dentry,
+    .fh_to_parent = ifs_ofs_fh_to_parent,
+    .get_parent = ifs_ofs_get_parent,
+};
+
+const struct dentry_operations affs_dentry_operations = {
+    .d_hash = ifs_ofs_hash_dentry,
+    .d_compare = ifs_ofs_compare_dentry,
+};
+
+const struct dentry_operations affs_intl_dentry_operations = {
+    .d_hash = ifs_ofs_intl_hash_dentry,
+    .d_compare = ifs_ofs_intl_compare_dentry,
+};
+
+
+/* ===== symlink integration ===== */
+/*
+ * Project-authored Linux adapter for canonical AmigaDOS symlink semantics.
+ * Filesystem path interpretation lives in the OFS core.
+ */
+
+#include "linux_adapter.h"
+
+#define IFS_OFS_SYMLINK_MAX 1024U
+
+static int affs_symlink_read_folio(struct file *file, struct folio *folio)
+{
+    struct inode *inode = folio->mapping->host;
+    struct affs_sb_info *sbi = AFFS_SB(inode->i_sb);
+    struct buffer_head *bh;
+    struct slink_front *front;
+    const char *prefix;
+    char *link = folio_address(folio);
+    size_t source_capacity;
+    size_t prefix_length;
+    size_t output_capacity;
+    ifs_ofs_u32 output_length = 0U;
+    IfsOfsSymlinkStatus status;
+
+    pr_debug("get_link(ino=%lu)\n", inode->i_ino);
+
+    bh = affs_bread(inode->i_sb, inode->i_ino);
+    if (!bh)
+        goto io_error;
+
+    if (bh->b_size <= sizeof(*front))
+        goto malformed;
+
+    front = (struct slink_front *)bh->b_data;
+    source_capacity = bh->b_size - sizeof(*front);
+    output_capacity = min_t(size_t, folio_size(folio),
+                            (size_t)IFS_OFS_SYMLINK_MAX);
+
+    spin_lock(&sbi->symlink_lock);
+    prefix = sbi->s_prefix ? sbi->s_prefix : "/";
+    prefix_length = strnlen(prefix, IFS_OFS_SYMLINK_MAX);
+
+    status = ifs_ofs_translate_symlink(
+        front->symname,
+        (ifs_ofs_u32)source_capacity,
+        (const ifs_ofs_u8 *)prefix,
+        (ifs_ofs_u32)prefix_length,
+        (ifs_ofs_u8 *)link,
+        (ifs_ofs_u32)output_capacity,
+        &output_length);
+    spin_unlock(&sbi->symlink_lock);
+
+    affs_brelse(bh);
+
+    if (status != IFS_OFS_SYMLINK_OK)
+        goto io_error_no_buffer;
+
+    folio_mark_uptodate(folio);
+    folio_unlock(folio);
+    return 0;
+
+malformed:
+    affs_brelse(bh);
+io_error_no_buffer:
+    folio_unlock(folio);
+    return -EIO;
+
+io_error:
+    folio_unlock(folio);
+    return -EIO;
+}
+
+const struct address_space_operations affs_symlink_aops = {
+    .read_folio = affs_symlink_read_folio,
+};
+
+const struct inode_operations affs_symlink_inode_operations = {
+    .get_link = page_get_link,
+    .setattr = affs_notify_change,
+};
