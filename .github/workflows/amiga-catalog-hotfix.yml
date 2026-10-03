@@ -83,6 +83,7 @@ jobs:
           matrix = Path('docs/FILESYSTEM_SUPPORT_MATRIX.md')
           lines = matrix.read_text().splitlines()
           lines = [line.replace('mirrors the 107 entries', 'mirrors the 109 entries').replace('**Catalogue entries:** 107', '**Catalogue entries:** 109') for line in lines]
+          lines = [line.rstrip() if line.startswith('**Catalogue entries:**') else line for line in lines]
           out = []
           inserted = False
           row_re = re.compile(r'^\| (\d+) \|')
