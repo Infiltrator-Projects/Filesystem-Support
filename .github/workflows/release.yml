@@ -149,7 +149,7 @@ jobs:
           cat > release-notes.md <<EOF
           Filesystem Support $version.
 
-          Debian-first filesystem support manager with 108 filesystem and storage-namespace targets catalogued.
+          Debian-first filesystem support manager with 109 filesystem and storage-namespace targets catalogued.
 
           Highlights:
           - Common 1.19.38-backed portable primitives and InfiltratorOS-aligned responsive GTK interface
