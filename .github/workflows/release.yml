@@ -87,8 +87,9 @@ jobs:
           test "$(dpkg-deb -f "$deb" Package)" = "infiltrator-filesystem-support"
           test "$(dpkg-deb -f "$deb" Version)" = "$version"
           dpkg-deb -f "$deb" Depends | grep -Eq '(^|, )udev([ ,]|$)'
-          dpkg-deb -c "$deb" | grep -Fq './usr/bin/fsinspect'
-          dpkg-deb -c "$deb" | grep -Fq './usr/lib/udev/rules.d/59-infiltrator-filesystems.rules'
+          dpkg-deb -c "$deb" > package-contents.txt
+          grep -Fq './usr/bin/fsinspect' package-contents.txt
+          grep -Fq './usr/lib/udev/rules.d/59-infiltrator-filesystems.rules' package-contents.txt
           cp "$deb" .
 
       - name: Build and verify native run installer
