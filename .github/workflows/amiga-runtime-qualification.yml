@@ -9,6 +9,7 @@ on:
       - "native/filesystems/sfs/**"
       - "native/filesystems/sfs2/**"
       - "native/filesystems/pfs3/**"
+      - "tools/generate-sfs-runtime-images.py"
       - ".github/workflows/amiga-runtime-qualification.yml"
   workflow_dispatch:
 
@@ -29,7 +30,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y             bc bison flex libelf-dev libssl-dev cpio qemu-system-x86             busybox-static cmake ninja-build pkg-config libgtk-3-dev libext2fs-dev
+          sudo apt-get install -y \
+            bc bison flex libelf-dev libssl-dev cpio qemu-system-x86 \
+            busybox-static cmake ninja-build pkg-config libgtk-3-dev libext2fs-dev
 
       - name: Build pinned kernel without host AFFS
         shell: bash
@@ -37,7 +40,17 @@ jobs:
           set -euo pipefail
           git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux
           make -C /tmp/linux defconfig
-          /tmp/linux/scripts/config --file /tmp/linux/.config             --disable AFFS_FS             --enable BLK_DEV_INITRD             --enable DEVTMPFS             --enable DEVTMPFS_MOUNT             --enable VIRTIO             --enable VIRTIO_PCI             --enable VIRTIO_BLK             --enable SERIAL_8250             --enable SERIAL_8250_CONSOLE             --enable TMPFS
+          /tmp/linux/scripts/config --file /tmp/linux/.config \
+            --disable AFFS_FS \
+            --enable BLK_DEV_INITRD \
+            --enable DEVTMPFS \
+            --enable DEVTMPFS_MOUNT \
+            --enable VIRTIO \
+            --enable VIRTIO_PCI \
+            --enable VIRTIO_BLK \
+            --enable SERIAL_8250 \
+            --enable SERIAL_8250_CONSOLE \
+            --enable TMPFS
           make -C /tmp/linux olddefconfig
           make -C /tmp/linux -j"$(nproc)" bzImage modules
 
@@ -50,15 +63,19 @@ jobs:
             test -s "native/filesystems/$fs/linux/$fs.ko"
           done
 
-      - name: Build independent first-party fixture generators
+      - name: Build independent OFS FFS and PFS3 fixture generators
         shell: bash
         run: |
           set -euo pipefail
           git clone https://github.com/Infiltrator-Projects/Defragmenter.git /tmp/defragger
           git -C /tmp/defragger checkout c57f94fcc242a77170cb4175835222cab8f5c17c
           git -C /tmp/defragger submodule update --init --recursive
-          cmake -S /tmp/defragger/defragger -B /tmp/defrag-build             -G Ninja -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
-          cmake --build /tmp/defrag-build --target             linux-defragger-test-media-mkfs-ofs             linux-defragger-test-media-mkfs-ffs             linux-defragger-sfs-native-test             linux-defragger-pfs3-native-test
+          cmake -S /tmp/defragger/defragger -B /tmp/defrag-build \
+            -G Ninja -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/defrag-build --target \
+            linux-defragger-test-media-mkfs-ofs \
+            linux-defragger-test-media-mkfs-ffs \
+            linux-defragger-pfs3-native-test
 
       - name: Manufacture independent Amiga media
         shell: bash
@@ -68,9 +85,12 @@ jobs:
           truncate -s 32M /tmp/ffs.img
           /tmp/defrag-build/test-media-mkfs-ofs /tmp/ofs.img
           /tmp/defrag-build/test-media-mkfs-ffs /tmp/ffs.img
-          /tmp/defrag-build/linux-defragger-sfs-native-test             --write-fixture /tmp/sfs.img fragmented
-          /tmp/defrag-build/linux-defragger-sfs-native-test             --write-fixture /tmp/sfs2.img sfs2-fragmented
-          /tmp/defrag-build/linux-defragger-pfs3-native-test             --write-fixture /tmp/pfs3.img fragmented
+          python3 tools/generate-sfs-runtime-images.py \
+            --variant sfs --output /tmp/sfs.img --blocks 4096 --volume RuntimeSFS
+          python3 tools/generate-sfs-runtime-images.py \
+            --variant sfs2 --output /tmp/sfs2.img --blocks 4096 --volume RuntimeSFS2
+          /tmp/defrag-build/linux-defragger-pfs3-native-test \
+            --write-fixture /tmp/pfs3.img fragmented
           test -s /tmp/ofs.img
           test -s /tmp/ffs.img
           test -s /tmp/sfs.img
@@ -85,7 +105,7 @@ jobs:
           rm -rf "$root"
           mkdir -p "$root"/{bin,proc,sys,dev,mnt/ofs,mnt/ffs,mnt/sfs,mnt/sfs2,mnt/pfs3}
           cp /usr/bin/busybox "$root/bin/busybox"
-          for app in sh mount umount mkdir cat echo dd ln mv rm sync poweroff stat wc insmod; do
+          for app in sh mount umount mkdir rmdir cat echo dd ln mv rm readlink sync poweroff stat wc insmod; do
             ln -s busybox "$root/bin/$app"
           done
           for fs in ofs ffs sfs sfs2 pfs3; do
@@ -129,23 +149,32 @@ jobs:
               umount "$mnt" || fail "final-unmount $fs"
           }
 
-          qualify_existing_rw() {
+          qualify_sfs_rw() {
               fs="$1"; dev="$2"; mnt="/mnt/$fs"
               mount -t "$fs" "$dev" "$mnt" || fail "mount $fs"
-              test -s "$mnt/frag" || fail "fixture-read $fs"
-              cat "$mnt/frag" >/dev/null || fail "payload-read $fs"
               echo "runtime-$fs" > "$mnt/new.txt" || fail "create $fs"
               test "$(cat "$mnt/new.txt")" = "runtime-$fs" || fail "write-readback $fs"
-              mv "$mnt/new.txt" "$mnt/moved.txt" || fail "rename $fs"
-              rm "$mnt/moved.txt" || fail "unlink $fs"
+              mkdir "$mnt/dir" || fail "mkdir $fs"
+              mv "$mnt/new.txt" "$mnt/dir/renamed.txt" || fail "rename $fs"
+              ln -s dir/renamed.txt "$mnt/soft.txt" || fail "symlink $fs"
+              test "$(cat "$mnt/soft.txt")" = "runtime-$fs" || fail "symlink-read $fs"
               sync
               umount "$mnt" || fail "unmount $fs"
+              mount -t "$fs" "$dev" "$mnt" || fail "remount $fs"
+              test "$(cat "$mnt/dir/renamed.txt")" = "runtime-$fs" || fail "remount-read $fs"
+              test "$(cat "$mnt/soft.txt")" = "runtime-$fs" || fail "remount-symlink $fs"
+              : > "$mnt/dir/renamed.txt" || fail "truncate $fs"
+              test ! -s "$mnt/dir/renamed.txt" || fail "truncate-readback $fs"
+              rm "$mnt/soft.txt" "$mnt/dir/renamed.txt" || fail "unlink $fs"
+              rmdir "$mnt/dir" || fail "rmdir $fs"
+              sync
+              umount "$mnt" || fail "final-unmount $fs"
           }
 
           qualify_rw ofs /dev/vda
           qualify_rw ffs /dev/vdb
-          qualify_existing_rw sfs /dev/vdc
-          qualify_existing_rw sfs2 /dev/vdd
+          qualify_sfs_rw sfs /dev/vdc
+          qualify_sfs_rw sfs2 /dev/vdd
 
           mount -t pfs3 -o ro /dev/vde /mnt/pfs3 || fail "mount pfs3"
           test -s /mnt/pfs3/frag || fail "fixture-read pfs3"
@@ -156,12 +185,26 @@ jobs:
           poweroff -f
           EOF
           chmod +x "$root/init"
-          (cd "$root" && find . -print0 | cpio --null -ov --format=newc | gzip -9)             > /tmp/amiga-initramfs.cpio.gz
+          (cd "$root" && find . -print0 | cpio --null -ov --format=newc | gzip -9) \
+            > /tmp/amiga-initramfs.cpio.gz
 
       - name: Boot and exercise real Amiga media
         shell: bash
         run: |
           set -euo pipefail
-          timeout 240 qemu-system-x86_64             -machine accel=tcg             -m 768             -nographic             -no-reboot             -kernel /tmp/linux/arch/x86/boot/bzImage             -initrd /tmp/amiga-initramfs.cpio.gz             -append 'console=ttyS0 panic=1 rdinit=/init'             -drive file=/tmp/ofs.img,format=raw,if=virtio             -drive file=/tmp/ffs.img,format=raw,if=virtio             -drive file=/tmp/sfs.img,format=raw,if=virtio             -drive file=/tmp/sfs2.img,format=raw,if=virtio             -drive file=/tmp/pfs3.img,format=raw,if=virtio             2>&1 | tee /tmp/amiga-runtime.log
+          timeout 240 qemu-system-x86_64 \
+            -machine accel=tcg \
+            -m 768 \
+            -nographic \
+            -no-reboot \
+            -kernel /tmp/linux/arch/x86/boot/bzImage \
+            -initrd /tmp/amiga-initramfs.cpio.gz \
+            -append 'console=ttyS0 panic=1 rdinit=/init' \
+            -drive file=/tmp/ofs.img,format=raw,if=virtio \
+            -drive file=/tmp/ffs.img,format=raw,if=virtio \
+            -drive file=/tmp/sfs.img,format=raw,if=virtio \
+            -drive file=/tmp/sfs2.img,format=raw,if=virtio \
+            -drive file=/tmp/pfs3.img,format=raw,if=virtio \
+            2>&1 | tee /tmp/amiga-runtime.log
           grep -Fq 'AMIGA-RUNTIME-PASS' /tmp/amiga-runtime.log
           ! grep -Fq 'AMIGA-RUNTIME-FAIL' /tmp/amiga-runtime.log
