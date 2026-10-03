@@ -227,6 +227,17 @@ jobs:
               test "$(cat "$mnt/tree/hardlink.txt")" = "Filesystem Support $fs runtime qualification" ||
                   fail "readback $fs"
               umount "$mnt" || fail "unmount $fs"
+
+              mount -t "$fs" "$dev" "$mnt" || fail "remount $fs"
+              test "$(cat "$mnt/root.txt")" = "Filesystem Support $fs runtime qualification" ||
+                  fail "remount root $fs"
+              test "$(cat "$mnt/tree/hardlink.txt")" = "Filesystem Support $fs runtime qualification" ||
+                  fail "remount hardlink $fs"
+              test "$(cat "$mnt/tree/symlink.txt")" = "Filesystem Support $fs runtime qualification" ||
+                  fail "remount symlink $fs"
+              test "$(stat -c %s "$mnt/tree/renamed.bin")" = "131072" ||
+                  fail "remount payload size $fs"
+              umount "$mnt" || fail "final unmount $fs"
           }
 
           qualify ext2 /dev/vda
