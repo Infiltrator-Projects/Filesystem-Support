@@ -9,6 +9,7 @@
 #include "sfs_core.h"
 #include "sfs2_core.h"
 #include "pfs3_core.h"
+#include "../../src/native_amiga_support.h"
 
 #include <inttypes.h>
 #include <stdint.h>
@@ -401,6 +402,10 @@ int main(int argc, char **argv)
     }
 
     if (udev_mode) {
+        if (!ifs_native_amiga_installed(result.type)) {
+            ifs_userspace_file_close(&file);
+            return 1;
+        }
         print_udev_result(&result);
     } else {
         printf("filesystem=%s\n", result.type);

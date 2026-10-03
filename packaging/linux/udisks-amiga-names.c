@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../src/native_amiga_support.h"
 
 typedef gchar *(*DisplayFunction)(void *, const gchar *, const gchar *,
                                   const gchar *, gboolean);
@@ -50,7 +51,8 @@ gchar *udisks_client_get_id_for_display(void *client, const gchar *usage,
         {"sfs2", "Amiga Smart File System 2", "Amiga SFS2", TRUE},
         {"pfs3", "Amiga Professional File System 3", "Amiga PFS3", FALSE},
     };
-    if (g_strcmp0(usage, "filesystem") == 0) {
+    if (g_strcmp0(usage, "filesystem") == 0 &&
+        ifs_native_amiga_installed(type)) {
         for (size_t i = 0; i < G_N_ELEMENTS(names); ++i) {
             if (g_strcmp0(type, names[i].type) != 0)
                 continue;

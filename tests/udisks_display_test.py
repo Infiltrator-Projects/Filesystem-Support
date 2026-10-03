@@ -8,9 +8,11 @@ from pathlib import Path
 import subprocess
 import tempfile
 import sys
+import platform
 
 
-def check(stock_only=False):
+def check(stock_only=False, modules_root=Path("/lib/modules")):
+    modules = modules_root / platform.release() / "updates/infiltrator"
     # Resolve the same dynamic symbol as Disks: preloaded extension first,
     # then the distribution client for non-Amiga identifiers.
     stock_path = os.environ.get("UDISKS_STOCK_LIBRARY") or ctypes.util.find_library("udisks2")
@@ -41,15 +43,17 @@ def check(stock_only=False):
         ("pfs3", "PFS/1", "Amiga Professional File System 3", "Amiga PFS3"),
     )
     for kind, version, long_name, short_name in cases:
-        if stock_only:
+        if stock_only or not (modules / f"{kind}.ko").is_file():
             assert name("filesystem", kind, version, True) == f"Unknown ({kind} {version})"
+            assert name("filesystem", kind, "", True) == f"Unknown ({kind})"
+            assert name("filesystem", kind, version, False) == kind
             continue
         qualifier = f"version {version}" if kind in ("sfs", "sfs2") else version
         assert name("filesystem", kind, version, True) == f"{long_name} ({qualifier})"
         assert name("filesystem", kind, version, False) == short_name
         assert name("filesystem", kind, "", True) == long_name
         assert name("filesystem", kind, "", False) == short_name
-        print(f"{kind}: {name('filesystem', kind, version, True)} / {short_name}")
+
 
     # Existing identifiers retain their stock names, and a truly unrecognised
     # format must still use the normal fallback rather than an Amiga label.
@@ -64,6 +68,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", type=Path)
     parser.add_argument("--preloaded", action="store_true")
+    parser.add_argument("--shim", type=Path)
+    parser.add_argument("--modules-root", type=Path, default=Path("/lib/modules"))
+    parser.add_argument("--matrix", action="store_true")
     parser.add_argument("--stock", action="store_true")
     args = parser.parse_args()
     os.environ["LANGUAGE"] = "C"
@@ -73,7 +80,11 @@ def main():
         assert os.environ.get("LD_PRELOAD") == (None if expected == "unset" else expected)
         assert "INFILTRATOR_DISKS_PRELOAD_SET" not in os.environ
         assert "INFILTRATOR_DISKS_PRELOAD_VALUE" not in os.environ
-    if args.package:
+    child_args = [sys.executable, __file__, "--preloaded", "--modules-root", str(args.modules_root)]
+    if args.shim:
+        assert args.matrix and args.modules_root != Path("/lib/modules")
+        subprocess.run(child_args + ["--matrix"], env=dict(os.environ, LD_PRELOAD=str(args.shim)), check=True)
+    elif args.package:
         def field(name):
             return subprocess.check_output(["dpkg-deb", "-f", str(args.package), name], text=True).strip()
         assert field("Package") == "infiltrator-filesystem-support-udisks"
@@ -92,14 +103,26 @@ def main():
             for script in ("preinst", "postrm"):
                 assert "dpkg-divert --package infiltrator-filesystem-support-udisks" in (root / "DEBIAN" / script).read_text()
             env = dict(os.environ, LD_PRELOAD=str(shim))
-            subprocess.run([sys.executable, __file__, "--preloaded"], env=env, check=True)
+            subprocess.run(child_args, env=env, check=True)
             for was_set, previous, expected in (("no", "", "unset"), ("yes", "libm.so.6", "libm.so.6")):
                 isolated = dict(env, INFILTRATOR_DISKS_PRELOAD_SET=was_set,
                                 INFILTRATOR_DISKS_PRELOAD_VALUE=previous,
                                 FSUPPORT_TEST_PRELOAD=expected)
-                subprocess.run([sys.executable, __file__, "--preloaded"], env=isolated, check=True)
+                subprocess.run(child_args, env=isolated, check=True)
+    elif args.matrix:
+        assert args.modules_root != Path("/lib/modules")
+        modules = args.modules_root / platform.release() / "updates/infiltrator"
+        modules.mkdir(parents=True, exist_ok=True)
+        kinds = ("ofs", "ffs", "sfs", "sfs2", "pfs3")
+        for mask in range(32):
+            for bit, kind in enumerate(kinds):
+                path = modules / f"{kind}.ko"
+                path.unlink(missing_ok=True)
+                if mask & (1 << bit): path.touch()
+            check(modules_root=args.modules_root)
+        print("All 32 Disks display-name installation subsets: PASS")
     else:
-        check(stock_only=args.stock)
+        check(stock_only=args.stock, modules_root=args.modules_root)
 
 
 if __name__ == "__main__":

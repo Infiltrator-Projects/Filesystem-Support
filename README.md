@@ -54,7 +54,10 @@ GPL-3.0-or-later.
 A normal package installation also installs
 `infiltrator-filesystem-support-udisks`, a private display-name extension for
 GNOME Disks. It adds OFS, FFS, SFS, SFS2 and PFS3 names to the Contents field
-and volume map. The distribution's `libudisks2-0` remains installed, retains
+and volume map only for formats whose own native driver is installed for the
+running kernel. Installing or removing OFS, FFS, SFS, SFS2 or PFS3 refreshes
+desktop identification independently; installing one never enables another.
+The distribution's `libudisks2-0` remains installed, retains
 its own library files and receives distribution updates normally. All other
 identifiers are displayed by the stock UDisks client.
 

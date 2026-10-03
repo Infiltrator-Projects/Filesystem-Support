@@ -60,4 +60,15 @@ COPYRIGHT
 deb="$output/${package}_${version}_${arch}.deb"
 dpkg-deb --root-owner-group --build "$payload" "$deb"
 python3 "$root/tests/udisks_display_test.py" --package "$deb"
+
+# Compile a separate fixture library with a private module root. This is never
+# packaged, and proves every combination of per-filesystem install/removal.
+cc -shared -fPIC -fvisibility=hidden -O2 -Wall -Wextra -Werror \
+    -DIFS_NATIVE_MODULES_ROOT="\"$work/modules\"" \
+    $(pkg-config --cflags glib-2.0) \
+    "$root/packaging/linux/udisks-amiga-names.c" \
+    -o "$work/udisks-amiga-names-test.so" \
+    $(pkg-config --libs glib-2.0) -ldl -pthread
+python3 "$root/tests/udisks_display_test.py" \
+    --shim "$work/udisks-amiga-names-test.so" --modules-root "$work/modules" --matrix
 printf 'Built isolated GNOME Disks names package: %s\n' "$deb"

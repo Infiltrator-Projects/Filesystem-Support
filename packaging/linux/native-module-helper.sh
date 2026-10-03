@@ -70,6 +70,17 @@ module_loaded() {
     [[ -d "/sys/module/$module" ]]
 }
 
+refresh_desktop_identification() {
+    case "$filesystem" in
+        ofs|ffs|sfs|sfs2|pfs3)
+            if command -v udevadm >/dev/null 2>&1; then
+                udevadm trigger --subsystem-match=block --action=change || true
+                udevadm settle --timeout=30 || true
+            fi
+            ;;
+    esac
+}
+
 preferred_module_filename() {
     modinfo -F filename "$module" 2>/dev/null | head -n1 || true
 }
@@ -245,11 +256,13 @@ install_native() {
         exit 1
     fi
 
+    refresh_desktop_identification
     echo "$filesystem native module installed and loaded for kernel $kernel"
 }
 
 remove_native() {
     if [[ ! -f "$destination" ]]; then
+        refresh_desktop_identification
         echo "$filesystem native module is not installed for kernel $kernel"
         exit 0
     fi
@@ -268,6 +281,7 @@ remove_native() {
     depmod -a "$kernel"
     rmdir "$destination_dir" 2>/dev/null || true
 
+    refresh_desktop_identification
     echo "$filesystem native module removed for kernel $kernel"
 }
 

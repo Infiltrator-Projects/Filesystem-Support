@@ -1,14 +1,15 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 3 ]; then
-    echo "usage: $0 <fsinspect> <python> <source-root>" >&2
+if [ "$#" -ne 4 ]; then
+    echo "usage: $0 <fsinspect> <python> <source-root> <test-modules-root>" >&2
     exit 2
 fi
 
 inspect=$1
 python=$2
 source_root=$3
+modules_root=$4
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
@@ -79,16 +80,6 @@ PY
 "$python" "$source_root/tools/generate-sfs-runtime-images.py" \
     --variant sfs2 --output "$work/sfs2.img" --blocks 4096 --volume DetectSFS2
 
-check_type() {
-    image=$1
-    expected_type=$2
-    expected_version=$3
-    output=$("$inspect" --udev "$image")
-    printf '%s\n' "$output" | grep -Fxq 'ID_FS_USAGE=filesystem'
-    printf '%s\n' "$output" | grep -Fxq "ID_FS_TYPE=$expected_type"
-    printf '%s\n' "$output" | grep -Fxq "ID_FS_VERSION=$expected_version"
-}
-
 check_unknown() {
     image=$1
     if "$inspect" --udev "$image" >"$work/unknown.out" 2>"$work/unknown.err"; then
@@ -102,14 +93,42 @@ check_unknown() {
     fi
 }
 
-check_type "$work/ofs.img" ofs DOS/0
-check_type "$work/ffs.img" ffs DOS/1
-check_type "$work/sfs.img" sfs 3
-check_type "$work/sfs2.img" sfs2 4
-check_type "$work/pfs3.img" pfs3 PFS/1
-
-pfs_output=$("$inspect" --udev "$work/pfs3.img")
-printf '%s\n' "$pfs_output" | grep -Fxq 'ID_FS_LABEL=PFS Test'
+"$python" - "$inspect" "$work" "$modules_root" <<'CHECK'
+from pathlib import Path
+import platform
+import subprocess
+import sys
+inspect, media, modules_root = sys.argv[1:]
+modules = Path(modules_root) / platform.release() / "updates/infiltrator"
+modules.mkdir(parents=True, exist_ok=True)
+cases = (("ofs", "DOS/0"), ("ffs", "DOS/1"), ("sfs", "3"),
+         ("sfs2", "4"), ("pfs3", "PFS/1"))
+# Format validation in the explicit diagnostic command is independent of
+# install state; it supplies no desktop properties or mounting capability.
+for kind, version in cases:
+    result = subprocess.run([inspect, str(Path(media) / f"{kind}.img")],
+                            text=True, capture_output=True, check=True)
+    assert f"filesystem={kind}\n" in result.stdout
+# Every subset proves that one installed filesystem cannot activate another.
+for mask in range(32):
+    for bit, (kind, _) in enumerate(cases):
+        module = modules / f"{kind}.ko"
+        module.unlink(missing_ok=True)
+        if mask & (1 << bit): module.touch()
+    for bit, (kind, version) in enumerate(cases):
+        result = subprocess.run([inspect, "--udev", str(Path(media) / f"{kind}.img")],
+                                text=True, capture_output=True)
+        if mask & (1 << bit):
+            assert result.returncode == 0, (mask, kind, result.stderr)
+            lines = result.stdout.splitlines()
+            assert "ID_FS_USAGE=filesystem" in lines
+            assert f"ID_FS_TYPE={kind}" in lines
+            assert f"ID_FS_VERSION={version}" in lines
+            if kind == "pfs3": assert "ID_FS_LABEL=PFS Test" in lines
+        else:
+            assert result.returncode != 0 and not result.stdout, (mask, kind, result.stdout)
+print("All 32 Amiga driver installation subsets: PASS")
+CHECK
 
 check_unknown "$work/signature-only.img"
 check_unknown "$work/unknown.img"

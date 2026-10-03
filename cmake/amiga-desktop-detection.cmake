@@ -24,13 +24,23 @@ install(FILES
 
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    # Exercise the real detector without creating fake modules under the
+    # host's /lib/modules. Production binaries have no runtime root override.
+    add_executable(fsinspect-desktop-test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/fsinspect/main.c")
+    get_target_property(amiga_detector_libraries fsinspect LINK_LIBRARIES)
+    target_link_libraries(fsinspect-desktop-test PRIVATE ${amiga_detector_libraries})
+    target_compile_definitions(fsinspect-desktop-test PRIVATE
+        IFS_NATIVE_MODULES_ROOT="${CMAKE_CURRENT_BINARY_DIR}/desktop-test-modules")
+    filesystem_support_configure(fsinspect-desktop-test)
     add_test(
         NAME filesystem-support-amiga-detection
         COMMAND sh
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/amiga_detection_test.sh"
-            "$<TARGET_FILE:fsinspect>"
+            "$<TARGET_FILE:fsinspect-desktop-test>"
             "${Python3_EXECUTABLE}"
-            "${CMAKE_CURRENT_SOURCE_DIR}")
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${CMAKE_CURRENT_BINARY_DIR}/desktop-test-modules")
 endif()
 
 # The detector is invoked by udev at runtime. Reload and retrigger block-device

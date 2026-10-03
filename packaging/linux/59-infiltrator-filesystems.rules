@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Publish filesystem identity for native Amiga formats before the standard
+# Publish identity only for installed native Amiga formats before the standard
 # persistent-storage rules run. util-linux/libblkid does not identify these
 # filesystems, so fsinspect supplies the ID_FS_* properties that UDisks and
 # desktop tools expect. The helper is bounded, read-only and uses the same
-# canonical format validators as the kernel modules.
+# canonical format validators as the kernel modules. Each format also requires
+# its own project-native .ko for the running kernel; one driver never enables
+# desktop recognition of another Amiga format.
 
 # Clear stale properties when media previously identified by this rule is
 # changed or reformatted. A still-valid volume is repopulated immediately by
