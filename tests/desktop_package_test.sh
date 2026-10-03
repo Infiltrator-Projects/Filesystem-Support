@@ -30,7 +30,7 @@ install_without_removals() {
     test "$(sha256sum /usr/bin/gnome-disks.filesystem-support-original | cut -d ' ' -f1)" = "$disks_hash"
     LD_PRELOAD=/usr/lib/infiltrator-filesystem-support/udisks-amiga-names.so \
         python3 "$root/tests/udisks_display_test.py" --preloaded
-    xvfb-run -a /usr/bin/gnome-disks --version
+    xvfb-run -a /usr/bin/gnome-disks --help
 }
 
 remove_and_verify() {
@@ -39,7 +39,7 @@ remove_and_verify() {
     test "$(sha256sum /usr/bin/gnome-disks | cut -d ' ' -f1)" = "$disks_hash"
     test -z "$(dpkg-divert --listpackage /usr/bin/gnome-disks)"
     test ! -e /usr/bin/gnome-disks.filesystem-support-original
-    xvfb-run -a /usr/bin/gnome-disks --version
+    xvfb-run -a /usr/bin/gnome-disks --help
 }
 
 # Stock system / users who cancelled the 0.5.4 proposal.
