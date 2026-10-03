@@ -12,6 +12,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  desktop-client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact desktop integration source
+        uses: actions/checkout@v4
+
+      - name: Enable distribution sources and install desktop build dependencies
+        run: |
+          sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential devscripts dpkg-dev python3
+          sudo apt-get build-dep -y udisks2
+
+      - name: Build and exercise the distribution UDisks client
+        run: bash packaging/build-desktop-client.sh dist-desktop
+
+      - name: Verify managed installation and runtime display names
+        run: |
+          sudo apt-get install -y --no-install-recommends ./dist-desktop/*.deb
+          sudo apt-get check
+          python3 tests/udisks_display_test.py
+          dpkg-query -S /usr/lib/x86_64-linux-gnu/libudisks2.so.0 | grep -Fq infiltrator-filesystem-support-udisks
+
+      - name: Preserve qualified desktop client for release assembly
+        uses: actions/upload-artifact@v4
+        with:
+          name: filesystem-support-desktop-client
+          path: dist-desktop/*.deb
+          if-no-files-found: error
+
   source-boundary:
     # This job requires the Git CLI for history/tag provenance checks.
     runs-on: ubuntu-24.04

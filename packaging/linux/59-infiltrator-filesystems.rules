@@ -26,9 +26,9 @@ ENV{ID_FS_TYPE}=="sfs",  RUN+="/sbin/modprobe -q sfs"
 ENV{ID_FS_TYPE}=="sfs2", RUN+="/sbin/modprobe -q sfs2"
 ENV{ID_FS_TYPE}=="pfs3", RUN+="/sbin/modprobe -q pfs3"
 
-# Give UDisks/GVfs useful presentation names for formats which libblkid and
-# the stock UDisks filesystem-name table do not know. A real PFS label remains
-# authoritative and is not replaced.
+# Give UDisks/GVfs useful device hint names without replacing a real volume
+# label. The managed UDisks client package separately supplies GNOME Disks'
+# filesystem descriptions in Contents and the volume map.
 ENV{ID_FS_TYPE}=="ofs",  ENV{ID_FS_LABEL}=="", ENV{UDISKS_NAME}="Amiga OFS"
 ENV{ID_FS_TYPE}=="ffs",  ENV{ID_FS_LABEL}=="", ENV{UDISKS_NAME}="Amiga FFS"
 ENV{ID_FS_TYPE}=="sfs",  ENV{ID_FS_LABEL}=="", ENV{UDISKS_NAME}="Amiga SFS"

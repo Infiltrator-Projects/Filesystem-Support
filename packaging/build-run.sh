@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-    echo "usage: $0 <built-binary> <output.run>" >&2
+if [[ $# -ne 3 ]]; then
+    echo "usage: $0 <built-binary> <output.run> <desktop-client.deb>" >&2
     exit 2
 fi
 
@@ -11,6 +11,7 @@ binary=$(readlink -f "$1")
 build_dir=$(dirname "$binary")
 fsinspect="$build_dir/fsinspect"
 output=$2
+desktop_client=$(readlink -f "$3")
 root=$(cd "$(dirname "$0")/.." && pwd)
 desktop="$root/data/org.infiltrator.FilesystemSupport.desktop"
 udev_rule="$root/packaging/linux/59-infiltrator-filesystems.rules"
@@ -19,6 +20,8 @@ test -x "$binary"
 test -x "$fsinspect"
 test -f "$desktop"
 test -f "$udev_rule"
+test "$(dpkg-deb -f "$desktop_client" Package)" = infiltrator-filesystem-support-udisks
+test "$(dpkg-deb -f "$desktop_client" Version)" = "$(tr -d '[:space:]' < "$root/VERSION")"
 
  tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -28,6 +31,8 @@ mkdir -p "$tmp/payload/usr/bin"
 mkdir -p "$tmp/payload/usr/local/share/applications"
 mkdir -p "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems"
 mkdir -p "$tmp/payload/usr/lib/udev/rules.d"
+mkdir -p "$tmp/payload/desktop-packages"
+cp "$desktop_client" "$tmp/payload/desktop-packages/desktop-client.deb"
 install -m 0755 "$binary" "$tmp/payload/usr/local/bin/filesystem-support"
 install -m 0755 "$fsinspect" "$tmp/payload/usr/bin/fsinspect"
 install -m 0644 "$desktop" "$tmp/payload/usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop"
@@ -64,9 +69,12 @@ Installs:
   /usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop
   /usr/local/lib/infiltrator-filesystem-support/native-module-helper
   native module source for EXT2/EXT3/EXT4/OFS/FFS/SFS/SFS2/PFS3
+  infiltrator-filesystem-support-udisks (managed UDisks client package)
 
 The filesystem detector publishes OFS/FFS/SFS/SFS2/PFS3 ID_FS_* properties
 for udev/UDisks so supported Amiga media is visible to desktop disk tools.
+The bundled distribution-built UDisks client supplies the Amiga filesystem
+names displayed by GNOME Disks in Contents and the volume map.
 
 Run the file normally. PolicyKit will request administrator authentication if needed.
 HELP
@@ -98,6 +106,11 @@ fi
 trap 'rm -rf "$tmp"' EXIT
 
 tail -n +"$archive_line" "$self" | tar -xz -C "$tmp"
+
+# Let APT own the ABI-matched library replacement and dependency transaction.
+# Install it before copying the application, so failure cannot be reported as
+# a successful installation with a missing desktop display-name component.
+apt-get install -y --no-install-recommends "$tmp/desktop-packages/desktop-client.deb"
 
 install -m 0755 "$tmp/usr/local/bin/filesystem-support" /usr/local/bin/filesystem-support
 install -d -m 0755 /usr/bin

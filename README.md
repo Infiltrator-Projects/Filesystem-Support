@@ -51,9 +51,20 @@ GPL-3.0-or-later.
 
 ## Releases
 
+A normal package installation also installs the managed
+`infiltrator-filesystem-support-udisks` client package. It is built from the
+configured distribution's UDisks source with only the five native Amiga
+filesystem descriptions added. Both GNOME Disks' Contents field and its
+volume map therefore recognise OFS, FFS, SFS, SFS2 and PFS3 by name; publishing
+`ID_FS_TYPE` and `UDISKS_NAME` alone does not change that client-side table.
+The native `.run` installer carries the same qualified client package and
+installs it through APT. The filesystem modules remain independently built
+and installed by each **Install native** action.
+
 A successful release commit publishes a GitHub release with:
 
 - `Filesystem-Support-<version>-amd64.deb`
 - `Filesystem-Support-<version>-amd64.run`
+- `infiltrator-filesystem-support-udisks_<version>_amd64.deb`
 - `RELEASE_SHA256SUMS.txt`
 - GitHub's immutable source ZIP and TAR.GZ archives for the release tag.
