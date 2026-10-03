@@ -3,7 +3,9 @@
 #include "infiltratr/fs/io.h"
 #include "infiltratr/fs/status.h"
 #include "ofs_core.h"
+#include "ofs_primitives.h"
 #include "ffs_core.h"
+#include "ffs_primitives.h"
 #include "sfs_core.h"
 #include "sfs2_core.h"
 #include "pfs3_core.h"
@@ -16,6 +18,11 @@
 
 #define IFS_PROBE_PREFIX_BYTES 128U
 #define IFS_PROBE_MAX_BLOCK_SIZE 65536U
+#define IFS_AFFS_MIN_BLOCK_SIZE 512U
+#define IFS_AFFS_MAX_BLOCK_SIZE 4096U
+#define IFS_AFFS_RESERVED_BLOCKS 2U
+#define IFS_AFFS_T_SHORT 2U
+#define IFS_AFFS_ST_ROOT 1U
 #define IFS_PFS3_SECTOR_SIZE 512U
 #define IFS_PFS3_ROOT_SECTOR 2U
 
@@ -92,25 +99,93 @@ static void format_dostype_version(
     }
 }
 
+static int affs_root_block_valid(
+    const unsigned char *block,
+    uint32_t block_size,
+    int ofs)
+{
+    uint32_t checksum;
+
+    if (block == NULL || block_size < IFS_AFFS_MIN_BLOCK_SIZE)
+        return 0;
+    if (read_be32(block) != IFS_AFFS_T_SHORT ||
+        read_be32(block + block_size - 4U) != IFS_AFFS_ST_ROOT)
+        return 0;
+
+    checksum = ofs != 0
+        ? ifs_ofs_block_checksum((const ifs_ofs_u8 *)block, block_size)
+        : ifs_ffs_block_checksum((const ifs_ffs_u8 *)block, block_size);
+    return checksum == 0U;
+}
+
+static int find_affs_root(
+    IfsUserspaceFile *file,
+    int ofs,
+    uint32_t *detected_block_size)
+{
+    uint32_t block_size;
+
+    for (block_size = IFS_AFFS_MIN_BLOCK_SIZE;
+         block_size <= IFS_AFFS_MAX_BLOCK_SIZE;
+         block_size <<= 1U) {
+        const uint64_t block_count = file->io.size_bytes / block_size;
+        const uint64_t root =
+            ((uint64_t)IFS_AFFS_RESERVED_BLOCKS + block_count - 1U) / 2U;
+        unsigned char *block;
+        unsigned int attempt;
+
+        if (block_count <= IFS_AFFS_RESERVED_BLOCKS || root >= block_count)
+            continue;
+
+        block = (unsigned char *)malloc(block_size);
+        if (block == NULL)
+            return 0;
+
+        for (attempt = 0U; attempt < 2U; ++attempt) {
+            const uint64_t candidate = root + attempt;
+            const uint64_t offset = candidate * (uint64_t)block_size;
+
+            if (candidate >= block_count)
+                continue;
+            if (read_exact_at(file, offset, block, block_size) == 0 &&
+                affs_root_block_valid(block, block_size, ofs)) {
+                *detected_block_size = block_size;
+                free(block);
+                return 1;
+            }
+        }
+
+        free(block);
+    }
+
+    return 0;
+}
+
 static int probe_ofs_ffs(
+    IfsUserspaceFile *file,
     const unsigned char prefix[IFS_PROBE_PREFIX_BYTES],
     IfsProbeResult *result)
 {
     const uint32_t dostype = read_be32(prefix);
     uint32_t variants = 0U;
+    uint32_t block_size = 0U;
 
     if (ifs_ofs_classify_dostype(dostype, &variants) == 0) {
         (void)variants;
+        if (!find_affs_root(file, 1, &block_size))
+            return 0;
         result->type = "ofs";
-        result->block_size = 512U;
+        result->block_size = block_size;
         format_dostype_version(dostype, result->version);
         return 1;
     }
 
     if (ifs_ffs_classify_dostype(dostype, &variants) == 0) {
         (void)variants;
+        if (!find_affs_root(file, 0, &block_size))
+            return 0;
         result->type = "ffs";
-        result->block_size = 512U;
+        result->block_size = block_size;
         format_dostype_version(dostype, result->version);
         return 1;
     }
@@ -248,7 +323,7 @@ static int probe_pfs3(IfsUserspaceFile *file, IfsProbeResult *result)
 
     result->type = "pfs3";
     result->block_size = IFS_PFS3_SECTOR_SIZE;
-    snprintf(result->version, sizeof(result->version),
+    snprintf(result->version, sizeof(result->version), "%s",
              format == IFS_PFS3_FORMAT_PFS1 ? "PFS/1" : "PFS/2");
     copy_pfs3_label(root.disk_name, result->label);
     return 1;
@@ -265,7 +340,7 @@ static int probe_amiga_filesystem(
         read_exact_at(file, 0U, prefix, sizeof(prefix)) != 0)
         return 0;
 
-    if (probe_ofs_ffs(prefix, result))
+    if (probe_ofs_ffs(file, prefix, result))
         return 1;
     if (probe_sfs(file, prefix, result))
         return 1;
