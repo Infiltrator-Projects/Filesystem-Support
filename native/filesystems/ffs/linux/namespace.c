@@ -119,6 +119,7 @@ int affs_remove_hash(struct inode *dir, struct buffer_head *remove_bh)
                 cursor, be32_to_cpu(replacement) - remove_block);
             mark_buffer_dirty_inode(cursor, dir);
             remove_tail->parent = 0;
+            affs_fix_checksum(sb, remove_bh);
             result = 0;
             break;
         }
@@ -1405,4 +1406,3 @@ const struct inode_operations affs_symlink_inode_operations = {
     .get_link = page_get_link,
     .setattr = affs_notify_change,
 };
-
