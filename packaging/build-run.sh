@@ -8,25 +8,34 @@ if [[ $# -ne 2 ]]; then
 fi
 
 binary=$(readlink -f "$1")
+build_dir=$(dirname "$binary")
+fsinspect="$build_dir/fsinspect"
 output=$2
 root=$(cd "$(dirname "$0")/.." && pwd)
 desktop="$root/data/org.infiltrator.FilesystemSupport.desktop"
+udev_rule="$root/packaging/linux/59-infiltrator-filesystems.rules"
 
 test -x "$binary"
+test -x "$fsinspect"
 test -f "$desktop"
+test -f "$udev_rule"
 
-tmp=$(mktemp -d)
+ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/payload/usr/local/bin"
+mkdir -p "$tmp/payload/usr/bin"
 mkdir -p "$tmp/payload/usr/local/share/applications"
 mkdir -p "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems"
+mkdir -p "$tmp/payload/usr/lib/udev/rules.d"
 install -m 0755 "$binary" "$tmp/payload/usr/local/bin/filesystem-support"
+install -m 0755 "$fsinspect" "$tmp/payload/usr/bin/fsinspect"
 install -m 0644 "$desktop" "$tmp/payload/usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop"
+install -m 0644 "$udev_rule" "$tmp/payload/usr/lib/udev/rules.d/59-infiltrator-filesystems.rules"
 install -m 0755 "$root/packaging/linux/native-module-helper.sh" \
     "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native-module-helper"
 
-for native_fs in ext2 ext3 ext4 ofs ffs sfs; do
+for native_fs in ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
     mkdir -p "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems/$native_fs"
     cp -a "$root/native/filesystems/$native_fs/core" \
         "$tmp/payload/usr/local/lib/infiltrator-filesystem-support/native/filesystems/$native_fs/core"
@@ -50,9 +59,14 @@ Filesystem Support native installer
 
 Installs:
   /usr/local/bin/filesystem-support
+  /usr/bin/fsinspect
+  /usr/lib/udev/rules.d/59-infiltrator-filesystems.rules
   /usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop
   /usr/local/lib/infiltrator-filesystem-support/native-module-helper
-  native module source for EXT2/EXT3/EXT4/OFS/FFS/SFS
+  native module source for EXT2/EXT3/EXT4/OFS/FFS/SFS/SFS2/PFS3
+
+The filesystem detector publishes OFS/FFS/SFS/SFS2/PFS3 ID_FS_* properties
+for udev/UDisks so supported Amiga media is visible to desktop disk tools.
 
 Run the file normally. PolicyKit will request administrator authentication if needed.
 HELP
@@ -80,12 +94,19 @@ if [[ -z "$archive_line" ]]; then
     exit 1
 fi
 
-tmp=$(mktemp -d)
+ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 tail -n +"$archive_line" "$self" | tar -xz -C "$tmp"
 
 install -m 0755 "$tmp/usr/local/bin/filesystem-support" /usr/local/bin/filesystem-support
+install -d -m 0755 /usr/bin
+install -m 0755 "$tmp/usr/bin/fsinspect" /usr/bin/fsinspect
+install -d -m 0755 /usr/lib/udev/rules.d
+install -m 0644 \
+    "$tmp/usr/lib/udev/rules.d/59-infiltrator-filesystems.rules" \
+    /usr/lib/udev/rules.d/59-infiltrator-filesystems.rules
+install -d -m 0755 /usr/local/share/applications
 install -m 0644 \
     "$tmp/usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop" \
     /usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop
@@ -97,6 +118,12 @@ install -m 0755 \
 rm -rf /usr/local/lib/infiltrator-filesystem-support/native
 cp -a "$tmp/usr/local/lib/infiltrator-filesystem-support/native" \
     /usr/local/lib/infiltrator-filesystem-support/native
+
+if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules || true
+    udevadm trigger --subsystem-match=block --action=change || true
+    udevadm settle --timeout=30 || true
+fi
 
 echo "Filesystem Support installed successfully."
 exit 0
