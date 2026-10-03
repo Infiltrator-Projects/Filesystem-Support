@@ -43,8 +43,10 @@ jobs:
 
   source-boundary:
     # This job requires the Git CLI for history/tag provenance checks.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","Linux","X64","linux-native"]') }}
     timeout-minutes: 20
+    env:
+      PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -1499,3 +1501,4 @@ jobs:
               }
           }
           Get-FileHash -Algorithm SHA256 -LiteralPath $driver, $cat | Format-Table
+
