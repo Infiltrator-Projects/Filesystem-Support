@@ -208,3 +208,11 @@ jobs:
             2>&1 | tee /tmp/amiga-runtime.log
           grep -Fq 'AMIGA-RUNTIME-PASS' /tmp/amiga-runtime.log
           ! grep -Fq 'AMIGA-RUNTIME-FAIL' /tmp/amiga-runtime.log
+
+      - name: Preserve Amiga runtime log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amiga-runtime-log
+          path: /tmp/amiga-runtime.log
+          if-no-files-found: warn
