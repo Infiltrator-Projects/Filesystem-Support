@@ -125,6 +125,13 @@ for mask in range(32):
             assert f"ID_FS_TYPE={kind}" in lines
             assert f"ID_FS_VERSION={version}" in lines
             if kind == "pfs3": assert "ID_FS_LABEL=PFS Test" in lines
+            for requested, _ in cases:
+                scoped = subprocess.run([inspect, "--udev", "--filesystem", requested,
+                                         str(Path(media) / f"{kind}.img")], text=True, capture_output=True)
+                if requested == kind:
+                    assert scoped.returncode == 0 and scoped.stdout == result.stdout
+                else:
+                    assert scoped.returncode != 0 and not scoped.stdout, (mask, requested, kind)
         else:
             assert result.returncode != 0 and not result.stdout, (mask, kind, result.stdout)
 print("All 32 Amiga driver installation subsets: PASS")

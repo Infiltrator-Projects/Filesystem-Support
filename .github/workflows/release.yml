@@ -21,7 +21,7 @@ jobs:
       startsWith(github.event.workflow_run.head_commit.message, 'Release ')
     permissions:
       contents: write
-      actions: read
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -69,7 +69,7 @@ jobs:
             exit 1
           fi
 
-      - name: Retrieve the desktop client qualified for this exact commit
+      - name: Retrieve the main package qualified for this exact commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -77,13 +77,13 @@ jobs:
           build_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100" \
             --jq '.workflow_runs | map(select(.name == "build" and .conclusion == "success")) | first | .id // empty')
           test -n "$build_run"
-          gh run download "$build_run" --name filesystem-support-desktop-client --dir dist
+          gh run download "$build_run" --name filesystem-support-linux-package --dir dist
           version=$(tr -d '[:space:]' < VERSION)
-          desktop="dist/infiltrator-filesystem-support-udisks_${version}_amd64.deb"
-          test "$(dpkg-deb -f "$desktop" Package)" = infiltrator-filesystem-support-udisks
-          test "$(dpkg-deb -f "$desktop" Version)" = "$version"
-          python3 tests/udisks_display_test.py --package "$desktop"
-          cp "$desktop" .
+          deb="dist/Filesystem-Support-$version-amd64.deb"
+          test "$(dpkg-deb -f "$deb" Package)" = infiltrator-filesystem-support
+          test "$(dpkg-deb -f "$deb" Version)" = "$version"
+          python3 tests/udisks_display_test.py --package "$deb"
+          cp "$deb" .
 
       - name: Configure, build and test
         run: |
@@ -94,35 +94,30 @@ jobs:
           cmake --build build-release
           ctest --test-dir build-release --output-on-failure
 
-      - name: Build and verify Debian package
+      - name: Verify the qualified single Debian package
         run: |
           set -euo pipefail
           version=$(tr -d '[:space:]' < VERSION)
-          cpack --config build-release/CPackConfig.cmake -G DEB -B dist
-          deb="dist/Filesystem-Support-$version-amd64.deb"
-          test -f "$deb"
-          test "$(dpkg-deb -f "$deb" Package)" = "infiltrator-filesystem-support"
-          test "$(dpkg-deb -f "$deb" Version)" = "$version"
-          dpkg-deb -f "$deb" Depends | grep -Eq '(^|, )udev([ ,]|$)'
-          dpkg-deb -f "$deb" Depends | grep -Fq "infiltrator-filesystem-support-udisks (>= $version)"
+          deb="Filesystem-Support-$version-amd64.deb"
+          test "$(dpkg-deb -f "$deb" Conflicts)" = infiltrator-filesystem-support-udisks
+          ! dpkg-deb -f "$deb" Depends | grep -Fq infiltrator-filesystem-support-udisks
           dpkg-deb -c "$deb" > package-contents.txt
           grep -Fq './usr/bin/fsinspect' package-contents.txt
-          grep -Fq './usr/lib/udev/rules.d/59-infiltrator-filesystems.rules' package-contents.txt
-          cp "$deb" .
+          grep -Fq '/desktop/templates/ofs.so' package-contents.txt
+          ! grep -Fq '59-infiltrator-filesystems.rules' package-contents.txt
+          test "$(find dist -maxdepth 1 -name '*.deb' | wc -l)" = 1
 
-      - name: Build and verify native run installer
+      - name: Build and verify the single-package run installer
         run: |
           set -euo pipefail
           version=$(tr -d '[:space:]' < VERSION)
           run="Filesystem-Support-$version-amd64.run"
-          ./packaging/build-run.sh build-release/filesystem-support "$run" \
-            "infiltrator-filesystem-support-udisks_${version}_amd64.deb"
+          ./packaging/build-run.sh "Filesystem-Support-$version-amd64.deb" "$run"
           test -x "$run"
           help=$("./$run" --help)
           grep -Fq '/usr/bin/fsinspect' <<<"$help"
-          grep -Fq '59-infiltrator-filesystems.rules' <<<"$help"
-          grep -Fq 'SFS2/PFS3' <<<"$help"
-          grep -Fq 'infiltrator-filesystem-support-udisks' <<<"$help"
+          grep -Fq 'per-filesystem desktop templates' <<<"$help"
+          grep -Fq 'OFS/FFS/SFS/SFS2/PFS3' <<<"$help"
 
       - name: Generate checksums
         run: |
@@ -131,7 +126,6 @@ jobs:
           sha256sum \
             "Filesystem-Support-$version-amd64.deb" \
             "Filesystem-Support-$version-amd64.run" \
-            "infiltrator-filesystem-support-udisks_${version}_amd64.deb" \
             > RELEASE_SHA256SUMS.txt
 
       - name: Publish immutable GitHub release
@@ -144,7 +138,6 @@ jobs:
           tag="v$version"
           deb="Filesystem-Support-$version-amd64.deb"
           run="Filesystem-Support-$version-amd64.run"
-          desktop="infiltrator-filesystem-support-udisks_${version}_amd64.deb"
 
           git fetch origin main --tags
           head_commit=$(git rev-parse HEAD)
@@ -181,16 +174,15 @@ jobs:
           - canonical format validation, including AFFS midpoint root/checksum validation rather than signature-only matching
           - udev/UDisks ID_FS_* publication so Amiga volumes are detected by desktop disk tooling even though stock libblkid lacks these recognisers
           - automatic module loading and safe desktop mount policy, with PFS3 forced read-only
-          - independent desktop recognition for each installed OFS/FFS/SFS/SFS2/PFS3 driver, with device identification refreshed on Install native and Remove native
-          - proper names in GNOME Disks Contents and the volume map through a private display extension that preserves stock libudisks2-0
+          - each Install/Remove action deploys/removes that filesystem’s own driver, identification rule and Disks naming file together
+          - one main Debian package with inactive per-filesystem desktop templates; no supplemental Debian package
           - installer-time udev reload/retrigger so already-connected Amiga media is re-identified without a reboot
-          - matching detector, udev rule and all eight native filesystem source payloads in both the Debian package and native .run installer
+          - one qualified Debian package, also embedded in the native .run installer, with no additional desktop Debian package
           - independent runtime qualification for EXT and Amiga implementations with host filesystem implementations disabled where applicable
 
           Release assets:
           - Generic AMD64 Debian package
           - Native self-extracting .run installer
-          - Private GNOME Disks display extension (installed as a dependency)
           - SHA-256 checksum manifest
 
           GitHub also provides immutable source code ZIP and TAR.GZ archives for this tag.
@@ -199,7 +191,6 @@ jobs:
           gh release create "$tag" \
             "$deb" \
             "$run" \
-            "$desktop" \
             RELEASE_SHA256SUMS.txt \
             --verify-tag \
             --target "$EXPECTED_SHA" \
@@ -207,6 +198,11 @@ jobs:
             --notes-file release-notes.md \
             --latest
 
-          expected=$(printf '%s\n%s\n%s\n%s\n' "$deb" "$run" "$desktop" RELEASE_SHA256SUMS.txt | sort)
+          expected=$(printf '%s\n%s\n%s\n' "$deb" "$run" RELEASE_SHA256SUMS.txt | sort)
           actual=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
           test "$actual" = "$expected"
+
+      - name: Withdraw retired desktop packages and their dependent installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 packaging/retire-desktop-package.py

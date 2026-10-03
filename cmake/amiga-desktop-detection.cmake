@@ -18,9 +18,37 @@ target_link_libraries(fsinspect
 
 install(TARGETS fsinspect
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
-install(FILES
-    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/59-infiltrator-filesystems.rules"
-    DESTINATION "lib/udev/rules.d")
+find_package(Threads REQUIRED)
+set(desktop_templates "lib/infiltrator-filesystem-support/desktop/templates")
+install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-integration.sh"
+    DESTINATION "lib/infiltrator-filesystem-support" RENAME desktop-integration)
+install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/gnome-disks-wrapper"
+    DESTINATION "${desktop_templates}" RENAME gnome-disks)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-rules/"
+    DESTINATION "${desktop_templates}" FILES_MATCHING PATTERN "*.rules")
+set(desktop_variant 0)
+foreach(desktop_fs IN ITEMS ofs ffs sfs sfs2 pfs3)
+    math(EXPR desktop_variant "${desktop_variant} + 1")
+    set(desktop_target "filesystem-support-disks-${desktop_fs}")
+    add_library(${desktop_target} SHARED
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/udisks-amiga-names.c")
+    target_link_libraries(${desktop_target} PRIVATE PkgConfig::GLIB2 ${CMAKE_DL_LIBS} Threads::Threads)
+    target_compile_definitions(${desktop_target} PRIVATE IFS_NAMES_VARIANT=${desktop_variant})
+    set_target_properties(${desktop_target} PROPERTIES PREFIX "" OUTPUT_NAME "${desktop_fs}"
+        C_VISIBILITY_PRESET hidden LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/desktop-templates")
+    filesystem_support_configure(${desktop_target})
+    install(TARGETS ${desktop_target} LIBRARY DESTINATION "${desktop_templates}")
+    if(BUILD_TESTING)
+        add_library(${desktop_target}-test SHARED
+            "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/udisks-amiga-names.c")
+        target_link_libraries(${desktop_target}-test PRIVATE PkgConfig::GLIB2 ${CMAKE_DL_LIBS} Threads::Threads)
+        target_compile_definitions(${desktop_target}-test PRIVATE IFS_NAMES_VARIANT=${desktop_variant}
+            IFS_NATIVE_MODULES_ROOT="${CMAKE_CURRENT_BINARY_DIR}/desktop-test-root/lib/modules")
+        set_target_properties(${desktop_target}-test PROPERTIES PREFIX "" OUTPUT_NAME "${desktop_fs}"
+            C_VISIBILITY_PRESET hidden LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/desktop-test-templates")
+        filesystem_support_configure(${desktop_target}-test)
+    endif()
+endforeach()
 
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -41,13 +69,17 @@ if(BUILD_TESTING)
             "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}"
             "${CMAKE_CURRENT_BINARY_DIR}/desktop-test-modules")
+    add_test(NAME filesystem-support-desktop-install
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop_install_test.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
 
 # The detector is invoked by udev at runtime. Reload and retrigger block-device
 # events on package install/removal so already-connected Amiga media is updated
 # immediately instead of requiring a reboot or physical replug.
 string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
-    ", udev, infiltrator-filesystem-support-udisks (>= ${PROJECT_VERSION})")
+    ", udev, util-linux, libudisks2-0, gnome-disk-utility")
+set(CPACK_DEBIAN_PACKAGE_CONFLICTS "infiltrator-filesystem-support-udisks")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/postinst"
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/postrm")

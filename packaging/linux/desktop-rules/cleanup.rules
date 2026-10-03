@@ -1,0 +1,2 @@
+# Clear previous identification during migration/removal; enables no filesystem.
+ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_FS_TYPE}=="ofs|ffs|sfs|sfs2|pfs3", ENV{ID_FS_USAGE}="", ENV{ID_FS_TYPE}="", ENV{ID_FS_VERSION}="", ENV{ID_FS_LABEL}="", ENV{ID_FS_LABEL_ENC}="", ENV{ID_FS_BLOCK_SIZE}="", ENV{UDISKS_NAME}="", ENV{UDISKS_ICON_NAME}="", ENV{UDISKS_SYMBOLIC_ICON_NAME}="", ENV{UDISKS_MOUNT_OPTIONS_DEFAULTS}="", ENV{UDISKS_MOUNT_OPTIONS_ALLOW}=""

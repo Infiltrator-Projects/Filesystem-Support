@@ -370,6 +370,7 @@ int main(int argc, char **argv)
     IfsProbeResult result;
     IfsStatus status;
     const char *target;
+    const char *requested_type = NULL;
     int udev_mode = 0;
     int identified;
 
@@ -378,9 +379,14 @@ int main(int argc, char **argv)
     } else if (argc == 3 && strcmp(argv[1], "--udev") == 0) {
         udev_mode = 1;
         target = argv[2];
+    } else if (argc == 5 && strcmp(argv[1], "--udev") == 0 &&
+               strcmp(argv[2], "--filesystem") == 0) {
+        udev_mode = 1;
+        requested_type = argv[3];
+        target = argv[4];
     } else {
         fprintf(stderr,
-                "usage: fsinspect [--udev] <image-or-block-device>\n");
+                "usage: fsinspect [--udev [--filesystem <type>]] <image-or-block-device>\n");
         return 2;
     }
 
@@ -402,7 +408,8 @@ int main(int argc, char **argv)
     }
 
     if (udev_mode) {
-        if (!ifs_native_amiga_installed(result.type)) {
+        if ((requested_type != NULL && strcmp(requested_type, result.type) != 0) ||
+            !ifs_native_amiga_installed(result.type)) {
             ifs_userspace_file_close(&file);
             return 1;
         }

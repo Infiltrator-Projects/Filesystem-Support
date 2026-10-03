@@ -36,8 +36,8 @@ The greenfield source architecture is defined in
 
 ## Shared library pin
 
-Filesystem Support is pinned to Infiltratr Common **1.19.35**, commit
-`7cc5de3de0e94ed2cfcff0840bbb5346eb5c9c9f`.
+Filesystem Support is pinned to Infiltratr Common **1.19.38**, commit
+`7070c5812b50821fd7580101cb2289a3184f6b2c`.
 
 ## Design
 
@@ -51,30 +51,36 @@ GPL-3.0-or-later.
 
 ## Releases
 
-A normal package installation also installs
-`infiltrator-filesystem-support-udisks`, a private display-name extension for
-GNOME Disks. It adds OFS, FFS, SFS, SFS2 and PFS3 names to the Contents field
-and volume map only for formats whose own native driver is installed for the
-running kernel. Installing or removing OFS, FFS, SFS, SFS2 or PFS3 refreshes
-desktop identification independently; installing one never enables another.
-The distribution's `libudisks2-0` remains installed, retains
-its own library files and receives distribution updates normally. All other
-identifiers are displayed by the stock UDisks client.
+The main Debian package carries inactive desktop templates for each native Amiga
+filesystem. **Install native** installs that filesystem’s own `.ko`, its scoped
+udev identification rule and its single-filesystem Disks naming file together.
+**Remove native** removes that same set and refreshes connected devices. OFS,
+FFS, SFS, SFS2 and PFS3 each have separate active files; installing one cannot
+activate another. Installing the manager on a fresh system activates no format.
 
-The package uses a reversible `dpkg-divert` launcher wrapper for Disks; the
-original executable stays owned and updated by `gnome-disk-utility`. The
-extension does not propagate into programs launched by Disks. Removing the
-extension restores the stock launch path. Version 0.5.5 also restores the
-stock client package on machines that installed the 0.5.4 replacement.
+GNOME Disks uses a launcher that loads only the independently installed naming
+files for drivers present on the running kernel. The stock UDisks library and
+original Disks executable retain their distribution ownership and updates.
+Removing the final active filesystem restores the stock Disks launch path.
+The naming files do not propagate into programs launched by Disks.
 
-The native `.run` installer carries the same qualified extension and installs
-it through APT with package removals prohibited. The filesystem modules
-remain independently built and installed by each **Install native** action.
+The retired supplemental desktop package is removed automatically during the
+upgrade to 0.5.7. Existing native drivers receive only their matching desktop
+files. Known APT cache copies of the retired package are cleared. No additional
+Infiltrator desktop Debian package is built or distributed.
 
-A successful release commit publishes a GitHub release with:
+The native `.run` contains only the same qualified main Debian package and
+installs it through APT. Its transaction permits removal of the retired package
+and refuses removal of unrelated packages.
+
+A successful release commit publishes:
 
 - `Filesystem-Support-<version>-amd64.deb`
 - `Filesystem-Support-<version>-amd64.run`
-- `infiltrator-filesystem-support-udisks_<version>_amd64.deb`
 - `RELEASE_SHA256SUMS.txt`
-- GitHub's immutable source ZIP and TAR.GZ archives for the release tag.
+- GitHub’s source ZIP and TAR.GZ archives for the release tag.
+
+Release cleanup withdraws the retired desktop DEBs, the older installers that
+depend on or embed them, and their dedicated CI artifacts. The APT catalogue
+publishes only the main package. Git history records the correction; downloads
+and backups made elsewhere remain outside repository control.

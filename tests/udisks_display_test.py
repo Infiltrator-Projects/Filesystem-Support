@@ -11,7 +11,7 @@ import sys
 import platform
 
 
-def check(stock_only=False, modules_root=Path("/lib/modules")):
+def check(stock_only=False, modules_root=Path("/lib/modules"), enabled=None):
     modules = modules_root / platform.release() / "updates/infiltrator"
     # Resolve the same dynamic symbol as Disks: preloaded extension first,
     # then the distribution client for non-Amiga identifiers.
@@ -43,7 +43,7 @@ def check(stock_only=False, modules_root=Path("/lib/modules")):
         ("pfs3", "PFS/1", "Amiga Professional File System 3", "Amiga PFS3"),
     )
     for kind, version, long_name, short_name in cases:
-        if stock_only or not (modules / f"{kind}.ko").is_file():
+        if stock_only or (enabled is not None and kind not in enabled) or not (modules / f"{kind}.ko").is_file():
             assert name("filesystem", kind, version, True) == f"Unknown ({kind} {version})"
             assert name("filesystem", kind, "", True) == f"Unknown ({kind})"
             assert name("filesystem", kind, version, False) == kind
@@ -68,10 +68,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", type=Path)
     parser.add_argument("--preloaded", action="store_true")
-    parser.add_argument("--shim", type=Path)
     parser.add_argument("--modules-root", type=Path, default=Path("/lib/modules"))
-    parser.add_argument("--matrix", action="store_true")
     parser.add_argument("--stock", action="store_true")
+    parser.add_argument("--enabled")
     args = parser.parse_args()
     os.environ["LANGUAGE"] = "C"
     os.environ["LC_ALL"] = "C"
@@ -80,49 +79,36 @@ def main():
         assert os.environ.get("LD_PRELOAD") == (None if expected == "unset" else expected)
         assert "INFILTRATOR_DISKS_PRELOAD_SET" not in os.environ
         assert "INFILTRATOR_DISKS_PRELOAD_VALUE" not in os.environ
-    child_args = [sys.executable, __file__, "--preloaded", "--modules-root", str(args.modules_root)]
-    if args.shim:
-        assert args.matrix and args.modules_root != Path("/lib/modules")
-        subprocess.run(child_args + ["--matrix"], env=dict(os.environ, LD_PRELOAD=str(args.shim)), check=True)
-    elif args.package:
+    if args.package:
         def field(name):
             return subprocess.check_output(["dpkg-deb", "-f", str(args.package), name], text=True).strip()
-        assert field("Package") == "infiltrator-filesystem-support-udisks"
-        for name in ("Provides", "Conflicts", "Replaces", "Breaks"):
+        assert field("Package") == "infiltrator-filesystem-support"
+        assert field("Conflicts") == "infiltrator-filesystem-support-udisks"
+        assert "infiltrator-filesystem-support-udisks" not in field("Depends")
+        for name in ("Provides", "Replaces", "Breaks"):
             assert not field(name), (name, field(name))
         assert "libudisks2-0" in field("Depends")
         assert "gnome-disk-utility" in field("Depends")
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(["dpkg-deb", "-R", str(args.package), directory], check=True)
             root = Path(directory)
-            shim = root / "usr/lib/infiltrator-filesystem-support/udisks-amiga-names.so"
-            assert shim.is_file()
+            templates = root / "usr/lib/infiltrator-filesystem-support/desktop/templates"
+            for kind in ("ofs", "ffs", "sfs", "sfs2", "pfs3"):
+                assert (templates / f"{kind}.so").is_file()
+                assert (templates / f"{kind}.rules").is_file()
+                rule = (templates / f"{kind}.rules").read_text()
+                assert f"--filesystem {kind} /dev/%k" in rule
+            assert (templates / "gnome-disks").is_file()
+            assert not (root / "usr/lib/infiltrator-filesystem-support/desktop/active").exists()
             assert not list(root.glob("usr/lib/*/libudisks*"))
             assert not list(root.glob("usr/share/doc/libudisks*"))
-            assert (root / "usr/bin/gnome-disks").is_file()
-            for script in ("preinst", "postrm"):
-                assert "dpkg-divert --package infiltrator-filesystem-support-udisks" in (root / "DEBIAN" / script).read_text()
-            env = dict(os.environ, LD_PRELOAD=str(shim))
-            subprocess.run(child_args, env=env, check=True)
-            for was_set, previous, expected in (("no", "", "unset"), ("yes", "libm.so.6", "libm.so.6")):
-                isolated = dict(env, INFILTRATOR_DISKS_PRELOAD_SET=was_set,
-                                INFILTRATOR_DISKS_PRELOAD_VALUE=previous,
-                                FSUPPORT_TEST_PRELOAD=expected)
-                subprocess.run(child_args, env=isolated, check=True)
-    elif args.matrix:
-        assert args.modules_root != Path("/lib/modules")
-        modules = args.modules_root / platform.release() / "updates/infiltrator"
-        modules.mkdir(parents=True, exist_ok=True)
-        kinds = ("ofs", "ffs", "sfs", "sfs2", "pfs3")
-        for mask in range(32):
-            for bit, kind in enumerate(kinds):
-                path = modules / f"{kind}.ko"
-                path.unlink(missing_ok=True)
-                if mask & (1 << bit): path.touch()
-            check(modules_root=args.modules_root)
-        print("All 32 Disks display-name installation subsets: PASS")
+            assert not (root / "usr/bin/gnome-disks").exists()
+            assert not list(root.glob("usr/lib/udev/rules.d/*infiltrator*"))
+            assert "desktop-integration sync" in (root / "DEBIAN/postinst").read_text()
+        print("Main package contains inactive, separate desktop templates: PASS")
     else:
-        check(stock_only=args.stock, modules_root=args.modules_root)
+        check(stock_only=args.stock, modules_root=args.modules_root,
+              enabled=None if args.enabled is None else set(filter(None, args.enabled.split(','))))
 
 
 if __name__ == "__main__":

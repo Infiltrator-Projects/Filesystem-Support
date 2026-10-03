@@ -73,10 +73,7 @@ module_loaded() {
 refresh_desktop_identification() {
     case "$filesystem" in
         ofs|ffs|sfs|sfs2|pfs3)
-            if command -v udevadm >/dev/null 2>&1; then
-                udevadm trigger --subsystem-match=block --action=change || true
-                udevadm settle --timeout=30 || true
-            fi
+            "$self_dir/desktop-integration" "$1" "$filesystem"
             ;;
     esac
 }
@@ -172,6 +169,9 @@ EOF
 }
 
 install_native() {
+    case "$filesystem" in ofs|ffs|sfs|sfs2|pfs3)
+        [[ -x "$self_dir/desktop-integration" ]] || { echo 'Desktop installer is missing' >&2; exit 1; } ;;
+    esac
     [[ -f "$source_linux/Makefile" ]] || {
         echo "packaged native source is missing for $filesystem" >&2
         exit 1
@@ -256,13 +256,20 @@ install_native() {
         exit 1
     fi
 
-    refresh_desktop_identification
+    if ! refresh_desktop_identification install; then
+        modprobe -r "$module" >/dev/null 2>&1 || true
+        if [[ -n "$previous_copy" ]]; then install -m 0644 "$previous_copy" "$destination"; else rm -f "$destination"; fi
+        depmod -a "$kernel"
+        if [[ -n "$previous_copy" || ( -n "$previous_preferred" && "$previous_preferred" != '(builtin)' ) ]]; then modprobe "$module" >/dev/null 2>&1 || true; fi
+        echo "$filesystem desktop installation failed; native installation was rolled back" >&2
+        exit 1
+    fi
     echo "$filesystem native module installed and loaded for kernel $kernel"
 }
 
 remove_native() {
     if [[ ! -f "$destination" ]]; then
-        refresh_desktop_identification
+        refresh_desktop_identification remove
         echo "$filesystem native module is not installed for kernel $kernel"
         exit 0
     fi
@@ -277,11 +284,20 @@ remove_native() {
         fi
     fi
 
+    local tmp
+    tmp=$(mktemp -d)
+    cleanup_tmp=$tmp
+    cp -a "$destination" "$tmp/previous.ko"
     rm -f "$destination"
     depmod -a "$kernel"
+    if ! refresh_desktop_identification remove; then
+        install -m 0644 "$tmp/previous.ko" "$destination"
+        depmod -a "$kernel"
+        modprobe "$module" >/dev/null 2>&1 || true
+        echo "$filesystem desktop removal failed; native module was restored" >&2
+        exit 1
+    fi
     rmdir "$destination_dir" 2>/dev/null || true
-
-    refresh_desktop_identification
     echo "$filesystem native module removed for kernel $kernel"
 }
 

@@ -12,32 +12,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  desktop-client:
+  desktop-integration:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Check out exact desktop integration source
+      - name: Check out exact main-package source
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Install stock desktop and extension build dependencies
+      - name: Install build and migration-test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config libglib2.0-dev dpkg-dev python3 \
-            libudisks2-0 gnome-disk-utility xvfb xauth
+            build-essential cmake ninja-build pkg-config libgtk-3-dev dpkg-dev python3 \
+            policykit-1 udev libudisks2-0 gnome-disk-utility xvfb xauth
 
-      - name: Build and exercise isolated Disks display names
-        run: bash packaging/build-desktop-client.sh dist-desktop
+      - name: Build and test the single main package
+        run: |
+          cmake -S . -B build-desktop -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build build-desktop
+          ctest --test-dir build-desktop --output-on-failure
+          cpack --config build-desktop/CPackConfig.cmake -G DEB -B dist-desktop
 
-      - name: Verify install, upgrade recovery and removal without library replacement
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify actual APT install, retirement migration and purge
         run: bash tests/desktop_package_test.sh dist-desktop/*.deb
 
-      - name: Preserve qualified desktop client for release assembly
+      - name: Preserve the qualified main package
         uses: actions/upload-artifact@v4
         with:
-          name: filesystem-support-desktop-client
+          name: filesystem-support-linux-package
           path: dist-desktop/*.deb
           if-no-files-found: error
 
@@ -1212,7 +1216,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev
+          sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev libudisks2-0
 
       - name: Verify self-hosted dependencies
         if: runner.environment == 'self-hosted'

@@ -1,10 +1,20 @@
 #!/bin/sh
 set -e
 
-if command -v udevadm >/dev/null 2>&1; then
-    udevadm control --reload-rules || true
-    udevadm trigger --subsystem-match=block --action=change || true
-    udevadm settle --timeout=30 || true
-fi
+case "$1" in configure)
+    # Retire files from the earlier direct-copy run installer and global detector.
+    rm -f /usr/lib/udev/rules.d/59-infiltrator-filesystems.rules
+    rm -f /usr/lib/infiltrator-filesystem-support/udisks-amiga-names.so
+    rm -f /usr/local/bin/filesystem-support
+    rm -f /usr/local/share/applications/org.infiltrator.FilesystemSupport.desktop
+    rm -rf /usr/local/lib/infiltrator-filesystem-support
+    /usr/lib/infiltrator-filesystem-support/desktop-integration sync
+    # Only known APT cache files for the retired package are removed.
+    for cached in /var/cache/apt/archives/infiltrator-filesystem-support-udisks_*.deb \
+                  /var/cache/apt/archives/partial/infiltrator-filesystem-support-udisks_*.deb*; do
+        [ ! -f "$cached" ] || rm -f "$cached"
+    done
+    ;;
+esac
 
 exit 0

@@ -1,9 +1,20 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
-names=/usr/lib/infiltrator-filesystem-support/udisks-amiga-names.so
-original=/usr/bin/gnome-disks.filesystem-support-original
-if [ -r "$names" ]; then
+# Filesystem Support per-filesystem Disks launcher.
+system_root=/
+base=${system_root%/}
+original=$base/usr/bin/gnome-disks.filesystem-support-original
+kernel=$(uname -r)
+names=
+for filesystem in ofs ffs sfs sfs2 pfs3; do
+    file=$base/usr/lib/infiltrator-filesystem-support/desktop/active/$filesystem.so
+    module=$base/lib/modules/$kernel/updates/infiltrator/$filesystem.ko
+    if [ -f "$file" ] && [ -f "$module" ]; then
+        names=${names:+$names:}$file
+    fi
+done
+if [ -n "$names" ]; then
     if [ "${LD_PRELOAD+x}" = x ]; then
         INFILTRATOR_DISKS_PRELOAD_SET=yes
     else

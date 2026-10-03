@@ -1,10 +1,30 @@
 #!/bin/sh
 set -e
 
-if command -v udevadm >/dev/null 2>&1; then
-    udevadm control --reload-rules || true
-    udevadm trigger --subsystem-match=block --action=change || true
-    udevadm settle --timeout=30 || true
-fi
+case "$1" in remove|purge)
+    # Package payloads have already been removed, so this cleanup is self-contained.
+    mkdir -p /run/udev/rules.d
+    cat > /run/udev/rules.d/58-infiltrator-transition.rules <<'RULE'
+ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_FS_TYPE}=="ofs|ffs|sfs|sfs2|pfs3", ENV{ID_FS_USAGE}="", ENV{ID_FS_TYPE}="", ENV{ID_FS_VERSION}="", ENV{ID_FS_LABEL}="", ENV{ID_FS_LABEL_ENC}="", ENV{ID_FS_BLOCK_SIZE}="", ENV{UDISKS_NAME}="", ENV{UDISKS_ICON_NAME}="", ENV{UDISKS_SYMBOLIC_ICON_NAME}="", ENV{UDISKS_MOUNT_OPTIONS_DEFAULTS}="", ENV{UDISKS_MOUNT_OPTIONS_ALLOW}=""
+RULE
+    for filesystem in ofs ffs sfs sfs2 pfs3; do
+        rm -f "/etc/udev/rules.d/59-infiltrator-$filesystem.rules"
+        rm -f "/usr/lib/infiltrator-filesystem-support/desktop/active/$filesystem.so"
+    done
+    if [ "$(dpkg-divert --listpackage /usr/bin/gnome-disks)" = infiltrator-filesystem-support ]; then
+        test -f /usr/bin/gnome-disks.filesystem-support-original
+        rm -f /usr/bin/gnome-disks
+        dpkg-divert --package infiltrator-filesystem-support --remove --rename \
+            --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
+    fi
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules || true
+        udevadm trigger --subsystem-match=block --action=change || true
+        udevadm settle --timeout=30 || true
+    fi
+    rm -f /run/udev/rules.d/58-infiltrator-transition.rules
+    if command -v udevadm >/dev/null 2>&1; then udevadm control --reload-rules || true; fi
+    ;;
+esac
 
 exit 0
