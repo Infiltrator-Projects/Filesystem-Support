@@ -25,11 +25,13 @@ jobs:
 
           catalog = Path('src/catalog.cpp')
           text = catalog.read_text()
-          old = '''        {"sfs", "Amiga SFS", "Amiga",
-           "Amiga Smart File System as an independent native Linux module.",
-           {"sfs"}, {}, AccessMode::ReadWrite, SupportProvider::Kernel,"Project-native Linux SFS module based on the pinned ASFS implementation and modernised for current kernels.", true},
-          {"befs", "BeOS BeFS", "BeOS / Haiku",'''
-          new = '''        {"sfs", "Amiga SFS", "Amiga",
+          start_marker = '        {"sfs", "Amiga SFS", "Amiga",'
+          end_marker = '        {"befs", "BeOS BeFS", "BeOS / Haiku",'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit('catalogue Amiga insertion point not found')
+          amiga = '''        {"sfs", "Amiga SFS", "Amiga",
            "Amiga Smart File System as an independent native Linux module.",
            {"sfs"}, {}, AccessMode::ReadWrite, SupportProvider::Kernel,"Project-native Linux SFS module implementing the SFS on-disk format.", true},
           {"sfs2", "Amiga SFS2", "Amiga",
@@ -38,37 +40,44 @@ jobs:
           {"pfs3", "Amiga PFS3", "Amiga",
            "Amiga Professional File System 3 support through the project-native Linux adapter.",
            {"pfs3"}, {}, AccessMode::ReadOnly, SupportProvider::Kernel,"Project-native PFS3 adapter is intentionally read-only until writable metadata updates are fully qualified.", true},
-          {"befs", "BeOS BeFS", "BeOS / Haiku",'''
-          if old not in text:
-              raise SystemExit('catalogue Amiga insertion point not found')
-          catalog.write_text(text.replace(old, new, 1))
+          '''
+          catalog.write_text(text[:start] + amiga + text[end:])
 
           test = Path('tests/catalog_test.cpp')
           text = test.read_text()
-          text = text.replace('catalog().size() != 107U', 'catalog().size() != 109U')
-          text = text.replace('catalogue size is not the documented 107 entries', 'catalogue size is not the documented 109 entries')
+          required = [
+              'catalog().size() != 107U',
+              'catalogue size is not the documented 107 entries',
+              '    bool found_sfs = false;\n',
+              'kernel_only != 22U',
+              '    if (argc != 2) {'
+          ]
+          for needle in required:
+              if needle not in text:
+                  raise SystemExit(f'catalog test marker missing: {needle!r}')
+          text = text.replace('catalog().size() != 107U', 'catalog().size() != 109U', 1)
+          text = text.replace('catalogue size is not the documented 107 entries', 'catalogue size is not the documented 109 entries', 1)
           text = text.replace('    bool found_sfs = false;\n', '    bool found_sfs = false;\n    bool found_sfs2 = false;\n    bool found_pfs3 = false;\n', 1)
-          text = text.replace('''        } else if (entry.id == std::string_view("sfs")) {
-              found_sfs = true;
-          } else if (entry.id == std::string_view("adfs")) {''', '''        } else if (entry.id == std::string_view("sfs")) {
-              found_sfs = true;
-          } else if (entry.id == std::string_view("sfs2")) {
+          loop = '    for (const auto& entry : catalog()) {\n'
+          text = text.replace(loop, loop + '''        if (entry.id == std::string_view("sfs2")) {
               found_sfs2 = true;
           } else if (entry.id == std::string_view("pfs3")) {
               found_pfs3 = true;
-          } else if (entry.id == std::string_view("adfs")) {''', 1)
+          }
+
+          ''', 1)
           text = text.replace('if (!found_ofs || !found_ffs || !found_sfs || !found_adfs)', 'if (!found_ofs || !found_ffs || !found_sfs || !found_sfs2 || !found_pfs3 || !found_adfs)', 1)
           text = text.replace('kernel_only != 22U', 'kernel_only != 24U', 1)
-          text = text.replace('''        !filesystem_support::module_is_catalogued("sfs") ||
-          filesystem_support::module_is_catalogued("definitely-not-a-module")''', '''        !filesystem_support::module_is_catalogued("sfs") ||
-          !filesystem_support::module_is_catalogued("sfs2") ||
-          !filesystem_support::module_is_catalogued("pfs3") ||
-          filesystem_support::module_is_catalogued("definitely-not-a-module")''', 1)
-          text = text.replace('''        !filesystem_support::linux_native_module_is_managed("sfs", "sfs") ||
-          filesystem_support::module_is_catalogued("affs")''', '''        !filesystem_support::linux_native_module_is_managed("sfs", "sfs") ||
-          !filesystem_support::linux_native_module_is_managed("sfs2", "sfs2") ||
-          !filesystem_support::linux_native_module_is_managed("pfs3", "pfs3") ||
-          filesystem_support::module_is_catalogued("affs")''', 1)
+          marker = '    if (argc != 2) {'
+          extra = '''    if (!filesystem_support::module_is_catalogued("sfs2") ||
+              !filesystem_support::module_is_catalogued("pfs3") ||
+              !filesystem_support::linux_native_module_is_managed("sfs2", "sfs2") ||
+              !filesystem_support::linux_native_module_is_managed("pfs3", "pfs3")) {
+              return fail("SFS2/PFS3 project-native catalogue coverage is incomplete");
+          }
+
+          '''
+          text = text.replace(marker, extra + marker, 1)
           test.write_text(text)
 
           matrix = Path('docs/FILESYSTEM_SUPPORT_MATRIX.md')
@@ -80,8 +89,7 @@ jobs:
           for line in lines:
               m = row_re.match(line)
               if m and int(m.group(1)) >= 29:
-                  n = int(m.group(1)) + 2
-                  line = row_re.sub(f'| {n} |', line, count=1)
+                  line = row_re.sub(f'| {int(m.group(1)) + 2} |', line, count=1)
               out.append(line)
               if 'id="support-sfs"' in line:
                   out.append('| 29 | <a id="support-sfs2"></a>`sfs2` | Amiga SFS2 | Amiga | Read / write | Project-native kernel | `sfs2` | — | Independent Infiltrator SFS2 module. Install/Remove builds and manages `sfs2.ko` for the running kernel. |')
