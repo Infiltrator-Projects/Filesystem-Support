@@ -88,6 +88,31 @@ if(BUILD_TESTING)
             "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}"
             "${CMAKE_CURRENT_BINARY_DIR}/desktop-test-modules")
+
+    add_library(filesystem-support-nemo-fstype-test SHARED
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/nemo-amiga-fstype.c")
+    target_link_libraries(filesystem-support-nemo-fstype-test
+        PRIVATE PkgConfig::GIO2 PkgConfig::GLIB2 ${CMAKE_DL_LIBS} Threads::Threads)
+    target_compile_definitions(filesystem-support-nemo-fstype-test PRIVATE
+        IFS_NATIVE_MODULES_ROOT="${CMAKE_CURRENT_BINARY_DIR}/nemo-test-root/lib/modules"
+        IFS_MOUNTINFO_PATH="${CMAKE_CURRENT_BINARY_DIR}/nemo-test-mountinfo")
+    set_target_properties(filesystem-support-nemo-fstype-test PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "nemo-amiga-fstype-test"
+        C_VISIBILITY_PRESET hidden)
+    filesystem_support_configure(filesystem-support-nemo-fstype-test)
+
+    add_executable(filesystem-support-gio-fstype-query-test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/gio_fstype_query_test.c")
+    target_link_libraries(filesystem-support-gio-fstype-query-test PRIVATE PkgConfig::GIO2)
+    filesystem_support_configure(filesystem-support-gio-fstype-query-test)
+    add_test(NAME filesystem-support-nemo-fstype
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/nemo_fstype_test.py"
+            "$<TARGET_FILE:filesystem-support-nemo-fstype-test>"
+            "$<TARGET_FILE:filesystem-support-gio-fstype-query-test>"
+            "${CMAKE_CURRENT_BINARY_DIR}/nemo-test-root/lib/modules"
+            "${CMAKE_CURRENT_BINARY_DIR}/nemo-test-mountinfo")
+
     add_test(NAME filesystem-support-desktop-install
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop_install_test.py"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
