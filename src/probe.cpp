@@ -550,7 +550,7 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
         result.state = SupportState::Ready;
         result.detail = descriptor.project_native_linux
             ? "The Infiltrator native kernel module is installed for this kernel."
-            : "Support is installed on this Debian system.";
+            : "Support is ready on this Debian system.";
     } else if (!result.unavailable_packages.empty()) {
         result.state = SupportState::Unavailable;
         result.detail =
@@ -577,7 +577,7 @@ const char* support_state_label(const SupportState state)
 {
     switch (state) {
     case SupportState::Ready:
-        return "Installed";
+        return "Ready";
     case SupportState::Installable:
         return "Available";
     case SupportState::Incomplete:
