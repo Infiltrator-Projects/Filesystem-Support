@@ -24,8 +24,27 @@ install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-integratio
     DESTINATION "lib/infiltrator-filesystem-support" RENAME desktop-integration)
 install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/gnome-disks-wrapper"
     DESTINATION "${desktop_templates}" RENAME gnome-disks)
+install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/nemo-wrapper"
+    DESTINATION "${desktop_templates}" RENAME nemo)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-rules/"
     DESTINATION "${desktop_templates}" FILES_MATCHING PATTERN "*.rules")
+
+# Nemo asks GIO for filesystem::type. Linux GLib maps the AFFS-family statfs
+# magic to the generic string "affs" and has no OFS/FFS entries. Keep the
+# kernel's compatible family magic and correct only Nemo's presentation by
+# substituting the actual VFS mount type from /proc/self/mountinfo.
+add_library(filesystem-support-nemo-fstype SHARED
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/nemo-amiga-fstype.c")
+target_link_libraries(filesystem-support-nemo-fstype
+    PRIVATE PkgConfig::GIO2 PkgConfig::GLIB2 ${CMAKE_DL_LIBS} Threads::Threads)
+set_target_properties(filesystem-support-nemo-fstype PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "nemo-amiga-fstype"
+    C_VISIBILITY_PRESET hidden)
+filesystem_support_configure(filesystem-support-nemo-fstype)
+install(TARGETS filesystem-support-nemo-fstype
+    LIBRARY DESTINATION "lib/infiltrator-filesystem-support/desktop")
+
 set(desktop_variant 0)
 foreach(desktop_fs IN ITEMS ofs ffs sfs sfs2 pfs3)
     math(EXPR desktop_variant "${desktop_variant} + 1")
