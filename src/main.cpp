@@ -213,7 +213,7 @@ const char* filter_title(const ViewFilter filter)
     case ViewFilter::ImagesFuse: return "Images, FUSE & Overlays";
     case ViewFilter::NetworkVirtual: return "Network & Virtual";
     case ViewFilter::Native: return "Infiltrator Native";
-    case ViewFilter::Installed: return "Installed Support";
+    case ViewFilter::Installed: return "Ready Support";
     case ViewFilter::Available: return "Available Support";
     case ViewFilter::Attention: return "Needs Attention";
     }
@@ -697,7 +697,6 @@ void scan_finished(GObject*, GAsyncResult* result, gpointer user_data)
         }
     }
     g_clear_error(&error);
-
     if (!state->shutting_down && state->scan_pending) {
         state->scan_pending = false;
         start_scan(state);
@@ -1246,7 +1245,7 @@ GtkWidget* build_sidebar(AppState* state)
     gtk_container_add(GTK_CONTAINER(list), make_navigation_row(
         "applications-engineering-symbolic", "Infiltrator Native", ViewFilter::Native));
     gtk_container_add(GTK_CONTAINER(list), make_navigation_row(
-        "emblem-ok-symbolic", "Installed", ViewFilter::Installed));
+        "emblem-ok-symbolic", "Ready", ViewFilter::Installed));
     gtk_container_add(GTK_CONTAINER(list), make_navigation_row(
         "system-software-install-symbolic", "Available", ViewFilter::Available));
     gtk_container_add(GTK_CONTAINER(list), make_navigation_row(
@@ -1353,7 +1352,7 @@ GtkWidget* build_home_page(AppState* state)
         FALSE, FALSE, 0);
     gtk_box_pack_start(
         GTK_BOX(title), make_label(
-            "Installed support, available providers and project-native kernel modules.",
+            "Ready support, available providers and project-native kernel modules.",
             "page-summary"),
         FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(page), title, FALSE, FALSE, 0);
@@ -1361,7 +1360,7 @@ GtkWidget* build_home_page(AppState* state)
     gtk_grid_set_row_spacing(GTK_GRID(metrics), 10);
     gtk_grid_set_column_spacing(GTK_GRID(metrics), 10);
     gtk_grid_attach(GTK_GRID(metrics), make_metric_tile(
-        "emblem-ok-symbolic", "INSTALLED", "Ready now",
+        "emblem-ok-symbolic", "READY", "Ready now",
         &state->ready_count, "metric-installed"), 0, 0, 1, 1);
     gtk_grid_attach(GTK_GRID(metrics), make_metric_tile(
         "system-software-install-symbolic", "AVAILABLE", "Can be installed",
