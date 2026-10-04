@@ -9,6 +9,7 @@ ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_FS_TYPE}=="ofs|ffs|sfs|sfs2|pfs
 RULE
     for filesystem in ofs ffs sfs sfs2 pfs3; do
         rm -f "/etc/udev/rules.d/59-infiltrator-$filesystem.rules"
+        rm -f "/etc/udev/rules.d/99-infiltrator-$filesystem.rules"
         rm -f "/usr/lib/infiltrator-filesystem-support/desktop/active/$filesystem.so"
     done
     if [ "$(dpkg-divert --listpackage /usr/bin/gnome-disks)" = infiltrator-filesystem-support ]; then
