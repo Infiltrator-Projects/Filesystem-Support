@@ -71,7 +71,8 @@ cleanup() {
     local result=$?
     if [[ $result -ne 0 && -n "$transaction" ]]; then
         if [[ -f "$work/previous.so" ]]; then install -m 0644 "$work/previous.so" "$active/$kind.so"; else rm -f "$active/$kind.so"; fi
-        if [[ -f "$work/previous.rules" ]]; then install -m 0644 "$work/previous.rules" "$rules/59-infiltrator-$kind.rules"; else rm -f "$rules/59-infiltrator-$kind.rules"; fi
+        if [[ -f "$work/previous.rules" ]]; then install -m 0644 "$work/previous.rules" "$rules/99-infiltrator-$kind.rules"; else rm -f "$rules/99-infiltrator-$kind.rules"; fi
+        rm -f "$rules/59-infiltrator-$kind.rules"
         if has_active; then enable_launcher || true; else disable_launcher_if_empty || true; fi
         refresh
     fi
@@ -85,7 +86,11 @@ begin_transaction() {
     mkdir -p "$active" "$rules"
     rm -f "$work/previous.so" "$work/previous.rules"
     [[ ! -f "$active/$kind.so" ]] || cp -a "$active/$kind.so" "$work/previous.so"
-    [[ ! -f "$rules/59-infiltrator-$kind.rules" ]] || cp -a "$rules/59-infiltrator-$kind.rules" "$work/previous.rules"
+    if [[ -f "$rules/99-infiltrator-$kind.rules" ]]; then
+        cp -a "$rules/99-infiltrator-$kind.rules" "$work/previous.rules"
+    elif [[ -f "$rules/59-infiltrator-$kind.rules" ]]; then
+        cp -a "$rules/59-infiltrator-$kind.rules" "$work/previous.rules"
+    fi
     transaction=$1
 }
 
@@ -95,7 +100,10 @@ install_kind() {
     }
     begin_transaction install
     install -m 0644 "$templates/$kind.so" "$active/$kind.so"
-    install -m 0644 "$templates/$kind.rules" "$rules/59-infiltrator-$kind.rules"
+    # Stock 60-persistent-storage.rules runs blkid. Our identity rule must run
+    # afterwards or blkid rewrites DOS/0 and DOS/1 back to the generic 'affs'.
+    rm -f "$rules/59-infiltrator-$kind.rules"
+    install -m 0644 "$templates/$kind.rules" "$rules/99-infiltrator-$kind.rules"
     enable_launcher
     transaction=
     refresh
@@ -105,7 +113,9 @@ remove_kind() {
     begin_transaction remove
     # The matching rule clears stale identity after the native module is removed.
     refresh
-    rm -f "$active/$kind.so" "$rules/59-infiltrator-$kind.rules"
+    rm -f "$active/$kind.so" \
+          "$rules/59-infiltrator-$kind.rules" \
+          "$rules/99-infiltrator-$kind.rules"
     disable_launcher_if_empty
     transaction=
     refresh
