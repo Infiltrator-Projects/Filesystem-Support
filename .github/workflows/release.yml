@@ -96,9 +96,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          build_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100" \
-            --jq '.workflow_runs | map(select(.name == "build" and .conclusion == "success")) | first | .id // empty')
-          test -n "$build_run"
+          build_run=""
+          for attempt in $(seq 1 80); do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100")
+            build_run=$(jq -r '.workflow_runs | map(select(.name == "build" and .status == "completed" and .conclusion == "success")) | first | .id // empty' <<<"$runs")
+            if [[ -n "$build_run" ]]; then
+              break
+            fi
+
+            failed=$(jq -r '.workflow_runs | map(select(.name == "build" and .status == "completed" and (.conclusion != "success"))) | first | .conclusion // empty' <<<"$runs")
+            if [[ -n "$failed" ]]; then
+              echo "Qualified build completed unsuccessfully: $failed" >&2
+              exit 1
+            fi
+
+            echo "Waiting for qualified build artifact ($attempt/80)..."
+            sleep 15
+          done
+          test -n "$build_run" || {
+            echo 'Qualified build did not complete within 20 minutes.' >&2
+            exit 1
+          }
+
           gh run download "$build_run" --name filesystem-support-linux-package --dir dist
           version=$(tr -d '[:space:]' < VERSION)
           deb="dist/Filesystem-Support-$version-amd64.deb"
