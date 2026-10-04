@@ -18,6 +18,10 @@
 
 #include "../../src/native_amiga_support.h"
 
+#ifndef IFS_MOUNTINFO_PATH
+#define IFS_MOUNTINFO_PATH "/proc/self/mountinfo"
+#endif
+
 typedef GFileInfo *(*QueryFilesystemInfoFunction)(GFile *, const char *,
                                                    GCancellable *, GError **);
 
@@ -64,7 +68,8 @@ static void unescape_mount_field(char *value)
     char *write = value;
 
     while (*read != '\0') {
-        if (read[0] == '\\' && octal_digit(read[1]) &&
+        if (read[0] == '\\' && read[1] != '\0' && read[2] != '\0' &&
+            read[3] != '\0' && octal_digit(read[1]) &&
             octal_digit(read[2]) && octal_digit(read[3])) {
             *write++ = (char)(((read[1] - '0') << 6) |
                               ((read[2] - '0') << 3) |
@@ -102,7 +107,7 @@ static char *mounted_native_type_for_path(const char *path)
     if (path == NULL || path[0] != '/')
         return NULL;
 
-    mountinfo = fopen("/proc/self/mountinfo", "re");
+    mountinfo = fopen(IFS_MOUNTINFO_PATH, "re");
     if (mountinfo == NULL)
         return NULL;
 
