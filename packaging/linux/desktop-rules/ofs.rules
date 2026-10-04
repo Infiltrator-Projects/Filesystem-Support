@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Installed and removed only with the project-native ofs driver.
+# This identity rule is installed at late udev priority so stock blkid cannot overwrite OFS as generic affs.
 # Escape the UDisks caller placeholders through udev; never hard-code a user.
 ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_FS_TYPE}=="ofs", ENV{ID_FS_USAGE}="", ENV{ID_FS_TYPE}="", ENV{ID_FS_VERSION}="", ENV{ID_FS_LABEL}="", ENV{ID_FS_LABEL_ENC}="", ENV{ID_FS_BLOCK_SIZE}="", ENV{UDISKS_NAME}="", ENV{UDISKS_ICON_NAME}="", ENV{UDISKS_SYMBOLIC_ICON_NAME}="", ENV{UDISKS_MOUNT_OPTIONS_DEFAULTS}="", ENV{UDISKS_MOUNT_OPTIONS_ALLOW}=""
 ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition|disk", IMPORT{program}="/usr/bin/fsinspect --udev --filesystem ofs /dev/%k"
