@@ -26,7 +26,7 @@ verify() {
     test ! -e /usr/bin/gnome-disks.filesystem-support-original
     test ! -e /usr/lib/infiltrator-filesystem-support/udisks-amiga-names.so
     test ! -e /usr/lib/udev/rules.d/59-infiltrator-filesystems.rules
-    test -z "$(find /etc/udev/rules.d -maxdepth 1 -name '59-infiltrator-*.rules' -print)"
+    test -z "$(find /etc/udev/rules.d -maxdepth 1 \( -name '59-infiltrator-*.rules' -o -name '99-infiltrator-*.rules' \) -print)"
     python3 "$root/tests/udisks_display_test.py" --stock
     xvfb-run -a /usr/bin/gnome-disks --help
     sudo apt-get check
