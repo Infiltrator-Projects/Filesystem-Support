@@ -20,37 +20,53 @@ for kind in kinds:
     shutil.copy(build / f'desktop-test-templates/{kind}.so', templates / f'{kind}.so')
     shutil.copy(source / f'packaging/linux/desktop-rules/{kind}.rules', templates / f'{kind}.rules')
 shutil.copy(source / 'packaging/linux/desktop-rules/cleanup.rules', templates / 'cleanup.rules')
+(private / 'desktop').mkdir(parents=True, exist_ok=True)
+shutil.copy(build / 'nemo-amiga-fstype.so', private / 'desktop/nemo-amiga-fstype.so')
+
 def fixture_script(source_file, destination):
     code = source_file.read_text()
     assert code.count('system_root=/\n') == 1
     destination.write_text(code.replace('system_root=/\n', 'system_root=' + shlex.quote(str(root)) + '\n'))
     destination.chmod(0o755)
+
 fixture_script(source / 'packaging/linux/gnome-disks-wrapper', templates / 'gnome-disks')
+fixture_script(source / 'packaging/linux/nemo-wrapper', templates / 'nemo')
 helper = private / 'desktop-integration'
 fixture_script(source / 'packaging/linux/desktop-integration.sh', helper)
 (root / 'var/lib/dpkg').mkdir(parents=True)
 (root / 'var/lib/dpkg/status').touch()
 (root / 'usr/bin').mkdir(parents=True)
 disks = root / 'usr/bin/gnome-disks'
+nemo = root / 'usr/bin/nemo'
 disks.symlink_to(sys.executable)
+nemo.symlink_to(sys.executable)
 display_args = (source / 'tests/udisks_display_test.py', '--preloaded',
                 '--modules-root', root / 'lib/modules')
-original_hash = hashlib.sha256(disks.read_bytes()).hexdigest()
+original_disks_hash = hashlib.sha256(disks.read_bytes()).hexdigest()
+original_nemo_hash = hashlib.sha256(nemo.read_bytes()).hexdigest()
+
 def run(*args, success=True, env=None):
     result = subprocess.run(list(map(str, args)), text=True, capture_output=True, env=env)
     assert (result.returncode == 0) == success, (args, result.stdout, result.stderr)
     return result
-def owner():
-    return run('dpkg-divert', f'--root={root}', '--listpackage', '/usr/bin/gnome-disks').stdout.strip()
+
+def owner(path):
+    return run('dpkg-divert', f'--root={root}', '--listpackage', path).stdout.strip()
+
 def check_files(selected):
     active = private / 'desktop/active'
     assert {p.stem for p in active.glob('*.so')} == selected
     rules = root / 'etc/udev/rules.d'
     assert {p.name.removeprefix('99-infiltrator-').removesuffix('.rules') for p in rules.glob('99-infiltrator-*.rules')} == selected
     assert not list(rules.glob('59-infiltrator-*.rules'))
-    assert owner() == ('infiltrator-filesystem-support' if selected else '')
+    assert owner('/usr/bin/gnome-disks') == ('infiltrator-filesystem-support' if selected else '')
+    nemo_selected = bool(selected & {'ofs', 'ffs'})
+    assert owner('/usr/bin/nemo') == ('infiltrator-filesystem-support' if nemo_selected else '')
     if not selected:
-        assert hashlib.sha256(disks.read_bytes()).hexdigest() == original_hash
+        assert hashlib.sha256(disks.read_bytes()).hexdigest() == original_disks_hash
+    if not nemo_selected:
+        assert hashlib.sha256(nemo.read_bytes()).hexdigest() == original_nemo_hash
+
 run(helper, 'sync')
 check_files(set())
 modules = root / 'lib/modules' / platform.release() / 'updates/infiltrator'
@@ -81,15 +97,16 @@ run(helper, 'sync')
 check_files({'ofs', 'ffs', 'sfs'})
 run(helper, 'purge')
 check_files(set())
-# A foreign diversion must survive a failed paired installation unchanged.
+# A foreign Disks diversion must survive a failed paired installation unchanged.
 run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--add', '--rename',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
 run(helper, 'install', 'ofs', success=False)
 assert not list((private / 'desktop/active').glob('*.so'))
 assert not list((root / 'etc/udev/rules.d').glob('99-infiltrator-*.rules'))
 assert not list((root / 'etc/udev/rules.d').glob('59-infiltrator-*.rules'))
-assert owner() == 'foreign-test-owner'
+assert owner('/usr/bin/gnome-disks') == 'foreign-test-owner'
+assert owner('/usr/bin/nemo') == ''
 run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--remove', '--rename',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
 check_files(set())
-print('Per-filesystem desktop install/remove, all 32 file selections, late-rule migration and rollback: PASS')
+print('Per-filesystem desktop install/remove, all 32 file selections, Nemo OFS/FFS pairing, late-rule migration and rollback: PASS')

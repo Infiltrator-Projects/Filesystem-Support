@@ -11,8 +11,12 @@ active="$base/usr/lib/infiltrator-filesystem-support/desktop/active"
 rules="$base/etc/udev/rules.d"
 original="$base/usr/bin/gnome-disks.filesystem-support-original"
 launcher="$base/usr/bin/gnome-disks"
+nemo_original="$base/usr/bin/nemo.filesystem-support-original"
+nemo_launcher="$base/usr/bin/nemo"
+nemo_bridge="$base/usr/lib/infiltrator-filesystem-support/desktop/nemo-amiga-fstype.so"
 package=infiltrator-filesystem-support
 launcher_stage=
+nemo_stage=
 transition_rule=
 kernel=$(uname -r)
 mkdir -p "$base/run/lock"
@@ -28,11 +32,15 @@ refresh() {
 }
 
 has_active() {
-    local kind
-    for kind in ofs ffs sfs sfs2 pfs3; do
-        [[ ! -f "$active/$kind.so" ]] || return 0
+    local fs
+    for fs in ofs ffs sfs sfs2 pfs3; do
+        [[ ! -f "$active/$fs.so" ]] || return 0
     done
     return 1
+}
+
+has_nemo_active() {
+    [[ -f "$active/ofs.so" || -f "$active/ffs.so" ]]
 }
 
 enable_launcher() {
@@ -64,6 +72,47 @@ disable_launcher_if_empty() {
     fi
 }
 
+enable_nemo_launcher() {
+    local owner
+    # Nemo is optional. Systems which do not have it need no compatibility bridge.
+    owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo)
+    if [[ -z "$owner" && ! -e "$nemo_launcher" ]]; then
+        return 0
+    fi
+    [[ -z "$owner" || "$owner" == "$package" ]] || {
+        echo "Nemo already has a diversion owned by $owner; refusing to replace it" >&2
+        return 1
+    }
+    [[ -f "$templates/nemo" && -f "$nemo_bridge" ]] || return 1
+    nemo_stage=$(mktemp "$base/usr/bin/.infiltrator-nemo-XXXXXX")
+    install -m 0755 "$templates/nemo" "$nemo_stage"
+    if [[ -z "$owner" ]]; then
+        [[ -f "$nemo_launcher" ]] || { rm -f "$nemo_stage"; nemo_stage=; return 0; }
+        dpkg-divert --root="$system_root" --package "$package" --add --rename \
+            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
+    fi
+    [[ -f "$nemo_original" ]] || return 1
+    mv -f "$nemo_stage" "$nemo_launcher"
+    nemo_stage=
+}
+
+disable_nemo_launcher_if_empty() {
+    if ! has_nemo_active && [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo) == "$package" ]]; then
+        [[ -f "$nemo_original" ]] || { echo 'The original Nemo executable is missing' >&2; return 1; }
+        rm -f "$nemo_launcher"
+        dpkg-divert --root="$system_root" --package "$package" --remove --rename \
+            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
+    fi
+}
+
+sync_nemo_launcher() {
+    if has_nemo_active; then
+        enable_nemo_launcher
+    else
+        disable_nemo_launcher_if_empty
+    fi
+}
+
 work=$(mktemp -d)
 transaction=
 kind=
@@ -74,9 +123,11 @@ cleanup() {
         if [[ -f "$work/previous.rules" ]]; then install -m 0644 "$work/previous.rules" "$rules/99-infiltrator-$kind.rules"; else rm -f "$rules/99-infiltrator-$kind.rules"; fi
         rm -f "$rules/59-infiltrator-$kind.rules"
         if has_active; then enable_launcher || true; else disable_launcher_if_empty || true; fi
+        sync_nemo_launcher || true
         refresh
     fi
     [[ -z "$launcher_stage" ]] || rm -f "$launcher_stage"
+    [[ -z "$nemo_stage" ]] || rm -f "$nemo_stage"
     if [[ -n "$transition_rule" ]]; then rm -f "$transition_rule"; refresh; fi
     rm -rf "$work"
 }
@@ -95,7 +146,7 @@ begin_transaction() {
 }
 
 install_kind() {
-    [[ -f "$templates/$kind.so" && -f "$templates/$kind.rules" && -f "$templates/gnome-disks" ]] || {
+    [[ -f "$templates/$kind.so" && -f "$templates/$kind.rules" && -f "$templates/gnome-disks" && -f "$templates/nemo" ]] || {
         echo "Desktop templates are missing for $kind" >&2; exit 1;
     }
     begin_transaction install
@@ -105,6 +156,7 @@ install_kind() {
     rm -f "$rules/59-infiltrator-$kind.rules"
     install -m 0644 "$templates/$kind.rules" "$rules/99-infiltrator-$kind.rules"
     enable_launcher
+    sync_nemo_launcher
     transaction=
     refresh
 }
@@ -117,6 +169,7 @@ remove_kind() {
           "$rules/59-infiltrator-$kind.rules" \
           "$rules/99-infiltrator-$kind.rules"
     disable_launcher_if_empty
+    sync_nemo_launcher
     transaction=
     refresh
 }

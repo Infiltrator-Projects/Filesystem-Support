@@ -18,6 +18,12 @@ RULE
         dpkg-divert --package infiltrator-filesystem-support --remove --rename \
             --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
     fi
+    if [ "$(dpkg-divert --listpackage /usr/bin/nemo)" = infiltrator-filesystem-support ]; then
+        test -f /usr/bin/nemo.filesystem-support-original
+        rm -f /usr/bin/nemo
+        dpkg-divert --package infiltrator-filesystem-support --remove --rename \
+            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
+    fi
     if command -v udevadm >/dev/null 2>&1; then
         udevadm control --reload-rules || true
         udevadm trigger --subsystem-match=block --action=change || true

@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -eu
+# Nemo's GIO view of AFFS-family mounts does not know the independent OFS/FFS
+# VFS names. Preload only Nemo with the narrow filesystem::type bridge.
+system_root=/
+base=${system_root%/}
+original=$base/usr/bin/nemo.filesystem-support-original
+bridge=$base/usr/lib/infiltrator-filesystem-support/desktop/nemo-amiga-fstype.so
+kernel=$(uname -r)
+enabled=no
+for filesystem in ofs ffs; do
+    module=$base/lib/modules/$kernel/updates/infiltrator/$filesystem.ko
+    active=$base/usr/lib/infiltrator-filesystem-support/desktop/active/$filesystem.so
+    if [ -f "$module" ] && [ -f "$active" ]; then
+        enabled=yes
+        break
+    fi
+done
+if [ "$enabled" = yes ] && [ -f "$bridge" ]; then
+    if [ "${LD_PRELOAD+x}" = x ]; then
+        INFILTRATOR_NEMO_PRELOAD_SET=yes
+    else
+        INFILTRATOR_NEMO_PRELOAD_SET=no
+    fi
+    INFILTRATOR_NEMO_PRELOAD_VALUE=${LD_PRELOAD-}
+    LD_PRELOAD="$bridge${LD_PRELOAD:+:$LD_PRELOAD}"
+    export INFILTRATOR_NEMO_PRELOAD_SET INFILTRATOR_NEMO_PRELOAD_VALUE LD_PRELOAD
+fi
+exec "$original" "$@"
