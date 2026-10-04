@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the real client function used by both GNOME Disks display paths."""
+"""Exercise the real desktop functions used by Disks and Nemo."""
 import argparse
 import ctypes
 import ctypes.util
@@ -8,13 +8,60 @@ from pathlib import Path
 import subprocess
 import tempfile
 import sys
-import platform
+
+
+def check_preload_restored():
+    expected = os.environ.get("FSUPPORT_TEST_PRELOAD")
+    if expected is None:
+        return
+    assert os.environ.get("LD_PRELOAD") == (None if expected == "unset" else expected)
+    assert "INFILTRATOR_DISKS_PRELOAD_SET" not in os.environ
+    assert "INFILTRATOR_DISKS_PRELOAD_VALUE" not in os.environ
+    assert "INFILTRATOR_NEMO_PRELOAD_SET" not in os.environ
+    assert "INFILTRATOR_NEMO_PRELOAD_VALUE" not in os.environ
+
+
+def check_gio(kind):
+    """Verify the filesystem::type value queried by Nemo through GIO."""
+    os.environ["FSUPPORT_TEST_MOUNT_TYPE"] = kind
+    gio_path = ctypes.util.find_library("gio-2.0")
+    gobject_path = ctypes.util.find_library("gobject-2.0")
+    assert gio_path and gobject_path
+    gio = ctypes.CDLL(gio_path, mode=ctypes.RTLD_GLOBAL)
+    gobject = ctypes.CDLL(gobject_path, mode=ctypes.RTLD_GLOBAL)
+    process = ctypes.CDLL(None)
+
+    gio.g_file_new_for_path.argtypes = [ctypes.c_char_p]
+    gio.g_file_new_for_path.restype = ctypes.c_void_p
+    query = process.g_file_query_filesystem_info
+    query.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p,
+                      ctypes.POINTER(ctypes.c_void_p)]
+    query.restype = ctypes.c_void_p
+    gio.g_file_info_get_attribute_string.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    gio.g_file_info_get_attribute_string.restype = ctypes.c_char_p
+    gobject.g_object_unref.argtypes = [ctypes.c_void_p]
+    gobject.g_object_unref.restype = None
+
+    file_object = gio.g_file_new_for_path(b"/")
+    assert file_object
+    error = ctypes.c_void_p()
+    info = query(file_object, b"filesystem::type", None, ctypes.byref(error))
+    try:
+        assert not error.value, "GIO filesystem query returned an error"
+        assert info
+        value = gio.g_file_info_get_attribute_string(info, b"filesystem::type")
+        assert value, "filesystem::type was not returned"
+        actual = value.decode()
+        assert actual == kind, (kind, actual)
+    finally:
+        if info:
+            gobject.g_object_unref(info)
+        gobject.g_object_unref(file_object)
+    print(f"GIO filesystem::type={kind}: PASS")
 
 
 def check(stock_only=False, modules_root=Path("/lib/modules"), enabled=None):
-    modules = modules_root / platform.release() / "updates/infiltrator"
-    # Resolve the same dynamic symbol as Disks: preloaded extension first,
-    # then the distribution client for non-Amiga identifiers.
+    modules = modules_root / os.uname().release / "updates/infiltrator"
     stock_path = os.environ.get("UDISKS_STOCK_LIBRARY") or ctypes.util.find_library("udisks2")
     assert stock_path, "Install the stock libudisks2-0 package"
     ctypes.CDLL(stock_path, mode=ctypes.RTLD_GLOBAL)
@@ -54,9 +101,6 @@ def check(stock_only=False, modules_root=Path("/lib/modules"), enabled=None):
         assert name("filesystem", kind, "", True) == long_name
         assert name("filesystem", kind, "", False) == short_name
 
-
-    # Existing identifiers retain their stock names, and a truly unrecognised
-    # format must still use the normal fallback rather than an Amiga label.
     assert name("filesystem", "ext4", "1.0", True) == "Ext4 (version 1.0)"
     assert name("filesystem", "ext4", "", False) == "Ext4"
     assert name("filesystem", "fsupport-test-unknown", "", True) == "Unknown (fsupport-test-unknown)"
@@ -71,14 +115,16 @@ def main():
     parser.add_argument("--modules-root", type=Path, default=Path("/lib/modules"))
     parser.add_argument("--stock", action="store_true")
     parser.add_argument("--enabled")
+    parser.add_argument("--gio-type")
     args = parser.parse_args()
     os.environ["LANGUAGE"] = "C"
     os.environ["LC_ALL"] = "C"
-    expected = os.environ.get("FSUPPORT_TEST_PRELOAD")
-    if expected is not None:
-        assert os.environ.get("LD_PRELOAD") == (None if expected == "unset" else expected)
-        assert "INFILTRATOR_DISKS_PRELOAD_SET" not in os.environ
-        assert "INFILTRATOR_DISKS_PRELOAD_VALUE" not in os.environ
+    check_preload_restored()
+
+    if args.gio_type:
+        check_gio(args.gio_type)
+        return
+
     if args.package:
         def field(name):
             return subprocess.check_output(["dpkg-deb", "-f", str(args.package), name], text=True).strip()
@@ -99,10 +145,12 @@ def main():
                 rule = (templates / f"{kind}.rules").read_text()
                 assert f"--filesystem {kind} /dev/%k" in rule
             assert (templates / "gnome-disks").is_file()
+            assert (templates / "nemo").is_file()
             assert not (root / "usr/lib/infiltrator-filesystem-support/desktop/active").exists()
             assert not list(root.glob("usr/lib/*/libudisks*"))
             assert not list(root.glob("usr/share/doc/libudisks*"))
             assert not (root / "usr/bin/gnome-disks").exists()
+            assert not (root / "usr/bin/nemo").exists()
             assert not list(root.glob("usr/lib/udev/rules.d/*infiltrator*"))
             assert "desktop-integration sync" in (root / "DEBIAN/postinst").read_text()
         print("Main package contains inactive, separate desktop templates: PASS")

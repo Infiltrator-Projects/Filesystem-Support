@@ -24,6 +24,8 @@ install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-integratio
     DESTINATION "lib/infiltrator-filesystem-support" RENAME desktop-integration)
 install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/gnome-disks-wrapper"
     DESTINATION "${desktop_templates}" RENAME gnome-disks)
+install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/nemo-wrapper"
+    DESTINATION "${desktop_templates}" RENAME nemo)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-rules/"
     DESTINATION "${desktop_templates}" FILES_MATCHING PATTERN "*.rules")
 set(desktop_variant 0)
@@ -32,7 +34,7 @@ foreach(desktop_fs IN ITEMS ofs ffs sfs sfs2 pfs3)
     set(desktop_target "filesystem-support-disks-${desktop_fs}")
     add_library(${desktop_target} SHARED
         "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/udisks-amiga-names.c")
-    target_link_libraries(${desktop_target} PRIVATE PkgConfig::GLIB2 ${CMAKE_DL_LIBS} Threads::Threads)
+    target_link_libraries(${desktop_target} PRIVATE PkgConfig::GLIB2 PkgConfig::GIO2 ${CMAKE_DL_LIBS} Threads::Threads)
     target_compile_definitions(${desktop_target} PRIVATE IFS_NAMES_VARIANT=${desktop_variant})
     set_target_properties(${desktop_target} PROPERTIES PREFIX "" OUTPUT_NAME "${desktop_fs}"
         C_VISIBILITY_PRESET hidden LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/desktop-templates")
@@ -41,8 +43,9 @@ foreach(desktop_fs IN ITEMS ofs ffs sfs sfs2 pfs3)
     if(BUILD_TESTING)
         add_library(${desktop_target}-test SHARED
             "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/udisks-amiga-names.c")
-        target_link_libraries(${desktop_target}-test PRIVATE PkgConfig::GLIB2 ${CMAKE_DL_LIBS} Threads::Threads)
+        target_link_libraries(${desktop_target}-test PRIVATE PkgConfig::GLIB2 PkgConfig::GIO2 ${CMAKE_DL_LIBS} Threads::Threads)
         target_compile_definitions(${desktop_target}-test PRIVATE IFS_NAMES_VARIANT=${desktop_variant}
+            IFS_DESKTOP_TESTING=1
             IFS_NATIVE_MODULES_ROOT="${CMAKE_CURRENT_BINARY_DIR}/desktop-test-root/lib/modules")
         set_target_properties(${desktop_target}-test PROPERTIES PREFIX "" OUTPUT_NAME "${desktop_fs}"
             C_VISIBILITY_PRESET hidden LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/desktop-test-templates")

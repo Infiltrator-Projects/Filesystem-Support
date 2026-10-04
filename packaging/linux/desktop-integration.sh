@@ -9,10 +9,13 @@ self_dir=$(cd "$(dirname "$0")" && pwd)
 templates="$self_dir/desktop/templates"
 active="$base/usr/lib/infiltrator-filesystem-support/desktop/active"
 rules="$base/etc/udev/rules.d"
-original="$base/usr/bin/gnome-disks.filesystem-support-original"
-launcher="$base/usr/bin/gnome-disks"
+disks_original="$base/usr/bin/gnome-disks.filesystem-support-original"
+disks_launcher="$base/usr/bin/gnome-disks"
+nemo_original="$base/usr/bin/nemo.filesystem-support-original"
+nemo_launcher="$base/usr/bin/nemo"
 package=infiltrator-filesystem-support
-launcher_stage=
+disks_stage=
+nemo_stage=
 transition_rule=
 kernel=$(uname -r)
 mkdir -p "$base/run/lock"
@@ -35,7 +38,7 @@ has_active() {
     return 1
 }
 
-enable_launcher() {
+enable_disks_launcher() {
     local owner
     owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks)
     [[ -z "$owner" || "$owner" == "$package" ]] || {
@@ -43,24 +46,59 @@ enable_launcher() {
         return 1
     }
     [[ -f "$templates/gnome-disks" ]] || return 1
-    launcher_stage=$(mktemp "$base/usr/bin/.infiltrator-disks-XXXXXX")
-    install -m 0755 "$templates/gnome-disks" "$launcher_stage"
+    disks_stage=$(mktemp "$base/usr/bin/.infiltrator-disks-XXXXXX")
+    install -m 0755 "$templates/gnome-disks" "$disks_stage"
     if [[ -z "$owner" ]]; then
-        [[ -f "$launcher" ]] || { echo 'GNOME Disks is missing' >&2; return 1; }
+        [[ -f "$disks_launcher" ]] || { echo 'GNOME Disks is missing' >&2; return 1; }
         dpkg-divert --root="$system_root" --package "$package" --add --rename \
             --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
     fi
-    [[ -f "$original" ]] || return 1
-    mv -f "$launcher_stage" "$launcher"
-    launcher_stage=
+    [[ -f "$disks_original" ]] || return 1
+    mv -f "$disks_stage" "$disks_launcher"
+    disks_stage=
 }
 
-disable_launcher_if_empty() {
-    if ! has_active && [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks) == "$package" ]]; then
-        [[ -f "$original" ]] || { echo 'The original Disks executable is missing' >&2; return 1; }
-        rm -f "$launcher"
-        dpkg-divert --root="$system_root" --package "$package" --remove --rename \
-            --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
+enable_nemo_launcher() {
+    local owner
+    owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo)
+    if [[ -z "$owner" && ! -e "$nemo_launcher" ]]; then
+        return 0
+    fi
+    [[ -z "$owner" || "$owner" == "$package" ]] || {
+        echo "Nemo already has a diversion owned by $owner; refusing to replace it" >&2
+        return 1
+    }
+    [[ -f "$templates/nemo" ]] || return 1
+    nemo_stage=$(mktemp "$base/usr/bin/.infiltrator-nemo-XXXXXX")
+    install -m 0755 "$templates/nemo" "$nemo_stage"
+    if [[ -z "$owner" ]]; then
+        dpkg-divert --root="$system_root" --package "$package" --add --rename \
+            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
+    fi
+    [[ -f "$nemo_original" ]] || return 1
+    mv -f "$nemo_stage" "$nemo_launcher"
+    nemo_stage=
+}
+
+enable_launchers() {
+    enable_disks_launcher
+    enable_nemo_launcher
+}
+
+disable_launchers_if_empty() {
+    if ! has_active; then
+        if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks) == "$package" ]]; then
+            [[ -f "$disks_original" ]] || { echo 'The original Disks executable is missing' >&2; return 1; }
+            rm -f "$disks_launcher"
+            dpkg-divert --root="$system_root" --package "$package" --remove --rename \
+                --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
+        fi
+        if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo) == "$package" ]]; then
+            [[ -f "$nemo_original" ]] || { echo 'The original Nemo executable is missing' >&2; return 1; }
+            rm -f "$nemo_launcher"
+            dpkg-divert --root="$system_root" --package "$package" --remove --rename \
+                --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
+        fi
     fi
 }
 
@@ -73,10 +111,11 @@ cleanup() {
         if [[ -f "$work/previous.so" ]]; then install -m 0644 "$work/previous.so" "$active/$kind.so"; else rm -f "$active/$kind.so"; fi
         if [[ -f "$work/previous.rules" ]]; then install -m 0644 "$work/previous.rules" "$rules/99-infiltrator-$kind.rules"; else rm -f "$rules/99-infiltrator-$kind.rules"; fi
         rm -f "$rules/59-infiltrator-$kind.rules"
-        if has_active; then enable_launcher || true; else disable_launcher_if_empty || true; fi
+        if has_active; then enable_launchers || true; else disable_launchers_if_empty || true; fi
         refresh
     fi
-    [[ -z "$launcher_stage" ]] || rm -f "$launcher_stage"
+    [[ -z "$disks_stage" ]] || rm -f "$disks_stage"
+    [[ -z "$nemo_stage" ]] || rm -f "$nemo_stage"
     if [[ -n "$transition_rule" ]]; then rm -f "$transition_rule"; refresh; fi
     rm -rf "$work"
 }
@@ -95,7 +134,8 @@ begin_transaction() {
 }
 
 install_kind() {
-    [[ -f "$templates/$kind.so" && -f "$templates/$kind.rules" && -f "$templates/gnome-disks" ]] || {
+    [[ -f "$templates/$kind.so" && -f "$templates/$kind.rules" && \
+       -f "$templates/gnome-disks" && -f "$templates/nemo" ]] || {
         echo "Desktop templates are missing for $kind" >&2; exit 1;
     }
     begin_transaction install
@@ -104,7 +144,7 @@ install_kind() {
     # afterwards or blkid rewrites DOS/0 and DOS/1 back to the generic 'affs'.
     rm -f "$rules/59-infiltrator-$kind.rules"
     install -m 0644 "$templates/$kind.rules" "$rules/99-infiltrator-$kind.rules"
-    enable_launcher
+    enable_launchers
     transaction=
     refresh
 }
@@ -116,7 +156,7 @@ remove_kind() {
     rm -f "$active/$kind.so" \
           "$rules/59-infiltrator-$kind.rules" \
           "$rules/99-infiltrator-$kind.rules"
-    disable_launcher_if_empty
+    disable_launchers_if_empty
     transaction=
     refresh
 }

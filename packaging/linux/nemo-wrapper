@@ -1,0 +1,27 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -eu
+# Filesystem Support per-filesystem Nemo launcher.
+system_root=/
+base=${system_root%/}
+original=$base/usr/bin/nemo.filesystem-support-original
+kernel=$(uname -r)
+names=
+for filesystem in ofs ffs sfs sfs2 pfs3; do
+    file=$base/usr/lib/infiltrator-filesystem-support/desktop/active/$filesystem.so
+    module=$base/lib/modules/$kernel/updates/infiltrator/$filesystem.ko
+    if [ -f "$file" ] && [ -f "$module" ]; then
+        names=${names:+$names:}$file
+    fi
+done
+if [ -n "$names" ]; then
+    if [ "${LD_PRELOAD+x}" = x ]; then
+        INFILTRATOR_NEMO_PRELOAD_SET=yes
+    else
+        INFILTRATOR_NEMO_PRELOAD_SET=no
+    fi
+    INFILTRATOR_NEMO_PRELOAD_VALUE=${LD_PRELOAD-}
+    LD_PRELOAD="$names${LD_PRELOAD:+:$LD_PRELOAD}"
+    export INFILTRATOR_NEMO_PRELOAD_SET INFILTRATOR_NEMO_PRELOAD_VALUE LD_PRELOAD
+fi
+exec "$original" "$@"
