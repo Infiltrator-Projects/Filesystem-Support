@@ -46,7 +46,8 @@ def check_files(selected):
     active = private / 'desktop/active'
     assert {p.stem for p in active.glob('*.so')} == selected
     rules = root / 'etc/udev/rules.d'
-    assert {p.name.removeprefix('59-infiltrator-').removesuffix('.rules') for p in rules.glob('59-infiltrator-*.rules')} == selected
+    assert {p.name.removeprefix('99-infiltrator-').removesuffix('.rules') for p in rules.glob('99-infiltrator-*.rules')} == selected
+    assert not list(rules.glob('59-infiltrator-*.rules'))
     assert owner() == ('infiltrator-filesystem-support' if selected else '')
     if not selected:
         assert hashlib.sha256(disks.read_bytes()).hexdigest() == original_hash
@@ -71,6 +72,11 @@ run(helper, 'purge')
 check_files(set())
 # Migrate only drivers actually installed for this running kernel.
 for kind in ('sfs2', 'pfs3'): (modules / f'{kind}.ko').unlink()
+# Seed a legacy early rule to prove sync retires it while preserving the
+# per-filesystem selection.
+legacy_rules = root / 'etc/udev/rules.d'
+legacy_rules.mkdir(parents=True, exist_ok=True)
+(legacy_rules / '59-infiltrator-ofs.rules').write_text('legacy\n')
 run(helper, 'sync')
 check_files({'ofs', 'ffs', 'sfs'})
 run(helper, 'purge')
@@ -80,9 +86,10 @@ run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--add',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
 run(helper, 'install', 'ofs', success=False)
 assert not list((private / 'desktop/active').glob('*.so'))
+assert not list((root / 'etc/udev/rules.d').glob('99-infiltrator-*.rules'))
 assert not list((root / 'etc/udev/rules.d').glob('59-infiltrator-*.rules'))
 assert owner() == 'foreign-test-owner'
 run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--remove', '--rename',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
 check_files(set())
-print('Per-filesystem desktop install/remove, all 32 file selections, migration and rollback: PASS')
+print('Per-filesystem desktop install/remove, all 32 file selections, late-rule migration and rollback: PASS')
