@@ -2,410 +2,159 @@
 
 ## Architectural rule
 
-Filesystem Support owns one canonical implementation of each filesystem.
+Filesystem Support owns one canonical implementation of each **in-scope persistent local-storage filesystem format**.
 
-Filesystem-specific semantics are not implemented once for Linux and again for
-Windows. Linux and Windows are operating-system adapters around the same
-filesystem engine.
-
-The detailed Windows migration decision and the ExtFS preservation/deletion
-gates are recorded in
-[`WINDOWS_FILESYSTEM_ARCHITECTURE.md`](WINDOWS_FILESYSTEM_ARCHITECTURE.md) and
-[`EXTFS_FOR_WINDOWS_MIGRATION.md`](EXTFS_FOR_WINDOWS_MIGRATION.md).
-
-## Dependency direction
+Filesystem semantics are not independently rewritten for Linux, Windows and UEFI. Each platform adapter translates its host contract around the same authoritative format rules.
 
 ```text
                          filesystem catalogue
                                 |
                                 v
                     canonical filesystem engine
-                       /                 \
-                      /                   \
-             Linux platform adapter   Windows platform adapter
-                    |                         |
-               Linux VFS/KO            Windows IFS/WDK
+                    /            |             \
+                   /             |              \
+          Linux VFS adapter   Windows IFS     EFI reader
+                 |               |               |
+                .ko             .sys        rEFInd/UEFI
 ```
 
-Userspace inspection and test harnesses call the same canonical filesystem
-engine through host-neutral I/O contracts.
+Userspace inspection, formatting and qualification harnesses call the same canonical format logic through host-neutral I/O contracts where practical.
 
-Infiltratr Common may supply genuinely generic userspace/portable primitives,
-but neither filesystem semantics nor kernel adapters may depend on GUI,
-package-manager or unrelated application code.
+The Windows migration and preserved ExtFS-for-Windows evidence are described in [`WINDOWS_FILESYSTEM_ARCHITECTURE.md`](WINDOWS_FILESYSTEM_ARCHITECTURE.md) and [`EXTFS_FOR_WINDOWS_MIGRATION.md`](EXTFS_FOR_WINDOWS_MIGRATION.md).
 
-## One filesystem implementation, two OS wrappers
+## Scope rule
 
-For each filesystem there is exactly **one filesystem implementation**.
+A native filesystem tree exists to implement a real on-media filesystem format. Provider brands, network/cloud clients, overlays, archive mounts, encrypted containers, device namespaces and pseudo-filesystems do not acquire canonical disk-format engines merely because Linux exposes them through a mount API.
 
-`core/` is not merely a parser or a collection of helpers. It is the
-filesystem: format interpretation, allocation, mapping, directory semantics,
-metadata semantics, journaling/recovery rules, mutation logic and other
-filesystem-defined behaviour belong there whenever they can be expressed
-without an operating-system object.
+A provider-specific reference may exist temporarily as research evidence, but it is not a catalogue identity and must not drive product architecture.
 
-The `linux/` and `windows/` directories are wrappers/adapters around that
-same implementation. They must remain as thin as the host APIs allow.
+Examples:
 
-A target shape is therefore:
+- `ntfs/` owns NTFS semantics; NTFS3 and NTFS-3G are provider/reference paths.
+- one APFS canonical engine owns APFS semantics; FUSE/DKMS providers are not separate filesystems.
+- `fat/` and `exfat/` own their respective format semantics; FUSE providers do not duplicate them.
+- NFS, SMB, SSHFS, cloud mounts, OverlayFS, BitLocker, FileVault, archive mounts and device namespaces are outside this repository's selectable disk-filesystem architecture.
 
-```text
-                    ext2/core/
-              canonical EXT2 filesystem
-                    /          \
-                   /            \
-          ext2/linux/          ext2/windows/
-          thin VFS/KO          thin IFS/WDK
-          adapter              adapter
-```
+## What belongs in the canonical filesystem engine
 
-There is no separately maintained "Linux EXT2" and "Windows EXT2". If the same
-filesystem rule would otherwise be implemented in both wrappers, that rule
-belongs in `core/`.
-
-The same rule applies independently to EXT3, EXT4 and every filesystem promoted
-from reference/import state into rewrite state.
-
-During migration, substantial implementation may temporarily remain under
-`linux/` because that is where the working reference implementation currently
-lives. That is a migration condition, not the intended ownership boundary. The
-direction of travel is to move/rewrite filesystem semantics into `core/` and
-leave only unavoidable OS integration in the wrapper.
-
-## What is canonical filesystem code?
-
-The canonical per-filesystem engine owns facts dictated by the filesystem
-format itself, including:
+The canonical per-filesystem engine owns facts dictated by the filesystem format itself, including:
 
 - on-disk structures, feature bits and compatibility rules;
-- superblock, inode and directory interpretation;
-- block mapping and allocation policy;
-- extent or indirect-tree algorithms;
-- journal record formats and filesystem recovery rules;
-- metadata checksums;
-- extended attributes and filesystem-specific metadata;
+- superblock, inode/object and directory interpretation;
+- block/extent mapping and allocation rules;
+- journal/transaction record formats and filesystem recovery rules;
+- metadata/data checksum rules;
+- filesystem-specific attributes and metadata;
+- filename and namespace rules;
 - corruption and range validation;
-- filesystem-defined ordering and crash-consistency rules.
+- filesystem-defined ordering and crash-consistency behaviour;
+- mutation logic that is independent of a host kernel object model.
 
-If Linux and Windows need the same rule, that rule belongs here.
+If the same rule would otherwise be implemented in Linux, Windows and EFI code, that rule belongs in the canonical engine or a mechanically shared/verified subset of it.
 
-## What belongs in an OS adapter?
+## What belongs in an OS adapter
 
-An OS adapter translates native operating-system contracts into the canonical
-engine. It must not become a second filesystem implementation.
+The Linux adapter owns Linux-specific VFS registration, mount lifecycle, inode/file/folio/page-cache/block-device integration, Linux locking/lifetime rules, module registration and errno translation.
 
-The Linux adapter owns Linux-specific concerns such as:
+The Windows adapter owns DriverEntry/filesystem registration, IRP dispatch, VCB/FCB/CCB lifetime, Cache/Memory Manager integration, volume lifecycle, NTSTATUS translation and WDK packaging/signing.
 
-- VFS registration and mount lifecycle;
-- `struct inode`, `struct file`, folios/page cache and block-device APIs;
-- Linux locking and work/lifetime rules;
-- module registration, aliases and kernel error translation.
+The EFI adapter owns the small UEFI filesystem-reader surface required by the boot manager: volume recognition, safe path traversal, file open/read, metadata required by rEFInd and UEFI Block I/O integration. It is normally read-only and must not grow into a second full filesystem implementation.
 
-The Windows adapter owns Windows-specific concerns such as:
-
-- `DriverEntry` and filesystem registration;
-- IRP dispatch and Windows create/read/write/query/set semantics;
-- VCB/FCB/CCB lifetime and synchronization;
-- Cache Manager and Memory Manager integration;
-- volume verification, lock/dismount and removable-media lifecycle;
-- NTSTATUS translation;
-- WDK packaging, INF/catalogue production and signing.
-
-The Windows adapter follows the native IFS model preserved from
-ExtFS-for-Windows. It is not a loopback SMB/WebDAV/network-share abstraction.
-The target is one reusable Windows IFS framework plus thin independently
-deployable per-filesystem `.sys` modules that compile the corresponding
-canonical filesystem core. See
-[`WINDOWS_FILESYSTEM_ARCHITECTURE.md`](WINDOWS_FILESYSTEM_ARCHITECTURE.md)
-for the installation, mounting and module-lifecycle contract.
-
-Format knowledge must not be hidden inside either adapter merely because the
-first implementation happened to be written there.
-
-## Shared engine contract
-
-The lowest shared layer is explicit and host-neutral.
-
-`IfsIo` provides bounded positioned I/O. A filesystem parser must not know
-whether the bytes come from an image, a Linux block device, a Windows volume,
-a fuzz buffer or a qualification harness.
-
-`IfsByteReader` provides bounds-checked decoding over already-read records.
-
-`IfsFilesystemDescriptor` is the small ABI-bearing identity/capability
-contract for a native engine. It contains no GTK, package-manager, Linux VFS or
-Windows WDK object pointers.
-
-As write support grows, the host contract may expose only the mechanisms that
-are truly required by filesystem algorithms, for example durable flush/barrier
-operations, bounded scratch storage, time and carefully defined synchronization
-hooks. OS objects remain outside the canonical engine.
+A Linux `.ko` is not an EFI driver and a Windows `.sys` is not a Linux driver. The adapters are different binaries with different host contracts; the filesystem semantics beneath them remain one authority.
 
 ## Source layout direction
 
-The target layout is:
+The target layout is responsibility-based:
 
 ```text
 native/
-  core/                              filesystem-neutral mechanisms
+  core/                         filesystem-neutral primitives
   filesystems/
-    ext2/
-      core/                          canonical EXT2 semantics
-      linux/                         EXT2-specific Linux bridge, if required
-      windows/                       EXT2-specific Windows bridge, if required
-    ext3/
-      core/
-      linux/
-      windows/
-    ...
+    <format>/
+      core/                     canonical format/semantic engine
+      linux/                    thin Linux-specific adapter when needed
+      windows/                  thin Windows-specific adapter when needed
+      efi/                      thin read-only EFI adapter when needed
   platform/
-    linux/                           reusable Linux adapter/framework
-    windows/                         reusable Windows adapter/framework
-    userspace/                       image/device inspection adapter
-
-windows/
-  manager/                           Windows Filesystem Support application
-  build/                             WDK/build/sign/package orchestration
-  installer/                         product/module installation
-  test/                              Windows-specific qualification
+    linux/                      reusable VFS/module infrastructure
+    windows/                    reusable IFS/driver infrastructure
+    efi/                        reusable UEFI/rEFInd infrastructure
+    userspace/                  image/device/formatter/test adapter
 ```
 
-Not every filesystem needs format-specific files under both adapter
-directories. Prefer reusable platform infrastructure; create filesystem-specific
-adapter glue only where the OS contract genuinely needs it.
+Not every filesystem needs files under every adapter directory. Reusable platform infrastructure is preferred; filesystem-specific adapter glue exists only where the host contract genuinely requires it.
 
-## Migration layout is not the target layout
+The number and names of translation units are implementation details. Do not preserve imported upstream file boundaries merely for familiarity, and do not split cohesive code merely to imitate the example tree.
 
-The actively rewritten EXT2, EXT3, EXT4, OFS, FFS and SFS Linux trees no
-longer use their imported translation-unit layout as the production source
-shape. Their active source is cut around Filesystem Support responsibilities
-such as allocation, namespace, I/O, lifecycle, mapping, metadata and journal
-durability. The old per-filesystem `kernel/` staging directories and the
-migration filenames such as `file.c`, `inode.c`, `super.c`, `affs.h`
-and `asfs_fs.h` are not permanent interfaces.
+## Shared engine contract
 
-Keeping an inherited translation-unit boundary can be useful while replacing a
-subsystem because it limits the amount of behaviour changed at one time and
-makes qualification easier.  Once a subsystem has been independently rewritten,
-its permanent location and file boundary must be chosen according to the
-Filesystem Support architecture rather than according to the source layout that
-was used as the reference implementation.
+Host-neutral I/O is bounded and positioned. Filesystem parsing must not care whether bytes come from a test image, Linux block device, Windows volume, UEFI Block I/O device or fuzz buffer.
 
-The target distinction is responsibility-based:
+Checked decoding, arithmetic, endianness and corruption rejection should be shared where the execution environment permits it. Kernel and EFI builds must never acquire an invalid userspace dependency merely in the name of reuse.
 
-- filesystem-format semantics belong in the per-filesystem `core/`;
-- Linux VFS, block-device, page-cache, module and kernel-lifetime glue belongs
-  in the per-filesystem `linux/` adapter or reusable Linux platform layer;
-- Windows IFS/WDK, IRP, cache-manager and driver-lifetime glue belongs in the
-  per-filesystem `windows/` adapter or reusable Windows platform layer.
+Infiltratr Common may supply genuinely generic userspace/portable primitives, but the userspace Common library is not automatically kernel-safe or EFI-safe. Filesystem semantics, GUI code and package-manager code must remain separate.
 
-A source file may be split during migration when it mixes these responsibilities.
-For example, a migration-era `linux/file.c` may contain both filesystem I/O
-semantics and Linux VFS dispatch.  The final implementation should place shared
-filesystem behaviour in `core/` and retain only Linux-specific dispatch in
-`linux/`.
+## One filesystem implementation, independently deployable adapters
 
-Conversely, do not split code merely to imitate this example tree.  A rewritten
-subsystem may remain one cohesive source file when that produces the clearest
-ownership and invariants.
+Filesystem Support must not become one enormous kernel module or Windows driver. Conventional filesystems remain independently deployable. Shared platform code is promoted only when its ABI/contract is proven stable and does not create unnecessary failure coupling.
 
-The name, number and boundaries of source files are implementation decisions.
-The stable architectural contracts are the canonical filesystem engine, the
-OS-adapter boundary, and the independently deployable filesystem module.  For
-Linux, a filesystem may still build exactly one `.ko` regardless of how many
-source files implement its core and adapter.
+During current Linux development, required canonical-core source may be compiled directly into each `.ko` rather than introducing a private shared kernel-module ABI. That is intentional.
 
-## Common policy
+## Reference/import and rewrite states
 
-Infiltratr Common remains authoritative for genuinely generic mechanisms that
-are safe in the relevant build environment.
+An in-scope disk filesystem waiting for independent implementation may retain upstream source as **reference evidence**. Such source retains original licence/provenance and must not be represented as project-authored code or compiled into production merely because it exists.
 
-Reuse Common for identical contracts such as checked arithmetic, deterministic
-ASCII/UTF-8 handling, exact userspace I/O and parsing helpers when doing so does
-not introduce an invalid kernel dependency.
+When a filesystem is promoted to rewrite state:
 
-If a filesystem engine develops a stronger generic primitive, compare it
-forensically with Common. Improve the generic implementation when appropriate,
-then remove the duplicate. Do not create families of near-equivalent helpers.
+1. record the format contract and required compatibility behaviour;
+2. freeze the reference material as evidence;
+3. replace implementation units with project-authored canonical engine/adapters;
+4. qualify corruption handling and read interoperability;
+5. add safe mutation and recovery;
+6. qualify platform adapters independently; and
+7. qualify EFI/root/setup integration before enabling the format in the InfiltratorOS setup shell.
 
-Kernel builds must use only code proven safe for their kernel environment.
-Userspace Common is not automatically kernel-safe.
+EXT2, EXT3, EXT4 and the five Amiga formats documented in [`AMIGA_FILESYSTEMS.md`](AMIGA_FILESYSTEMS.md) are current rewrite/project-native targets.
 
-## Source provenance and promotion model
-
-Filesystem Support deliberately uses two source states.
-
-### Reference/import state
-
-Filesystems that have not yet entered an Infiltrator rewrite may use copied
-upstream implementation source as their working baseline.  Those trees exist so
-the project has a complete, working semantic reference while each filesystem is
-waiting its turn for independent redesign.
-
-Copied trees must retain their original licence, copyright and provenance
-notices.  They must not be represented as project-authored source.
-
-At the current development stage this reference/import state applies to filesystem implementations under `native/filesystems/` that have not been explicitly promoted. EXT2/3/4 and the five Amiga targets documented in `AMIGA_FILESYSTEMS.md` are excluded.
-
-### Rewrite state
-
-When a filesystem is selected for active Infiltrator development, its imported
-implementation becomes temporary migration material.  The implementation is
-then replaced subsystem by subsystem with code designed for the project's
-canonical engine and OS-adapter architecture.
-
-EXT2, EXT3 and EXT4 are currently in this rewrite state.
-
-OFS, FFS, SFS, SFS2 and PFS3 are also in rewrite state. Their source bases,
-provenance and five-way separation are defined in
-[`AMIGA_FILESYSTEMS.md`](AMIGA_FILESYSTEMS.md). OFS and FFS begin from the
-combined Linux AFFS implementation but are independent canonical filesystems;
-SFS2 is likewise not an SFS compatibility mode.
-
-For a rewritten unit, changing comments, names, file boundaries or Kbuild
-layout is not sufficient.  The implementation itself must be replaced and
-validated before inherited provenance can be removed from that unit.
-
-Rewrite-state trees must not be refreshed automatically from upstream, because doing so could overwrite migration or project-authored work. Other reference trees may continue to be refreshed until that filesystem is explicitly promoted to rewrite state.
-
-### Promotion rule
-
-Promotion is deliberate and per filesystem:
-
-1. preserve the copied reference tree and its legal provenance until the
-   rewrite starts;
-2. record the filesystem as being in rewrite state;
-3. define the required format semantics and compatibility behaviour;
-4. replace implementation units with project-authored code;
-5. validate media compatibility, failure handling and platform integration;
-6. remove inherited provenance only from units whose inherited implementation
-   has actually been replaced; and
-7. stop upstream refreshes for that filesystem once rewrite work has begun.
-
-This gives the project working implementations now without confusing copied
-reference source with the final Infiltrator codebase.
-
-## ExtFS-for-Windows migration rule
-
-The former ExtFS portable core is migration evidence, not a second production
-engine.
-
-Its host-neutral checked geometry, malformed-media rejection, traversal logic,
-durability discipline, tests and Windows IFS work must be reconciled into the
-appropriate canonical or Windows-platform layers. The frozen v0.9.9 snapshot
-under `archive/` is never linked into production builds.
-
-A duplicate ExtFS algorithm may be removed only after the canonical
-replacement has equivalent or stronger tests and both platform paths consume
-that replacement.
-
-## Shared kernel/platform core policy
-
-Do not create one enormous Linux module or one enormous Windows driver merely
-because Filesystem Support covers a large catalogue.
-
-Filesystem modules should remain independently deployable where the operating
-system benefits from that isolation. Shared platform infrastructure is
-acceptable when its interface has been proven stable and when sharing it does
-not create a single failure/version-skew point for every filesystem.
-
-Source sharing and binary packaging are separate decisions: the same canonical
-filesystem source can be compiled into more than one OS-specific module without
-duplicating the source implementation.
-
-## Development and qualification harnesses
-
-`fsinspect` is the generic userspace inspection harness. It should call
-canonical engines rather than spawn one utility per filesystem.
-
-Qualification must include independently manufactured fixtures, malformed
-input, sanitizer/static-analysis passes where applicable, cross-implementation
-differential checks and destructive disposable-media tests for writers.
-
-Mutation success requires an independent read-only verification pass. Durable
-write transactions need explicit recovery boundaries.
-
-## First implementation: EXT2
-
-EXT2 is the architectural proof.
-
-It must demonstrate:
-
-1. one canonical EXT2 format/semantic implementation;
-2. host-neutral parsing and malformed-media validation;
-3. complete intended EXT2 block mapping and metadata behaviour;
-4. Linux VFS integration through the Linux adapter;
-5. Windows IFS integration through the Windows adapter;
-6. the same canonical tests running independently of either kernel;
-7. Linux qualification;
-8. Windows WDK/static/runtime qualification;
-9. no surviving independently maintained EXT2 algorithm in the Windows layer.
-
-EXT3 and EXT4 follow after this boundary is proven. Other filesystems can then
-adopt the same architecture without rediscovering the platform split.
-
-If EXT2 exposes a bad abstraction, fix the abstraction rather than preserving
-it for compatibility. The cross-platform native-engine API is still free to
-improve before a stable release contract is declared.
-
+Historical research directories for technologies removed from the product catalogue are not candidates for automatic promotion. They may be deleted when they cease to provide useful engineering evidence; their mere presence does not define scope.
 
 ## Linux native installation contract
 
-A project-owned Linux filesystem is considered installed only when the
-Filesystem Support manager has installed the project's actual VFS kernel module
-for the running kernel.
+A project-owned Linux filesystem is considered natively installed only when Filesystem Support has installed the project's actual VFS adapter for the running kernel.
 
-For a qualified native Linux filesystem such as EXT3, clicking **Install
-native** means:
+For a qualified module, **Install native** means: identify the running kernel, require matching headers, compile the canonical core plus Linux adapter, install the resulting `.ko` under an Infiltrator-owned `updates/` location, run `depmod`, load it with `modprobe`, and verify that the intended module is genuinely active.
 
-1. identify the running kernel release;
-2. require the matching kernel build headers;
-3. compile the filesystem's canonical core plus Linux adapter against that
-   running kernel;
-4. install the resulting `.ko` beneath the running kernel's module tree in
-   an Infiltrator-owned `updates/` location;
-5. run `depmod`;
-6. load the module with `modprobe`;
-7. verify that the module is genuinely available/loaded before reporting
-   success.
+**Remove native** must refuse unsafe unload, unload the module, remove only the Infiltrator-owned module, run `depmod`, and re-probe actual state.
 
-Clicking **Remove native** means:
+If a same-named built-in/in-use stock module cannot safely be replaced, installation fails closed. Filesystem Support must never report the project-native implementation as active when another driver is servicing the filesystem.
 
-1. refuse removal if the module cannot be unloaded safely, including when it is
-   servicing a mounted/in-use filesystem;
-2. unload the module;
-3. remove the Infiltrator-owned module from the running kernel's module tree;
-4. run `depmod`;
-5. re-probe and report the real resulting state.
+Secure Boot is a normal deployment case. Project-native `.ko` files must follow the enrolled signing/MOK path where module signature enforcement is active; Filesystem Support must not disable Secure Boot or claim success after signature rejection.
 
-Filesystem administration packages remain independent. For example,
-`e2fsprogs` supplies useful EXT formatting/checking tools, but installing
-`e2fsprogs` is not installation of the Infiltrator EXT3 filesystem driver.
+## InfiltratorOS root/setup contract
 
-If the running kernel already has a same-named built-in or in-use driver that
-cannot safely be replaced, installation must fail closed and explain the
-conflict. Filesystem Support must never report the project-native module as
-active when the stock/built-in implementation is actually servicing the
-filesystem.
+Native Linux support alone is not enough for setup eligibility. A filesystem becomes a selectable InfiltratorOS root only after the formatter, Linux root semantics, initramfs availability and matching EFI/rEFInd reader are all qualified.
 
-The Windows development mounter exception documented in
-[`WINDOWS_FILESYSTEM_ARCHITECTURE.md`](WINDOWS_FILESYSTEM_ARCHITECTURE.md)
-does not weaken this Linux rule.
+The same format identity drives the full installation plan:
 
+```text
+format target -> populate OS -> install Linux adapter -> build initramfs
+              -> install matching EFI reader -> configure rEFInd -> boot test
+```
 
-### Secure Boot and project-native Linux modules
+A format failure must never silently substitute another filesystem.
 
-Native installation must remain compatible with Secure Boot rather than asking
-the user to disable it.
+## Windows contract
 
-When Secure Boot is enabled, the privileged native-module helper signs the
-freshly built `.ko` before installation. Ubuntu/Mint systems use the enrolled
-Machine Owner Key under `/var/lib/shim-signed/mok/` when available. The
-helper verifies that a signer is present and refuses to install an unsigned
-module.
+Windows consumes the same canonical format engine behind a native IFS/WDK adapter. The former ExtFS portable/WDK work is migration evidence, not a second production filesystem engine.
 
-If no MOK exists or the existing certificate is not enrolled, installation
-fails closed with instructions to create/enroll the system MOK and retry after
-the required reboot. Filesystem Support must not silently disable Secure Boot,
-enable test signing, or claim the native module is active when the kernel has
-rejected it.
+Production drivers follow supported Windows signing and Secure Boot trust paths. Test signing is development-only.
+
+## Development and qualification
+
+`fsinspect` and filesystem-specific tests should exercise canonical engines directly rather than spawning one unrelated utility per format.
+
+Qualification must include independently manufactured fixtures, malformed input, sanitizer/static-analysis passes where applicable, cross-implementation differential checks and destructive disposable-media tests for writers. Mutation success requires an independent verification pass, and durable writes require explicit recovery boundaries.
+
+Root qualification additionally covers format -> populate -> boot-reader access -> kernel/initramfs startup -> root mount -> ordinary workload -> update/reboot -> recovery.
+
+If an abstraction proves wrong while the architecture is still pre-stable, fix the abstraction rather than preserving it for compatibility.

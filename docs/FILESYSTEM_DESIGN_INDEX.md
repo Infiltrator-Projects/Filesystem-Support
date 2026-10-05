@@ -1,213 +1,12 @@
 # Filesystem Design Documents
 
-Filesystem design documents record format/protocol facts, current ownership
-state and the intended canonical-engine versus platform boundary. A design
-document does not by itself claim that the filesystem has been rewritten or
-qualified.
+Filesystem design documents record on-media format facts, current ownership state and the intended canonical-engine/platform-adapter boundary. A design document does not by itself claim that the filesystem has been rewritten, made writable, made bootable or qualified as an InfiltratorOS root.
 
-## Structurally reviewed reference-state filesystems
+The product catalogue is now deliberately limited to persistent local-storage filesystem formats. Provider, network, overlay, archive, encryption-container and device-namespace research is not part of the selectable filesystem contract even where historical reference material still exists in the repository.
 
-- [Classic HFS](../native/filesystems/hfs/DESIGN.md) — upstream Linux HFS
-  retained as reference evidence; the target is one canonical HFS engine with
-  thin Linux/Windows adapters.
+## Active project-native formats
 
-
-- [GFS2](../native/filesystems/gfs2/DESIGN.md) — shared-disk clustered
-  filesystem; upstream Linux/DLM client is reference evidence while the target
-  is one canonical GFS2 engine with thin host and cluster-lock adapters.
-- [OCFS2](../native/filesystems/ocfs2/DESIGN.md) — shared-disk clustered
-  filesystem; upstream Linux OCFS2, O2CB and DLM source is reference evidence
-  while the target is one canonical OCFS2 engine with thin host and cluster
-  coordination adapters.
-- [OMFS](../native/filesystems/omfs/DESIGN.md) — upstream Linux OMFS is
-  preserved as reference evidence; the target is one canonical OMFS engine with
-  thin Linux/Windows adapters.
-
-
-- [9P](../native/filesystems/9p/DESIGN.md) — Linux V9FS retained only as
-  reference evidence; the target Filesystem Support implementation is a
-  canonical 9P core behind the shared userspace-service boundary.
-- [CephFS](../native/filesystems/cephfs/DESIGN.md) — Linux kernel client
-  retained as distributed-filesystem reference evidence; the target is a
-  canonical CephFS client core behind the shared userspace-service boundary.
-- [SMB/CIFS](../native/filesystems/cifs/DESIGN.md) — Linux SMB client/common
-  sources retained as network-filesystem reference evidence; future project
-  code uses one canonical SMB client core behind the userspace service.
-- [ADFS](../native/filesystems/adfs/DESIGN.md) — Linux ADFS retained only as
-  reference evidence; the target is one canonical ADFS engine with thin native
-  Linux and Windows adapters.
-- [Bcachefs](../native/filesystems/bcachefs/DESIGN.md) — large
-  upstream Linux implementation retained as reference evidence only; the target
-  remains one host-neutral Bcachefs engine with thin native platform adapters.
-- [BeFS](../native/filesystems/befs/DESIGN.md) — upstream Linux BeFS
-  retained as read-oriented reference evidence; the target is one canonical
-  BeFS engine with thin Linux/Windows adapters.
-- [SGI EFS](../native/filesystems/efs/DESIGN.md) — upstream Linux
-  read-only EFS retained as reference evidence; the target is one canonical
-  EFS reader with thin host adapters.
-- [exFAT](../native/filesystems/exfat/DESIGN.md) — upstream Linux exFAT
-  retained as reference evidence; the target is one canonical exFAT engine
-  shared by Linux, Windows and any userspace adapter.
-- [F2FS](../native/filesystems/f2fs/DESIGN.md) — upstream Linux F2FS
-  retained as reference evidence; the target is one canonical flash-filesystem
-  engine with thin host adapters.
-- [FAT12/16/32](../native/filesystems/fat/DESIGN.md) — upstream Linux
-  FAT/MS-DOS/VFAT implementation retained as reference evidence; the target is
-  one canonical FAT-family engine with explicit namespace policy.
-- [SCO BFS](../native/filesystems/bfs/DESIGN.md) — upstream Linux BFS retained
-  only as reference evidence; the target is one canonical Boot File System
-  engine with thin Linux/Windows adapters.
-- [Btrfs](../native/filesystems/btrfs/DESIGN.md) — large upstream Linux
-  implementation retained as reference evidence only; future project code must
-  use one canonical Btrfs engine with thin host adapters.
-- [CramFS](../native/filesystems/cramfs/DESIGN.md) — upstream Linux
-  read-only CramFS retained as reference evidence; the target is one canonical
-  compressed-image filesystem engine with thin native adapters.
-- [EROFS](../native/filesystems/erofs/DESIGN.md) — upstream Linux
-  EROFS retained as reference evidence; the target is one canonical read-only
-  compressed filesystem engine shared by native/userspace access paths.
-- [eCryptfs](../native/filesystems/ecryptfs/DESIGN.md) — upstream Linux
-  stacked-crypto implementation retained as reference evidence; future project
-  code separates portable eCryptfs format/crypto semantics from host adapters.
-
-## Structurally reviewed userspace-only entries
-
-- [GVfs FUSE bridge](../native/filesystems/gvfs-fuse/DESIGN.md) — desktop
-  userspace bridge exposing GVfs mounts to non-GIO applications; underlying
-  protocol/filesystem semantics remain with their real providers.
-
-
-- [guestmount](../native/filesystems/guestmount/DESIGN.md) — userspace
-  virtual-machine image/container access layer. It must dispatch contained
-  filesystems to their owning canonical implementations.
-
-
-- [GPhotoFS](../native/filesystems/gphotofs/DESIGN.md) — userspace
-  camera/PTP device namespace provider; no disk-format engine belongs here.
-
-
-- [gocryptfs](../native/filesystems/gocryptfs/DESIGN.md) — encrypted
-  userspace overlay. A future first-party implementation may have a portable
-  encrypted-overlay core plus userspace adapter, never a duplicate backing fs.
-
-
-- [go-mtpfs](../native/filesystems/go-mtpfs/DESIGN.md) — userspace MTP
-  device namespace provider; MTP transport/device semantics belong behind the
-  shared userspace-service boundary.
-
-
-- [GlusterFS](../native/filesystems/glusterfs/DESIGN.md) — distributed
-  userspace filesystem client; any first-party implementation belongs behind
-  the shared userspace-service boundary.
-
-
-- [fusezip](../native/filesystems/fusezip/DESIGN.md) — userspace ZIP archive
-  namespace. ZIP container semantics and mount presentation remain userspace
-  concerns rather than a kernel filesystem.
-
-
-- [fuse-overlayfs](../native/filesystems/fuse-overlayfs/DESIGN.md) —
-  userspace OverlayFS-compatible provider for rootless/container workloads; it
-  owns overlay presentation semantics, not an independent disk format.
-
-
-- [AFUSE](../native/filesystems/afuse/DESIGN.md) — catalogue-managed
-  userspace/FUSE automounter. There is no native disk-format core or kernel
-  module to invent; any future first-party implementation belongs behind the
-  shared userspace-service boundary.
-- [ArchiveMount](../native/filesystems/archivemount/DESIGN.md) —
-  catalogue-managed userspace archive namespace. Any future first-party
-  implementation belongs at the userspace-service/archive-adapter boundary,
-  not in a kernel filesystem.
-- [AVFS](../native/filesystems/avfs/DESIGN.md) — userspace virtual
-  namespace spanning archives, images and remote locations. It belongs behind
-  the shared userspace-service boundary, not in a kernel filesystem.
-- [bindfs](../native/filesystems/bindfs/DESIGN.md) — userspace overlay
-  that remaps ownership/permission presentation over an existing tree; no
-  independent disk-format or kernel engine belongs here.
-- [ConvmvFS](../native/filesystems/convmvfs/DESIGN.md) — userspace
-  filename-charset translation overlay. Underlying filesystem semantics remain
-  with the filesystem being mirrored.
-- [disorderfs](../native/filesystems/disorderfs/DESIGN.md) — userspace
-  testing overlay that intentionally perturbs metadata/order to expose
-  reproducibility assumptions; it owns no disk-format semantics.
-- [CryFS](../native/filesystems/cryfs/DESIGN.md) — encrypted
-  userspace overlay. Any future first-party implementation belongs in a
-  portable encrypted-overlay core plus userspace provider, not a kernel
-  filesystem module.
-- [EncFS](../native/filesystems/encfs/DESIGN.md) — encrypted userspace
-  overlay. Future project code may use a portable encrypted-overlay core plus
-  userspace provider, without duplicating backing-filesystem semantics.
-- [CurlFtpFS](../native/filesystems/curlftpfs/DESIGN.md) — FTP
-  remote-filesystem provider over userspace/FUSE. FTP protocol logic belongs
-  behind the shared userspace-service boundary.
-- [davfs2](../native/filesystems/davfs2/DESIGN.md) — WebDAV remote
-  filesystem provider. WebDAV/HTTP semantics belong behind the shared
-  userspace-service boundary, not in a kernel filesystem.
-
-## Structurally reviewed external-provider entries
-
-- [fuseiso](../native/filesystems/fuseiso/DESIGN.md) — external
-  userspace ISO/image provider. ISO9660 semantics belong to the canonical
-  `iso9660/` implementation, not this provider identity.
-
-
-- [fusefat](../native/filesystems/fusefat/DESIGN.md) — external FUSE
-  provider for FAT12/16/32 and exFAT. Future project userspace paths must consume
-  the canonical `fat/` or `exfat/` core rather than duplicate either engine.
-
-
-  provider for EXT2/EXT3/EXT4. It must not become a fourth EXT implementation;
-  future project userspace adapters consume each filesystem's own canonical core.
-
-
-- [APFS-DKMS](../native/filesystems/apfs-dkms/DESIGN.md) — Debian's
-  experimental out-of-tree APFS provider. It does not own APFS semantics in
-  this repository; a future first-party APFS implementation must be one
-  canonical APFS engine shared by native platform adapters.
-- [APFS-FUSE](../native/filesystems/apfs-fuse/DESIGN.md) — conservative
-  userspace APFS access through Debian's libfsapfs provider. It is a fallback
-  provider identity, not an independent APFS implementation.
-- [EROFS via FUSE](../native/filesystems/erofsfuse/DESIGN.md) —
-  external userspace provider for EROFS. EROFS semantics belong only in the
-  canonical EROFS engine.
-- [exFAT via FUSE](../native/filesystems/exfat-fuse/DESIGN.md) —
-  external userspace provider for exFAT. All exFAT semantics remain in the
-  canonical exFAT engine.
-- [CephFS via FUSE](../native/filesystems/ceph-fuse/DESIGN.md) —
-  external userspace CephFS client provider. CephFS semantics belong to one
-  canonical CephFS implementation, not a FUSE-specific fork.
-- [Linux NTFS3 provider](../native/filesystems/ntfs3/DESIGN.md) — copied Linux
-  NTFS3 source is retained only under `reference/linux/`; NTFS semantics belong
-  to the single canonical `ntfs/` ownership point, not a second NTFS3 engine.
-
-## Structurally reviewed storage/container entries
-
-- [BitLocker](../native/filesystems/bitlocker/DESIGN.md) — encrypted Windows
-  volume/container. A future first-party implementation may own a portable
-  container/decryption core, but the decrypted filesystem remains NTFS and is
-  handled by the NTFS implementation.
-- [FileVault / FVDE](../native/filesystems/filevault/DESIGN.md) —
-  Apple encrypted-volume/container layer. A future portable decryptor may
-  expose a block view, while APFS/HFS filesystem semantics remain elsewhere.
-
-## Structurally reviewed tools-only / future-native entries
-
-- [fscrypt](../native/filesystems/fscrypt/DESIGN.md) — management/policy tooling
-  for encryption implemented by filesystems such as EXT4, F2FS and UBIFS; it
-  does not own an independent filesystem engine.
-- [CP/M](../native/filesystems/cpm/DESIGN.md) — currently exposed through
-  cpmtools only, but it is a real disk-filesystem family and therefore reserves
-  a future canonical core plus thin native platform adapters.
-- [NTFS](../native/filesystems/ntfs/DESIGN.md) — currently exposed through
-  NTFS-3G userspace and Linux NTFS3 provider paths; both are providers for one
-  filesystem, and future first-party NTFS semantics belong only in the canonical
-  `ntfs/` core with thin platform adapters.
-- [Fosfat / Smaky](../native/filesystems/fosfat/DESIGN.md) — currently
-  external read-only userspace access, but the entry represents a real disk
-  filesystem and reserves one canonical format engine.
-
-## Active canonical/rewrite filesystems
+These formats already have active project-owned implementation work and retain independent filesystem identities:
 
 - [EXT2](../native/filesystems/ext2/DESIGN.md)
 - [EXT3](../native/filesystems/ext3/DESIGN.md)
@@ -218,7 +17,58 @@ qualified.
 - [Amiga SFS2](../native/filesystems/sfs2/DESIGN.md)
 - [Amiga PFS3](../native/filesystems/pfs3/DESIGN.md)
 
-Each document separates the filesystem/protocol design from current
-implementation state. Project-authored code uses Filesystem Support
-responsibility boundaries rather than inherited upstream translation-unit
-names.
+InfiltratorFS itself is maintained in the separate InfiltratorFS repository and is now a first-class Filesystem Support catalogue identity because it is a real local disk format and intended InfiltratorOS root target.
+
+## In-scope reference-state disk formats
+
+The following reviewed design/reference areas correspond to genuine disk filesystem identities retained by the product catalogue. Imported upstream source is evidence only until independently rewritten into the canonical engine/adapter architecture.
+
+- [ADFS](../native/filesystems/adfs/DESIGN.md)
+- [Bcachefs](../native/filesystems/bcachefs/DESIGN.md)
+- [BeFS](../native/filesystems/befs/DESIGN.md)
+- [SCO BFS](../native/filesystems/bfs/DESIGN.md)
+- [Btrfs](../native/filesystems/btrfs/DESIGN.md)
+- [SGI EFS](../native/filesystems/efs/DESIGN.md)
+- [exFAT](../native/filesystems/exfat/DESIGN.md)
+- [F2FS](../native/filesystems/f2fs/DESIGN.md)
+- [FAT12/16/32](../native/filesystems/fat/DESIGN.md)
+- [GFS2](../native/filesystems/gfs2/DESIGN.md)
+- [OCFS2](../native/filesystems/ocfs2/DESIGN.md)
+- [Classic HFS](../native/filesystems/hfs/DESIGN.md)
+- [OMFS](../native/filesystems/omfs/DESIGN.md)
+- [CP/M](../native/filesystems/cpm/DESIGN.md)
+- [NTFS](../native/filesystems/ntfs/DESIGN.md)
+- [Fosfat / Smaky](../native/filesystems/fosfat/DESIGN.md)
+
+A current provider can be userspace or read-only without changing the format's identity. For example, NTFS-3G and Linux NTFS3 are implementation paths for the single NTFS format and must not acquire separate product identities.
+
+## Provider/reference material outside catalogue scope
+
+Older development work imported or documented a much wider set of Linux mount mechanisms. That historical material does **not** define Filesystem Support product scope.
+
+In particular, design/reference directories for provider duplicates, remote/network/cloud clients, overlays, encrypted containers, archive mounts, virtual/device namespaces or immutable deployment images must not be treated as selectable filesystems, counted in the support matrix, or promoted into independent native modules merely because a directory exists.
+
+Examples include old APFS provider-specific directories (`apfs-fuse`, `apfs-dkms`), NTFS3 provider reference material, FUSE variants, 9P/SMB/Ceph/SSHFS client material, archive/overlay tools and encryption-container research. Where such material is still useful as engineering evidence it is reference-only and subordinate to the real format or to another product boundary. It is not a reason to re-expand the filesystem catalogue.
+
+The long-term cleanup direction is to remove reference-only material that no longer has engineering value rather than letting historical imports dictate architecture.
+
+## Documentation rule
+
+Every catalogue format has exactly one identity in `src/catalog.cpp` and exactly one row in [`FILESYSTEM_SUPPORT_MATRIX.md`](FILESYSTEM_SUPPORT_MATRIX.md). A provider-specific `DESIGN.md` must never create a second filesystem identity.
+
+A design document must separate:
+
+1. on-media format facts;
+2. capabilities of an external/current provider;
+3. project-native implementation state;
+4. Linux/Windows adapter state;
+5. EFI/rEFInd reader state; and
+6. InfiltratorOS root/setup qualification state.
+
+Those states are not interchangeable. A format can be well documented but unimplemented, mountable but not safely writable, writable but not suitable as `/`, or root-capable in Linux while still lacking an EFI reader.
+
+## Bootable-root rule
+
+For the InfiltratorOS setup path, the format design is only one part of the contract. A filesystem is offered as an installation target only after its formatter, Linux root semantics, early-boot module availability and matching rEFInd/EFI reader are qualified together.
+
+The setup shell consumes the same format identity and capability data as the desktop manager; it does not maintain a second list of filesystems.
