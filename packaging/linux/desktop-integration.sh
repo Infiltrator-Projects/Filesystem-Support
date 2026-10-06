@@ -15,9 +15,6 @@ disks_launcher="$base/usr/bin/gnome-disks"
 nemo_original="$base/usr/bin/nemo.filesystem-support-original"
 nemo_launcher="$base/usr/bin/nemo"
 package=infiltrator-filesystem-support
-disks_stage=
-nemo_stage=
-transition_rule=
 kernel=$(uname -r)
 [[ -r "$manifest" ]] || { echo 'native filesystem deployment manifest is missing' >&2; exit 1; }
 mkdir -p "$base/run/lock"
@@ -53,27 +50,29 @@ has_active() {
 }
 
 enable_disks_launcher() {
-    local owner
+    local owner stage
     owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks)
     [[ -z "$owner" || "$owner" == "$package" ]] || {
         echo "Disks already has a diversion owned by $owner; refusing to replace it" >&2
         return 1
     }
     [[ -f "$templates/gnome-disks" ]] || return 1
-    disks_stage=$(mktemp "$base/usr/bin/.infiltrator-disks-XXXXXX")
-    install -m 0755 "$templates/gnome-disks" "$disks_stage"
+    stage=$(mktemp "$base/usr/bin/.infiltrator-disks-XXXXXX")
+    trap 'rm -f -- "$stage"' RETURN
+    install -m 0755 "$templates/gnome-disks" "$stage"
     if [[ -z "$owner" ]]; then
         [[ -f "$disks_launcher" ]] || { echo 'GNOME Disks is missing' >&2; return 1; }
         dpkg-divert --root="$system_root" --package "$package" --add --rename \
             --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
     fi
     [[ -f "$disks_original" ]] || return 1
-    mv -f "$disks_stage" "$disks_launcher"
-    disks_stage=
+    mv -f "$stage" "$disks_launcher"
+    stage=
+    trap - RETURN
 }
 
 enable_nemo_launcher() {
-    local owner
+    local owner stage
     owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo)
     if [[ -z "$owner" && ! -e "$nemo_launcher" ]]; then
         return 0
@@ -83,15 +82,17 @@ enable_nemo_launcher() {
         return 1
     }
     [[ -f "$templates/nemo" ]] || return 1
-    nemo_stage=$(mktemp "$base/usr/bin/.infiltrator-nemo-XXXXXX")
-    install -m 0755 "$templates/nemo" "$nemo_stage"
+    stage=$(mktemp "$base/usr/bin/.infiltrator-nemo-XXXXXX")
+    trap 'rm -f -- "$stage"' RETURN
+    install -m 0755 "$templates/nemo" "$stage"
     if [[ -z "$owner" ]]; then
         dpkg-divert --root="$system_root" --package "$package" --add --rename \
             --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
     fi
     [[ -f "$nemo_original" ]] || return 1
-    mv -f "$nemo_stage" "$nemo_launcher"
-    nemo_stage=
+    mv -f "$stage" "$nemo_launcher"
+    stage=
+    trap - RETURN
 }
 
 enable_launchers() {
@@ -116,63 +117,111 @@ disable_launchers_if_empty() {
     fi
 }
 
-work=$(mktemp -d)
-transaction=
-kind=
-cleanup() {
-    local result=$?
-    if [[ $result -ne 0 && -n "$transaction" ]]; then
-        if [[ -f "$work/previous.so" ]]; then install -m 0644 "$work/previous.so" "$active/$kind.so"; else rm -f "$active/$kind.so"; fi
-        if [[ -f "$work/previous.rules" ]]; then install -m 0644 "$work/previous.rules" "$rules/99-infiltrator-$kind.rules"; else rm -f "$rules/99-infiltrator-$kind.rules"; fi
-        rm -f "$rules/59-infiltrator-$kind.rules"
-        if has_active; then enable_launchers || true; else disable_launchers_if_empty || true; fi
-        refresh
-    fi
-    [[ -z "$disks_stage" ]] || rm -f "$disks_stage"
-    [[ -z "$nemo_stage" ]] || rm -f "$nemo_stage"
-    if [[ -n "$transition_rule" ]]; then rm -f "$transition_rule"; refresh; fi
-    rm -rf "$work"
-}
-trap cleanup EXIT
-
-begin_transaction() {
+snapshot_kind() {
+    local kind=$1
+    local work=$2
     mkdir -p "$active" "$rules"
-    rm -f "$work/previous.so" "$work/previous.rules"
     [[ ! -f "$active/$kind.so" ]] || cp -a "$active/$kind.so" "$work/previous.so"
     if [[ -f "$rules/99-infiltrator-$kind.rules" ]]; then
         cp -a "$rules/99-infiltrator-$kind.rules" "$work/previous.rules"
     elif [[ -f "$rules/59-infiltrator-$kind.rules" ]]; then
         cp -a "$rules/59-infiltrator-$kind.rules" "$work/previous.rules"
     fi
-    transaction=$1
+}
+
+restore_kind() {
+    local kind=$1
+    local work=$2
+    if [[ -f "$work/previous.so" ]]; then
+        install -m 0644 "$work/previous.so" "$active/$kind.so"
+    else
+        rm -f "$active/$kind.so"
+    fi
+    if [[ -f "$work/previous.rules" ]]; then
+        install -m 0644 "$work/previous.rules" "$rules/99-infiltrator-$kind.rules"
+    else
+        rm -f "$rules/99-infiltrator-$kind.rules"
+    fi
+    rm -f "$rules/59-infiltrator-$kind.rules"
+}
+
+run_kind_transaction() {
+    local action=$1
+    local kind=$2
+
+    # Every filesystem mutation runs in its own subshell, snapshot and rollback
+    # scope. A failed OFS operation therefore cannot reuse FFS/SFS/PFS state,
+    # and sync/purge iterations cannot leak the previous filesystem identity.
+    (
+        set -eEuo pipefail
+        local work committed result
+        work=$(mktemp -d)
+        committed=0
+        snapshot_kind "$kind" "$work"
+
+        cleanup_transaction() {
+            result=$?
+            trap - EXIT
+            if [[ $result -ne 0 && $committed -eq 0 ]]; then
+                restore_kind "$kind" "$work"
+                if has_active; then
+                    enable_launchers || true
+                else
+                    disable_launchers_if_empty || true
+                fi
+                refresh
+            fi
+            rm -rf "$work"
+            exit "$result"
+        }
+        trap cleanup_transaction EXIT
+
+        case "$action" in
+            install)
+                install -m 0644 "$templates/$kind.so" "$active/$kind.so"
+                # Stock 60-persistent-storage.rules runs blkid. Our identity
+                # rule must run afterwards or blkid rewrites DOS/0 and DOS/1
+                # back to the generic 'affs'.
+                rm -f "$rules/59-infiltrator-$kind.rules"
+                install -m 0644 "$templates/$kind.rules" "$rules/99-infiltrator-$kind.rules"
+                enable_launchers
+                refresh
+                ;;
+            remove)
+                # Refresh while the matching rule still exists so stale
+                # identity is cleared before the rule itself disappears.
+                refresh
+                rm -f "$active/$kind.so" \
+                      "$rules/59-infiltrator-$kind.rules" \
+                      "$rules/99-infiltrator-$kind.rules"
+                disable_launchers_if_empty
+                refresh
+                ;;
+            *)
+                echo "invalid desktop transaction action: $action" >&2
+                exit 2
+                ;;
+        esac
+
+        committed=1
+        trap - EXIT
+        rm -rf "$work"
+    )
 }
 
 install_kind() {
+    local kind=$1
     [[ -f "$templates/$kind.so" && -f "$templates/$kind.rules" && \
        -f "$templates/gnome-disks" && -f "$templates/nemo" ]] || {
-        echo "Desktop templates are missing for $kind" >&2; exit 1;
+        echo "Desktop templates are missing for $kind" >&2
+        return 1
     }
-    begin_transaction install
-    install -m 0644 "$templates/$kind.so" "$active/$kind.so"
-    # Stock 60-persistent-storage.rules runs blkid. Our identity rule must run
-    # afterwards or blkid rewrites DOS/0 and DOS/1 back to the generic 'affs'.
-    rm -f "$rules/59-infiltrator-$kind.rules"
-    install -m 0644 "$templates/$kind.rules" "$rules/99-infiltrator-$kind.rules"
-    enable_launchers
-    transaction=
-    refresh
+    run_kind_transaction install "$kind"
 }
 
 remove_kind() {
-    begin_transaction remove
-    # The matching rule clears stale identity after the native module is removed.
-    refresh
-    rm -f "$active/$kind.so" \
-          "$rules/59-infiltrator-$kind.rules" \
-          "$rules/99-infiltrator-$kind.rules"
-    disable_launchers_if_empty
-    transaction=
-    refresh
+    local kind=$1
+    run_kind_transaction remove "$kind"
 }
 
 [[ $# -ge 1 ]] || exit 2
@@ -182,26 +231,41 @@ case "$action" in
         [[ $# -eq 2 ]] || exit 2
         kind=$2
         is_desktop_filesystem "$kind" || exit 2
-        if [[ "$action" == install ]]; then install_kind; else remove_kind; fi
+        if [[ "$action" == install ]]; then
+            install_kind "$kind"
+        else
+            remove_kind "$kind"
+        fi
         ;;
     sync)
         [[ $# -eq 1 ]] || exit 2
         # Temporarily clear identification left by the retired global rule.
         mkdir -p "$base/run/udev/rules.d"
         transition_rule="$base/run/udev/rules.d/58-infiltrator-transition.rules"
+        cleanup_transition() {
+            local result=$?
+            trap - EXIT
+            rm -f "$transition_rule"
+            refresh
+            exit "$result"
+        }
+        trap cleanup_transition EXIT
         install -m 0644 "$templates/cleanup.rules" "$transition_rule"
         while IFS= read -r kind; do
-            if [[ -f "$base/lib/modules/$kernel/updates/infiltrator/$kind.ko" ]]; then install_kind; else remove_kind; fi
+            if [[ -f "$base/lib/modules/$kernel/updates/infiltrator/$kind.ko" ]]; then
+                install_kind "$kind"
+            else
+                remove_kind "$kind"
+            fi
         done < <(desktop_filesystems)
-        refresh
         rm -f "$transition_rule"
-        transition_rule=
+        trap - EXIT
         refresh
         ;;
     purge)
         [[ $# -eq 1 ]] || exit 2
         while IFS= read -r kind; do
-            remove_kind
+            remove_kind "$kind"
         done < <(desktop_filesystems)
         ;;
     *) exit 2 ;;
