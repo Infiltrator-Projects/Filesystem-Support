@@ -5,15 +5,18 @@ set -eu
 system_root=/
 base=${system_root%/}
 original=$base/usr/bin/gnome-disks.filesystem-support-original
+manifest=$base/usr/lib/infiltrator-filesystem-support/native-filesystems.tsv
 kernel=$(uname -r)
 names=
-for filesystem in ofs ffs sfs sfs2 pfs3; do
-    file=$base/usr/lib/infiltrator-filesystem-support/desktop/active/$filesystem.so
-    module=$base/lib/modules/$kernel/updates/infiltrator/$filesystem.ko
-    if [ -f "$file" ] && [ -f "$module" ]; then
-        names=${names:+$names:}$file
-    fi
-done
+if [ -r "$manifest" ]; then
+    for filesystem in $(awk -F '\t' '$0 !~ /^#/ && NF == 4 && $3 == "amiga" { print $1 }' "$manifest"); do
+        file=$base/usr/lib/infiltrator-filesystem-support/desktop/active/$filesystem.so
+        module=$base/lib/modules/$kernel/updates/infiltrator/$filesystem.ko
+        if [ -f "$file" ] && [ -f "$module" ]; then
+            names=${names:+$names:}$file
+        fi
+    done
+fi
 if [ -n "$names" ]; then
     if [ "${LD_PRELOAD+x}" = x ]; then
         INFILTRATOR_DISKS_PRELOAD_SET=yes

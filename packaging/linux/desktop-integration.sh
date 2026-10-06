@@ -9,6 +9,7 @@ self_dir=$(cd "$(dirname "$0")" && pwd)
 templates="$self_dir/desktop/templates"
 active="$base/usr/lib/infiltrator-filesystem-support/desktop/active"
 rules="$base/etc/udev/rules.d"
+manifest="$base/usr/lib/infiltrator-filesystem-support/native-filesystems.tsv"
 disks_original="$base/usr/bin/gnome-disks.filesystem-support-original"
 disks_launcher="$base/usr/bin/gnome-disks"
 nemo_original="$base/usr/bin/nemo.filesystem-support-original"
@@ -18,9 +19,22 @@ disks_stage=
 nemo_stage=
 transition_rule=
 kernel=$(uname -r)
+[[ -r "$manifest" ]] || { echo 'native filesystem deployment manifest is missing' >&2; exit 1; }
 mkdir -p "$base/run/lock"
 exec 9>"$base/run/lock/infiltrator-filesystem-support-desktop.lock"
 flock -x 9
+
+desktop_filesystems() {
+    awk -F '\t' '$0 !~ /^#/ && NF == 4 && $3 == "amiga" { print $1 }' "$manifest"
+}
+
+is_desktop_filesystem() {
+    local requested=$1
+    awk -F '\t' -v fs="$requested" '
+        $0 !~ /^#/ && NF == 4 && $1 == fs && $3 == "amiga" { found = 1; exit }
+        END { exit found ? 0 : 1 }
+    ' "$manifest"
+}
 
 refresh() {
     if [[ "$system_root" == / ]] && command -v udevadm >/dev/null 2>&1; then
@@ -32,9 +46,9 @@ refresh() {
 
 has_active() {
     local kind
-    for kind in ofs ffs sfs sfs2 pfs3; do
+    while IFS= read -r kind; do
         [[ ! -f "$active/$kind.so" ]] || return 0
-    done
+    done < <(desktop_filesystems)
     return 1
 }
 
@@ -167,7 +181,7 @@ case "$action" in
     install|remove)
         [[ $# -eq 2 ]] || exit 2
         kind=$2
-        case "$kind" in ofs|ffs|sfs|sfs2|pfs3) ;; *) exit 2 ;; esac
+        is_desktop_filesystem "$kind" || exit 2
         if [[ "$action" == install ]]; then install_kind; else remove_kind; fi
         ;;
     sync)
@@ -176,9 +190,9 @@ case "$action" in
         mkdir -p "$base/run/udev/rules.d"
         transition_rule="$base/run/udev/rules.d/58-infiltrator-transition.rules"
         install -m 0644 "$templates/cleanup.rules" "$transition_rule"
-        for kind in ofs ffs sfs sfs2 pfs3; do
+        while IFS= read -r kind; do
             if [[ -f "$base/lib/modules/$kernel/updates/infiltrator/$kind.ko" ]]; then install_kind; else remove_kind; fi
-        done
+        done < <(desktop_filesystems)
         refresh
         rm -f "$transition_rule"
         transition_rule=
@@ -186,7 +200,9 @@ case "$action" in
         ;;
     purge)
         [[ $# -eq 1 ]] || exit 2
-        for kind in ofs ffs sfs sfs2 pfs3; do remove_kind; done
+        while IFS= read -r kind; do
+            remove_kind
+        done < <(desktop_filesystems)
         ;;
     *) exit 2 ;;
 esac

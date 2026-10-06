@@ -4,12 +4,20 @@ on:
   push:
     branches: [main]
     paths:
+      - "CMakeLists.txt"
+      - "data/native-filesystems.tsv"
+      - "cmake/amiga-desktop-detection.cmake"
       - "native/filesystems/ofs/**"
       - "native/filesystems/ffs/**"
       - "native/filesystems/sfs/**"
       - "native/filesystems/sfs2/**"
       - "native/filesystems/pfs3/**"
+      - "packaging/linux/native-module-helper.sh"
+      - "packaging/linux/desktop-integration.sh"
+      - "packaging/linux/gnome-disks-wrapper"
+      - "packaging/linux/nemo-wrapper"
       - "packaging/linux/desktop-rules/**"
+      - "tests/desktop_install_test.py"
       - "tools/generate-sfs-runtime-images.py"
       - ".github/workflows/amiga-runtime-qualification.yml"
   workflow_dispatch:
@@ -55,14 +63,16 @@ jobs:
           make -C /tmp/linux olddefconfig
           make -C /tmp/linux -j"$(nproc)" bzImage modules
 
-      - name: Build all five project Amiga modules
+      - name: Build project Amiga modules
         shell: bash
         run: |
           set -euo pipefail
-          for fs in ofs ffs sfs sfs2 pfs3; do
+          while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+            [[ -n "$fs" && "$fs" != \#* ]] || continue
+            [[ "$desktop_kind" == amiga ]] || continue
             make -C /tmp/linux M="$PWD/native/filesystems/$fs/linux" modules
-            test -s "native/filesystems/$fs/linux/$fs.ko"
-          done
+            test -s "native/filesystems/$fs/linux/$module.ko"
+          done < data/native-filesystems.tsv
 
       - name: Build independent OFS FFS and PFS3 fixture generators
         shell: bash
@@ -109,9 +119,11 @@ jobs:
           for app in sh mount umount mkdir rmdir cat echo dd ln mv rm readlink sync poweroff stat wc insmod su id; do
             ln -s busybox "$root/bin/$app"
           done
-          for fs in ofs ffs sfs sfs2 pfs3; do
-            cp "native/filesystems/$fs/linux/$fs.ko" "$root/$fs.ko"
-          done
+          while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+            [[ -n "$fs" && "$fs" != \#* ]] || continue
+            [[ "$desktop_kind" == amiga ]] || continue
+            cp "native/filesystems/$fs/linux/$module.ko" "$root/$module.ko"
+          done < data/native-filesystems.tsv
           printf 'root:x:0:0:root:/:/bin/sh\ndesktop:x:1000:1000:desktop:/:/bin/sh\nother:x:1001:1001:other:/:/bin/sh\n' > "$root/etc/passwd"
           printf 'root:x:0:\ndesktop:x:1000:\nother:x:1001:\n' > "$root/etc/group"
           # Exercise exactly the defaults installed by each format's udev rule.

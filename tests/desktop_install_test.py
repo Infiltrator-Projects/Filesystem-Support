@@ -15,7 +15,17 @@ if root.exists(): shutil.rmtree(root)
 private = root / 'usr/lib/infiltrator-filesystem-support'
 templates = private / 'desktop/templates'
 templates.mkdir(parents=True)
-kinds = ('ofs', 'ffs', 'sfs', 'sfs2', 'pfs3')
+manifest = source / 'data/native-filesystems.tsv'
+rows = []
+for line in manifest.read_text().splitlines():
+    if not line or line.startswith('#'):
+        continue
+    fields = line.split('\t')
+    assert len(fields) == 4, fields
+    rows.append(fields)
+kinds = tuple(fields[0] for fields in rows if fields[2] == 'amiga')
+assert kinds
+shutil.copy(manifest, private / 'native-filesystems.tsv')
 for kind in kinds:
     shutil.copy(build / f'desktop-test-templates/{kind}.so', templates / f'{kind}.so')
     shutil.copy(source / f'packaging/linux/desktop-rules/{kind}.rules', templates / f'{kind}.rules')
@@ -69,7 +79,7 @@ check_files(set())
 modules = root / 'lib/modules' / platform.release() / 'updates/infiltrator'
 modules.mkdir(parents=True)
 for kind in kinds: (modules / f'{kind}.ko').touch()
-for mask in range(32):
+for mask in range(1 << len(kinds)):
     selected = {kind for bit, kind in enumerate(kinds) if mask & (1 << bit)}
     for kind in kinds: run(helper, 'install' if kind in selected else 'remove', kind)
     check_files(selected)
@@ -87,13 +97,13 @@ for mask in range(32):
 
 run(helper, 'purge')
 check_files(set())
-for kind in ('sfs2', 'pfs3'): (modules / f'{kind}.ko').unlink()
+for kind in kinds[-2:]: (modules / f'{kind}.ko').unlink()
 legacy_rules = root / 'etc/udev/rules.d'
 legacy_rules.mkdir(parents=True, exist_ok=True)
 (legacy_rules / '59-infiltrator-ofs.rules').write_text('legacy\n')
 run(helper, 'sync')
-check_files({'ofs', 'ffs', 'sfs'})
-for kind in ('ofs', 'ffs', 'sfs'):
+check_files(set(kinds[:-2]))
+for kind in kinds[:-2]:
     env = dict(os.environ, FSUPPORT_TEST_PRELOAD='unset')
     env.pop('LD_PRELOAD', None)
     run(nemo, source / 'tests/udisks_display_test.py', '--preloaded',
@@ -102,7 +112,7 @@ run(helper, 'purge')
 check_files(set())
 run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--add', '--rename',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
-run(helper, 'install', 'ofs', success=False)
+run(helper, 'install', kinds[0], success=False)
 assert not list((private / 'desktop/active').glob('*.so'))
 assert not list((root / 'etc/udev/rules.d').glob('99-infiltrator-*.rules'))
 assert not list((root / 'etc/udev/rules.d').glob('59-infiltrator-*.rules'))
@@ -111,4 +121,4 @@ assert owner('/usr/bin/nemo') == ''
 run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--remove', '--rename',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
 check_files(set())
-print('Per-filesystem desktop install/remove, all 32 file selections, GIO/Nemo identity, late-rule migration and rollback: PASS')
+print(f'Per-filesystem desktop install/remove, all {1 << len(kinds)} file selections, GIO/Nemo identity, late-rule migration and rollback: PASS')

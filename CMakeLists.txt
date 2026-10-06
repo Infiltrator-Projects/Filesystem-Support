@@ -21,6 +21,69 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(FILESYSTEM_SUPPORT_WARNINGS_AS_ERRORS "Treat warnings as errors" ON)
 
+# One deployment manifest owns the project-native Linux filesystem/module set
+# and the Amiga desktop-integration subset. Build, packaging and runtime helpers
+# consume this same file instead of carrying independent handwritten lists.
+set(FILESYSTEM_SUPPORT_NATIVE_MANIFEST
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/native-filesystems.tsv")
+file(STRINGS "${FILESYSTEM_SUPPORT_NATIVE_MANIFEST}"
+    FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
+set(FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
+set(FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
+foreach(native_line IN LISTS FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
+    string(STRIP "${native_line}" native_line)
+    if(native_line STREQUAL "" OR native_line MATCHES "^#")
+        continue()
+    endif()
+
+    string(REPLACE "\t" ";" native_fields "${native_line}")
+    list(LENGTH native_fields native_field_count)
+    if(NOT native_field_count EQUAL 4)
+        message(FATAL_ERROR
+            "Invalid native filesystem manifest row: ${native_line}")
+    endif()
+
+    list(GET native_fields 0 native_fs)
+    list(GET native_fields 1 native_module)
+    list(GET native_fields 2 desktop_kind)
+    list(GET native_fields 3 desktop_variant)
+    if(NOT native_fs MATCHES "^[A-Za-z0-9_.+-]+$" OR
+       NOT native_module MATCHES "^[A-Za-z0-9_.+-]+$")
+        message(FATAL_ERROR
+            "Invalid native filesystem/module token: ${native_line}")
+    endif()
+
+    list(FIND FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS
+        "${native_fs}" native_duplicate_index)
+    if(NOT native_duplicate_index EQUAL -1)
+        message(FATAL_ERROR
+            "Duplicate native filesystem in manifest: ${native_fs}")
+    endif()
+    list(APPEND FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS "${native_fs}")
+    set("FILESYSTEM_SUPPORT_NATIVE_MODULE_${native_fs}" "${native_module}")
+
+    if(desktop_kind STREQUAL "amiga")
+        if(NOT desktop_variant MATCHES "^[1-9][0-9]*$")
+            message(FATAL_ERROR
+                "Invalid Amiga desktop variant for ${native_fs}")
+        endif()
+        list(APPEND FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS "${native_fs}")
+        set("FILESYSTEM_SUPPORT_DESKTOP_VARIANT_${native_fs}"
+            "${desktop_variant}")
+    elseif(desktop_kind STREQUAL "none")
+        if(NOT desktop_variant STREQUAL "0")
+            message(FATAL_ERROR
+                "Non-desktop filesystem ${native_fs} must use desktop variant 0")
+        endif()
+    else()
+        message(FATAL_ERROR
+            "Unknown native desktop kind '${desktop_kind}' for ${native_fs}")
+    endif()
+endforeach()
+if(NOT FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
+    message(FATAL_ERROR "Native filesystem deployment manifest is empty")
+endif()
+
 set(INFILTRATR_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/infiltratr-common")
 set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.38")
 set(INFILTRATR_COMMON_EXPECTED_COMMIT "7070c5812b50821fd7580101cb2289a3184f6b2c")
@@ -230,6 +293,9 @@ if(UNIX)
     install(PROGRAMS packaging/linux/native-module-helper.sh
         DESTINATION "lib/infiltrator-filesystem-support"
         RENAME native-module-helper)
+    install(FILES "${FILESYSTEM_SUPPORT_NATIVE_MANIFEST}"
+        DESTINATION "lib/infiltrator-filesystem-support"
+        RENAME native-filesystems.tsv)
 
     # Shared kernel-safe adapter source is compiled directly into each
     # filesystem module that consumes it.  It is not installed as a shared
@@ -238,7 +304,7 @@ if(UNIX)
         DESTINATION "lib/infiltrator-filesystem-support/native/platform/linux_kernel"
         FILES_MATCHING PATTERN "*.h")
 
-    foreach(native_fs IN ITEMS ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3)
+    foreach(native_fs IN LISTS FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
         install(DIRECTORY
             "native/filesystems/${native_fs}/core"
             "native/filesystems/${native_fs}/linux"
@@ -261,7 +327,8 @@ if(BUILD_TESTING)
     add_test(
         NAME filesystem-support-catalog
         COMMAND filesystem-support-catalog-test
-                "${CMAKE_CURRENT_SOURCE_DIR}/docs/FILESYSTEM_SUPPORT_MATRIX.md")
+                "${CMAKE_CURRENT_SOURCE_DIR}/docs/FILESYSTEM_SUPPORT_MATRIX.md"
+                "${FILESYSTEM_SUPPORT_NATIVE_MANIFEST}")
 
     add_executable(filesystem-support-native-core-test
         tests/native_core_test.c)

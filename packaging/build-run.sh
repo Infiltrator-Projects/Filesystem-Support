@@ -19,7 +19,7 @@ if [[ "${1:-}" == --help ]]; then
 Filesystem Support native installer
 Installs the single infiltrator-filesystem-support Debian package.
 Includes /usr/bin/fsinspect, the native installer, driver sources and inactive
-per-filesystem desktop templates for OFS/FFS/SFS/SFS2/PFS3.
+per-filesystem desktop templates for project-native Amiga filesystems.
 Each Install button deploys only its own driver and desktop files together.
 The upgrade retires the obsolete separate desktop package.
 Run normally; PolicyKit requests administrator authentication when needed.

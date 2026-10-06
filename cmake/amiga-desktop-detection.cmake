@@ -7,6 +7,10 @@
 if(NOT TARGET fsinspect)
     message(FATAL_ERROR "Amiga desktop detection requires the fsinspect target")
 endif()
+if(NOT DEFINED FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS OR
+   NOT FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
+    message(FATAL_ERROR "Amiga desktop filesystems must come from the native deployment manifest")
+endif()
 
 target_link_libraries(fsinspect
     PRIVATE
@@ -28,9 +32,12 @@ install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/nemo-wrapper"
     DESTINATION "${desktop_templates}" RENAME nemo)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-rules/"
     DESTINATION "${desktop_templates}" FILES_MATCHING PATTERN "*.rules")
-set(desktop_variant 0)
-foreach(desktop_fs IN ITEMS ofs ffs sfs sfs2 pfs3)
-    math(EXPR desktop_variant "${desktop_variant} + 1")
+foreach(desktop_fs IN LISTS FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
+    set(desktop_variant_variable "FILESYSTEM_SUPPORT_DESKTOP_VARIANT_${desktop_fs}")
+    set(desktop_variant "${${desktop_variant_variable}}")
+    if(NOT desktop_variant MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR "Missing desktop variant for ${desktop_fs}")
+    endif()
     set(desktop_target "filesystem-support-disks-${desktop_fs}")
     add_library(${desktop_target} SHARED
         "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/udisks-amiga-names.c")

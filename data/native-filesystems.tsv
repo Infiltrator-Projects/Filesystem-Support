@@ -1,0 +1,10 @@
+# Filesystem Support project-native Linux deployment manifest
+# id	module	desktop_kind	desktop_variant
+ext2	ext2	none	0
+ext3	ext3	none	0
+ext4	ext4	none	0
+ofs	ofs	amiga	1
+ffs	ffs	amiga	2
+sfs	sfs	amiga	3
+sfs2	sfs2	amiga	4
+pfs3	pfs3	amiga	5

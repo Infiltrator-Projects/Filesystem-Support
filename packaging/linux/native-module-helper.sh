@@ -16,16 +16,27 @@ usage() {
 action=$1
 filesystem=$2
 module=$3
-
-case "$filesystem:$module" in
-    ext2:ext2|ext3:ext3|ext4:ext4|ofs:ofs|ffs:ffs|sfs:sfs|sfs2:sfs2|pfs3:pfs3) ;;
-    *)
-        echo "refusing unmanaged native filesystem module: $filesystem/$module" >&2
-        exit 2
-        ;;
-esac
-
 self_dir=$(cd "$(dirname "$0")" && pwd)
+manifest="$self_dir/native-filesystems.tsv"
+[[ -r "$manifest" ]] || {
+    echo "native filesystem deployment manifest is missing" >&2
+    exit 1
+}
+
+desktop_kind=$(
+    awk -F '\t' -v fs="$filesystem" -v mod="$module" '
+        $0 !~ /^#/ && NF == 4 && $1 == fs && $2 == mod {
+            print $3
+            found = 1
+            exit
+        }
+        END { if (!found) exit 1 }
+    ' "$manifest"
+) || {
+    echo "refusing unmanaged native filesystem module: $filesystem/$module" >&2
+    exit 2
+}
+
 source_fs="$self_dir/native/filesystems/$filesystem"
 source_linux="$source_fs/linux"
 source_platform="$self_dir/native/platform/linux_kernel"
@@ -72,11 +83,9 @@ module_loaded() {
 }
 
 refresh_desktop_identification() {
-    case "$filesystem" in
-        ofs|ffs|sfs|sfs2|pfs3)
-            "$self_dir/desktop-integration" "$1" "$filesystem"
-            ;;
-    esac
+    if [[ "$desktop_kind" == "amiga" ]]; then
+        "$self_dir/desktop-integration" "$1" "$filesystem"
+    fi
 }
 
 preferred_module_filename() {
@@ -172,9 +181,12 @@ EOF
 }
 
 install_native() {
-    case "$filesystem" in ofs|ffs|sfs|sfs2|pfs3)
-        [[ -x "$self_dir/desktop-integration" ]] || { echo 'Desktop installer is missing' >&2; exit 1; } ;;
-    esac
+    if [[ "$desktop_kind" == "amiga" ]]; then
+        [[ -x "$self_dir/desktop-integration" ]] || {
+            echo 'Desktop installer is missing' >&2
+            exit 1
+        }
+    fi
     [[ -f "$source_linux/Makefile" ]] || {
         echo "packaged native source is missing for $filesystem" >&2
         exit 1

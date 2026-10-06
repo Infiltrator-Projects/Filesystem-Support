@@ -69,13 +69,19 @@ jobs:
             exit 1
           fi
 
-      - name: Require Amiga qualification when the release changes Amiga code or rules
+      - name: Require Amiga qualification when the release changes Amiga code or integration
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! git diff --name-only HEAD^ HEAD | grep -Eq '^(native/filesystems/(ofs|ffs|sfs|sfs2|pfs3)/|packaging/linux/desktop-rules/|\.github/workflows/amiga-runtime-qualification\.yml$)'; then
+          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^ 2>/dev/null || true)
+          if [[ -n "$base" ]]; then
+            changed=$(git diff --name-only "$base" HEAD)
+          else
+            changed=$(git diff --name-only HEAD^ HEAD)
+          fi
+          if ! grep -Eq '^(CMakeLists\.txt|data/native-filesystems\.tsv|cmake/amiga-desktop-detection\.cmake|native/filesystems/(ofs|ffs|sfs|sfs2|pfs3)/|packaging/linux/(desktop-integration\.sh|gnome-disks-wrapper|nemo-wrapper|native-module-helper\.sh|desktop-rules/)|\.github/workflows/amiga-runtime-qualification\.yml$)' <<<"$changed"; then
             exit 0
           fi
           for attempt in $(seq 1 40); do
@@ -145,6 +151,7 @@ jobs:
           dpkg-deb -c "$deb" > package-contents.txt
           grep -Fq './usr/bin/fsinspect' package-contents.txt
           grep -Fq '/desktop/templates/ofs.so' package-contents.txt
+          grep -Fq '/usr/lib/infiltrator-filesystem-support/native-filesystems.tsv' package-contents.txt
           ! grep -Fq '59-infiltrator-filesystems.rules' package-contents.txt
           test "$(find dist -maxdepth 1 -name '*.deb' | wc -l)" = 1
 
@@ -158,7 +165,7 @@ jobs:
           help=$("./$run" --help)
           grep -Fq '/usr/bin/fsinspect' <<<"$help"
           grep -Fq 'per-filesystem desktop templates' <<<"$help"
-          grep -Fq 'OFS/FFS/SFS/SFS2/PFS3' <<<"$help"
+          grep -Fq 'project-native Amiga filesystems' <<<"$help"
 
       - name: Generate checksums
         run: |
@@ -205,7 +212,7 @@ jobs:
           cat > release-notes.md <<EOF
           Filesystem Support $version.
 
-          Debian-first filesystem support manager with 109 filesystem and storage-namespace targets catalogued.
+          Debian-first filesystem support manager for real persistent local-storage filesystem formats.
 
           Highlights:
           - Common 1.19.38-backed portable primitives and InfiltratorOS-aligned responsive GTK interface

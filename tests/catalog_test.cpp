@@ -5,8 +5,10 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -24,6 +26,71 @@ bool has_id(const std::string_view id)
         }
     }
     return false;
+}
+
+struct NativeManifestEntry {
+    std::string id;
+    std::string module;
+    std::string desktop_kind;
+    int desktop_variant = 0;
+};
+
+bool load_native_manifest(const char* path,
+                          std::vector<NativeManifestEntry>* entries)
+{
+    std::ifstream input(path);
+    if (!input) {
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+
+        std::istringstream parser(line);
+        NativeManifestEntry entry;
+        std::string variant;
+        if (!std::getline(parser, entry.id, '\t') ||
+            !std::getline(parser, entry.module, '\t') ||
+            !std::getline(parser, entry.desktop_kind, '\t') ||
+            !std::getline(parser, variant, '\t')) {
+            return false;
+        }
+        std::string extra;
+        if (std::getline(parser, extra, '\t')) {
+            return false;
+        }
+
+        try {
+            std::size_t consumed = 0U;
+            entry.desktop_variant = std::stoi(variant, &consumed);
+            if (consumed != variant.size()) {
+                return false;
+            }
+        } catch (...) {
+            return false;
+        }
+
+        if (entry.id.empty() || entry.module.empty() ||
+            (entry.desktop_kind != "none" && entry.desktop_kind != "amiga") ||
+            (entry.desktop_kind == "none" && entry.desktop_variant != 0) ||
+            (entry.desktop_kind == "amiga" && entry.desktop_variant <= 0)) {
+            return false;
+        }
+
+        for (const auto& existing : *entries) {
+            if (existing.id == entry.id || existing.module == entry.module ||
+                (entry.desktop_variant != 0 &&
+                 existing.desktop_variant == entry.desktop_variant)) {
+                return false;
+            }
+        }
+        entries->push_back(std::move(entry));
+    }
+
+    return !entries->empty();
 }
 
 } // namespace
@@ -188,8 +255,8 @@ int main(int argc, char** argv)
         return fail("shared package impact mapping is incorrect");
     }
 
-    if (argc != 2) {
-        return fail("support-matrix path was not supplied");
+    if (argc != 3) {
+        return fail("support-matrix and native-manifest paths were not supplied");
     }
 
     std::ifstream matrix(argv[1]);
@@ -213,6 +280,55 @@ int main(int argc, char** argv)
         if (matrix_text.find(marker, first + marker.size()) != std::string::npos) {
             std::cerr << "catalog_test: support matrix duplicates catalogue ID "
                       << entry.id << '\n';
+            return 1;
+        }
+    }
+
+    std::vector<NativeManifestEntry> native_manifest;
+    if (!load_native_manifest(argv[2], &native_manifest)) {
+        return fail("native filesystem deployment manifest is invalid");
+    }
+
+    std::size_t catalogue_native_count = 0U;
+    for (const auto& entry : catalog()) {
+        if (!entry.project_native_linux) {
+            continue;
+        }
+        ++catalogue_native_count;
+        if (entry.modules.size() != 1U) {
+            return fail("project-native catalogue entry must have exactly one module");
+        }
+
+        bool found = false;
+        for (const auto& managed : native_manifest) {
+            if (managed.id == entry.id && managed.module == entry.modules.front()) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            std::cerr << "catalog_test: native manifest is missing catalogue entry "
+                      << entry.id << '\n';
+            return 1;
+        }
+    }
+
+    if (catalogue_native_count != native_manifest.size()) {
+        return fail("native manifest contains an entry not declared project-native by the catalogue");
+    }
+
+    for (const auto& managed : native_manifest) {
+        bool found = false;
+        for (const auto& entry : catalog()) {
+            if (entry.id == managed.id && entry.project_native_linux &&
+                entry.modules.size() == 1U && entry.modules.front() == managed.module) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            std::cerr << "catalog_test: native manifest entry has no matching catalogue policy: "
+                      << managed.id << '\n';
             return 1;
         }
     }
