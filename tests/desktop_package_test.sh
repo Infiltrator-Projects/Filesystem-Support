@@ -16,36 +16,61 @@ stock_hash=$(sha256sum "$library" | cut -d ' ' -f1)
 disks_hash=$(sha256sum /usr/bin/gnome-disks | cut -d ' ' -f1)
 cp "$library" "$work/stock-library"
 dpkg-deb -x "$deb" "$work/new"
-verify() {
+
+verify_common() {
     test "$(dpkg-query -W -f='${Status}' libudisks2-0)" = 'install ok installed'
     test "$(dpkg-query -W -f='${Status}' "$old_package" 2>/dev/null || true)" != 'install ok installed'
     dpkg-query -S "$library" | grep -Eq '^libudisks2-0(:[^: ]+)?: '
     test "$(sha256sum "$library" | cut -d ' ' -f1)" = "$stock_hash"
-    test "$(sha256sum /usr/bin/gnome-disks | cut -d ' ' -f1)" = "$disks_hash"
-    test -z "$(dpkg-divert --listpackage /usr/bin/gnome-disks)"
-    test ! -e /usr/bin/gnome-disks.filesystem-support-original
     test ! -e /usr/lib/infiltrator-filesystem-support/udisks-amiga-names.so
     test ! -e /usr/lib/udev/rules.d/59-infiltrator-filesystems.rules
     test -z "$(find /etc/udev/rules.d -maxdepth 1 \( -name '59-infiltrator-*.rules' -o -name '99-infiltrator-*.rules' \) -print)"
-    python3 "$root/tests/udisks_display_test.py" --stock
-    xvfb-run -a /usr/bin/gnome-disks --help
     sudo apt-get check
 }
+
+verify_installed() {
+    verify_common
+
+    # Shared launcher infrastructure is package-scoped. It remains installed
+    # even when no Amiga filesystem is active, and is inert until a matching
+    # per-filesystem plugin is activated.
+    test "$(dpkg-divert --listpackage /usr/bin/gnome-disks)" = "$main_package"
+    test -f /usr/bin/gnome-disks.filesystem-support-original
+    test -x /usr/bin/gnome-disks
+    test "$(sha256sum /usr/bin/gnome-disks.filesystem-support-original | cut -d ' ' -f1)" = "$disks_hash"
+
+    python3 "$root/tests/udisks_display_test.py" --stock
+    xvfb-run -a /usr/bin/gnome-disks --help
+}
+
+verify_stock() {
+    verify_common
+    test "$(sha256sum /usr/bin/gnome-disks | cut -d ' ' -f1)" = "$disks_hash"
+    test -z "$(dpkg-divert --listpackage /usr/bin/gnome-disks)"
+    test ! -e /usr/bin/gnome-disks.filesystem-support-original
+    python3 "$root/tests/udisks_display_test.py" --stock
+    xvfb-run -a /usr/bin/gnome-disks --help
+}
+
 install_main() {
     sudo apt-get -s install --no-install-recommends "$deb" > "$work/plan"
-    if awk '$1 == "Remv" && $2 != "infiltrator-filesystem-support-udisks" { bad=1 } END { exit !bad }' "$work/plan"; then cat "$work/plan"; exit 1; fi
+    if awk '$1 == "Remv" && $2 != "infiltrator-filesystem-support-udisks" { bad=1 } END { exit !bad }' "$work/plan"; then
+        cat "$work/plan"
+        exit 1
+    fi
     sudo apt-get install -y --no-install-recommends "$deb"
-    verify
+    verify_installed
 }
+
 python3 "$root/tests/udisks_display_test.py" --package "$deb"
 install_main
 sudo bash "$root/tests/desktop_mount_options_test.sh" "$root"
-verify
+verify_installed
 sudo apt-get install -y --no-remove --reinstall gnome-disk-utility
 sudo apt-get install -y --no-remove --reinstall "$deb"
-verify
+verify_installed
 sudo apt-get purge -y "$main_package"
-verify
+verify_stock
 
 # These temporary fixtures reproduce installed package ownership/dependencies.
 # No legacy binary is kept in source, published, or retained as a build artifact.
@@ -119,7 +144,7 @@ EOF
     install_main
     test ! -e "/var/cache/apt/archives/${old_package}_${version}_amd64.deb"
     sudo apt-get purge -y "$main_package" "$old_package"
-    verify
+    verify_stock
     echo "Legacy $version dependency/ownership migration: PASS"
 done
-echo 'Single-package stock install, legacy retirement, library preservation and purge: PASS'
+echo 'Single-package stock install, package-scoped desktop launchers, legacy retirement, library preservation and purge: PASS'

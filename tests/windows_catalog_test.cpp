@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "catalog.hpp"
+#include "filesystem_identity.hpp"
 #include "platform_support.hpp"
 
 #include <iostream>
@@ -17,9 +17,9 @@ int fail(const char* message)
 
 int main()
 {
-    const auto& entries = filesystem_support::catalog();
+    const auto& entries = filesystem_support::filesystem_identities();
     if (entries.empty()) {
-        return fail("catalogue is empty");
+        return fail("identity catalogue is empty");
     }
 
     bool found_ext2 = false;

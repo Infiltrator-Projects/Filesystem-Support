@@ -1,7 +1,39 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "platform_support.hpp"
 
+#include "catalog.hpp"
+#include "filesystem_identity.hpp"
+
+#include <vector>
+
 namespace filesystem_support {
+
+const std::vector<FilesystemIdentity>& filesystem_identities()
+{
+    /*
+     * Linux support policy still has one authoritative data table today, but
+     * non-Linux consumers no longer receive that policy object. Materialise
+     * an identity-only view once and keep the platform boundary explicit.
+     */
+    static const std::vector<FilesystemIdentity> identities = [] {
+        std::vector<FilesystemIdentity> result;
+        result.reserve(catalog().size());
+
+        for (const auto& entry : catalog()) {
+            result.push_back({
+                entry.id,
+                entry.name,
+                entry.family,
+                entry.description,
+                entry.note
+            });
+        }
+
+        return result;
+    }();
+
+    return identities;
+}
 
 NativeImplementationState windows_native_state(const std::string_view filesystem_id)
 {

@@ -16,13 +16,13 @@ Provider choice is subordinate to filesystem identity. NTFS is one filesystem wh
 
 The complete enumerated contract is maintained in [`docs/FILESYSTEM_SUPPORT_MATRIX.md`](docs/FILESYSTEM_SUPPORT_MATRIX.md). CI verifies that every compiled catalogue ID appears there exactly once.
 
-## Two product surfaces, one backend
+## Two product surfaces, one identity contract
 
-Filesystem Support has two different presentation contexts that consume the same filesystem definitions and capability state.
+Filesystem Support has different presentation contexts that consume the same stable filesystem identities while keeping platform-specific support policy separate.
 
-The normal **desktop manager** discovers support already present on the running system, installs or removes the current provider for a filesystem, loads or unloads eligible kernel modules, reports limitations and integrates supported formats with the desktop storage stack.
+The normal **desktop manager** combines the identity contract with Linux support policy: it discovers support already present on the running system, installs or removes the current provider for a filesystem, loads or unloads eligible kernel modules, reports limitations and integrates supported formats with the desktop storage stack.
 
-The **InfiltratorOS setup shell** is deliberately a different interface. During operating-system installation it asks which qualified filesystem should be used for the target storage and then drives the installation transaction through Filesystem Support's backend.
+The **InfiltratorOS setup shell** is deliberately a different interface. During operating-system installation it asks which qualified filesystem should be used for the target storage and then drives the installation transaction through Filesystem Support's setup capability contract. Windows, EFI and setup consumers use the identity-only API rather than inheriting Debian package or Linux module policy.
 
 The intended setup flow is:
 
@@ -81,7 +81,7 @@ The current provider is an implementation detail. As project-native engines repl
 - The GUI itself remains unprivileged.
 - Read-only probing uses the local kernel, `dpkg-query` and `apt-cache`.
 - Install requests are delegated to PolicyKit and APT.
-- Package names come only from the built-in catalogue.
+- Package names come only from the built-in Linux support policy.
 - The application does not add repositories, enable Debian components, or silently pull packages from testing/unstable/experimental.
 - A package missing from configured repositories is reported as unavailable rather than pretending it can be installed.
 - Package removal is simulated first and is blocked if Debian would remove an unrelated or protected system package.
@@ -95,19 +95,31 @@ Filesystem Support is pinned to Infiltratr Common **1.19.38**, commit `7070c5812
 
 ## Design
 
-The desktop application separates filesystem identity/catalogue data, read-only support probing, the privileged installation backend and the GTK shell. The setup shell must reuse those backend contracts rather than cloning filesystem rules into a second installer-specific database.
+The desktop application separates filesystem identity, Linux support policy, read-only support probing, the privileged installation backend and the GTK shell. Non-Linux surfaces consume the identity-only contract and add their own implementation/qualification state rather than cloning Linux provider rules.
 
 The Linux desktop shell follows the InfiltratorOS control-centre visual language used by System Settings: a branded application header with integrated search, persistent platform/status navigation, a dashboard home page with live support metrics and quick actions, and card-based catalogue views.
 
 ## Amiga desktop integration
 
-The main Debian package carries inactive desktop templates for each native Amiga filesystem. **Install native** installs that filesystem's own `.ko`, its scoped udev identification rule and its single-filesystem Disks naming file together. **Remove native** removes that same set and refreshes connected devices. OFS, FFS, SFS, SFS2 and PFS3 remain independent; installing one cannot activate another.
+The main Debian package carries inactive desktop templates for each native Amiga filesystem. Package configuration prepares the shared GNOME Disks launcher and, when Nemo is present, the shared Nemo launcher once. Those wrappers are inert when no per-filesystem plugin is active.
+
+**Install native** then installs only that filesystem's own `.ko`, scoped udev identification rule and single-filesystem desktop naming plugin. **Remove native** removes only that same per-filesystem set and refreshes connected devices. OFS, FFS, SFS, SFS2 and PFS3 remain independent; installing or removing one cannot create, remove or roll back another filesystem's state or the shared launcher infrastructure.
 
 Desktop mounts of OFS, FFS, SFS and SFS2 pass the requesting user's UID and primary GID through their own `setuid`/`setgid` mount options. PFS3 remains read-only until its mutation path is qualified.
 
-GNOME Disks loads only the independently installed naming files for drivers present on the running kernel. The stock UDisks library and original Disks executable retain their distribution ownership and updates.
+GNOME Disks and Nemo load only independently activated naming plugins for drivers present on the running kernel. The stock UDisks library and original desktop executables retain their distribution ownership and update path; package removal restores the shared launcher diversions after per-filesystem state is purged.
 
 The retired supplemental desktop package is removed automatically by the migration path introduced in 0.5.7. No additional Infiltrator desktop Debian package is built or distributed.
+
+## Source and CI contracts
+
+Filesystem-set knowledge used by build and source-boundary qualification is manifest-driven rather than copied into workflow YAML:
+
+- `data/native-filesystems.tsv` owns the project-native Linux deployment set and Amiga desktop variants.
+- `data/source-filesystems.txt` owns the set of in-repository real-format source trees.
+- `data/retired-source-identities.txt` owns historical provider/transport identities that must remain absent.
+
+The main build workflow consumes those manifests and prepares each pinned Linux kernel once per qualification job rather than cloning and preparing the same kernel separately for every native filesystem.
 
 ## Releases
 

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# The native installer owns each driver's matching desktop files.
+#
+# Per-filesystem desktop identity activation.
+#
+# Shared GNOME Disks/Nemo launcher diversions belong to the package lifecycle
+# (sync/unprepare), not to an individual filesystem install/remove transaction.
+# A filesystem operation therefore changes only its own active plugin and udev
+# rule and cannot tear down another filesystem's shared desktop infrastructure.
 set -euo pipefail
 system_root=/
 [[ "$system_root" != / || ${EUID} -eq 0 ]] || { echo 'desktop integration requires root' >&2; exit 1; }
@@ -100,20 +106,40 @@ enable_launchers() {
     enable_nemo_launcher
 }
 
-disable_launchers_if_empty() {
-    if ! has_active; then
-        if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks) == "$package" ]]; then
-            [[ -f "$disks_original" ]] || { echo 'The original Disks executable is missing' >&2; return 1; }
-            rm -f "$disks_launcher"
-            dpkg-divert --root="$system_root" --package "$package" --remove --rename \
-                --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
-        fi
-        if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo) == "$package" ]]; then
-            [[ -f "$nemo_original" ]] || { echo 'The original Nemo executable is missing' >&2; return 1; }
-            rm -f "$nemo_launcher"
-            dpkg-divert --root="$system_root" --package "$package" --remove --rename \
-                --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
-        fi
+disable_launchers() {
+    if has_active; then
+        echo 'refusing to remove shared desktop launchers while native desktop filesystems are active' >&2
+        return 1
+    fi
+
+    if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks) == "$package" ]]; then
+        [[ -f "$disks_original" ]] || { echo 'The original Disks executable is missing' >&2; return 1; }
+        rm -f "$disks_launcher"
+        dpkg-divert --root="$system_root" --package "$package" --remove --rename \
+            --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
+    fi
+    if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo) == "$package" ]]; then
+        [[ -f "$nemo_original" ]] || { echo 'The original Nemo executable is missing' >&2; return 1; }
+        rm -f "$nemo_launcher"
+        dpkg-divert --root="$system_root" --package "$package" --remove --rename \
+            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
+    fi
+}
+
+shared_launchers_ready() {
+    local owner
+    owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks)
+    [[ "$owner" == "$package" && -x "$disks_launcher" && -f "$disks_original" ]] || {
+        echo 'Filesystem Support package desktop launcher state is not prepared; reinstall or reconfigure the package' >&2
+        return 1
+    }
+
+    owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo)
+    if [[ -e "$nemo_launcher" || -e "$nemo_original" || -n "$owner" ]]; then
+        [[ "$owner" == "$package" && -x "$nemo_launcher" && -f "$nemo_original" ]] || {
+            echo 'Filesystem Support Nemo launcher state is inconsistent; reinstall or reconfigure the package' >&2
+            return 1
+        }
     fi
 }
 
@@ -149,9 +175,6 @@ run_kind_transaction() {
     local action=$1
     local kind=$2
 
-    # Every filesystem mutation runs in its own subshell, snapshot and rollback
-    # scope. A failed OFS operation therefore cannot reuse FFS/SFS/PFS state,
-    # and sync/purge iterations cannot leak the previous filesystem identity.
     (
         set -eEuo pipefail
         local work committed result
@@ -164,11 +187,6 @@ run_kind_transaction() {
             trap - EXIT
             if [[ $result -ne 0 && $committed -eq 0 ]]; then
                 restore_kind "$kind" "$work"
-                if has_active; then
-                    enable_launchers || true
-                else
-                    disable_launchers_if_empty || true
-                fi
                 refresh
             fi
             rm -rf "$work"
@@ -178,13 +196,13 @@ run_kind_transaction() {
 
         case "$action" in
             install)
+                shared_launchers_ready
                 install -m 0644 "$templates/$kind.so" "$active/$kind.so"
                 # Stock 60-persistent-storage.rules runs blkid. Our identity
                 # rule must run afterwards or blkid rewrites DOS/0 and DOS/1
                 # back to the generic 'affs'.
                 rm -f "$rules/59-infiltrator-$kind.rules"
                 install -m 0644 "$templates/$kind.rules" "$rules/99-infiltrator-$kind.rules"
-                enable_launchers
                 refresh
                 ;;
             remove)
@@ -194,7 +212,6 @@ run_kind_transaction() {
                 rm -f "$active/$kind.so" \
                       "$rules/59-infiltrator-$kind.rules" \
                       "$rules/99-infiltrator-$kind.rules"
-                disable_launchers_if_empty
                 refresh
                 ;;
             *)
@@ -211,8 +228,7 @@ run_kind_transaction() {
 
 install_kind() {
     local kind=$1
-    [[ -f "$templates/$kind.so" && -f "$templates/$kind.rules" && \
-       -f "$templates/gnome-disks" && -f "$templates/nemo" ]] || {
+    [[ -f "$templates/$kind.so" && -f "$templates/$kind.rules" ]] || {
         echo "Desktop templates are missing for $kind" >&2
         return 1
     }
@@ -239,6 +255,11 @@ case "$action" in
         ;;
     sync)
         [[ $# -eq 1 ]] || exit 2
+
+        # Package-level shared launcher setup happens once here. Individual
+        # filesystem transactions below never create or remove diversions.
+        enable_launchers
+
         # Temporarily clear identification left by the retired global rule.
         mkdir -p "$base/run/udev/rules.d"
         transition_rule="$base/run/udev/rules.d/58-infiltrator-transition.rules"
@@ -267,6 +288,10 @@ case "$action" in
         while IFS= read -r kind; do
             remove_kind "$kind"
         done < <(desktop_filesystems)
+        ;;
+    unprepare)
+        [[ $# -eq 1 ]] || exit 2
+        disable_launchers
         ;;
     *) exit 2 ;;
 esac

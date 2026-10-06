@@ -2,7 +2,7 @@
 #include <windows.h>
 #include <commctrl.h>
 
-#include "catalog.hpp"
+#include "filesystem_identity.hpp"
 #include "platform_support.hpp"
 
 #include <string>
@@ -64,7 +64,7 @@ void set_subitem(const int row, const int column, const std::wstring& text)
 
 void populate_catalog()
 {
-    const auto& entries = filesystem_support::catalog();
+    const auto& entries = filesystem_support::filesystem_identities();
 
     for (size_t i = 0; i < entries.size(); ++i) {
         const auto& entry = entries[i];
@@ -107,7 +107,7 @@ void update_selection()
         return;
     }
 
-    const auto& entries = filesystem_support::catalog();
+    const auto& entries = filesystem_support::filesystem_identities();
     const size_t index = static_cast<size_t>(item.lParam);
     if (index >= entries.size()) {
         return;

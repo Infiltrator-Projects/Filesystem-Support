@@ -61,28 +61,39 @@ def run(*args, success=True, env=None):
 def owner(path):
     return run('dpkg-divert', f'--root={root}', '--listpackage', path).stdout.strip()
 
-def check_files(selected):
+def check_files(selected, prepared=True):
     active = private / 'desktop/active'
     assert {p.stem for p in active.glob('*.so')} == selected
     rules = root / 'etc/udev/rules.d'
     assert {p.name.removeprefix('99-infiltrator-').removesuffix('.rules') for p in rules.glob('99-infiltrator-*.rules')} == selected
     assert not list(rules.glob('59-infiltrator-*.rules'))
-    expected_owner = 'infiltrator-filesystem-support' if selected else ''
-    assert owner('/usr/bin/gnome-disks') == expected_owner
-    assert owner('/usr/bin/nemo') == expected_owner
-    if not selected:
+
+    if prepared:
+        assert owner('/usr/bin/gnome-disks') == 'infiltrator-filesystem-support'
+        assert owner('/usr/bin/nemo') == 'infiltrator-filesystem-support'
+        assert (root / 'usr/bin/gnome-disks.filesystem-support-original').exists()
+        assert (root / 'usr/bin/nemo.filesystem-support-original').exists()
+    else:
+        assert owner('/usr/bin/gnome-disks') == ''
+        assert owner('/usr/bin/nemo') == ''
         assert hashlib.sha256(disks.read_bytes()).hexdigest() == original_disks_hash
         assert hashlib.sha256(nemo.read_bytes()).hexdigest() == original_nemo_hash
 
+# Package-level sync owns the shared launchers even when no native Amiga
+# filesystem is active. Per-filesystem operations below must never toggle them.
 run(helper, 'sync')
-check_files(set())
+check_files(set(), prepared=True)
+
 modules = root / 'lib/modules' / platform.release() / 'updates/infiltrator'
 modules.mkdir(parents=True)
-for kind in kinds: (modules / f'{kind}.ko').touch()
+for kind in kinds:
+    (modules / f'{kind}.ko').touch()
+
 for mask in range(1 << len(kinds)):
     selected = {kind for bit, kind in enumerate(kinds) if mask & (1 << bit)}
-    for kind in kinds: run(helper, 'install' if kind in selected else 'remove', kind)
-    check_files(selected)
+    for kind in kinds:
+        run(helper, 'install' if kind in selected else 'remove', kind)
+    check_files(selected, prepared=True)
     enabled = ','.join(sorted(selected))
     env = dict(os.environ, FSUPPORT_TEST_PRELOAD='unset')
     env.pop('LD_PRELOAD', None)
@@ -96,23 +107,37 @@ for mask in range(1 << len(kinds)):
             '--gio-type', kind, env=env)
 
 run(helper, 'purge')
-check_files(set())
-for kind in kinds[-2:]: (modules / f'{kind}.ko').unlink()
+check_files(set(), prepared=True)
+
+for kind in kinds[-2:]:
+    (modules / f'{kind}.ko').unlink()
 legacy_rules = root / 'etc/udev/rules.d'
 legacy_rules.mkdir(parents=True, exist_ok=True)
 (legacy_rules / '59-infiltrator-ofs.rules').write_text('legacy\n')
 run(helper, 'sync')
-check_files(set(kinds[:-2]))
+check_files(set(kinds[:-2]), prepared=True)
 for kind in kinds[:-2]:
     env = dict(os.environ, FSUPPORT_TEST_PRELOAD='unset')
     env.pop('LD_PRELOAD', None)
     run(nemo, source / 'tests/udisks_display_test.py', '--preloaded',
         '--gio-type', kind, env=env)
+
 run(helper, 'purge')
-check_files(set())
+check_files(set(), prepared=True)
+
+# Package removal is the only operation that tears down shared diversions.
+run(helper, 'unprepare')
+check_files(set(), prepared=False)
+
+# An individual filesystem install must not recreate shared launcher state.
+run(helper, 'install', kinds[0], success=False)
+check_files(set(), prepared=False)
+
+# A foreign diversion blocks package-level preparation before any filesystem
+# state is touched.
 run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--add', '--rename',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
-run(helper, 'install', kinds[0], success=False)
+run(helper, 'sync', success=False)
 assert not list((private / 'desktop/active').glob('*.so'))
 assert not list((root / 'etc/udev/rules.d').glob('99-infiltrator-*.rules'))
 assert not list((root / 'etc/udev/rules.d').glob('59-infiltrator-*.rules'))
@@ -120,5 +145,20 @@ assert owner('/usr/bin/gnome-disks') == 'foreign-test-owner'
 assert owner('/usr/bin/nemo') == ''
 run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--remove', '--rename',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
-check_files(set())
-print(f'Per-filesystem desktop install/remove, all {1 << len(kinds)} file selections, GIO/Nemo identity, late-rule migration and rollback: PASS')
+check_files(set(), prepared=False)
+
+# Re-prepare, prove one filesystem transaction leaves launcher ownership alone,
+# then return the fixture to stock state.
+run(helper, 'sync')
+check_files(set(kinds[:-2]), prepared=True)
+run(helper, 'remove', kinds[0])
+assert owner('/usr/bin/gnome-disks') == 'infiltrator-filesystem-support'
+assert owner('/usr/bin/nemo') == 'infiltrator-filesystem-support'
+run(helper, 'purge')
+run(helper, 'unprepare')
+check_files(set(), prepared=False)
+
+print(
+    f'Package-scoped launchers plus isolated per-filesystem desktop transactions, '
+    f'all {1 << len(kinds)} selections, GIO/Nemo identity, migration and rollback: PASS'
+)

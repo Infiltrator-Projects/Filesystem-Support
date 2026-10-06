@@ -6,9 +6,7 @@ on:
   pull_request:
 
 concurrency:
-  # v2 rotates away from a stale cancelled run that remained attached to
-  # self-hosted runners. Future pushes still cancel superseded work on main.
-  group: filesystem-support-build-v2-${{ github.ref }}
+  group: filesystem-support-build-v3-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -46,12 +44,8 @@ jobs:
           if-no-files-found: error
 
   source-boundary:
-    # Source-boundary checks express the current format-centric architecture,
-    # not the retired 109-entry provider/namespace catalogue.
-    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","Linux","X64","linux-native"]') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
-    env:
-      PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,190 +78,10 @@ jobs:
             fi
           fi
 
-      - name: Enforce current filesystem source contract
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          test ! -e tools/shape-ext2.sh
-          test ! -e tools/shape-ext3.sh
-          test ! -e tools/shape-ext4.sh
-          test ! -e tools/harden-ext-ranges.py
-
-          # The repository carries source/reference trees only for real
-          # on-media formats in the current 41-format catalogue. InfiltratorFS
-          # is its own project and APFS is currently provider-backed, leaving
-          # exactly these 39 in-repository format trees.
-          cat > /tmp/native-filesystems.expected <<'EOF'
-          adfs
-          bcachefs
-          befs
-          bfs
-          btrfs
-          cpm
-          efs
-          exfat
-          ext2
-          ext3
-          ext4
-          f2fs
-          fat
-          ffs
-          fosfat
-          gfs2
-          hfs
-          hfsplus
-          hpfs
-          jfs
-          minix
-          nilfs2
-          ntfs
-          ocfs2
-          ofs
-          omfs
-          pfs3
-          qnx4
-          qnx6
-          reiserfs
-          sfs
-          sfs2
-          sysv
-          udf
-          ufs
-          vmfs
-          vmfs6
-          xfs
-          zfs
-          EOF
-          sed -i 's/^          //' /tmp/native-filesystems.expected
-          find native/filesystems -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > /tmp/native-filesystems.actual
-          sort -o /tmp/native-filesystems.expected /tmp/native-filesystems.expected
-          diff -u /tmp/native-filesystems.expected /tmp/native-filesystems.actual
-
-          while IFS= read -r fs; do
-            test -s "native/filesystems/$fs/DESIGN.md" || {
-              echo "Missing design/provenance contract for $fs" >&2
-              exit 1
-            }
-          done < /tmp/native-filesystems.expected
-
-          # Provider, network, overlay, archive, container and duplicate access
-          # identities from the retired catalogue must stay physically absent.
-          retired=(
-            9p afuse apfs-dkms apfs-fuse archivemount avfs bindfs bitlocker
-            ceph-fuse cephfs cifs convmvfs cramfs cryfs curlftpfs davfs2
-            disorderfs ecryptfs encfs erofs erofsfuse exfat-fuse filevault
-            fscrypt fuse-overlayfs fusefat fuseiso fusezip glusterfs go-mtpfs
-            gocryptfs gphotofs guestmount gvfs-fuse httpdirfs ifuse iso9660
-            jffs2 jmtpfs loggedfs luksde lxcfs mergerfs moosefs nfs ntfs3
-            onedriver openafs openafs-fuse orangefs overlayfs posixovl rclone
-            romfs s3fs s3ql securefs smbnetfs squashfs squashfuse sshfs tmfs
-            ubifs udfclient virtiofs vmhgfs wim xmount zfs-fuse zonefs
-          )
-          for fs in "${retired[@]}"; do
-            test ! -e "native/filesystems/$fs" || {
-              echo "Retired non-format source tree returned: $fs" >&2
-              exit 1
-            }
-          done
-
-          # One manifest owns the native build/deployment set.
-          awk -F '\t' '$0 !~ /^#/ && NF == 4 { print $1 "\t" $2 }' \
-            data/native-filesystems.tsv > /tmp/native-manifest.actual
-          cat > /tmp/native-manifest.expected <<'EOF'
-          ext2	ext2
-          ext3	ext3
-          ext4	ext4
-          ofs	ofs
-          ffs	ffs
-          sfs	sfs
-          sfs2	sfs2
-          pfs3	pfs3
-          EOF
-          sed -i 's/^          //' /tmp/native-manifest.expected
-          diff -u /tmp/native-manifest.expected /tmp/native-manifest.actual
-
-      - name: Enforce independent native implementations
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # OFS and FFS share only the tiny kernel API compatibility layer.
-          # AFFS-family state/locking/VFS declarations are filesystem-local.
-          test -s native/platform/linux_kernel/vfs_compat.h
-          test ! -e native/platform/linux_kernel/amiga_affs_compat.h
-          test -s native/filesystems/ofs/linux/affs_compat.h
-          test -s native/filesystems/ffs/linux/affs_compat.h
-          grep -Fq '#include "affs_compat.h"' native/filesystems/ofs/linux/linux_adapter.h
-          grep -Fq '#include "affs_compat.h"' native/filesystems/ffs/linux/linux_adapter.h
-          ! grep -R -Fq '../../../platform/linux_kernel/amiga_affs_compat.h' \
-            native/filesystems/ofs native/filesystems/ffs
-
-          test ! -e native/filesystems/amiga_common
-          test ! -e native/primitives/amiga_dos
-          rewritten=(
-            native/filesystems/ofs/linux/core_bridge.c
-            native/filesystems/ofs/linux/storage.c
-            native/filesystems/ofs/linux/namespace.c
-            native/filesystems/ofs/linux/lifecycle.c
-            native/filesystems/ofs/linux/linux_adapter.h
-            native/filesystems/ofs/core/ofs_disk_layout.h
-            native/filesystems/ofs/core/ofs_primitives.c
-            native/filesystems/ffs/linux/core_bridge.c
-            native/filesystems/ffs/linux/storage.c
-            native/filesystems/ffs/linux/namespace.c
-            native/filesystems/ffs/linux/lifecycle.c
-            native/filesystems/ffs/linux/linux_adapter.h
-            native/filesystems/ffs/core/ffs_disk_layout.h
-            native/filesystems/ffs/core/ffs_primitives.c
-          )
-          for file in "${rewritten[@]}"; do
-            test -s "$file"
-            ! grep -Eiq 'linux/fs/affs|Hans-Joachim Widmaier|Ray Burr|Eric Youngdale|Linus Torvalds' "$file"
-          done
-          ! grep -R -Eq 'IFS_FFS_IS_OFS|SF_OFS|AFFS_MOUNT_SF_OFS|affs_aops_ofs|ifs_ffs_ofs_|AFFS_DATA_HEAD|AFFS_DATA\(' \
-            native/filesystems/ffs/linux
-
-          # References are evidence only and are never compiled into active
-          # native modules.
-          ! grep -Fq '/reference' CMakeLists.txt
-          for makefile in \
-            native/filesystems/ofs/linux/Makefile \
-            native/filesystems/ffs/linux/Makefile \
-            native/filesystems/sfs/linux/Makefile \
-            native/filesystems/sfs2/linux/Makefile \
-            native/filesystems/pfs3/linux/Makefile; do
-            ! grep -Fq 'reference' "$makefile"
-          done
-
-      - name: Enforce single EXT2 engine on Windows
-        shell: bash
-        run: |
-          set -euo pipefail
-          for part in adapter_support name_translation file_dispatch directory_dispatch volume_lifecycle driver_entry; do
-            test -s "native/filesystems/ext2/windows/$part.inc"
-            grep -Fq "#include \"$part.inc\"" native/filesystems/ext2/windows/ext2_driver.c
-          done
-          test "$(wc -l < native/filesystems/ext2/windows/ext2_driver.c)" -lt 80
-          test ! -e native/filesystems/ext2/windows/ext2_compat.h
-          ! grep -R -E 'archive/extfs-for-windows|core/extfs(_classic_resize|_resize_dispatch)?\.c' \
-            native/filesystems/ext2/windows windows/build CMakeLists.txt
-          grep -Fq '..\core\ext2_core.c' \
-            native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
-          grep -Fq '..\core\ext2_engine.c' \
-            native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
-          grep -Fq '#include "../core/ext2_engine.h"' \
-            native/filesystems/ext2/windows/ext2_driver.h
-          grep -Fq '#include "../core/ext2_engine.c"' \
-            native/filesystems/ext2/linux/core_bridge.c
-          grep -Fq 'metadata.o' native/filesystems/ext2/linux/Makefile
-          grep -Fq -- '-DCONFIG_EXT2_FS_XATTR=1' native/filesystems/ext2/linux/Makefile
-          grep -Fq -- '-DCONFIG_EXT2_FS_POSIX_ACL=1' native/filesystems/ext2/linux/Makefile
-          grep -Fq -- '-DCONFIG_EXT2_FS_SECURITY=1' native/filesystems/ext2/linux/Makefile
+      - name: Validate source and implementation boundaries
+        run: bash tools/validate-source-contract.sh
 
   linux:
-    # Keep this qualification deterministic. The current self-hosted Linux
-    # runner images are not uniformly provisioned with Git/CMake/GTK.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -277,38 +91,12 @@ jobs:
           submodules: recursive
 
       - name: Dependencies
-        if: runner.environment == 'github-hosted'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev libudisks2-0
 
-      - name: Verify self-hosted dependencies
-        if: runner.environment == 'self-hosted'
-        shell: bash
-        run: |
-          set -euo pipefail
-          for command_name in cmake ctest pkg-config; do
-            command -v "$command_name" >/dev/null 2>&1 || {
-              echo "Self-hosted runner is missing $command_name." >&2
-              exit 1
-            }
-          done
-          if ! command -v ninja >/dev/null 2>&1 &&
-             ! command -v make >/dev/null 2>&1; then
-            echo "Self-hosted runner needs either ninja or make." >&2
-            exit 1
-          fi
-          pkg-config --exists gtk+-3.0
-
       - name: Configure
-        shell: bash
-        run: |
-          set -euo pipefail
-          if command -v ninja >/dev/null 2>&1; then
-            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          else
-            cmake -S . -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
-          fi
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build
@@ -316,7 +104,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      - name: Verify native Linux install payload
+      - name: Verify native Linux install payload from manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -325,20 +113,24 @@ jobs:
           DESTDIR=/tmp/filesystem-support-stage cmake --install build --prefix /usr
           helper=/tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native-module-helper
           test -x "$helper"
-          for fs in ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3; do
+
+          while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+            [[ -n "$fs" && "${fs:0:1}" != "#" ]] || continue
             base="/tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native/filesystems/$fs"
             test -f "$base/linux/Makefile"
             test -d "$base/core"
-          done
+          done < data/native-filesystems.tsv
+
           test ! -e /tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native/filesystems/affs
 
-  linux-ext2-module:
+  linux-native-modules-6-12:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare Linux 6.12.107 build API
+      - name: Prepare Linux 6.12.107 build API once
         shell: bash
         run: |
           set -euo pipefail
@@ -351,123 +143,39 @@ jobs:
             --enable EXT2_FS_XATTR \
             --enable EXT2_FS_POSIX_ACL \
             --enable EXT2_FS_SECURITY \
-            --enable FS_DAX
-          make -C /tmp/linux-6.12.107 olddefconfig
-          make -C /tmp/linux-6.12.107 modules_prepare
-
-      - name: Build EXT2 kernel module
-        shell: bash
-        run: |
-          set -euo pipefail
-          # modules_prepare deliberately does not create Module.symvers. This
-          # job qualifies source/API compatibility against the pinned kernel;
-          # load-time symbol qualification is performed against a built or
-          # installed target kernel that supplies its real Module.symvers.
-          make -C /tmp/linux-6.12.107 \
-            M="$PWD/native/filesystems/ext2/linux" \
-            KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/ext2-build.log
-          test -s native/filesystems/ext2/linux/ext2.ko
-          ! grep -Fq 'section mismatch' /tmp/ext2-build.log
-          grep -Fq 'metadata.o' /tmp/ext2-build.log
-
-  linux-ext3-module:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare Linux 6.12.107 build API
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
-          git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
-          make -C /tmp/linux-6.12.107 defconfig
-          make -C /tmp/linux-6.12.107 modules_prepare
-
-      - name: Build EXT3 kernel module
-        shell: bash
-        run: |
-          set -euo pipefail
-          make -C /tmp/linux-6.12.107 \
-            M="$PWD/native/filesystems/ext3/linux" \
-            KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/ext3-build.log
-          test -s native/filesystems/ext3/linux/ext3.ko
-          ! grep -Fq 'section mismatch' /tmp/ext3-build.log
-
-  linux-ext4-module:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare Linux 6.12.107 build API
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
-          git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
-          make -C /tmp/linux-6.12.107 defconfig
-          /tmp/linux-6.12.107/scripts/config --file /tmp/linux-6.12.107/.config \
             --enable EXT4_FS \
             --enable EXT4_FS_POSIX_ACL \
             --enable EXT4_FS_SECURITY \
+            --enable FS_DAX \
             --enable FS_ENCRYPTION \
             --enable FS_VERITY \
             --enable QUOTA
           make -C /tmp/linux-6.12.107 olddefconfig
           make -C /tmp/linux-6.12.107 modules_prepare
 
-      - name: Build EXT4 kernel module
+      - name: Build every managed native module from the deployment manifest
         shell: bash
         run: |
           set -euo pipefail
-          make -C /tmp/linux-6.12.107 \
-            M="$PWD/native/filesystems/ext4/linux" \
-            KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/ext4-build.log
-          test -s native/filesystems/ext4/linux/ext4.ko
-          ! grep -Fq 'section mismatch' /tmp/ext4-build.log
-          grep -Fq 'security_support.o' /tmp/ext4-build.log
-          grep -Fq 'security_support.o' /tmp/ext4-build.log
 
-  linux-amiga-ofs-ffs-modules:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+          while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+            [[ -n "$fs" && "${fs:0:1}" != "#" ]] || continue
+            log="/tmp/${fs}-6.12-build.log"
+            make -C /tmp/linux-6.12.107 \
+              M="$PWD/native/filesystems/$fs/linux" \
+              KBUILD_MODPOST_WARN=1 modules 2>&1 | tee "$log"
+            test -s "native/filesystems/$fs/linux/$module.ko"
+            ! grep -Fq 'section mismatch' "$log"
 
-      - name: Prepare Linux 6.12.107 build API
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
-          git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
-          make -C /tmp/linux-6.12.107 defconfig
-          make -C /tmp/linux-6.12.107 modules_prepare
-
-      - name: Build independent OFS module
-        shell: bash
-        run: |
-          set -euo pipefail
-          make -C /tmp/linux-6.12.107 \
-            M="$PWD/native/filesystems/ofs/linux" \
-            KBUILD_MODPOST_WARN=1 modules
-          test -s native/filesystems/ofs/linux/ofs.ko
-
-      - name: Build independent FFS module
-        shell: bash
-        run: |
-          set -euo pipefail
-          make -C /tmp/linux-6.12.107 \
-            M="$PWD/native/filesystems/ffs/linux" \
-            KBUILD_MODPOST_WARN=1 modules
-          test -s native/filesystems/ffs/linux/ffs.ko
+            case "$fs" in
+              ext2) grep -Fq 'metadata.o' "$log" ;;
+              ext4) grep -Fq 'security_support.o' "$log" ;;
+            esac
+          done < data/native-filesystems.tsv
 
   linux-amiga-v7-module-api:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -482,43 +190,21 @@ jobs:
           make -C /tmp/linux-7.0 defconfig
           make -C /tmp/linux-7.0 modules_prepare
 
-      - name: Build Amiga native modules against Linux 7.0
+      - name: Build every Amiga native module from the deployment manifest
         shell: bash
         run: |
           set -euo pipefail
-          for fs in ofs ffs sfs sfs2 pfs3; do
+
+          while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+            [[ -n "$fs" && "${fs:0:1}" != "#" ]] || continue
+            [[ "$desktop_kind" == "amiga" ]] || continue
+            log="/tmp/${fs}-v7-build.log"
             make -C /tmp/linux-7.0 \
               M="$PWD/native/filesystems/$fs/linux" \
-              KBUILD_MODPOST_WARN=1 modules 2>&1 | tee "/tmp/$fs-v7-build.log"
-            test -s "native/filesystems/$fs/linux/$fs.ko"
-            ! grep -Fq 'section mismatch' "/tmp/$fs-v7-build.log"
-          done
-
-  linux-sfs-module:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare Linux 6.12.107 build API
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y bc bison flex libelf-dev libssl-dev
-          git clone --depth 1 --branch v6.12.107 https://github.com/gregkh/linux.git /tmp/linux-6.12.107
-          make -C /tmp/linux-6.12.107 defconfig
-          make -C /tmp/linux-6.12.107 modules_prepare
-
-      - name: Build native SFS kernel module
-        shell: bash
-        run: |
-          set -euo pipefail
-          make -C /tmp/linux-6.12.107 \
-            M="$PWD/native/filesystems/sfs/linux" \
-            KBUILD_MODPOST_WARN=1 modules 2>&1 | tee /tmp/sfs-build.log
-          test -s native/filesystems/sfs/linux/sfs.ko
-          ! grep -Fq 'section mismatch' /tmp/sfs-build.log
+              KBUILD_MODPOST_WARN=1 modules 2>&1 | tee "$log"
+            test -s "native/filesystems/$fs/linux/$module.ko"
+            ! grep -Fq 'section mismatch' "$log"
+          done < data/native-filesystems.tsv
 
   windows-manager:
     runs-on: windows-latest
