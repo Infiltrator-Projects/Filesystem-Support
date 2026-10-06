@@ -81,6 +81,8 @@ def check_files(selected, prepared=True):
 
 # Package-level sync owns the shared launchers even when no native Amiga
 # filesystem is active. Per-filesystem operations below must never toggle them.
+# Keep this exact-SHA integration test in the release qualification path so
+# Amiga desktop changes cannot be published without their runtime gate running.
 run(helper, 'sync')
 check_files(set(), prepared=True)
 
