@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-#ifndef INFILTRATOR_FS_AMIGA_AFFS_COMPAT_H
-#define INFILTRATOR_FS_AMIGA_AFFS_COMPAT_H
+#ifndef INFILTRATOR_FS_LOCAL_AFFS_COMPAT_H
+#define INFILTRATOR_FS_LOCAL_AFFS_COMPAT_H
 
 #include <linux/buffer_head.h>
 #include <linux/errno.h>
@@ -18,10 +18,9 @@
 #endif
 
 /*
- * Common Linux-side AFFS-family machinery used by the independent OFS and FFS
- * modules.  Format-specific rules stay in each filesystem core.  These types
- * and helpers are compiled into each module; there is deliberately no shared
- * amiga-common.ko runtime dependency.
+ * Filesystem-local Linux-side AFFS-family machinery.  This file lives inside
+ * one filesystem module so changing it cannot silently alter a sibling module.
+ * Format-specific validation remains supplied by that filesystem's core.
  */
 #define AFFS_HEAD(bh) \
     ((struct affs_head *)(bh)->b_data)

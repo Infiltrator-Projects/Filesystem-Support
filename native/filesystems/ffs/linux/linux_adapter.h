@@ -29,7 +29,7 @@
         (ifs_ffs_u32)(block), \
         (ifs_ffs_u32)AFFS_SB(sb)->s_reserved, \
         (ifs_ffs_u32)AFFS_SB(sb)->s_partition_size) != 0)
-#include "../../../platform/linux_kernel/amiga_affs_compat.h"
+#include "affs_compat.h"
 #undef IFS_AMIGA_BLOCK_VALID
 #undef IFS_AMIGA_MKDIR_RETURN
 

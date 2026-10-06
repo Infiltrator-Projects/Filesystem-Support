@@ -16,7 +16,7 @@
 #include "../core/ofs_primitives.h"
 #include "../../../platform/linux_kernel/vfs_compat.h"
 
-/* Shared Linux adapter source is compiled into ofs.ko; no sibling module is required. */
+/* Kernel API compatibility is shared; AFFS-family state is filesystem-local. */
 #define IFS_OFS_AOPS_WRITE_CONTEXT IFS_LINUX_AOPS_WRITE_CONTEXT
 #define IFS_OFS_AOPS_WRITE_CONTEXT_ARG IFS_LINUX_AOPS_WRITE_CONTEXT_ARG
 #define IFS_OFS_INODE_IS_NEW(inode) IFS_LINUX_INODE_IS_NEW(inode)
@@ -30,7 +30,7 @@
         (ifs_ofs_u32)(block), \
         (ifs_ofs_u32)AFFS_SB(sb)->s_reserved, \
         (ifs_ofs_u32)AFFS_SB(sb)->s_partition_size) != 0)
-#include "../../../platform/linux_kernel/amiga_affs_compat.h"
+#include "affs_compat.h"
 #undef IFS_AMIGA_BLOCK_VALID
 #undef IFS_AMIGA_MKDIR_RETURN
 
