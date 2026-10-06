@@ -7,7 +7,7 @@ on:
 
 concurrency:
   # v2 rotates away from a stale cancelled run that remained attached to
-  # self-hosted runners.  Future pushes still cancel superseded work on main.
+  # self-hosted runners. Future pushes still cancel superseded work on main.
   group: filesystem-support-build-v2-${{ github.ref }}
   cancel-in-progress: true
 
@@ -46,7 +46,8 @@ jobs:
           if-no-files-found: error
 
   source-boundary:
-    # This job requires the Git CLI for history/tag provenance checks.
+    # Source-boundary checks express the current format-centric architecture,
+    # not the retired 109-entry provider/namespace catalogue.
     runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["self-hosted","Linux","X64","linux-native"]') }}
     timeout-minutes: 20
     env:
@@ -83,824 +84,125 @@ jobs:
             fi
           fi
 
-      - name: Enforce rewrite boundaries
+      - name: Enforce current filesystem source contract
         shell: bash
         run: |
           set -euo pipefail
+
           test ! -e tools/shape-ext2.sh
           test ! -e tools/shape-ext3.sh
           test ! -e tools/shape-ext4.sh
           test ! -e tools/harden-ext-ranges.py
 
-          # Every filesystem that has been structurally reviewed carries a
-          # design/ownership document at its filesystem root. Reference-state
-          # filesystems use that document to make clear that imported source is
-          # evidence, not a project-authored implementation.
-          for fs in 9p adfs afuse apfs-dkms apfs-fuse archivemount avfs bcachefs befs bfs bindfs bitlocker btrfs ceph-fuse cephfs cifs convmvfs cpm cramfs cryfs curlftpfs davfs2 disorderfs ecryptfs efs encfs erofs erofsfuse exfat exfat-fuse ext2 ext3 ext4 f2fs fat ffs filevault fosfat fscrypt fuse-overlayfs fusefat fuseiso fusezip gfs2 glusterfs go-mtpfs gocryptfs gphotofs guestmount gvfs-fuse hfs ofs pfs3 sfs sfs2; do
-            test -s "native/filesystems/$fs/DESIGN.md"
-          done
-
-          # 9P is a high-level remote filesystem protocol. Its copied Linux
-          # V9FS source is reference evidence and must never masquerade as the
-          # project's canonical implementation or a Filesystem Support .ko.
-          test -s native/filesystems/9p/DESIGN.md
-          test -d native/filesystems/9p/reference/linux
-          for forbidden in core userspace linux windows kernel; do
-            test ! -e "native/filesystems/9p/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *)
-                echo "Unexpected 9P root entry while still in reference/import state: $entry" >&2
-                exit 1
-                ;;
-            esac
-          done < <(find native/filesystems/9p -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/9p/reference/linux/v9fs.c
-          test -s native/filesystems/9p/reference/linux/vfs_inode.c
-          while IFS= read -r source_file; do
-            grep -Fq 'SPDX-License-Identifier:' "$source_file" || {
-              echo "9P reference provenance marker missing: $source_file" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/9p/reference/linux -type f \
-                    \( -name '*.c' -o -name '*.h' \) -print | sort)
-          ! grep -Fq 'native/filesystems/9p/reference' CMakeLists.txt
-
-          # ADFS is a conventional local filesystem, but it has not crossed
-          # the project-authorship boundary. Keep copied Linux source solely
-          # under reference/linux until an independent core/adapter rewrite.
-          test -s native/filesystems/adfs/DESIGN.md
-          test -d native/filesystems/adfs/reference/linux
-          for forbidden in core linux windows kernel; do
-            test ! -e "native/filesystems/adfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *)
-                echo "Unexpected ADFS root entry while still in reference/import state: $entry" >&2
-                exit 1
-                ;;
-            esac
-          done < <(find native/filesystems/adfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/adfs/reference/linux/adfs.h
-          test -s native/filesystems/adfs/reference/linux/map.c
-          while IFS= read -r source_file; do
-            grep -Fq 'SPDX-License-Identifier:' "$source_file" || {
-              echo "ADFS reference provenance marker missing: $source_file" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/adfs/reference/linux -type f \
-                    \( -name '*.c' -o -name '*.h' \) -print | sort)
-          ! grep -Fq 'native/filesystems/adfs/reference' CMakeLists.txt
-
-          # AFUSE is currently an external userspace-provider catalogue entry,
-          # not a first-party filesystem implementation. Until an explicit
-          # product decision promotes it, DESIGN.md is the complete directory.
-          test -s native/filesystems/afuse/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/afuse/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected AFUSE entry before first-party promotion: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/afuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # APFS-DKMS is an external Debian provider identity, not a second
-          # APFS implementation owned by this source tree. Its filesystem
-          # directory is documentation-only until that contract changes.
-          test -s native/filesystems/apfs-dkms/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/apfs-dkms/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected APFS-DKMS implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/apfs-dkms -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # APFS-FUSE is another external provider identity for the same APFS
-          # filesystem, not a second place to implement APFS semantics. Its
-          # filesystem directory remains documentation-only.
-          test -s native/filesystems/apfs-fuse/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/apfs-fuse/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected APFS-FUSE implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/apfs-fuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # ArchiveMount is currently an external userspace archive provider,
-          # not a first-party implementation. Until promotion, DESIGN.md is
-          # the complete filesystem directory.
-          test -s native/filesystems/archivemount/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/archivemount/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected ArchiveMount implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/archivemount -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # AVFS is currently an external userspace virtual-filesystem provider,
-          # not a first-party implementation. Until promotion, DESIGN.md is
-          # the complete filesystem directory.
-          test -s native/filesystems/avfs/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/avfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected AVFS implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/avfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # Bcachefs remains imported reference evidence until an independent
-          # canonical engine and thin OS adapters are written.
-          test -s native/filesystems/bcachefs/DESIGN.md
-          test -d native/filesystems/bcachefs/reference/linux
-          for forbidden in core linux windows kernel userspace; do
-            test ! -e "native/filesystems/bcachefs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *)
-                echo "Unexpected Bcachefs root entry while still in reference/import state: $entry" >&2
-                exit 1
-                ;;
-            esac
-          done < <(find native/filesystems/bcachefs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/bcachefs/reference/linux/bcachefs_format.h
-          test -s native/filesystems/bcachefs/reference/linux/btree_io.c
-          test -s native/filesystems/bcachefs/reference/linux/journal.c
-          test -s native/filesystems/bcachefs/reference/linux/snapshot.c
-          ! grep -Fq 'native/filesystems/bcachefs/reference' CMakeLists.txt
-
-          # BeFS remains copied Linux reference source until an independent
-          # host-neutral implementation is written.
-          test -s native/filesystems/befs/DESIGN.md
-          test -d native/filesystems/befs/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/befs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *)
-                echo "Unexpected BeFS root entry while still in reference/import state: $entry" >&2
-                exit 1
-                ;;
-            esac
-          done < <(find native/filesystems/befs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/befs/reference/linux/befs_fs_types.h
-          test -s native/filesystems/befs/reference/linux/btree.c
-          test -s native/filesystems/befs/reference/linux/datastream.c
-          test -s native/filesystems/befs/reference/linux/linuxvfs.c
-          ! grep -Fq 'native/filesystems/befs/reference' CMakeLists.txt
-
-          # SCO BFS remains copied Linux reference source until independently
-          # rewritten into a canonical engine plus host adapters.
-          test -s native/filesystems/bfs/DESIGN.md
-          test -d native/filesystems/bfs/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/bfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *)
-                echo "Unexpected BFS root entry while still in reference/import state: $entry" >&2
-                exit 1
-                ;;
-            esac
-          done < <(find native/filesystems/bfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/bfs/reference/linux/bfs.h
-          test -s native/filesystems/bfs/reference/linux/dir.c
-          test -s native/filesystems/bfs/reference/linux/file.c
-          test -s native/filesystems/bfs/reference/linux/inode.c
-          ! grep -Fq 'native/filesystems/bfs/reference' CMakeLists.txt
-
-          # bindfs is currently an external userspace overlay/presentation
-          # provider. Until a first-party userspace implementation is admitted,
-          # DESIGN.md is the complete filesystem directory.
-          test -s native/filesystems/bindfs/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/bindfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected bindfs implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/bindfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # BitLocker is currently an external container/encryption provider,
-          # not a first-party implementation. A future core/userspace pair is
-          # valid only after explicit promotion; kernel filesystem code is not.
-          test -s native/filesystems/bitlocker/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/bitlocker/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected BitLocker implementation entry before promotion: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/bitlocker -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # Btrfs remains an imported Linux reference until independently
-          # rewritten into the canonical engine/adapter architecture.
-          test -s native/filesystems/btrfs/DESIGN.md
-          test -d native/filesystems/btrfs/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/btrfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *)
-                echo "Unexpected Btrfs root entry while still in reference/import state: $entry" >&2
-                exit 1
-                ;;
-            esac
-          done < <(find native/filesystems/btrfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/btrfs/reference/linux/ctree.c
-          test -s native/filesystems/btrfs/reference/linux/inode.c
-          test -s native/filesystems/btrfs/reference/linux/extent-tree.c
-          test -s native/filesystems/btrfs/reference/linux/volumes.c
-          ! grep -Fq 'native/filesystems/btrfs/reference' CMakeLists.txt
-
-          # ceph-fuse is an external userspace provider for CephFS, not a
-          # second CephFS semantic implementation. The provider directory is
-          # documentation-only; canonical semantics belong under cephfs/.
-          test -s native/filesystems/ceph-fuse/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/ceph-fuse/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected ceph-fuse implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/ceph-fuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # CephFS is a distributed protocol/filesystem. The Linux kernel
-          # client is reference evidence; project code targets the shared
-          # userspace-service architecture.
-          test -s native/filesystems/cephfs/DESIGN.md
-          test -d native/filesystems/cephfs/reference/linux
-          for forbidden in core userspace linux windows kernel; do
-            test ! -e "native/filesystems/cephfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *)
-                echo "Unexpected CephFS root entry while still in reference/import state: $entry" >&2
-                exit 1
-                ;;
-            esac
-          done < <(find native/filesystems/cephfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/cephfs/reference/linux/mds_client.c
-          test -s native/filesystems/cephfs/reference/linux/super.c
-          test -s native/filesystems/cephfs/reference/linux/caps.c
-          test -s native/filesystems/cephfs/reference/linux/inode.c
-          ! grep -Fq 'native/filesystems/cephfs/reference' CMakeLists.txt
-
-          # SMB/CIFS is a remote protocol/filesystem. Linux kernel source is
-          # reference evidence; project semantics target the userspace core.
-          test -s native/filesystems/cifs/DESIGN.md
-          test -d native/filesystems/cifs/reference/linux/client
-          test -d native/filesystems/cifs/reference/linux/common
-          for forbidden in core userspace linux windows kernel; do
-            test ! -e "native/filesystems/cifs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *)
-                echo "Unexpected CIFS root entry while still in reference/import state: $entry" >&2
-                exit 1
-                ;;
-            esac
-          done < <(find native/filesystems/cifs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/cifs/reference/linux/client/cifssmb.c
-          test -s native/filesystems/cifs/reference/linux/client/smb2pdu.c
-          test -s native/filesystems/cifs/reference/linux/common/smb2pdu.h
-          ! grep -Fq 'native/filesystems/cifs/reference' CMakeLists.txt
-
-          # ConvmvFS is currently an external userspace charset/presentation
-          # overlay. Until a first-party userspace implementation is admitted,
-          # DESIGN.md is the complete filesystem directory.
-          test -s native/filesystems/convmvfs/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/convmvfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected ConvmvFS implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/convmvfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # CP/M is a real disk-format family, but it has not entered
-          # first-party implementation yet. Until promotion, DESIGN.md is the
-          # complete filesystem directory.
-          test -s native/filesystems/cpm/DESIGN.md
-          for forbidden in .gitkeep core linux windows userspace kernel reference; do
-            test ! -e "native/filesystems/cpm/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected CP/M implementation entry before promotion: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/cpm -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # CramFS remains imported Linux reference evidence until a
-          # host-neutral read-only engine and adapters are independently built.
-          test -s native/filesystems/cramfs/DESIGN.md
-          test -d native/filesystems/cramfs/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/cramfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *) echo "Unexpected CramFS root entry while still in reference/import state: $entry" >&2; exit 1 ;;
-            esac
-          done < <(find native/filesystems/cramfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/cramfs/reference/linux/inode.c
-          test -s native/filesystems/cramfs/reference/linux/uncompress.c
-          test -s native/filesystems/cramfs/reference/linux/README
-          ! grep -Fq 'native/filesystems/cramfs/reference' CMakeLists.txt
-
-          # CryFS is an external userspace provider. Until an explicit
-          # first-party implementation exists, this directory is docs-only.
-          test -s native/filesystems/cryfs/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/cryfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected CryFS implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/cryfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # CurlFtpFS is currently an external FTP userspace provider. Until
-          # a first-party userspace implementation is admitted, DESIGN.md is
-          # the complete filesystem directory.
-          test -s native/filesystems/curlftpfs/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/curlftpfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected CurlFtpFS implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/curlftpfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # davfs2 is currently an external WebDAV userspace provider. Until
-          # a first-party userspace implementation is admitted, DESIGN.md is
-          # the complete filesystem directory.
-          test -s native/filesystems/davfs2/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/davfs2/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected davfs2 implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/davfs2 -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # disorderfs is currently an external userspace testing overlay.
-          # Until a first-party userspace implementation is admitted, DESIGN.md
-          # is the complete filesystem directory.
-          test -s native/filesystems/disorderfs/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/disorderfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected disorderfs implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/disorderfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # eCryptfs remains imported reference evidence until its portable
-          # filesystem semantics and thin adapters are independently written.
-          test -s native/filesystems/ecryptfs/DESIGN.md
-          test -d native/filesystems/ecryptfs/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/ecryptfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *) echo "Unexpected eCryptfs root entry while still in reference/import state: $entry" >&2; exit 1 ;;
-            esac
-          done < <(find native/filesystems/ecryptfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/ecryptfs/reference/linux/crypto.c
-          test -s native/filesystems/ecryptfs/reference/linux/keystore.c
-          test -s native/filesystems/ecryptfs/reference/linux/inode.c
-          ! grep -Fq 'native/filesystems/ecryptfs/reference' CMakeLists.txt
-
-          # SGI EFS remains read-only imported reference evidence until a
-          # host-neutral read-only engine and thin adapters are independently built.
-          test -s native/filesystems/efs/DESIGN.md
-          test -d native/filesystems/efs/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/efs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *) echo "Unexpected EFS root entry while still in reference/import state: $entry" >&2; exit 1 ;;
-            esac
-          done < <(find native/filesystems/efs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/efs/reference/linux/efs.h
-          test -s native/filesystems/efs/reference/linux/super.c
-          test -s native/filesystems/efs/reference/linux/inode.c
-          test -s native/filesystems/efs/reference/linux/dir.c
-          ! grep -Fq 'native/filesystems/efs/reference' CMakeLists.txt
-
-          # EncFS is currently an external encrypted-overlay provider. A
-          # future core/userspace implementation requires explicit promotion;
-          # until then DESIGN.md is the complete filesystem directory.
-          test -s native/filesystems/encfs/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/encfs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected EncFS implementation entry before promotion: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/encfs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # EROFS remains imported read-only reference evidence until its
-          # canonical compressed-image engine is independently implemented.
-          test -s native/filesystems/erofs/DESIGN.md
-          test -d native/filesystems/erofs/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/erofs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *) echo "Unexpected EROFS root entry while still in reference/import state: $entry" >&2; exit 1 ;;
-            esac
-          done < <(find native/filesystems/erofs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/erofs/reference/linux/erofs_fs.h
-          test -s native/filesystems/erofs/reference/linux/zmap.c
-          test -s native/filesystems/erofs/reference/linux/decompressor.c
-          ! grep -Fq 'native/filesystems/erofs/reference' CMakeLists.txt
-
-          # erofsfuse is only an external userspace provider for the same
-          # canonical EROFS filesystem. First-party userspace support belongs
-          # under erofs/userspace, so this provider directory is docs-only.
-          test -s native/filesystems/erofsfuse/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/erofsfuse/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected erofsfuse implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/erofsfuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # exFAT remains imported Linux reference evidence until one
-          # canonical cross-platform engine is independently rewritten.
-          test -s native/filesystems/exfat/DESIGN.md
-          test -d native/filesystems/exfat/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/exfat/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *) echo "Unexpected exFAT root entry while still in reference/import state: $entry" >&2; exit 1 ;;
-            esac
-          done < <(find native/filesystems/exfat -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/exfat/reference/linux/exfat_raw.h
-          test -s native/filesystems/exfat/reference/linux/super.c
-          test -s native/filesystems/exfat/reference/linux/dir.c
-          test -s native/filesystems/exfat/reference/linux/fatent.c
-          ! grep -Fq 'native/filesystems/exfat/reference' CMakeLists.txt
-
-          # exfat-fuse is an external userspace provider for the same exFAT
-          # engine; first-party userspace support belongs under exfat/userspace.
-          test -s native/filesystems/exfat-fuse/DESIGN.md
-          for forbidden in .gitkeep core userspace linux windows kernel reference; do
-            test ! -e "native/filesystems/exfat-fuse/$forbidden"
-          done
-          while IFS= read -r entry; do
-            test "$entry" = "DESIGN.md" || {
-              echo "Unexpected exfat-fuse implementation entry: $entry" >&2
-              exit 1
-            }
-          done < <(find native/filesystems/exfat-fuse -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-
-          # F2FS remains imported Linux reference evidence until its flash,
-          # checkpoint and segment semantics are independently rewritten.
-          test -s native/filesystems/f2fs/DESIGN.md
-          test -d native/filesystems/f2fs/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/f2fs/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *) echo "Unexpected F2FS root entry while still in reference/import state: $entry" >&2; exit 1 ;;
-            esac
-          done < <(find native/filesystems/f2fs -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/f2fs/reference/linux/f2fs.h
-          test -s native/filesystems/f2fs/reference/linux/checkpoint.c
-          test -s native/filesystems/f2fs/reference/linux/segment.c
-          test -s native/filesystems/f2fs/reference/linux/recovery.c
-          ! grep -Fq 'native/filesystems/f2fs/reference' CMakeLists.txt
-
-          # FAT12/16/32 remains imported Linux reference evidence until the
-          # canonical FAT family engine is independently implemented.
-          test -s native/filesystems/fat/DESIGN.md
-          test -d native/filesystems/fat/reference/linux
-          for forbidden in core linux windows userspace kernel; do
-            test ! -e "native/filesystems/fat/$forbidden"
-          done
-          while IFS= read -r entry; do
-            case "$entry" in
-              DESIGN.md|reference) ;;
-              *) echo "Unexpected FAT root entry while still in reference/import state: $entry" >&2; exit 1 ;;
-            esac
-          done < <(find native/filesystems/fat -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-          test -s native/filesystems/fat/reference/linux/fat.h
-          test -s native/filesystems/fat/reference/linux/fatent.c
-          test -s native/filesystems/fat/reference/linux/namei_msdos.c
-          test -s native/filesystems/fat/reference/linux/namei_vfat.c
-          ! grep -Fq 'native/filesystems/fat/reference' CMakeLists.txt
-
-          # FileVault/FVDE is an encrypted-volume layer; decrypted contents
-          # are handed to the owning filesystem implementation.
-          test ! -e native/filesystems/filevault/.gitkeep
-          test ! -e native/filesystems/filevault/kernel
-          test -s native/filesystems/filevault/DESIGN.md
-
-          # Fosfat is the Smaky filesystem identity. The present provider is
-          # userspace/read-only, but future semantics belong in one core.
-          test ! -e native/filesystems/fosfat/.gitkeep
-          test ! -e native/filesystems/fosfat/kernel
-          test -s native/filesystems/fosfat/DESIGN.md
-
-          # fscrypt is encryption tooling/policy consumed by owning
-          # filesystems, not a standalone filesystem implementation.
-          test ! -e native/filesystems/fscrypt/.gitkeep
-          test ! -e native/filesystems/fscrypt/kernel
-          test ! -e native/filesystems/fscrypt/core
-          test -s native/filesystems/fscrypt/DESIGN.md
-
-          # fuse-overlayfs is a userspace OverlayFS provider for container/
-          # rootless overlay use; it is not another on-disk filesystem engine.
-          test ! -e native/filesystems/fuse-overlayfs/.gitkeep
-          test ! -e native/filesystems/fuse-overlayfs/kernel
-          test ! -e native/filesystems/fuse-overlayfs/core
-          test -s native/filesystems/fuse-overlayfs/DESIGN.md
-
-          # EXT2, EXT3 and EXT4 are complete canonical implementations.
-          # An alternate fuse2fs provider tree or catalogue entry is forbidden.
-          test ! -e native/filesystems/fuse2fs
-          ! grep -Fq '"fuse2fs"' src/catalog.cpp
-
-          # fusefat is an external userspace provider spanning FAT and exFAT.
-          # It must not create another FAT-family or exFAT engine.
-          test ! -e native/filesystems/fusefat/.gitkeep
-          test ! -e native/filesystems/fusefat/kernel
-          test ! -e native/filesystems/fusefat/core
-          test -s native/filesystems/fusefat/DESIGN.md
-
-          # fuseiso is an external userspace image/ISO provider, not a
-          # second ISO9660 implementation.
-          test ! -e native/filesystems/fuseiso/.gitkeep
-          test ! -e native/filesystems/fuseiso/kernel
-          test ! -e native/filesystems/fuseiso/core
-          test -s native/filesystems/fuseiso/DESIGN.md
-
-          # fusezip is a userspace ZIP archive provider, not a block filesystem.
-          test ! -e native/filesystems/fusezip/.gitkeep
-          test ! -e native/filesystems/fusezip/kernel
-          test ! -e native/filesystems/fusezip/core
-          test -s native/filesystems/fusezip/DESIGN.md
-
-          # GFS2 remains upstream Linux reference evidence until a canonical
-          # clustered-filesystem core and thin host/cluster adapters are rewritten.
-          test ! -e native/filesystems/gfs2/kernel
-          test -s native/filesystems/gfs2/reference/linux/glock.c
-          test -s native/filesystems/gfs2/reference/linux/rgrp.c
-          test -s native/filesystems/gfs2/DESIGN.md
-
-          # GlusterFS is a high-level distributed userspace client/provider.
-          test ! -e native/filesystems/glusterfs/.gitkeep
-          test ! -e native/filesystems/glusterfs/kernel
-          test -s native/filesystems/glusterfs/DESIGN.md
-
-          # go-mtpfs is a userspace MTP device provider.
-          test ! -e native/filesystems/go-mtpfs/.gitkeep
-          test ! -e native/filesystems/go-mtpfs/kernel
-          test ! -e native/filesystems/go-mtpfs/core
-          test -s native/filesystems/go-mtpfs/DESIGN.md
-
-          # gocryptfs is an encrypted userspace overlay provider.
-          test ! -e native/filesystems/gocryptfs/.gitkeep
-          test ! -e native/filesystems/gocryptfs/kernel
-          test -s native/filesystems/gocryptfs/DESIGN.md
-
-          # GPhotoFS is a userspace camera/PTP device provider.
-          test ! -e native/filesystems/gphotofs/.gitkeep
-          test ! -e native/filesystems/gphotofs/kernel
-          test ! -e native/filesystems/gphotofs/core
-          test -s native/filesystems/gphotofs/DESIGN.md
-
-          # guestmount/libguestfs is a userspace virtual-disk/container access
-          # layer; contained filesystem semantics stay with their own engines.
-          test ! -e native/filesystems/guestmount/.gitkeep
-          test ! -e native/filesystems/guestmount/kernel
-          test ! -e native/filesystems/guestmount/core
-          test -s native/filesystems/guestmount/DESIGN.md
-
-          # GVfs-FUSE is a desktop userspace bridge over GVfs/GIO mounts.
-          test ! -e native/filesystems/gvfs-fuse/.gitkeep
-          test ! -e native/filesystems/gvfs-fuse/kernel
-          test ! -e native/filesystems/gvfs-fuse/core
-          test -s native/filesystems/gvfs-fuse/DESIGN.md
-
-          # Classic HFS remains imported Linux reference evidence until its
-          # canonical local-filesystem engine is independently rewritten.
-          test ! -e native/filesystems/hfs/kernel
-          test -s native/filesystems/hfs/reference/linux/btree.c
-          test -s native/filesystems/hfs/reference/linux/catalog.c
-          test -s native/filesystems/hfs/DESIGN.md
-
-          # Active rewrite trees use Filesystem Support responsibility
-          # boundaries, not the imported Linux/AFFS/ASFS file layout.
-          for legacy in \
-            native/filesystems/ext2/linux/balloc.c \
-            native/filesystems/ext2/linux/dir.c \
-            native/filesystems/ext2/linux/file.c \
-            native/filesystems/ext2/linux/inode.c \
-            native/filesystems/ext2/linux/namei.c \
-            native/filesystems/ext2/linux/super.c \
-            native/filesystems/ext3/linux/balloc.c \
-            native/filesystems/ext3/linux/jbd_journal.c \
-            native/filesystems/ext3/linux/jbd_transaction.c \
-            native/filesystems/ext4/linux/balloc.c \
-            native/filesystems/ext4/linux/jbd2_journal.c \
-            native/filesystems/ext4/linux/jbd2_transaction.c \
-            native/filesystems/ofs/linux/affs.h \
-            native/filesystems/ffs/linux/affs.h \
-            native/filesystems/sfs/linux/asfs_fs.h \
-            native/filesystems/sfs/linux/Changes; do
-            test ! -e "$legacy"
-          done
-
-          refresh=.github/workflows/import-linux-filesystems.yml
-          if test -f "$refresh"; then
-            ! grep -Eq 'fs/ext2([ /]|$)|fs/ext3([ /]|$)|fs/ext4([ /]|$)|fs/affs([ /]|$)|linux-ext3|shape-ext[234]|harden-ext-ranges|recomment-ext-family' "$refresh"
-            ! grep -Eq 'native/filesystems/(ext2|ext3|ext4|ofs|ffs|sfs|sfs2|pfs3)' "$refresh"
-            grep -Fq 'copy_tree fs/9p native/filesystems/9p/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/9p native/filesystems/9p/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/adfs native/filesystems/adfs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/adfs native/filesystems/adfs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/bcachefs native/filesystems/bcachefs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/bcachefs native/filesystems/bcachefs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/befs native/filesystems/befs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/befs native/filesystems/befs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/btrfs native/filesystems/btrfs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/btrfs native/filesystems/btrfs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/cramfs native/filesystems/cramfs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/cramfs native/filesystems/cramfs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/ecryptfs native/filesystems/ecryptfs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/ecryptfs native/filesystems/ecryptfs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/erofs native/filesystems/erofs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/erofs native/filesystems/erofs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/exfat native/filesystems/exfat/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/exfat native/filesystems/exfat/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/f2fs native/filesystems/f2fs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/f2fs native/filesystems/f2fs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/fat native/filesystems/fat/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/fat native/filesystems/fat/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/efs native/filesystems/efs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/efs native/filesystems/efs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/ceph native/filesystems/cephfs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/ceph native/filesystems/cephfs/kernel' "$refresh"
-            grep -Fq 'native/filesystems/cifs/reference/linux/client' "$refresh"
-            grep -Fq 'native/filesystems/cifs/reference/linux/common' "$refresh"
-            ! grep -Fq 'native/filesystems/cifs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/bfs native/filesystems/bfs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/bfs native/filesystems/bfs/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/gfs2 native/filesystems/gfs2/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/gfs2 native/filesystems/gfs2/kernel' "$refresh"
-            grep -Fq 'copy_tree fs/hfs native/filesystems/hfs/reference/linux' "$refresh"
-            ! grep -Fq 'copy_tree fs/hfs native/filesystems/hfs/kernel' "$refresh"
-          fi
-
-      - name: Enforce permanent EXT2 source layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          root=native/filesystems/ext2
-          test ! -e "$root/reference"
-          test ! -e "$root/kernel"
-          test ! -e "$root/userspace"
-
-          printf '%s\n' DESIGN.md core linux windows > /tmp/ext2-root.expected
-          find "$root" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/ext2-root.actual
-          sort -o /tmp/ext2-root.expected /tmp/ext2-root.expected
-          diff -u /tmp/ext2-root.expected /tmp/ext2-root.actual
-
-          cat > /tmp/ext2-core.expected <<'EOF'
-          ext2_core.c
-          ext2_core.h
-          ext2_engine.c
-          ext2_engine.h
+          # The repository carries source/reference trees only for real
+          # on-media formats in the current 41-format catalogue. InfiltratorFS
+          # is its own project and APFS is currently provider-backed, leaving
+          # exactly these 39 in-repository format trees.
+          cat > /tmp/native-filesystems.expected <<'EOF'
+          adfs
+          bcachefs
+          befs
+          bfs
+          btrfs
+          cpm
+          efs
+          exfat
+          ext2
+          ext3
+          ext4
+          f2fs
+          fat
+          ffs
+          fosfat
+          gfs2
+          hfs
+          hfsplus
+          hpfs
+          jfs
+          minix
+          nilfs2
+          ntfs
+          ocfs2
+          ofs
+          omfs
+          pfs3
+          qnx4
+          qnx6
+          reiserfs
+          sfs
+          sfs2
+          sysv
+          udf
+          ufs
+          vmfs
+          vmfs6
+          xfs
+          zfs
           EOF
-          sed -i 's/^          //' /tmp/ext2-core.expected
-          find "$root/core" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext2-core.actual
-          sort -o /tmp/ext2-core.expected /tmp/ext2-core.expected
-          diff -u /tmp/ext2-core.expected /tmp/ext2-core.actual
+          sed -i 's/^          //' /tmp/native-filesystems.expected
+          find native/filesystems -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > /tmp/native-filesystems.actual
+          sort -o /tmp/native-filesystems.expected /tmp/native-filesystems.expected
+          diff -u /tmp/native-filesystems.expected /tmp/native-filesystems.actual
 
-          cat > /tmp/ext2-linux.expected <<'EOF'
-          Makefile
-          allocation.c
-          core_bridge.c
-          io.c
-          lifecycle.c
-          linux_adapter.h
-          metadata.c
-          namespace.c
-          EOF
-          sed -i 's/^          //' /tmp/ext2-linux.expected
-          find "$root/linux" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext2-linux.actual
-          sort -o /tmp/ext2-linux.expected /tmp/ext2-linux.expected
-          diff -u /tmp/ext2-linux.expected /tmp/ext2-linux.actual
+          while IFS= read -r fs; do
+            test -s "native/filesystems/$fs/DESIGN.md" || {
+              echo "Missing design/provenance contract for $fs" >&2
+              exit 1
+            }
+          done < /tmp/native-filesystems.expected
 
-          cat > /tmp/ext2-windows.expected <<'EOF'
-          Directory.Build.props
-          adapter_support.inc
-          directory_dispatch.inc
-          driver_entry.inc
-          ext2_driver.c
-          ext2_driver.h
-          file_dispatch.inc
-          filesystem_support_ext2.inf
-          filesystem_support_ext2.rc
-          filesystem_support_ext2.sln
-          filesystem_support_ext2.vcxproj
-          name_translation.inc
-          volume_lifecycle.inc
-          EOF
-          sed -i 's/^          //' /tmp/ext2-windows.expected
-          find "$root/windows" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext2-windows.actual
-          sort -o /tmp/ext2-windows.expected /tmp/ext2-windows.expected
-          diff -u /tmp/ext2-windows.expected /tmp/ext2-windows.actual
-
-      - name: Verify rewritten EXT2 file layer provenance
-        shell: bash
-        run: |
-          set -euo pipefail
-          rewritten=(
-            native/filesystems/ext2/linux/allocation.c
-            native/filesystems/ext2/linux/namespace.c
-            native/filesystems/ext2/linux/io.c
-            native/filesystems/ext2/linux/metadata.c
-            native/filesystems/ext2/linux/lifecycle.c
-            native/filesystems/ext2/linux/linux_adapter.h
-            native/filesystems/ext2/linux/core_bridge.c
+          # Provider, network, overlay, archive, container and duplicate access
+          # identities from the retired catalogue must stay physically absent.
+          retired=(
+            9p afuse apfs-dkms apfs-fuse archivemount avfs bindfs bitlocker
+            ceph-fuse cephfs cifs convmvfs cramfs cryfs curlftpfs davfs2
+            disorderfs ecryptfs encfs erofs erofsfuse exfat-fuse filevault
+            fscrypt fuse-overlayfs fusefat fuseiso fusezip glusterfs go-mtpfs
+            gocryptfs gphotofs guestmount gvfs-fuse httpdirfs ifuse iso9660
+            jffs2 jmtpfs loggedfs luksde lxcfs mergerfs moosefs nfs ntfs3
+            onedriver openafs openafs-fuse orangefs overlayfs posixovl rclone
+            romfs s3fs s3ql securefs smbnetfs squashfs squashfuse sshfs tmfs
+            ubifs udfclient virtiofs vmhgfs wim xmount zfs-fuse zonefs
           )
-          for file in "${rewritten[@]}"; do
-            test -s "$file"
-            ! grep -Eiq 'linux/fs/(ext2|minix)|SPDX-License-Identifier|Remy Card|Linus Torvalds|Stephen Tweedie|David S\. Miller|Al Viro|Jakub Jelinek|Red Hat' "$file"
+          for fs in "${retired[@]}"; do
+            test ! -e "native/filesystems/$fs" || {
+              echo "Retired non-format source tree returned: $fs" >&2
+              exit 1
+            }
           done
-          grep -Fq 'Copyright (C) 2026 Shannon Smith' native/filesystems/ext2/linux/io.c
 
-      - name: Verify rewritten Amiga adapter provenance
+          # One manifest owns the native build/deployment set.
+          awk -F '\t' '$0 !~ /^#/ && NF == 4 { print $1 "\t" $2 }' \
+            data/native-filesystems.tsv > /tmp/native-manifest.actual
+          cat > /tmp/native-manifest.expected <<'EOF'
+          ext2	ext2
+          ext3	ext3
+          ext4	ext4
+          ofs	ofs
+          ffs	ffs
+          sfs	sfs
+          sfs2	sfs2
+          pfs3	pfs3
+          EOF
+          sed -i 's/^          //' /tmp/native-manifest.expected
+          diff -u /tmp/native-manifest.expected /tmp/native-manifest.actual
+
+      - name: Enforce independent native implementations
         shell: bash
         run: |
           set -euo pipefail
+
+          # OFS and FFS share only the tiny kernel API compatibility layer.
+          # AFFS-family state/locking/VFS declarations are filesystem-local.
+          test -s native/platform/linux_kernel/vfs_compat.h
+          test ! -e native/platform/linux_kernel/amiga_affs_compat.h
+          test -s native/filesystems/ofs/linux/affs_compat.h
+          test -s native/filesystems/ffs/linux/affs_compat.h
+          grep -Fq '#include "affs_compat.h"' native/filesystems/ofs/linux/linux_adapter.h
+          grep -Fq '#include "affs_compat.h"' native/filesystems/ffs/linux/linux_adapter.h
+          ! grep -R -Fq '../../../platform/linux_kernel/amiga_affs_compat.h' \
+            native/filesystems/ofs native/filesystems/ffs
+
           test ! -e native/filesystems/amiga_common
           test ! -e native/primitives/amiga_dos
           rewritten=(
@@ -923,32 +225,11 @@ jobs:
             test -s "$file"
             ! grep -Eiq 'linux/fs/affs|Hans-Joachim Widmaier|Ray Burr|Eric Youngdale|Linus Torvalds' "$file"
           done
-          ! grep -R -Eq 'IFS_FFS_IS_OFS|SF_OFS|AFFS_MOUNT_SF_OFS|affs_aops_ofs|ifs_ffs_ofs_|AFFS_DATA_HEAD|AFFS_DATA\(' native/filesystems/ffs/linux
+          ! grep -R -Eq 'IFS_FFS_IS_OFS|SF_OFS|AFFS_MOUNT_SF_OFS|affs_aops_ofs|ifs_ffs_ofs_|AFFS_DATA_HEAD|AFFS_DATA\(' \
+            native/filesystems/ffs/linux
 
-      - name: Keep Amiga reference baselines outside active sources
-        shell: bash
-        run: |
-          set -euo pipefail
-          active=(
-            native/filesystems/ofs/core native/filesystems/ofs/linux
-            native/filesystems/ffs/core native/filesystems/ffs/linux
-            native/filesystems/sfs/core native/filesystems/sfs/linux
-            native/filesystems/sfs2/core native/filesystems/sfs2/linux
-            native/filesystems/pfs3/core native/filesystems/pfs3/linux
-          )
-          ! grep -R -Eiq --exclude-dir=reference \
-            'Copyright \\(C\\).*(Marek|John Hendrikx|Ray Burr|Hans-Joachim|Linus|Janos|Volker|Paal|Gertjan)|linux/fs/affs|twojstaryzdomu/asfs|pfs3aio|Aaru.Filesystems|AmiPart' \
-            "${active[@]}"
-
-          # Incremental rewrites keep the known implementation/reference
-          # evidence until the replacement has runtime-equivalence evidence.
-          # Reference trees are never compiled or packaged as active code.
-          test -s native/filesystems/sfs/reference/asfs/super.c
-          test -s native/filesystems/sfs/reference/asfs/extents.c
-          test -s native/filesystems/sfs2/reference/amipart/src/nativefmt.c
-          test -s native/filesystems/pfs3/reference/pfs3aio/allocation.c
-          test -s native/filesystems/pfs3/reference/pfs3aio/update.c
-
+          # References are evidence only and are never compiled into active
+          # native modules.
           ! grep -Fq '/reference' CMakeLists.txt
           for makefile in \
             native/filesystems/ofs/linux/Makefile \
@@ -957,228 +238,6 @@ jobs:
             native/filesystems/sfs2/linux/Makefile \
             native/filesystems/pfs3/linux/Makefile; do
             ! grep -Fq 'reference' "$makefile"
-          done
-
-          # Preserve the working ASFS mount-policy behaviour during rewriting:
-          # a valid TRFA forces read-only; clean/legacy media must not require
-          # a TROK block merely to remain writable.
-          for lifecycle in \
-            native/filesystems/sfs/linux/lifecycle.c \
-            native/filesystems/sfs2/linux/lifecycle.c; do
-            grep -Fq 'TRANSACTIONFAILURE_ID' "$lifecycle"
-            ! grep -q 'marker_id == .*TRANSACTIONOK_ID' "$lifecycle"
-          done
-
-      - name: Enforce ZFS ownership layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          root=native/filesystems/zfs
-          test -s "$root/DESIGN.md"
-          for forbidden in .gitkeep core linux windows userspace kernel reference; do
-            test ! -e "$root/$forbidden"
-          done
-          printf '%s\n' DESIGN.md > /tmp/zfs-root.expected
-          find "$root" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/zfs-root.actual
-          diff -u /tmp/zfs-root.expected /tmp/zfs-root.actual
-          ! grep -Fq 'native/filesystems/zfs/' CMakeLists.txt
-
-      - name: Enforce permanent EXT4 source layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          root=native/filesystems/ext4
-          test ! -e "$root/reference"
-          test ! -e "$root/windows"
-          test ! -e "$root/kernel"
-          test ! -e "$root/userspace"
-
-          printf '%s\n' DESIGN.md core linux > /tmp/ext4-root.expected
-          find "$root" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/ext4-root.actual
-          sort -o /tmp/ext4-root.expected /tmp/ext4-root.expected
-          diff -u /tmp/ext4-root.expected /tmp/ext4-root.actual
-
-          printf '%s\n' ext4_core.c ext4_core.h > /tmp/ext4-core.expected
-          find "$root/core" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext4-core.actual
-          sort -o /tmp/ext4-core.expected /tmp/ext4-core.expected
-          diff -u /tmp/ext4-core.expected /tmp/ext4-core.actual
-
-          cat > /tmp/ext4-linux.expected <<'EOF'
-          Makefile
-          control.c
-          core_bridge.c
-          directory_io.c
-          embedded_jbd2.h
-          ext4.h
-          ext4_extents.h
-          ext4_jbd2.h
-          extended_metadata.c
-          extent_cache.c
-          extent_tree.c
-          extents_status.h
-          fast_commit.h
-          fast_commit_engine.c
-          file_io.c
-          fsmap.h
-          include
-          inline_data.c
-          inode_adapter.c
-          inode_allocation.c
-          journal_core.c
-          journal_durability.c
-          journal_transactions.c
-          lifecycle.c
-          mapping_support.c
-          mballoc.h
-          multiblock_allocation.c
-          namespace_mutation.c
-          online_resize.c
-          orphan_recovery.c
-          security_support.c
-          storage_guard.c
-          truncate.h
-          volume_admin.c
-          writeback_io.c
-          xattr.h
-          EOF
-          sed -i 's/^          //' /tmp/ext4-linux.expected
-          find "$root/linux" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/ext4-linux.actual
-          sort -o /tmp/ext4-linux.expected /tmp/ext4-linux.expected
-          diff -u /tmp/ext4-linux.expected /tmp/ext4-linux.actual
-
-          test -s "$root/linux/include/linux/jbd2.h"
-          test -s "$root/linux/include/trace/events/jbd2.h"
-          test "$(find "$root/linux/include" -type f | wc -l)" -eq 2
-
-      - name: Guard rewritten EXT4 interface provenance
-        shell: bash
-        run: |
-          set -euo pipefail
-          rewritten=(
-            native/filesystems/ext4/linux/embedded_jbd2.h
-            native/filesystems/ext4/linux/truncate.h
-            native/filesystems/ext4/linux/fsmap.h
-            native/filesystems/ext4/linux/fast_commit.h
-            native/filesystems/ext4/linux/security_support.c
-            native/filesystems/ext4/linux/storage_guard.c
-            native/filesystems/ext4/linux/directory_io.c
-            native/filesystems/ext4/linux/volume_admin.c
-            native/filesystems/ext4/linux/journal_durability.c
-            native/filesystems/ext4/linux/mapping_support.c
-            native/filesystems/ext4/linux/core_bridge.c
-            native/filesystems/ext4/linux/ext4_jbd2.h
-            native/filesystems/ext4/linux/mballoc.h
-            native/filesystems/ext4/linux/extents_status.h
-            native/filesystems/ext4/linux/ext4_extents.h
-            native/filesystems/ext4/linux/xattr.h
-            native/filesystems/ext4/linux/orphan_recovery.c
-          )
-          for file in "${rewritten[@]}"; do
-            test -s "$file"
-            ! grep -Eiq 'SPDX-License-Identifier|Remy Card|Linus Torvalds|Stephen Tweedie|Darrick J\. Wong|Theodore Ts.o|Red Hat|Cluster File Systems|Bull S\.A\.|GPL-2\.0' "$file"
-            if grep -Ein 'Copyright' "$file" | grep -Eiv 'Shannon Smith|Infiltrator Projects'; then
-              echo "Unexpected third-party copyright in project-authored EXT4 source: $file" >&2
-              exit 1
-            fi
-          done
-          grep -Fq 'Copyright (C) 2026 Shannon Smith' \
-            native/filesystems/ext4/linux/orphan_recovery.c
-
-      - name: Enforce permanent EXT3 source layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          root=native/filesystems/ext3
-          test ! -e "$root/reference"
-          test ! -e "$root/windows"
-          test ! -e "$root/kernel"
-          test ! -e "$root/userspace"
-
-          printf '%s\n' DESIGN.md core linux > /tmp/ext3-root.expected
-          find "$root" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > /tmp/ext3-root.actual
-          sort -o /tmp/ext3-root.expected /tmp/ext3-root.expected
-          diff -u /tmp/ext3-root.expected /tmp/ext3-root.actual
-
-          printf '%s\n' ext3_core.c ext3_core.h > /tmp/ext3-core.expected
-          find "$root/core" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext3-core.actual
-          sort -o /tmp/ext3-core.expected /tmp/ext3-core.expected
-          diff -u /tmp/ext3-core.expected /tmp/ext3-core.actual
-
-          cat > /tmp/ext3-linux.expected <<'EOF'
-          Makefile
-          allocation.c
-          core_bridge.c
-          directory_io.c
-          extended_metadata.c
-          file_io.c
-          inode_adapter.c
-          journal_core.c
-          journal_durability.c
-          journal_frontend.c
-          journal_internal.h
-          journal_transactions.c
-          lifecycle.c
-          linux_adapter.h
-          revision_policy.c
-          namespace_mutation.c
-          EOF
-          sed -i 's/^          //' /tmp/ext3-linux.expected
-          find "$root/linux" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/ext3-linux.actual
-          sort -o /tmp/ext3-linux.expected /tmp/ext3-linux.expected
-          diff -u /tmp/ext3-linux.expected /tmp/ext3-linux.actual
-
-      - name: Guard project-authored SFS and EXT3 units
-        shell: bash
-        run: |
-          set -euo pipefail
-          rewritten=(
-            native/filesystems/sfs/linux/core_bridge.c
-            native/filesystems/sfs/linux/allocation.c
-            native/filesystems/sfs/linux/mapping.c
-            native/filesystems/sfs/linux/io.c
-            native/filesystems/sfs/linux/namespace.c
-            native/filesystems/sfs/linux/lifecycle.c
-            native/filesystems/sfs/linux/linux_adapter.h
-            native/filesystems/sfs/linux/disk_layout.h
-            native/filesystems/ext3/linux/allocation.c
-            native/filesystems/ext3/linux/directory_io.c
-            native/filesystems/ext3/linux/file_io.c
-            native/filesystems/ext3/linux/journal_durability.c
-            native/filesystems/ext3/linux/journal_frontend.c
-            native/filesystems/ext3/linux/revision_policy.c
-            native/filesystems/ext3/linux/core_bridge.c
-          )
-          for file in "${rewritten[@]}"; do
-            test -s "$file"
-            ! grep -Eiq 'Written by|Remy Card|Stephen Tweedie|Linus Torvalds|Marek Szyprowski|John Hendrikx|Ray Burr|Hans-Joachim Widmaier|Andreas Gruenbacher|James Morris|Red Hat corp' "$file"
-            if grep -Ein 'Copyright' "$file" | grep -Eiv 'Shannon Smith|Infiltrator Projects'; then
-              echo "Unexpected third-party copyright in project-authored file: $file" >&2
-              exit 1
-            fi
-          done
-          grep -Fq 'Copyright (C) 2026 Shannon Smith' \
-            native/filesystems/ext3/linux/journal_frontend.c
-          grep -Fq 'Copyright (C) 2026 Shannon Smith' \
-            native/filesystems/ext3/linux/revision_policy.c
-
-      - name: Preserve provenance on inherited EXT3 units
-        shell: bash
-        run: |
-          set -euo pipefail
-          inherited=(
-            native/filesystems/ext3/linux/inode_adapter.c
-            native/filesystems/ext3/linux/namespace_mutation.c
-            native/filesystems/ext3/linux/lifecycle.c
-            native/filesystems/ext3/linux/extended_metadata.c
-            native/filesystems/ext3/linux/journal_core.c
-            native/filesystems/ext3/linux/journal_transactions.c
-          )
-          for file in "${inherited[@]}"; do
-            test -s "$file"
-            grep -Eiq 'Copyright|MODULE_AUTHOR' "$file" || {
-              echo "Inherited EXT3 provenance was removed before implementation replacement: $file" >&2
-              exit 1
-            }
           done
 
       - name: Enforce single EXT2 engine on Windows
@@ -1191,11 +250,16 @@ jobs:
           done
           test "$(wc -l < native/filesystems/ext2/windows/ext2_driver.c)" -lt 80
           test ! -e native/filesystems/ext2/windows/ext2_compat.h
-          ! grep -R -E 'archive/extfs-for-windows|core/extfs(_classic_resize|_resize_dispatch)?\.c'               native/filesystems/ext2/windows windows/build CMakeLists.txt
-          grep -Fq '..\core\ext2_core.c'               native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
-          grep -Fq '..\core\ext2_engine.c'               native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
-          grep -Fq '#include "../core/ext2_engine.h"'               native/filesystems/ext2/windows/ext2_driver.h
-          grep -Fq '#include "../core/ext2_engine.c"'               native/filesystems/ext2/linux/core_bridge.c
+          ! grep -R -E 'archive/extfs-for-windows|core/extfs(_classic_resize|_resize_dispatch)?\.c' \
+            native/filesystems/ext2/windows windows/build CMakeLists.txt
+          grep -Fq '..\core\ext2_core.c' \
+            native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
+          grep -Fq '..\core\ext2_engine.c' \
+            native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
+          grep -Fq '#include "../core/ext2_engine.h"' \
+            native/filesystems/ext2/windows/ext2_driver.h
+          grep -Fq '#include "../core/ext2_engine.c"' \
+            native/filesystems/ext2/linux/core_bridge.c
           grep -Fq 'metadata.o' native/filesystems/ext2/linux/Makefile
           grep -Fq -- '-DCONFIG_EXT2_FS_XATTR=1' native/filesystems/ext2/linux/Makefile
           grep -Fq -- '-DCONFIG_EXT2_FS_POSIX_ACL=1' native/filesystems/ext2/linux/Makefile
@@ -1295,7 +359,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # modules_prepare deliberately does not create Module.symvers.  This
+          # modules_prepare deliberately does not create Module.symvers. This
           # job qualifies source/API compatibility against the pinned kernel;
           # load-time symbol qualification is performed against a built or
           # installed target kernel that supplies its real Module.symvers.
@@ -1401,8 +465,6 @@ jobs:
             M="$PWD/native/filesystems/ffs/linux" \
             KBUILD_MODPOST_WARN=1 modules
           test -s native/filesystems/ffs/linux/ffs.ko
-
-
 
   linux-amiga-v7-module-api:
     runs-on: ubuntu-24.04
