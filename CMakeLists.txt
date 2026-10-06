@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" FILESYSTEM_SUPPORT_VERSION)
 string(STRIP "${FILESYSTEM_SUPPORT_VERSION}" FILESYSTEM_SUPPORT_VERSION)
-if(NOT FILESYSTEM_SUPPORT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+if(NOT FILESYSTEM_SUPPORT_VERSION MATCHES "^[0-9]+\.[0-9]+\.[0-9]+$")
     message(FATAL_ERROR "VERSION must contain major.minor.patch")
 endif()
 
@@ -230,6 +230,13 @@ if(UNIX)
     install(PROGRAMS packaging/linux/native-module-helper.sh
         DESTINATION "lib/infiltrator-filesystem-support"
         RENAME native-module-helper)
+
+    # Shared kernel-safe adapter source is compiled directly into each
+    # filesystem module that consumes it.  It is not installed as a shared
+    # runtime module and therefore cannot couple the .ko lifecycles together.
+    install(DIRECTORY "native/platform/linux_kernel/"
+        DESTINATION "lib/infiltrator-filesystem-support/native/platform/linux_kernel"
+        FILES_MATCHING PATTERN "*.h")
 
     foreach(native_fs IN ITEMS ext2 ext3 ext4 ofs ffs sfs sfs2 pfs3)
         install(DIRECTORY

@@ -28,6 +28,7 @@ esac
 self_dir=$(cd "$(dirname "$0")" && pwd)
 source_fs="$self_dir/native/filesystems/$filesystem"
 source_linux="$source_fs/linux"
+source_platform="$self_dir/native/platform/linux_kernel"
 kernel=$(uname -r)
 kernel_build="/lib/modules/$kernel/build"
 destination_dir="/lib/modules/$kernel/updates/infiltrator"
@@ -89,7 +90,8 @@ secure_boot_enabled() {
     fi
 
     local variable
-    variable=$(find /sys/firmware/efi/efivars -maxdepth 1         -name 'SecureBoot-*' -type f -print -quit 2>/dev/null || true)
+    variable=$(find /sys/firmware/efi/efivars -maxdepth 1 \
+        -name 'SecureBoot-*' -type f -print -quit 2>/dev/null || true)
     [[ -n "$variable" ]] || return 1
 
     [[ "$(od -An -t u1 -j 4 -N 1 "$variable" 2>/dev/null | tr -d '[:space:]')" == "1" ]]
@@ -101,7 +103,8 @@ kernel_build_compiler() {
 
     if [[ -r "$compile_header" ]]; then
         compiler=$(
-            sed -n 's/^#define LINUX_COMPILER "\([^ ]*\).*/\1/p'                 "$compile_header" | head -n1
+            sed -n 's/^#define LINUX_COMPILER "\([^ ]*\).*/\1/p' \
+                "$compile_header" | head -n1
         )
     fi
 
@@ -176,22 +179,33 @@ install_native() {
         echo "packaged native source is missing for $filesystem" >&2
         exit 1
     }
+    [[ -f "$source_platform/vfs_compat.h" ]] || {
+        echo "packaged shared Linux kernel adapter source is missing" >&2
+        exit 1
+    }
 
     ensure_build_environment
 
     local tmp
+    local tmp_native
     tmp=$(mktemp -d)
     cleanup_tmp=$tmp
+    tmp_native="$tmp/native"
 
-    mkdir -p "$tmp/$filesystem"
-    cp -a "$source_fs/core" "$tmp/$filesystem/core"
-    cp -a "$source_linux" "$tmp/$filesystem/linux"
+    mkdir -p \
+        "$tmp_native/filesystems/$filesystem" \
+        "$tmp_native/platform"
+    cp -a "$source_fs/core" "$tmp_native/filesystems/$filesystem/core"
+    cp -a "$source_linux" "$tmp_native/filesystems/$filesystem/linux"
+    cp -a "$source_platform" "$tmp_native/platform/linux_kernel"
 
     local build_cc
     build_cc=$(kernel_build_compiler)
-    make -C "$kernel_build" M="$tmp/$filesystem/linux" CC="$build_cc" modules
+    make -C "$kernel_build" \
+        M="$tmp_native/filesystems/$filesystem/linux" \
+        CC="$build_cc" modules
 
-    local built="$tmp/$filesystem/linux/$module.ko"
+    local built="$tmp_native/filesystems/$filesystem/linux/$module.ko"
     [[ -s "$built" ]] || {
         echo "kernel build did not produce $module.ko" >&2
         exit 1
