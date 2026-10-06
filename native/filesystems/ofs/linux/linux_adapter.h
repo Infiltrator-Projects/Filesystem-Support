@@ -16,6 +16,7 @@
 #include "../core/ofs_primitives.h"
 #include "../../../platform/linux_kernel/vfs_compat.h"
 
+/* Shared Linux adapter source is compiled into ofs.ko; no sibling module is required. */
 #define IFS_OFS_AOPS_WRITE_CONTEXT IFS_LINUX_AOPS_WRITE_CONTEXT
 #define IFS_OFS_AOPS_WRITE_CONTEXT_ARG IFS_LINUX_AOPS_WRITE_CONTEXT_ARG
 #define IFS_OFS_INODE_IS_NEW(inode) IFS_LINUX_INODE_IS_NEW(inode)
