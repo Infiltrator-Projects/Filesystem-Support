@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "action_policy.hpp"
 #include "catalog.hpp"
 #include "installer.hpp"
 #include "probe.hpp"
@@ -306,36 +307,16 @@ void set_button_semantics(GtkWidget* button,
     }
 }
 
-const char* install_label(const fs::FilesystemDescriptor& descriptor)
+void apply_button_policy(GtkWidget* button, const fs::ButtonPolicy& policy)
 {
-    switch (descriptor.provider) {
-    case fs::SupportProvider::Userspace:
-    case fs::SupportProvider::Dkms:
-        return "Install support";
-    case fs::SupportProvider::KernelWithUserspace:
-        return "Install userspace";
-    case fs::SupportProvider::ToolsOnly:
-        return "Install tools";
-    case fs::SupportProvider::Kernel:
-        return "No package";
+    gtk_widget_set_visible(button, policy.visible ? TRUE : FALSE);
+    if (!policy.visible) {
+        return;
     }
-    return "Install";
-}
-
-const char* remove_label(const fs::FilesystemDescriptor& descriptor)
-{
-    switch (descriptor.provider) {
-    case fs::SupportProvider::Userspace:
-    case fs::SupportProvider::Dkms:
-        return "Remove support";
-    case fs::SupportProvider::KernelWithUserspace:
-        return "Remove userspace";
-    case fs::SupportProvider::ToolsOnly:
-        return "Remove tools";
-    case fs::SupportProvider::Kernel:
-        return "No package";
-    }
-    return "Remove";
+    const std::string label(policy.label);
+    gtk_button_set_label(GTK_BUTTON(button), label.c_str());
+    gtk_widget_set_sensitive(button, policy.enabled ? TRUE : FALSE);
+    set_button_semantics(button, policy.primary, policy.destructive);
 }
 
 void render_row(RowState* row)
@@ -372,104 +353,17 @@ void render_row(RowState* row)
         GTK_LABEL(row->status), fs::support_state_label(row->probe.state));
     set_status_semantics(row->status, row->probe.state);
 
-    std::string detail =
-        std::string("Support path: ") +
-        fs::support_provider_label(row->descriptor->provider);
-    if (!row->descriptor->modules.empty()) {
-        detail += "  •  ";
-        if (row->descriptor->project_native_linux) {
-            detail += "Infiltrator native: ";
-            if (!row->probe.project_native_installed) {
-                detail += "not installed";
-            } else if (!row->probe.project_native_selected) {
-                detail += "installed, not selected by kernel";
-            } else {
-                detail += fs::kernel_state_label(row->probe.kernel_state);
-            }
-        } else {
-            detail += "Kernel: ";
-            detail += fs::kernel_state_label(row->probe.kernel_state);
-        }
-    }
-    if (!row->probe.detail.empty()) {
-        detail += ". ";
-        detail += row->probe.detail;
-    }
+    const std::string detail =
+        fs::support_detail_text(*row->descriptor, row->probe);
     gtk_label_set_text(GTK_LABEL(row->detail), detail.c_str());
 
-    if (row->descriptor->packages.empty()) {
-        gtk_widget_hide(row->package_button);
-    } else {
-        gtk_widget_show(row->package_button);
-        const bool missing = !row->probe.missing_packages.empty();
-        const bool unavailable = !row->probe.unavailable_packages.empty();
+    const fs::PackageActionPolicy package_policy =
+        fs::package_action_policy(*row->descriptor, row->probe);
+    apply_button_policy(row->package_button, package_policy.button);
 
-        if (missing) {
-            gtk_button_set_label(
-                GTK_BUTTON(row->package_button), install_label(*row->descriptor));
-            gtk_widget_set_sensitive(
-                row->package_button, unavailable ? FALSE : TRUE);
-            set_button_semantics(row->package_button, !unavailable, false);
-        } else if (unavailable) {
-            gtk_button_set_label(
-                GTK_BUTTON(row->package_button), "Package unavailable");
-            gtk_widget_set_sensitive(row->package_button, FALSE);
-            set_button_semantics(row->package_button, false, false);
-        } else {
-            gtk_button_set_label(
-                GTK_BUTTON(row->package_button), remove_label(*row->descriptor));
-            gtk_widget_set_sensitive(row->package_button, TRUE);
-            set_button_semantics(row->package_button, false, true);
-        }
-    }
-
-    if (row->descriptor->modules.empty()) {
-        gtk_widget_hide(row->module_button);
-        return;
-    }
-
-    gtk_widget_show(row->module_button);
-    if (row->descriptor->project_native_linux) {
-        gtk_button_set_label(
-            GTK_BUTTON(row->module_button),
-            row->probe.project_native_installed ? "Remove native" : "Install native");
-        gtk_widget_set_sensitive(row->module_button, TRUE);
-        set_button_semantics(
-            row->module_button,
-            !row->probe.project_native_installed,
-            row->probe.project_native_installed);
-        return;
-    }
-
-    switch (row->probe.kernel_state) {
-    case fs::KernelState::NotApplicable:
-        gtk_widget_hide(row->module_button);
-        break;
-    case fs::KernelState::BuiltIn:
-        gtk_button_set_label(GTK_BUTTON(row->module_button), "Built into kernel");
-        gtk_widget_set_sensitive(row->module_button, FALSE);
-        set_button_semantics(row->module_button, false, false);
-        break;
-    case fs::KernelState::LoadableUnloaded:
-        gtk_button_set_label(GTK_BUTTON(row->module_button), "Load module");
-        gtk_widget_set_sensitive(row->module_button, TRUE);
-        set_button_semantics(row->module_button, true, false);
-        break;
-    case fs::KernelState::LoadableLoaded:
-        gtk_button_set_label(GTK_BUTTON(row->module_button), "Unload module");
-        gtk_widget_set_sensitive(row->module_button, TRUE);
-        set_button_semantics(row->module_button, false, true);
-        break;
-    case fs::KernelState::Missing:
-        gtk_button_set_label(
-            GTK_BUTTON(row->module_button),
-            row->descriptor->provider == fs::SupportProvider::Dkms
-                ? "Driver not installed"
-                : "Requires different kernel");
-        gtk_widget_set_sensitive(row->module_button, FALSE);
-        set_button_semantics(row->module_button, false, false);
-        break;
-    }
+    const fs::ModuleActionPolicy module_policy =
+        fs::module_action_policy(*row->descriptor, row->probe);
+    apply_button_policy(row->module_button, module_policy.button);
 }
 
 bool row_matches_filter(const RowState& row, const ViewFilter filter)
@@ -758,12 +652,16 @@ bool confirm_removal(GtkWindow* parent, const fs::RemovalPlan& plan)
 void package_clicked(GtkButton*, gpointer user_data)
 {
     auto* row = static_cast<RowState*>(user_data);
-    if (row == nullptr || row->app == nullptr || !row->probed) {
+    if (row == nullptr || row->app == nullptr || !row->probed ||
+        row->descriptor == nullptr) {
         return;
     }
 
     AppState* state = row->app;
-    if (!row->probe.missing_packages.empty()) {
+    const fs::PackageActionPolicy policy =
+        fs::package_action_policy(*row->descriptor, row->probe);
+
+    if (policy.action == fs::PackageActionKind::Install) {
         gtk_widget_set_sensitive(row->package_button, FALSE);
         gtk_button_set_label(GTK_BUTTON(row->package_button), "Installing…");
         fs::install_packages_async(
@@ -782,8 +680,12 @@ void package_clicked(GtkButton*, gpointer user_data)
         return;
     }
 
-    if (row->descriptor->provider == fs::SupportProvider::Dkms &&
-        row->probe.kernel_state == fs::KernelState::LoadableLoaded) {
+    if (policy.action != fs::PackageActionKind::Remove) {
+        render_row(row);
+        return;
+    }
+
+    if (policy.removal_requires_module_unload) {
         show_message(
             GTK_WINDOW(state->window), GTK_MESSAGE_WARNING,
             "Unload module first",
@@ -837,12 +739,19 @@ void module_clicked(GtkButton*, gpointer user_data)
 {
     auto* row = static_cast<RowState*>(user_data);
     if (row == nullptr || row->app == nullptr || !row->probed ||
-        row->probe.module_name.empty()) {
+        row->descriptor == nullptr || row->probe.module_name.empty()) {
         return;
     }
 
     AppState* state = row->app;
     const std::string module = row->probe.module_name;
+    const fs::ModuleActionPolicy policy =
+        fs::module_action_policy(*row->descriptor, row->probe);
+    if (policy.action == fs::ModuleActionKind::None) {
+        render_row(row);
+        return;
+    }
+
     gtk_widget_set_sensitive(row->module_button, FALSE);
 
     auto complete = [state](const char* title,
@@ -858,40 +767,45 @@ void module_clicked(GtkButton*, gpointer user_data)
         start_scan(state);
     };
 
-    if (row->descriptor->project_native_linux) {
+    switch (policy.action) {
+    case fs::ModuleActionKind::InstallNative: {
+        gtk_button_set_label(GTK_BUTTON(row->module_button), "Installing native…");
         const std::string filesystem_id(row->descriptor->id);
-        if (row->probe.project_native_installed) {
-            gtk_button_set_label(GTK_BUTTON(row->module_button), "Removing native…");
-            fs::remove_native_module_async(
-                filesystem_id, module,
-                [complete](const bool success, const std::string& message) {
-                    complete("Native module removal failed", success, message);
-                });
-        } else {
-            gtk_button_set_label(GTK_BUTTON(row->module_button), "Installing native…");
-            fs::install_native_module_async(
-                filesystem_id, module,
-                [complete](const bool success, const std::string& message) {
-                    complete("Native module installation failed", success, message);
-                });
-        }
-        return;
+        fs::install_native_module_async(
+            filesystem_id, module,
+            [complete](const bool success, const std::string& message) {
+                complete("Native module installation failed", success, message);
+            });
+        break;
     }
-
-    if (row->probe.kernel_state == fs::KernelState::LoadableUnloaded) {
+    case fs::ModuleActionKind::RemoveNative: {
+        gtk_button_set_label(GTK_BUTTON(row->module_button), "Removing native…");
+        const std::string filesystem_id(row->descriptor->id);
+        fs::remove_native_module_async(
+            filesystem_id, module,
+            [complete](const bool success, const std::string& message) {
+                complete("Native module removal failed", success, message);
+            });
+        break;
+    }
+    case fs::ModuleActionKind::Load:
         gtk_button_set_label(GTK_BUTTON(row->module_button), "Loading…");
         fs::load_module_async(
             module,
             [complete](const bool success, const std::string& message) {
                 complete("Module load failed", success, message);
             });
-    } else if (row->probe.kernel_state == fs::KernelState::LoadableLoaded) {
+        break;
+    case fs::ModuleActionKind::Unload:
         gtk_button_set_label(GTK_BUTTON(row->module_button), "Unloading…");
         fs::unload_module_async(
             module,
             [complete](const bool success, const std::string& message) {
                 complete("Module unload failed", success, message);
             });
+        break;
+    case fs::ModuleActionKind::None:
+        break;
     }
 }
 
