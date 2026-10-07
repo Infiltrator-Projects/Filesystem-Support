@@ -22,8 +22,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(FILESYSTEM_SUPPORT_WARNINGS_AS_ERRORS "Treat warnings as errors" ON)
 
 # One deployment manifest owns the project-native Linux filesystem/module set
-# and the Amiga desktop-integration subset. Build, packaging and runtime helpers
-# consume this same file instead of carrying independent handwritten lists.
+# and the Amiga desktop-integration subset. Build, catalogue policy, packaging
+# and runtime helpers consume this same file instead of carrying handwritten
+# copies of native filesystem/module membership.
 set(FILESYSTEM_SUPPORT_NATIVE_MANIFEST
     "${CMAKE_CURRENT_SOURCE_DIR}/data/native-filesystems.tsv")
 file(STRINGS "${FILESYSTEM_SUPPORT_NATIVE_MANIFEST}"
@@ -83,6 +84,26 @@ endforeach()
 if(NOT FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
     message(FATAL_ERROR "Native filesystem deployment manifest is empty")
 endif()
+
+# Generate the C++ native policy directly from the same deployment manifest.
+# catalog.cpp therefore cannot acquire a second, independently maintained list
+# of native filesystem IDs or kernel-module names.
+set(FILESYSTEM_SUPPORT_GENERATED_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${FILESYSTEM_SUPPORT_GENERATED_DIR}")
+set(FILESYSTEM_SUPPORT_NATIVE_POLICY_HEADER
+    "${FILESYSTEM_SUPPORT_GENERATED_DIR}/native_filesystems.generated.hpp")
+list(LENGTH FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS
+    FILESYSTEM_SUPPORT_NATIVE_FILESYSTEM_COUNT)
+set(native_policy_header
+    "// Generated from data/native-filesystems.tsv; do not edit.\n#pragma once\n\n#include <array>\n#include <string_view>\n\nnamespace filesystem_support {\n\nstruct NativeFilesystemPolicy {\n    std::string_view filesystem_id;\n    std::string_view module;\n};\n\ninline constexpr std::array<NativeFilesystemPolicy, ${FILESYSTEM_SUPPORT_NATIVE_FILESYSTEM_COUNT}> kNativeFilesystemPolicies = {{\n")
+foreach(native_fs IN LISTS FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
+    set(native_module "${FILESYSTEM_SUPPORT_NATIVE_MODULE_${native_fs}}")
+    string(APPEND native_policy_header
+        "    {\"${native_fs}\", \"${native_module}\"},\n")
+endforeach()
+string(APPEND native_policy_header "}};\n\n} // namespace filesystem_support\n")
+file(WRITE "${FILESYSTEM_SUPPORT_NATIVE_POLICY_HEADER}" "${native_policy_header}")
 
 set(INFILTRATR_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/infiltratr-common")
 set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.38")
@@ -216,7 +237,8 @@ add_library(filesystem-support-catalog STATIC
     src/catalog.cpp
     src/platform_support.cpp)
 target_include_directories(filesystem-support-catalog
-    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    PRIVATE "${FILESYSTEM_SUPPORT_GENERATED_DIR}")
 target_link_libraries(filesystem-support-catalog
     PUBLIC InfiltratrCommon::Portable)
 target_compile_definitions(filesystem-support-catalog
@@ -260,7 +282,8 @@ if(UNIX)
     filesystem_support_configure(fsinspect)
 
     add_library(filesystem-support-core STATIC
-        src/probe.cpp)
+        src/probe.cpp
+        src/action_policy.cpp)
     target_include_directories(filesystem-support-core
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(filesystem-support-core
