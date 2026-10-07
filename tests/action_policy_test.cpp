@@ -163,7 +163,7 @@ int main()
     const std::string native_detail =
         support_detail_text(*ext3, native_installed);
     if (native_detail.find("Infiltrator native") == std::string::npos ||
-        native_detail.find("Loaded") == std::string::npos) {
+        native_detail.find("Kernel module loaded") == std::string::npos) {
         return fail("support detail policy lost native state");
     }
 
