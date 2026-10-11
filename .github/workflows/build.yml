@@ -190,21 +190,25 @@ jobs:
           make -C /tmp/linux-7.0 defconfig
           make -C /tmp/linux-7.0 modules_prepare
 
-      - name: Build every Amiga native module from the deployment manifest
+      - name: Build every desktop-integrated Amiga native module
         shell: bash
         run: |
           set -euo pipefail
 
-          while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+          while IFS=$'\t' read -r fs desktop_variant; do
             [[ -n "$fs" && "${fs:0:1}" != "#" ]] || continue
-            [[ "$desktop_kind" == "amiga" ]] || continue
+            module=$(awk -F '\t' -v fs="$fs" '
+              $0 !~ /^#/ && $1 == fs { print $2; found = 1; exit }
+              END { if (!found) exit 1 }
+            ' data/native-filesystems.tsv)
+            [[ -n "$module" ]]
             log="/tmp/${fs}-v7-build.log"
             make -C /tmp/linux-7.0 \
               M="$PWD/native/filesystems/$fs/linux" \
               KBUILD_MODPOST_WARN=1 modules 2>&1 | tee "$log"
             test -s "native/filesystems/$fs/linux/$module.ko"
             ! grep -Fq 'section mismatch' "$log"
-          done < data/native-filesystems.tsv
+          done < data/desktop-filesystems.tsv
 
   windows-manager:
     runs-on: windows-latest
@@ -228,7 +232,7 @@ jobs:
           $manager = Get-ChildItem -LiteralPath build-windows -Filter filesystem-support.exe -File -Recurse |
               Select-Object -First 1
           if (-not $manager) {
-              throw 'Windows Filesystem Support manager was not produced.'
+            throw 'Windows Filesystem Support manager was not produced.'
           }
           Write-Host "Manager: $($manager.FullName)"
 
@@ -252,7 +256,7 @@ jobs:
           $cat = 'release\windows\ext2\x64\filesystem_support_ext2.cat'
           foreach ($path in @($driver, $inf, $cat)) {
               if (-not (Test-Path -LiteralPath $path)) {
-                  throw "Expected staged EXT2 driver artifact missing: $path"
+                throw "Expected staged EXT2 driver artifact missing: $path"
               }
           }
           Get-FileHash -Algorithm SHA256 -LiteralPath $driver, $cat | Format-Table

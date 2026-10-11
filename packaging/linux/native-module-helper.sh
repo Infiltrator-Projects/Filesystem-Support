@@ -23,16 +23,13 @@ manifest="$self_dir/native-filesystems.tsv"
     exit 1
 }
 
-desktop_kind=$(
-    awk -F '\t' -v fs="$filesystem" -v mod="$module" '
-        $0 !~ /^#/ && NF == 4 && $1 == fs && $2 == mod {
-            print $3
-            found = 1
-            exit
-        }
-        END { if (!found) exit 1 }
-    ' "$manifest"
-) || {
+# Native deployment validates only the native identity/module pair. Desktop
+# membership is owned by desktop-integration and is deliberately not encoded
+# into the module transaction.
+awk -F '\t' -v fs="$filesystem" -v mod="$module" '
+    $0 !~ /^#/ && NF >= 2 && $1 == fs && $2 == mod { found = 1; exit }
+    END { exit found ? 0 : 1 }
+' "$manifest" || {
     echo "refusing unmanaged native filesystem module: $filesystem/$module" >&2
     exit 2
 }
@@ -80,12 +77,6 @@ ensure_build_environment() {
 
 module_loaded() {
     [[ -d "/sys/module/$module" ]]
-}
-
-refresh_desktop_identification() {
-    if [[ "$desktop_kind" == "amiga" ]]; then
-        "$self_dir/desktop-integration" "$1" "$filesystem"
-    fi
 }
 
 preferred_module_filename() {
@@ -180,13 +171,40 @@ EOF
     }
 }
 
-install_native() {
-    if [[ "$desktop_kind" == "amiga" ]]; then
-        [[ -x "$self_dir/desktop-integration" ]] || {
-            echo 'Desktop installer is missing' >&2
-            exit 1
-        }
+# Desktop identity is a follow-up presentation concern. desktop-integration
+# owns membership and state. A desktop failure is reported but never rolls back
+# a successfully committed kernel-module transaction.
+refresh_desktop_after_commit() {
+    local desktop_action=$1
+    local desktop_helper="$self_dir/desktop-integration"
+    local managed_status
+
+    [[ -x "$desktop_helper" ]] || return 0
+
+    set +e
+    "$desktop_helper" is-managed "$filesystem"
+    managed_status=$?
+    set -e
+
+    case "$managed_status" in
+        0)
+            ;;
+        3)
+            return 0
+            ;;
+        *)
+            echo "$filesystem kernel module transaction succeeded, but desktop integration policy could not be queried; kernel state was intentionally left committed." >&2
+            return 1
+            ;;
+    esac
+
+    if ! "$desktop_helper" "$desktop_action" "$filesystem"; then
+        echo "$filesystem kernel module transaction succeeded, but desktop integration failed; kernel state was intentionally left committed." >&2
+        return 1
     fi
+}
+
+install_native() {
     [[ -f "$source_linux/Makefile" ]] || {
         echo "packaged native source is missing for $filesystem" >&2
         exit 1
@@ -282,22 +300,15 @@ install_native() {
         exit 1
     fi
 
-    if ! refresh_desktop_identification install; then
-        modprobe -r "$module" >/dev/null 2>&1 || true
-        if [[ -n "$previous_copy" ]]; then install -m 0644 "$previous_copy" "$destination"; else rm -f "$destination"; fi
-        depmod -a "$kernel"
-        if [[ -n "$previous_copy" || ( -n "$previous_preferred" && "$previous_preferred" != '(builtin)' ) ]]; then modprobe "$module" >/dev/null 2>&1 || true; fi
-        echo "$filesystem desktop installation failed; native installation was rolled back" >&2
-        exit 1
-    fi
     echo "$filesystem native module installed and loaded for kernel $kernel"
+    refresh_desktop_after_commit install
 }
 
 remove_native() {
     if [[ ! -f "$destination" ]]; then
-        refresh_desktop_identification remove
         echo "$filesystem native module is not installed for kernel $kernel"
-        exit 0
+        refresh_desktop_after_commit remove
+        exit $?
     fi
 
     local selected
@@ -310,21 +321,12 @@ remove_native() {
         fi
     fi
 
-    local tmp
-    tmp=$(mktemp -d)
-    cleanup_tmp=$tmp
-    cp -a "$destination" "$tmp/previous.ko"
     rm -f "$destination"
     depmod -a "$kernel"
-    if ! refresh_desktop_identification remove; then
-        install -m 0644 "$tmp/previous.ko" "$destination"
-        depmod -a "$kernel"
-        modprobe "$module" >/dev/null 2>&1 || true
-        echo "$filesystem desktop removal failed; native module was restored" >&2
-        exit 1
-    fi
     rmdir "$destination_dir" 2>/dev/null || true
+
     echo "$filesystem native module removed for kernel $kernel"
+    refresh_desktop_after_commit remove
 }
 
 case "$action" in

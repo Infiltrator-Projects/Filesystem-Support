@@ -15,17 +15,17 @@ if root.exists(): shutil.rmtree(root)
 private = root / 'usr/lib/infiltrator-filesystem-support'
 templates = private / 'desktop/templates'
 templates.mkdir(parents=True)
-manifest = source / 'data/native-filesystems.tsv'
+manifest = source / 'data/desktop-filesystems.tsv'
 rows = []
 for line in manifest.read_text().splitlines():
     if not line or line.startswith('#'):
         continue
     fields = line.split('\t')
-    assert len(fields) == 4, fields
+    assert len(fields) == 2, fields
     rows.append(fields)
-kinds = tuple(fields[0] for fields in rows if fields[2] == 'amiga')
+kinds = tuple(fields[0] for fields in rows)
 assert kinds
-shutil.copy(manifest, private / 'native-filesystems.tsv')
+shutil.copy(manifest, private / 'desktop-filesystems.tsv')
 for kind in kinds:
     shutil.copy(build / f'desktop-test-templates/{kind}.so', templates / f'{kind}.so')
     shutil.copy(source / f'packaging/linux/desktop-rules/{kind}.rules', templates / f'{kind}.rules')

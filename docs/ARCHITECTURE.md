@@ -25,11 +25,11 @@ Filesystem identity, platform support policy and deployment state are different 
 
 `filesystem_identities()` is the cross-platform identity contract. It exposes only stable format information: ID, name, family, description and note. Windows, EFI, setup and other non-Linux consumers must use this identity-only contract and must not depend on Linux package names, kernel module names, provider classes or `project_native_linux` state.
 
-The current Linux manager retains the richer `catalog()` support-policy view because it needs Debian packages, Linux modules, provider/access state and project-native deployment information. That richer type is Linux policy, not the portable filesystem identity API. Until the underlying static data table is physically separated, the identity view is materialised from that table once; this storage detail must not leak back across the platform boundary.
+The Linux manager retains the richer `catalog()` support-policy view because it needs Debian packages, Linux modules, provider/access state and project-native deployment information. The stable identity table and Linux support-policy table are physically separate. `catalog()` materialises the Linux view by joining those contracts and then applying project-native deployment policy. A Linux package/provider change therefore cannot change the portable identity contract by construction.
 
 A change to Debian packaging or Linux module selection must therefore not require a Windows/EFI/setup consumer change unless the actual filesystem identity changed.
 
-The repository also keeps mutable filesystem-set knowledge out of CI YAML. `data/native-filesystems.tsv` is the authority for project-native deployment, `data/source-filesystems.txt` is the authority for in-repository format trees, and `data/retired-source-identities.txt` contains historical source identities that must remain absent. CI consumes those manifests rather than carrying independent handwritten copies.
+Mutable deployment sets also have explicit owners. `data/native-filesystems.tsv` is the authority for project-native Linux module deployment. `data/desktop-filesystems.tsv` is the separate authority for desktop identification membership and may reference only project-native filesystems. `data/source-filesystems.txt` is the authority for in-repository format trees, and `data/retired-source-identities.txt` contains historical source identities that must remain absent. CI consumes these authorities rather than carrying independent handwritten copies.
 
 ## Core layers
 
@@ -73,6 +73,8 @@ The main package owns the shared GNOME Disks and optional Nemo launcher diversio
 An OFS/FFS/SFS/SFS2/PFS3 install or remove operation owns only that filesystem's active desktop plugin and udev rule. Individual filesystem transactions must never create, remove or roll back the shared GNOME Disks/Nemo diversions. Shared launchers are removed only by package lifecycle cleanup after all active per-filesystem state has been removed.
 
 Each per-filesystem mutation runs in its own snapshot/rollback scope. A failed OFS transaction may restore OFS state only; it must not alter FFS, SFS, SFS2 or PFS3 state.
+
+Native kernel-module deployment and desktop identification are separate transactions. A successful module build/install/load/remove is committed before desktop integration is attempted. A later desktop/GNOME/udev failure is reported as partial failure but must never unload, restore or otherwise roll back the valid kernel-module state.
 
 ## InfiltratorOS setup path
 

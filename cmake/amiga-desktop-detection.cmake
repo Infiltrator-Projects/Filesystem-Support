@@ -1,15 +1,61 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Linux desktop media identification for the project-native Amiga filesystems.
-# Keep this integration separate from the filesystem implementations: the
-# kernel modules own mount semantics, while fsinspect publishes ID_FS_* to the
-# userspace storage stack before libblkid/udisks evaluate the device.
+# Linux desktop media identification for project-native Amiga filesystems.
+# Kernel deployment and desktop presentation deliberately have separate policy
+# manifests. Desktop policy may reference a native filesystem, but native
+# deployment never depends on desktop membership or presentation metadata.
 
 if(NOT TARGET fsinspect)
     message(FATAL_ERROR "Amiga desktop detection requires the fsinspect target")
 endif()
-if(NOT DEFINED FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS OR
-   NOT FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
-    message(FATAL_ERROR "Amiga desktop filesystems must come from the native deployment manifest")
+
+set(FILESYSTEM_SUPPORT_DESKTOP_MANIFEST
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/desktop-filesystems.tsv")
+file(STRINGS "${FILESYSTEM_SUPPORT_DESKTOP_MANIFEST}"
+    FILESYSTEM_SUPPORT_DESKTOP_MANIFEST_LINES)
+set(FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
+foreach(desktop_line IN LISTS FILESYSTEM_SUPPORT_DESKTOP_MANIFEST_LINES)
+    string(STRIP "${desktop_line}" desktop_line)
+    if(desktop_line STREQUAL "" OR desktop_line MATCHES "^#")
+        continue()
+    endif()
+
+    string(REPLACE "\t" ";" desktop_fields "${desktop_line}")
+    list(LENGTH desktop_fields desktop_field_count)
+    if(NOT desktop_field_count EQUAL 2)
+        message(FATAL_ERROR
+            "Invalid desktop filesystem manifest row: ${desktop_line}")
+    endif()
+
+    list(GET desktop_fields 0 desktop_fs)
+    list(GET desktop_fields 1 desktop_variant)
+    if(NOT desktop_fs MATCHES "^[A-Za-z0-9_.+-]+$" OR
+       NOT desktop_variant MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR
+            "Invalid desktop filesystem policy: ${desktop_line}")
+    endif()
+
+    list(FIND FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS
+        "${desktop_fs}" desktop_duplicate_index)
+    if(NOT desktop_duplicate_index EQUAL -1)
+        message(FATAL_ERROR
+            "Duplicate desktop filesystem in manifest: ${desktop_fs}")
+    endif()
+
+    # Desktop support is an optional consumer of a native filesystem. This is
+    # the only permitted direction of dependency between these policy sets.
+    list(FIND FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS
+        "${desktop_fs}" native_index)
+    if(native_index EQUAL -1)
+        message(FATAL_ERROR
+            "Desktop filesystem ${desktop_fs} is not a managed native filesystem")
+    endif()
+
+    list(APPEND FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS "${desktop_fs}")
+    set("FILESYSTEM_SUPPORT_DESKTOP_VARIANT_${desktop_fs}"
+        "${desktop_variant}")
+endforeach()
+if(NOT FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
+    message(FATAL_ERROR "Desktop filesystem manifest is empty")
 endif()
 
 target_link_libraries(fsinspect
@@ -26,6 +72,9 @@ find_package(Threads REQUIRED)
 set(desktop_templates "lib/infiltrator-filesystem-support/desktop/templates")
 install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-integration.sh"
     DESTINATION "lib/infiltrator-filesystem-support" RENAME desktop-integration)
+install(FILES "${FILESYSTEM_SUPPORT_DESKTOP_MANIFEST}"
+    DESTINATION "lib/infiltrator-filesystem-support"
+    RENAME desktop-filesystems.tsv)
 install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/gnome-disks-wrapper"
     DESTINATION "${desktop_templates}" RENAME gnome-disks)
 install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/nemo-wrapper"
@@ -82,6 +131,13 @@ if(BUILD_TESTING)
     add_test(NAME filesystem-support-desktop-install
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop_install_test.py"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+    add_test(NAME filesystem-support-native-helper-boundary
+        COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_helper_boundary_test.sh"
+            "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME filesystem-support-desktop-manifest-boundary
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop_manifest_boundary_test.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 # The detector is invoked by udev at runtime. Reload and retrigger block-device

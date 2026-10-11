@@ -15,26 +15,26 @@ self_dir=$(cd "$(dirname "$0")" && pwd)
 templates="$self_dir/desktop/templates"
 active="$base/usr/lib/infiltrator-filesystem-support/desktop/active"
 rules="$base/etc/udev/rules.d"
-manifest="$base/usr/lib/infiltrator-filesystem-support/native-filesystems.tsv"
+manifest="$base/usr/lib/infiltrator-filesystem-support/desktop-filesystems.tsv"
 disks_original="$base/usr/bin/gnome-disks.filesystem-support-original"
 disks_launcher="$base/usr/bin/gnome-disks"
 nemo_original="$base/usr/bin/nemo.filesystem-support-original"
 nemo_launcher="$base/usr/bin/nemo"
 package=infiltrator-filesystem-support
 kernel=$(uname -r)
-[[ -r "$manifest" ]] || { echo 'native filesystem deployment manifest is missing' >&2; exit 1; }
+[[ -r "$manifest" ]] || { echo 'desktop filesystem manifest is missing' >&2; exit 1; }
 mkdir -p "$base/run/lock"
 exec 9>"$base/run/lock/infiltrator-filesystem-support-desktop.lock"
 flock -x 9
 
 desktop_filesystems() {
-    awk -F '\t' '$0 !~ /^#/ && NF == 4 && $3 == "amiga" { print $1 }' "$manifest"
+    awk -F '\t' '$0 !~ /^#/ && NF == 2 { print $1 }' "$manifest"
 }
 
 is_desktop_filesystem() {
     local requested=$1
     awk -F '\t' -v fs="$requested" '
-        $0 !~ /^#/ && NF == 4 && $1 == fs && $3 == "amiga" { found = 1; exit }
+        $0 !~ /^#/ && NF == 2 && $1 == fs { found = 1; exit }
         END { exit found ? 0 : 1 }
     ' "$manifest"
 }
@@ -243,6 +243,13 @@ remove_kind() {
 [[ $# -ge 1 ]] || exit 2
 action=$1
 case "$action" in
+    is-managed)
+        [[ $# -eq 2 ]] || exit 2
+        if is_desktop_filesystem "$2"; then
+            exit 0
+        fi
+        exit 3
+        ;;
     install|remove)
         [[ $# -eq 2 ]] || exit 2
         kind=$2

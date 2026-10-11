@@ -1,0 +1,7 @@
+# Filesystem Support desktop integration manifest
+# id	desktop_variant
+ofs	1
+ffs	2
+sfs	3
+sfs2	4
+pfs3	5
