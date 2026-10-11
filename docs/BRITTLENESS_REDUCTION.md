@@ -12,12 +12,22 @@ Per-filesystem desktop transactions own only the selected filesystem's active id
 
 Shared launchers are package-lifecycle infrastructure. They are not owned by any individual filesystem transaction.
 
+## Data ownership boundaries
+
+Cross-platform filesystem identity and Linux support policy are separate authorities. `filesystem_identities()` owns stable on-media identity only: ID, name, family, description and note. It has no Linux package, module, provider or deployment-state dependency.
+
+`linux_support_policies()` owns Linux-only access policy: packages, modules, provider class and access mode. The Linux `catalog()` is a materialized join of these two contracts plus project-native deployment policy. Windows, EFI and setup consumers therefore cannot inherit Debian policy simply by consuming filesystem identity.
+
+Native kernel deployment membership and desktop integration membership are also separate. `data/native-filesystems.tsv` determines which project-owned Linux modules can be managed. `data/desktop-filesystems.tsv` determines which of those filesystems participate in desktop identification. Desktop policy may depend on a native filesystem existing; native deployment must not depend on desktop presentation metadata.
+
 ## Coupling rules
 
 - Filesystem semantics remain inside each canonical filesystem engine.
 - Linux module lifetime remains independent for each filesystem module.
 - Presentation/integration failure cannot roll back valid kernel state.
 - Package-level shared infrastructure cannot be removed while any dependent filesystem integration is active.
+- Stable filesystem identity must not depend on Linux provider or package policy.
+- Native module deployment must not depend on desktop-integration membership.
 - Cross-filesystem lists must have one explicit authority; CI must consume that authority rather than duplicate handwritten lists.
 - A coordinator may sequence independent transactions, but it must preserve the ownership and rollback boundary of each transaction.
 
