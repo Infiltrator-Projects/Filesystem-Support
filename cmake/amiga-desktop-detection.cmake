@@ -134,6 +134,10 @@ if(BUILD_TESTING)
     add_test(NAME filesystem-support-native-helper-boundary
         COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_helper_boundary_test.sh"
             "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME filesystem-support-desktop-manifest-boundary
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop_manifest_boundary_test.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 # The detector is invoked by udev at runtime. Reload and retrigger block-device
