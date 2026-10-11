@@ -16,9 +16,20 @@ import sys
 coordinator = Path(sys.argv[1]).read_text()
 kernel = Path(sys.argv[2]).read_text()
 
+# Boundary checks inspect executable shell, not comments. Documentation may
+# describe the boundary; only executable ownership is forbidden to cross it.
+def shell_code(text: str) -> str:
+    return '\n'.join(
+        line for line in text.splitlines()
+        if not line.lstrip().startswith('#')
+    )
+
+coordinator_code = shell_code(coordinator)
+kernel_code = shell_code(kernel)
+
 # The kernel transaction must be presentation-blind. These are architectural
-# boundaries, not naming conventions: if any token returns, kernel rollback can
-# once again become coupled to desktop state.
+# boundaries, not naming conventions: if executable references return, kernel
+# rollback can once again become coupled to presentation state.
 for token in (
     'desktop-integration',
     'refresh_desktop',
@@ -26,7 +37,7 @@ for token in (
     'Nemo',
     'udev',
 ):
-    if token in kernel:
+    if token in kernel_code:
         raise SystemExit(f'presentation concern leaked into kernel helper: {token}')
 
 for token in (
@@ -36,7 +47,7 @@ for token in (
     'sign_for_secure_boot',
     '/lib/modules/',
 ):
-    if token not in kernel:
+    if token not in kernel_code:
         raise SystemExit(f'kernel helper lost required kernel ownership: {token}')
 
 # The coordinator may sequence transactions, but must not own implementation or
@@ -47,7 +58,7 @@ for token in (
     'is-managed',
     'kernel state remains committed',
 ):
-    if token not in coordinator:
+    if token not in coordinator_code:
         raise SystemExit(f'missing coordinator boundary marker: {token}')
 
 for token in (
@@ -60,19 +71,20 @@ for token in (
     'restore_kind',
     'snapshot_kind',
 ):
-    if token in coordinator:
+    if token in coordinator_code:
         raise SystemExit(f'transaction implementation leaked into coordinator: {token}')
 
-kernel_commit = coordinator.index('"$kernel_helper" "$action" "$filesystem" "$module"')
-desktop_query = coordinator.index('"$desktop_helper" is-managed "$filesystem"')
+kernel_commit = coordinator_code.index('"$kernel_helper" "$action" "$filesystem" "$module"')
+desktop_query = coordinator_code.index('"$desktop_helper" is-managed "$filesystem"')
 if desktop_query <= kernel_commit:
     raise SystemExit('desktop transaction can run before the kernel transaction commits')
 
-# Historical cross-boundary rollback language must never return.
+# Historical cross-boundary rollback language must never return to executable
+# behaviour or failure reporting.
 for token in (
     'desktop installation failed; native installation was rolled back',
     'desktop removal failed; native module was restored',
 ):
-    if token in coordinator or token in kernel:
+    if token in coordinator_code or token in kernel_code:
         raise SystemExit(f'retired cross-boundary rollback returned: {token}')
 PY
