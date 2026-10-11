@@ -1,11 +1,11 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-set -euo pipefail
+set -eu
 
 repo=${1:?repository root required}
 helper="$repo/packaging/linux/native-module-helper.sh"
 
-[[ -r "$helper" ]]
+[ -r "$helper" ]
 
 # Desktop integration is allowed only after the kernel transaction has reached
 # its committed success path. It must never be part of a rollback branch.
