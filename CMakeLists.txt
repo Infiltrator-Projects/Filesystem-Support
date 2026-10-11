@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" FILESYSTEM_SUPPORT_VERSION)
 string(STRIP "${FILESYSTEM_SUPPORT_VERSION}" FILESYSTEM_SUPPORT_VERSION)
-if(NOT FILESYSTEM_SUPPORT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+if(NOT FILESYSTEM_SUPPORT_VERSION MATCHES "^[0-9]+\.[0-9]+\.[0-9]+$")
     message(FATAL_ERROR "VERSION must contain major.minor.patch")
 endif()
 
@@ -310,18 +310,21 @@ if(UNIX)
         DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
 
     # Project-owned native Linux filesystem modules are built against the
-    # running kernel at install time. Ship the exact source needed by the
-    # privileged helper rather than pretending a generic prebuilt .ko is
-    # portable across kernel ABIs.
+    # running kernel at install time. The coordinator and kernel transaction
+    # helper are separate installed programs so desktop policy can never leak
+    # into the kernel rollback implementation.
     install(PROGRAMS packaging/linux/native-module-helper.sh
         DESTINATION "lib/infiltrator-filesystem-support"
         RENAME native-module-helper)
+    install(PROGRAMS packaging/linux/kernel-module-helper.sh
+        DESTINATION "lib/infiltrator-filesystem-support"
+        RENAME kernel-module-helper)
     install(FILES "${FILESYSTEM_SUPPORT_NATIVE_MANIFEST}"
         DESTINATION "lib/infiltrator-filesystem-support"
         RENAME native-filesystems.tsv)
 
     # Shared kernel-safe adapter source is compiled directly into each
-    # filesystem module that consumes it.  It is not installed as a shared
+    # filesystem module that consumes it. It is not installed as a shared
     # runtime module and therefore cannot couple the .ko lifecycles together.
     install(DIRECTORY "native/platform/linux_kernel/"
         DESTINATION "lib/infiltrator-filesystem-support/native/platform/linux_kernel"
