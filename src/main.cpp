@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "action_policy.hpp"
 #include "catalog.hpp"
-#include "installer.hpp"
+#include "desktop_actions.hpp"
 #include "probe.hpp"
 
 #include <gio/gio.h>
@@ -619,16 +619,16 @@ void start_scan(AppState* state)
     g_object_unref(task);
 }
 
-bool confirm_removal(GtkWindow* parent, const fs::RemovalPlan& plan)
+bool confirm_removal(GtkWindow* parent, const fs::DesktopAction& action)
 {
     std::ostringstream body;
     body << "Debian's simulation plans to remove:";
-    for (const auto& package : plan.planned_packages) {
+    for (const auto& package : action.planned_packages) {
         body << "\n  • " << package;
     }
-    if (!plan.affected_entries.empty()) {
+    if (!action.affected_entries.empty()) {
         body << "\n\nFilesystem Support entries affected:";
-        for (const auto& entry : plan.affected_entries) {
+        for (const auto& entry : action.affected_entries) {
             body << "\n  • " << entry;
         }
     }
@@ -658,78 +658,46 @@ void package_clicked(GtkButton*, gpointer user_data)
     }
 
     AppState* state = row->app;
-    const fs::PackageActionPolicy policy =
-        fs::package_action_policy(*row->descriptor, row->probe);
+    fs::DesktopAction action =
+        fs::prepare_package_desktop_action(*row->descriptor, row->probe);
 
-    if (policy.action == fs::PackageActionKind::Install) {
-        gtk_widget_set_sensitive(row->package_button, FALSE);
-        gtk_button_set_label(GTK_BUTTON(row->package_button), "Installing…");
-        fs::install_packages_async(
-            row->probe.missing_packages,
-            [state](const bool success, const std::string& message) {
-                if (state->shutting_down) {
-                    return;
-                }
-                if (!success) {
-                    show_message(
-                        GTK_WINDOW(state->window), GTK_MESSAGE_ERROR,
-                        "Installation failed", message);
-                }
-                start_scan(state);
-            });
-        return;
-    }
-
-    if (policy.action != fs::PackageActionKind::Remove) {
+    switch (action.disposition) {
+    case fs::DesktopActionDisposition::None:
         render_row(row);
         return;
-    }
-
-    if (policy.removal_requires_module_unload) {
+    case fs::DesktopActionDisposition::Refresh:
+        start_scan(state);
+        return;
+    case fs::DesktopActionDisposition::Blocked:
+        render_row(row);
         show_message(
             GTK_WINDOW(state->window), GTK_MESSAGE_WARNING,
-            "Unload module first",
-            "The DKMS driver is currently loaded. Unload the kernel module before removing its Debian driver package.");
+            action.failure_title.c_str(), action.message);
         return;
-    }
-
-    std::vector<std::string> packages;
-    packages.reserve(row->descriptor->packages.size());
-    for (const auto package : row->descriptor->packages) {
-        packages.emplace_back(package);
+    case fs::DesktopActionDisposition::ConfirmRemoval:
+        if (!confirm_removal(GTK_WINDOW(state->window), action)) {
+            render_row(row);
+            return;
+        }
+        break;
+    case fs::DesktopActionDisposition::Execute:
+        break;
     }
 
     gtk_widget_set_sensitive(row->package_button, FALSE);
-    gtk_button_set_label(GTK_BUTTON(row->package_button), "Checking removal…");
-
-    const fs::RemovalPlan plan = fs::plan_package_removal(packages);
-    if (!plan.allowed) {
-        render_row(row);
-        show_message(
-            GTK_WINDOW(state->window), GTK_MESSAGE_WARNING,
-            "Removal blocked", plan.reason);
-        return;
-    }
-    if (plan.planned_packages.empty()) {
-        start_scan(state);
-        return;
-    }
-    if (!confirm_removal(GTK_WINDOW(state->window), plan)) {
-        render_row(row);
-        return;
-    }
-
-    gtk_button_set_label(GTK_BUTTON(row->package_button), "Removing…");
-    fs::remove_packages_async(
-        packages,
-        [state](const bool success, const std::string& message) {
+    gtk_button_set_label(
+        GTK_BUTTON(row->package_button), action.busy_label.c_str());
+    const std::string failure_title = action.failure_title;
+    fs::execute_desktop_action_async(
+        std::move(action),
+        [state, failure_title](const bool success, const std::string& message) {
             if (state->shutting_down) {
                 return;
             }
             if (!success) {
                 show_message(
                     GTK_WINDOW(state->window), GTK_MESSAGE_ERROR,
-                    "Removal failed", message);
+                    failure_title.c_str(), message);
             }
             start_scan(state);
         });
@@ -739,74 +707,44 @@ void module_clicked(GtkButton*, gpointer user_data)
 {
     auto* row = static_cast<RowState*>(user_data);
     if (row == nullptr || row->app == nullptr || !row->probed ||
-        row->descriptor == nullptr || row->probe.module_name.empty()) {
+        row->descriptor == nullptr) {
         return;
     }
 
     AppState* state = row->app;
-    const std::string module = row->probe.module_name;
-    const fs::ModuleActionPolicy policy =
-        fs::module_action_policy(*row->descriptor, row->probe);
-    if (policy.action == fs::ModuleActionKind::None) {
+    fs::DesktopAction action =
+        fs::prepare_module_desktop_action(*row->descriptor, row->probe);
+    if (action.disposition == fs::DesktopActionDisposition::None) {
         render_row(row);
+        return;
+    }
+    if (action.disposition != fs::DesktopActionDisposition::Execute) {
+        render_row(row);
+        if (!action.message.empty()) {
+            show_message(
+                GTK_WINDOW(state->window), GTK_MESSAGE_WARNING,
+                action.failure_title.c_str(), action.message);
+        }
         return;
     }
 
     gtk_widget_set_sensitive(row->module_button, FALSE);
-
-    auto complete = [state](const char* title,
-                            const bool success,
-                            const std::string& message) {
-        if (state->shutting_down) {
-            return;
-        }
-        if (!success) {
-            show_message(
-                GTK_WINDOW(state->window), GTK_MESSAGE_ERROR, title, message);
-        }
-        start_scan(state);
-    };
-
-    switch (policy.action) {
-    case fs::ModuleActionKind::InstallNative: {
-        gtk_button_set_label(GTK_BUTTON(row->module_button), "Installing native…");
-        const std::string filesystem_id(row->descriptor->id);
-        fs::install_native_module_async(
-            filesystem_id, module,
-            [complete](const bool success, const std::string& message) {
-                complete("Native module installation failed", success, message);
-            });
-        break;
-    }
-    case fs::ModuleActionKind::RemoveNative: {
-        gtk_button_set_label(GTK_BUTTON(row->module_button), "Removing native…");
-        const std::string filesystem_id(row->descriptor->id);
-        fs::remove_native_module_async(
-            filesystem_id, module,
-            [complete](const bool success, const std::string& message) {
-                complete("Native module removal failed", success, message);
-            });
-        break;
-    }
-    case fs::ModuleActionKind::Load:
-        gtk_button_set_label(GTK_BUTTON(row->module_button), "Loading…");
-        fs::load_module_async(
-            module,
-            [complete](const bool success, const std::string& message) {
-                complete("Module load failed", success, message);
-            });
-        break;
-    case fs::ModuleActionKind::Unload:
-        gtk_button_set_label(GTK_BUTTON(row->module_button), "Unloading…");
-        fs::unload_module_async(
-            module,
-            [complete](const bool success, const std::string& message) {
-                complete("Module unload failed", success, message);
-            });
-        break;
-    case fs::ModuleActionKind::None:
-        break;
-    }
+    gtk_button_set_label(
+        GTK_BUTTON(row->module_button), action.busy_label.c_str());
+    const std::string failure_title = action.failure_title;
+    fs::execute_desktop_action_async(
+        std::move(action),
+        [state, failure_title](const bool success, const std::string& message) {
+            if (state->shutting_down) {
+                return;
+            }
+            if (!success) {
+                show_message(
+                    GTK_WINDOW(state->window), GTK_MESSAGE_ERROR,
+                    failure_title.c_str(), message);
+            }
+            start_scan(state);
+        });
 }
 
 GtkWidget* make_label(const char* text,

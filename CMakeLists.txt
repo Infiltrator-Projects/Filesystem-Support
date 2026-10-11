@@ -21,16 +21,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(FILESYSTEM_SUPPORT_WARNINGS_AS_ERRORS "Treat warnings as errors" ON)
 
-# One deployment manifest owns the project-native Linux filesystem/module set
-# and the Amiga desktop-integration subset. Build, catalogue policy, packaging
-# and runtime helpers consume this same file instead of carrying handwritten
-# copies of native filesystem/module membership.
+# Native deployment policy owns only filesystem/module membership. Desktop
+# integration has an independent authority in data/desktop-filesystems.tsv and
+# must never influence which kernel modules are built, packaged or managed.
 set(FILESYSTEM_SUPPORT_NATIVE_MANIFEST
     "${CMAKE_CURRENT_SOURCE_DIR}/data/native-filesystems.tsv")
 file(STRINGS "${FILESYSTEM_SUPPORT_NATIVE_MANIFEST}"
     FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
 set(FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
-set(FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
+set(FILESYSTEM_SUPPORT_NATIVE_MODULES)
 foreach(native_line IN LISTS FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
     string(STRIP "${native_line}" native_line)
     if(native_line STREQUAL "" OR native_line MATCHES "^#")
@@ -39,15 +38,13 @@ foreach(native_line IN LISTS FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
 
     string(REPLACE "\t" ";" native_fields "${native_line}")
     list(LENGTH native_fields native_field_count)
-    if(NOT native_field_count EQUAL 4)
+    if(native_field_count LESS 2)
         message(FATAL_ERROR
             "Invalid native filesystem manifest row: ${native_line}")
     endif()
 
     list(GET native_fields 0 native_fs)
     list(GET native_fields 1 native_module)
-    list(GET native_fields 2 desktop_kind)
-    list(GET native_fields 3 desktop_variant)
     if(NOT native_fs MATCHES "^[A-Za-z0-9_.+-]+$" OR
        NOT native_module MATCHES "^[A-Za-z0-9_.+-]+$")
         message(FATAL_ERROR
@@ -60,26 +57,16 @@ foreach(native_line IN LISTS FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
         message(FATAL_ERROR
             "Duplicate native filesystem in manifest: ${native_fs}")
     endif()
-    list(APPEND FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS "${native_fs}")
-    set("FILESYSTEM_SUPPORT_NATIVE_MODULE_${native_fs}" "${native_module}")
-
-    if(desktop_kind STREQUAL "amiga")
-        if(NOT desktop_variant MATCHES "^[1-9][0-9]*$")
-            message(FATAL_ERROR
-                "Invalid Amiga desktop variant for ${native_fs}")
-        endif()
-        list(APPEND FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS "${native_fs}")
-        set("FILESYSTEM_SUPPORT_DESKTOP_VARIANT_${native_fs}"
-            "${desktop_variant}")
-    elseif(desktop_kind STREQUAL "none")
-        if(NOT desktop_variant STREQUAL "0")
-            message(FATAL_ERROR
-                "Non-desktop filesystem ${native_fs} must use desktop variant 0")
-        endif()
-    else()
+    list(FIND FILESYSTEM_SUPPORT_NATIVE_MODULES
+        "${native_module}" module_duplicate_index)
+    if(NOT module_duplicate_index EQUAL -1)
         message(FATAL_ERROR
-            "Unknown native desktop kind '${desktop_kind}' for ${native_fs}")
+            "Duplicate native module in manifest: ${native_module}")
     endif()
+
+    list(APPEND FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS "${native_fs}")
+    list(APPEND FILESYSTEM_SUPPORT_NATIVE_MODULES "${native_module}")
+    set("FILESYSTEM_SUPPORT_NATIVE_MODULE_${native_fs}" "${native_module}")
 endforeach()
 if(NOT FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
     message(FATAL_ERROR "Native filesystem deployment manifest is empty")
@@ -291,7 +278,8 @@ if(UNIX)
     filesystem_support_configure(filesystem-support-core)
 
     add_library(filesystem-support-actions STATIC
-        src/installer.cpp)
+        src/installer.cpp
+        src/desktop_actions.cpp)
     target_include_directories(filesystem-support-actions
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(filesystem-support-actions
@@ -474,6 +462,15 @@ if(BUILD_TESTING)
         add_test(
             NAME filesystem-support-action-policy
             COMMAND filesystem-support-action-policy-test)
+
+        add_executable(filesystem-support-desktop-actions-test
+            tests/desktop_actions_test.cpp)
+        target_link_libraries(filesystem-support-desktop-actions-test
+            PRIVATE filesystem-support-actions)
+        filesystem_support_configure(filesystem-support-desktop-actions-test)
+        add_test(
+            NAME filesystem-support-desktop-actions
+            COMMAND filesystem-support-desktop-actions-test)
     endif()
 endif()
 
