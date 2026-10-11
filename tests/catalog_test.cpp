@@ -31,8 +31,6 @@ bool has_id(const std::string_view id)
 struct NativeManifestEntry {
     std::string id;
     std::string module;
-    std::string desktop_kind;
-    int desktop_variant = 0;
 };
 
 bool load_native_manifest(const char* path,
@@ -51,39 +49,16 @@ bool load_native_manifest(const char* path,
 
         std::istringstream parser(line);
         NativeManifestEntry entry;
-        std::string variant;
         if (!std::getline(parser, entry.id, '\t') ||
-            !std::getline(parser, entry.module, '\t') ||
-            !std::getline(parser, entry.desktop_kind, '\t') ||
-            !std::getline(parser, variant, '\t')) {
+            !std::getline(parser, entry.module, '\t')) {
             return false;
         }
-        std::string extra;
-        if (std::getline(parser, extra, '\t')) {
-            return false;
-        }
-
-        try {
-            std::size_t consumed = 0U;
-            entry.desktop_variant = std::stoi(variant, &consumed);
-            if (consumed != variant.size()) {
-                return false;
-            }
-        } catch (...) {
-            return false;
-        }
-
-        if (entry.id.empty() || entry.module.empty() ||
-            (entry.desktop_kind != "none" && entry.desktop_kind != "amiga") ||
-            (entry.desktop_kind == "none" && entry.desktop_variant != 0) ||
-            (entry.desktop_kind == "amiga" && entry.desktop_variant <= 0)) {
+        if (entry.id.empty() || entry.module.empty()) {
             return false;
         }
 
         for (const auto& existing : *entries) {
-            if (existing.id == entry.id || existing.module == entry.module ||
-                (entry.desktop_variant != 0 &&
-                 existing.desktop_variant == entry.desktop_variant)) {
+            if (existing.id == entry.id || existing.module == entry.module) {
                 return false;
             }
         }
