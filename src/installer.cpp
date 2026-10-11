@@ -2,6 +2,7 @@
 #include "installer.hpp"
 
 #include "catalog.hpp"
+#include "process_runner.hpp"
 
 #include <gio/gio.h>
 #include <glib.h>
@@ -17,80 +18,11 @@
 namespace filesystem_support {
 namespace {
 
-struct CommandResult {
-    int exit_status = -1;
-    std::string output;
-};
-
 struct AsyncJob {
     GSubprocess* process = nullptr;
     ActionCompletion completion;
     std::string success_message;
 };
-
-CommandResult run_command(const std::vector<std::string>& arguments)
-{
-    CommandResult result;
-    if (arguments.empty()) {
-        return result;
-    }
-
-    gchar* program = g_find_program_in_path(arguments.front().c_str());
-    if (program == nullptr) {
-        return result;
-    }
-
-    std::vector<std::string> owned = arguments;
-    owned.front() = program;
-    g_free(program);
-
-    std::vector<gchar*> argv;
-    argv.reserve(owned.size() + 1U);
-    for (auto& argument : owned) {
-        argv.push_back(argument.data());
-    }
-    argv.push_back(nullptr);
-
-    gchar** environment = g_get_environ();
-    environment = g_environ_setenv(environment, "LC_ALL", "C", TRUE);
-
-    gchar* stdout_text = nullptr;
-    gchar* stderr_text = nullptr;
-    gint wait_status = -1;
-    GError* error = nullptr;
-
-    const gboolean spawned = g_spawn_sync(
-        nullptr,
-        argv.data(),
-        environment,
-        G_SPAWN_DEFAULT,
-        nullptr,
-        nullptr,
-        &stdout_text,
-        &stderr_text,
-        &wait_status,
-        &error);
-
-    if (spawned) {
-        result.exit_status =
-            g_spawn_check_wait_status(wait_status, nullptr) ? 0 : 1;
-        if (stdout_text != nullptr) {
-            result.output = stdout_text;
-        }
-        if (stderr_text != nullptr && result.exit_status != 0) {
-            if (!result.output.empty()) {
-                result.output += '\n';
-            }
-            result.output += stderr_text;
-        }
-    }
-
-    g_strfreev(environment);
-    g_clear_error(&error);
-    g_free(stdout_text);
-    g_free(stderr_text);
-    return result;
-}
 
 bool package_is_protected(const std::string& package, std::string* reason)
 {
@@ -101,7 +33,7 @@ bool package_is_protected(const std::string& package, std::string* reason)
         package
     });
 
-    if (result.exit_status != 0) {
+    if (!result.succeeded()) {
         if (reason != nullptr) {
             *reason = "Unable to inspect Debian protection metadata for " +
                       package + ".";
@@ -109,7 +41,7 @@ bool package_is_protected(const std::string& package, std::string* reason)
         return true;
     }
 
-    std::istringstream stream(result.output);
+    std::istringstream stream(result.stdout_text);
     std::string essential;
     std::string protected_field;
     std::string priority;
@@ -169,7 +101,7 @@ std::string diagnostic_output(const gchar* stdout_text,
     }
 
     /*
-     * Compiler output can be large.  Keep the end of the diagnostic because
+     * Compiler output can be large. Keep the end of the diagnostic because
      * make/modprobe/signing errors and the helper's rollback reason are
      * emitted last.
      */
@@ -372,14 +304,14 @@ RemovalPlan plan_package_removal(const std::vector<std::string>& packages)
     arguments.insert(arguments.end(), packages.begin(), packages.end());
 
     const auto simulation = run_command(arguments);
-    if (simulation.exit_status != 0) {
+    if (!simulation.succeeded()) {
         plan.reason =
             "Debian could not safely simulate this removal.\n" +
-            simulation.output;
+            simulation.combined_output();
         return plan;
     }
 
-    plan.planned_packages = parse_removals(simulation.output);
+    plan.planned_packages = parse_removals(simulation.stdout_text);
 
     if (plan.planned_packages.empty()) {
         plan.allowed = true;
