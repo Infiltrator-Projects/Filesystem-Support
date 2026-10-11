@@ -177,11 +177,27 @@ EOF
 refresh_desktop_after_commit() {
     local desktop_action=$1
     local desktop_helper="$self_dir/desktop-integration"
+    local managed_status
 
     [[ -x "$desktop_helper" ]] || return 0
-    if ! "$desktop_helper" is-managed "$filesystem"; then
-        return 0
-    fi
+
+    set +e
+    "$desktop_helper" is-managed "$filesystem"
+    managed_status=$?
+    set -e
+
+    case "$managed_status" in
+        0)
+            ;;
+        3)
+            return 0
+            ;;
+        *)
+            echo "$filesystem kernel module transaction succeeded, but desktop integration policy could not be queried; kernel state was intentionally left committed." >&2
+            return 1
+            ;;
+    esac
+
     if ! "$desktop_helper" "$desktop_action" "$filesystem"; then
         echo "$filesystem kernel module transaction succeeded, but desktop integration failed; kernel state was intentionally left committed." >&2
         return 1
