@@ -47,11 +47,16 @@ if 'desktop_kind=' in helper or '$3 == "amiga"' in helper:
 if 'is-managed "$filesystem"' not in helper:
     raise SystemExit('native module helper does not delegate desktop membership')
 
-integration = (repo / 'packaging/linux/desktop-integration.sh').read_text()
-if 'desktop-filesystems.tsv' not in integration:
-    raise SystemExit('desktop integration does not own its manifest')
-if 'native-filesystems.tsv' in integration:
-    raise SystemExit('desktop integration still reads native deployment policy')
+for relative in (
+    'packaging/linux/desktop-integration.sh',
+    'packaging/linux/gnome-disks-wrapper',
+    'packaging/linux/nemo-wrapper',
+):
+    text = (repo / relative).read_text()
+    if 'desktop-filesystems.tsv' not in text:
+        raise SystemExit(f'{relative} does not consume desktop policy')
+    if 'native-filesystems.tsv' in text:
+        raise SystemExit(f'{relative} still reads native deployment policy')
 
 # Stable identity must not be materialized from the Linux support catalogue.
 identity_impl = (repo / 'src/platform_support.cpp').read_text()
