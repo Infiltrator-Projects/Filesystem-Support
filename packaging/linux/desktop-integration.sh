@@ -245,7 +245,10 @@ action=$1
 case "$action" in
     is-managed)
         [[ $# -eq 2 ]] || exit 2
-        is_desktop_filesystem "$2"
+        if is_desktop_filesystem "$2"; then
+            exit 0
+        fi
+        exit 3
         ;;
     install|remove)
         [[ $# -eq 2 ]] || exit 2
