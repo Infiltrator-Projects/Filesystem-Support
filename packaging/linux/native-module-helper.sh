@@ -307,6 +307,7 @@ remove_native() {
 
     rm -f "$destination"
     depmod -a "$kernel"
+    rmdir "$destination_dir" 2>/dev/null || true
 
     echo "$filesystem native module removed for kernel $kernel"
     refresh_desktop_after_commit remove
