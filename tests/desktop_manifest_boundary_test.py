@@ -44,7 +44,7 @@ if not desktop_rows:
 helper = (repo / 'packaging/linux/native-module-helper.sh').read_text()
 if 'desktop_kind=' in helper or '$3 == "amiga"' in helper:
     raise SystemExit('native module helper still owns desktop membership')
-if 'desktop-integration" is-managed' not in helper:
+if 'is-managed "$filesystem"' not in helper:
     raise SystemExit('native module helper does not delegate desktop membership')
 
 integration = (repo / 'packaging/linux/desktop-integration.sh').read_text()
