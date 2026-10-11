@@ -31,6 +31,11 @@ verify_common() {
 verify_installed() {
     verify_common
 
+    # Native orchestration is deliberately split into a thin coordinator and
+    # a kernel-only transaction helper. Both must exist in the real package.
+    test -x /usr/lib/infiltrator-filesystem-support/native-module-helper
+    test -x /usr/lib/infiltrator-filesystem-support/kernel-module-helper
+
     # Shared launcher infrastructure is package-scoped. It remains installed
     # even when no Amiga filesystem is active, and is inert until a matching
     # per-filesystem plugin is activated.

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "probe.hpp"
+#include "process_runner.hpp"
 
 #include <glib.h>
 
@@ -14,11 +15,6 @@
 
 namespace filesystem_support {
 namespace {
-
-struct CommandResult {
-    int exit_status = -1;
-    std::string output;
-};
 
 struct ProbeCache {
     bool package_inventory_loaded = false;
@@ -38,60 +34,6 @@ ProbeCache& probe_cache()
 {
     static ProbeCache cache;
     return cache;
-}
-
-CommandResult run_command(const std::vector<std::string>& arguments)
-{
-    CommandResult result;
-    if (arguments.empty()) {
-        return result;
-    }
-
-    gchar* program = g_find_program_in_path(arguments.front().c_str());
-    if (program == nullptr) {
-        return result;
-    }
-
-    std::vector<std::string> owned = arguments;
-    owned.front() = program;
-    g_free(program);
-
-    std::vector<gchar*> argv;
-    argv.reserve(owned.size() + 1U);
-    for (auto& argument : owned) {
-        argv.push_back(argument.data());
-    }
-    argv.push_back(nullptr);
-
-    gchar* stdout_text = nullptr;
-    gchar* stderr_text = nullptr;
-    gint wait_status = -1;
-    GError* error = nullptr;
-
-    const gboolean spawned = g_spawn_sync(
-        nullptr,
-        argv.data(),
-        nullptr,
-        G_SPAWN_DEFAULT,
-        nullptr,
-        nullptr,
-        &stdout_text,
-        &stderr_text,
-        &wait_status,
-        &error);
-
-    if (spawned) {
-        result.exit_status =
-            g_spawn_check_wait_status(wait_status, nullptr) ? 0 : 1;
-        if (stdout_text != nullptr) {
-            result.output = stdout_text;
-        }
-    }
-
-    g_clear_error(&error);
-    g_free(stdout_text);
-    g_free(stderr_text);
-    return result;
 }
 
 std::string trim_ascii_whitespace(std::string value)
@@ -256,7 +198,7 @@ void load_package_inventory()
         "-f=${Package}\t${db:Status-Status}\n"
     });
 
-    std::istringstream installed_stream(installed.output);
+    std::istringstream installed_stream(installed.stdout_text);
     std::string line;
     while (std::getline(installed_stream, line)) {
         const std::size_t tab = line.find('\t');
@@ -272,7 +214,7 @@ void load_package_inventory()
     }
 
     const auto available = run_command({"apt-cache", "pkgnames"});
-    std::istringstream available_stream(available.output);
+    std::istringstream available_stream(available.stdout_text);
     while (std::getline(available_stream, line)) {
         line = trim_ascii_whitespace(std::move(line));
         if (!line.empty()) {
@@ -308,8 +250,8 @@ std::string preferred_module_filename(const std::string_view module)
         name
     });
     const std::string filename =
-        result.exit_status == 0
-            ? trim_ascii_whitespace(result.output)
+        result.succeeded()
+            ? trim_ascii_whitespace(result.stdout_text)
             : std::string();
     cache.preferred_module_files.emplace(name, filename);
     return filename;
@@ -379,7 +321,7 @@ bool package_available(const std::string_view package)
         name
     });
     const bool available =
-        result.exit_status == 0 && !result.output.empty();
+        result.succeeded() && !result.stdout_text.empty();
 
     if (available) {
         cache.available_packages.insert(name);
@@ -428,8 +370,8 @@ KernelState module_state(const std::string_view module)
             "filename",
             std::string(module)
         });
-        if (filename.exit_status == 0 && !filename.output.empty()) {
-            state = filename.output.find("builtin") != std::string::npos
+        if (filename.succeeded() && !filename.stdout_text.empty()) {
+            state = filename.stdout_text.find("builtin") != std::string::npos
                 ? KernelState::BuiltIn
                 : KernelState::LoadableUnloaded;
         }
