@@ -13,6 +13,7 @@ on:
       - "native/filesystems/sfs2/**"
       - "native/filesystems/pfs3/**"
       - "packaging/linux/native-module-helper.sh"
+      - "packaging/linux/kernel-module-helper.sh"
       - "packaging/linux/desktop-integration.sh"
       - "packaging/linux/gnome-disks-wrapper"
       - "packaging/linux/nemo-wrapper"
