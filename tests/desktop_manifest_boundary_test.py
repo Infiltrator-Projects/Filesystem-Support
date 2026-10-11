@@ -58,6 +58,17 @@ for token in ('modprobe', 'depmod', '/lib/modules/', 'sign_for_secure_boot'):
     if token in coordinator:
         raise SystemExit(f'kernel transaction logic leaked into coordinator: {token}')
 
+# Both halves of the split transaction must ship in the same package. This
+# prevents a source-only refactor where the coordinator is installed but its
+# kernel transaction implementation is accidentally omitted.
+cmake = (repo / 'CMakeLists.txt').read_text()
+for helper in (
+    'packaging/linux/native-module-helper.sh',
+    'packaging/linux/kernel-module-helper.sh',
+):
+    if helper not in cmake:
+        raise SystemExit(f'packaging does not install required helper: {helper}')
+
 for relative in (
     'packaging/linux/desktop-integration.sh',
     'packaging/linux/gnome-disks-wrapper',
