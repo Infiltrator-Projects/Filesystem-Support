@@ -17,6 +17,8 @@ for line in native.read_text().splitlines():
     fs, module = fields[:2]
     if fs in native_rows:
         raise SystemExit(f'duplicate native filesystem: {fs}')
+    if module in native_rows.values():
+        raise SystemExit(f'duplicate native module: {module}')
     native_rows[fs] = module
 
 desktop_rows = {}
@@ -78,6 +80,17 @@ for helper in (
     if helper not in cmake:
         raise SystemExit(f'packaging does not install required helper: {helper}')
 
+# The top-level native build graph owns only native filesystem/module policy.
+# Desktop membership belongs exclusively to data/desktop-filesystems.tsv and
+# the desktop-integration CMake layer.
+for token in (
+    'desktop_kind',
+    'desktop_variant',
+    'FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS',
+):
+    if token in cmake:
+        raise SystemExit(f'top-level native build graph still owns desktop policy: {token}')
+
 for relative in (
     'packaging/linux/desktop-integration.sh',
     'packaging/linux/gnome-disks-wrapper',
@@ -88,6 +101,44 @@ for relative in (
         raise SystemExit(f'{relative} does not consume desktop policy')
     if 'native-filesystems.tsv' in text:
         raise SystemExit(f'{relative} still reads native deployment policy')
+
+# The GTK shell owns presentation only. Action selection, safety interlocks,
+# removal planning and installer/module dispatch live behind desktop_actions.
+main = (repo / 'src/main.cpp').read_text()
+if '#include "desktop_actions.hpp"' not in main:
+    raise SystemExit('GTK shell does not consume the desktop action boundary')
+if '#include "installer.hpp"' in main:
+    raise SystemExit('GTK shell still imports installer primitives directly')
+for token in (
+    'install_packages_async(',
+    'remove_packages_async(',
+    'plan_package_removal(',
+    'install_native_module_async(',
+    'remove_native_module_async(',
+    'load_module_async(',
+    'unload_module_async(',
+):
+    if token in main:
+        raise SystemExit(f'installer/module primitive leaked into GTK shell: {token}')
+
+orchestration = (repo / 'src/desktop_actions.cpp').read_text()
+for required in (
+    '#include "action_policy.hpp"',
+    '#include "installer.hpp"',
+    'prepare_package_desktop_action(',
+    'prepare_module_desktop_action(',
+    'execute_desktop_action_async(',
+):
+    if required not in orchestration:
+        raise SystemExit(f'desktop action boundary lost required ownership: {required}')
+for required in ('src/desktop_actions.cpp', 'tests/desktop_actions_test.cpp'):
+    if required not in cmake:
+        raise SystemExit(f'build graph omits desktop action boundary asset: {required}')
+
+catalog_test = (repo / 'tests/catalog_test.cpp').read_text()
+for token in ('desktop_kind', 'desktop_variant'):
+    if token in catalog_test:
+        raise SystemExit(f'native catalogue validation still owns desktop policy: {token}')
 
 # Synchronous process execution has one source authority. Probe and installer
 # own policy only; neither may grow a private spawn implementation again.
