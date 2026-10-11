@@ -82,12 +82,6 @@ module_loaded() {
     [[ -d "/sys/module/$module" ]]
 }
 
-refresh_desktop_identification() {
-    if [[ "$desktop_kind" == "amiga" ]]; then
-        "$self_dir/desktop-integration" "$1" "$filesystem"
-    fi
-}
-
 preferred_module_filename() {
     modinfo -F filename "$module" 2>/dev/null | head -n1 || true
 }
@@ -180,13 +174,24 @@ EOF
     }
 }
 
-install_native() {
-    if [[ "$desktop_kind" == "amiga" ]]; then
-        [[ -x "$self_dir/desktop-integration" ]] || {
-            echo 'Desktop installer is missing' >&2
-            exit 1
-        }
+# Desktop identity is a follow-up presentation concern, not part of the kernel
+# module transaction. A desktop failure is reported but never rolls back a
+# successfully installed/removed filesystem module.
+refresh_desktop_after_commit() {
+    local desktop_action=$1
+
+    [[ "$desktop_kind" == "amiga" ]] || return 0
+    if [[ ! -x "$self_dir/desktop-integration" ]]; then
+        echo "$filesystem kernel module transaction succeeded, but desktop integration is unavailable." >&2
+        return 1
     fi
+    if ! "$self_dir/desktop-integration" "$desktop_action" "$filesystem"; then
+        echo "$filesystem kernel module transaction succeeded, but desktop integration failed; kernel state was intentionally left committed." >&2
+        return 1
+    fi
+}
+
+install_native() {
     [[ -f "$source_linux/Makefile" ]] || {
         echo "packaged native source is missing for $filesystem" >&2
         exit 1
@@ -282,22 +287,15 @@ install_native() {
         exit 1
     fi
 
-    if ! refresh_desktop_identification install; then
-        modprobe -r "$module" >/dev/null 2>&1 || true
-        if [[ -n "$previous_copy" ]]; then install -m 0644 "$previous_copy" "$destination"; else rm -f "$destination"; fi
-        depmod -a "$kernel"
-        if [[ -n "$previous_copy" || ( -n "$previous_preferred" && "$previous_preferred" != '(builtin)' ) ]]; then modprobe "$module" >/dev/null 2>&1 || true; fi
-        echo "$filesystem desktop installation failed; native installation was rolled back" >&2
-        exit 1
-    fi
     echo "$filesystem native module installed and loaded for kernel $kernel"
+    refresh_desktop_after_commit install
 }
 
 remove_native() {
     if [[ ! -f "$destination" ]]; then
-        refresh_desktop_identification remove
         echo "$filesystem native module is not installed for kernel $kernel"
-        exit 0
+        refresh_desktop_after_commit remove
+        exit $?
     fi
 
     local selected
@@ -316,15 +314,9 @@ remove_native() {
     cp -a "$destination" "$tmp/previous.ko"
     rm -f "$destination"
     depmod -a "$kernel"
-    if ! refresh_desktop_identification remove; then
-        install -m 0644 "$tmp/previous.ko" "$destination"
-        depmod -a "$kernel"
-        modprobe "$module" >/dev/null 2>&1 || true
-        echo "$filesystem desktop removal failed; native module was restored" >&2
-        exit 1
-    fi
-    rmdir "$destination_dir" 2>/dev/null || true
+
     echo "$filesystem native module removed for kernel $kernel"
+    refresh_desktop_after_commit remove
 }
 
 case "$action" in
