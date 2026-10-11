@@ -23,16 +23,13 @@ manifest="$self_dir/native-filesystems.tsv"
     exit 1
 }
 
-desktop_kind=$(
-    awk -F '\t' -v fs="$filesystem" -v mod="$module" '
-        $0 !~ /^#/ && NF == 4 && $1 == fs && $2 == mod {
-            print $3
-            found = 1
-            exit
-        }
-        END { if (!found) exit 1 }
-    ' "$manifest"
-) || {
+# Native deployment validates only the native identity/module pair. Desktop
+# membership is owned by desktop-integration and is deliberately not encoded
+# into the module transaction.
+awk -F '\t' -v fs="$filesystem" -v mod="$module" '
+    $0 !~ /^#/ && NF >= 2 && $1 == fs && $2 == mod { found = 1; exit }
+    END { exit found ? 0 : 1 }
+' "$manifest" || {
     echo "refusing unmanaged native filesystem module: $filesystem/$module" >&2
     exit 2
 }
@@ -174,18 +171,18 @@ EOF
     }
 }
 
-# Desktop identity is a follow-up presentation concern, not part of the kernel
-# module transaction. A desktop failure is reported but never rolls back a
-# successfully installed/removed filesystem module.
+# Desktop identity is a follow-up presentation concern. desktop-integration
+# owns membership and state. A desktop failure is reported but never rolls back
+# a successfully committed kernel-module transaction.
 refresh_desktop_after_commit() {
     local desktop_action=$1
+    local desktop_helper="$self_dir/desktop-integration"
 
-    [[ "$desktop_kind" == "amiga" ]] || return 0
-    if [[ ! -x "$self_dir/desktop-integration" ]]; then
-        echo "$filesystem kernel module transaction succeeded, but desktop integration is unavailable." >&2
-        return 1
+    [[ -x "$desktop_helper" ]] || return 0
+    if ! "$desktop_helper" is-managed "$filesystem"; then
+        return 0
     fi
-    if ! "$self_dir/desktop-integration" "$desktop_action" "$filesystem"; then
+    if ! "$desktop_helper" "$desktop_action" "$filesystem"; then
         echo "$filesystem kernel module transaction succeeded, but desktop integration failed; kernel state was intentionally left committed." >&2
         return 1
     fi
@@ -308,10 +305,6 @@ remove_native() {
         fi
     fi
 
-    local tmp
-    tmp=$(mktemp -d)
-    cleanup_tmp=$tmp
-    cp -a "$destination" "$tmp/previous.ko"
     rm -f "$destination"
     depmod -a "$kernel"
 
