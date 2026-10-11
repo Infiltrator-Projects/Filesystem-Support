@@ -41,21 +41,30 @@ for line in desktop.read_text().splitlines():
 if not desktop_rows:
     raise SystemExit('desktop manifest is empty')
 
+
+def shell_code(text: str) -> str:
+    return '\n'.join(
+        line for line in text.splitlines()
+        if not line.lstrip().startswith('#')
+    )
+
 coordinator = (repo / 'packaging/linux/native-module-helper.sh').read_text()
 kernel_helper = (repo / 'packaging/linux/kernel-module-helper.sh').read_text()
+coordinator_code = shell_code(coordinator)
+kernel_code = shell_code(kernel_helper)
 
-if 'desktop_kind=' in coordinator or '$3 == "amiga"' in coordinator:
+if 'desktop_kind=' in coordinator_code or '$3 == "amiga"' in coordinator_code:
     raise SystemExit('native coordinator owns desktop membership')
-if 'is-managed "$filesystem"' not in coordinator:
+if 'is-managed "$filesystem"' not in coordinator_code:
     raise SystemExit('native coordinator does not delegate desktop membership')
-if 'kernel-module-helper' not in coordinator:
+if 'kernel-module-helper' not in coordinator_code:
     raise SystemExit('native coordinator does not delegate kernel transaction ownership')
 
 for token in ('desktop-integration', 'GNOME', 'Nemo', 'udev', 'is-managed'):
-    if token in kernel_helper:
+    if token in kernel_code:
         raise SystemExit(f'kernel helper depends on desktop concern: {token}')
 for token in ('modprobe', 'depmod', '/lib/modules/', 'sign_for_secure_boot'):
-    if token in coordinator:
+    if token in coordinator_code:
         raise SystemExit(f'kernel transaction logic leaked into coordinator: {token}')
 
 # Both halves of the split transaction must ship in the same package. This
