@@ -56,7 +56,12 @@ jobs:
         run: cmake --build build-sanitized
 
       - name: Run sanitized unit and integration tests
-        run: ctest --test-dir build-sanitized --output-on-failure
+        # desktop-install loads an instrumented UDisks plugin into an ordinary
+        # Python host. That foreign process has no ASan runtime, so it is tested
+        # by the normal desktop-integration job instead of faking LD_PRELOAD.
+        run: >-
+          ctest --test-dir build-sanitized --output-on-failure
+          -E '^filesystem-support-desktop-install$'
 
       - name: Run malformed-media corpus through fsinspect
         run: python3 tests/parser_adversarial_test.py build-sanitized/fsinspect
