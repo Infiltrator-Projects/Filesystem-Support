@@ -78,9 +78,10 @@ jobs:
           {
             workflow_name="$1"
             for attempt in $(seq 1 280); do
-              state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100" \
-                --jq --arg name "$workflow_name" \
-                '.workflow_runs | map(select(.name == $name)) | first | if . == null then "pending" elif .status == "completed" then .conclusion else .status end')
+              runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100")
+              state=$(jq -r --arg name "$workflow_name" \
+                '.workflow_runs | map(select(.name == $name)) | first | if . == null then "pending" elif .status == "completed" then .conclusion else .status end' \
+                <<<"$runs")
 
               if [[ "$state" == success ]]; then
                 echo "$workflow_name passed for $EXPECTED_SHA."
