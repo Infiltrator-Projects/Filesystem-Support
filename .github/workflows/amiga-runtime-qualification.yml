@@ -19,6 +19,7 @@ on:
       - "packaging/linux/gnome-disks-wrapper"
       - "packaging/linux/nemo-wrapper"
       - "packaging/linux/desktop-rules/**"
+      - "tests/amiga_runtime_init.sh"
       - "tests/desktop_install_test.py"
       - "tools/generate-sfs-runtime-images.py"
       - ".github/workflows/amiga-runtime-qualification.yml"
@@ -122,7 +123,7 @@ jobs:
           rm -rf "$root"
           mkdir -p "$root"/{bin,etc,proc,sys,dev,mnt/ofs,mnt/ffs,mnt/sfs,mnt/sfs2,mnt/pfs3}
           cp /usr/bin/busybox "$root/bin/busybox"
-          for app in sh mount umount mkdir rmdir cat echo dd ln mv rm readlink sync poweroff stat wc insmod su id; do
+          for app in sh mount umount mkdir rmdir cat echo dd ln mv rm readlink sync poweroff reboot stat wc insmod su id test; do
             ln -s busybox "$root/bin/$app"
           done
           while IFS=$'\t' read -r fs desktop_variant; do
@@ -136,7 +137,6 @@ jobs:
           done < data/desktop-filesystems.tsv
           printf 'root:x:0:0:root:/:/bin/sh\ndesktop:x:1000:1000:desktop:/:/bin/sh\nother:x:1001:1001:other:/:/bin/sh\n' > "$root/etc/passwd"
           printf 'root:x:0:\ndesktop:x:1000:\nother:x:1001:\n' > "$root/etc/group"
-          # Exercise exactly the defaults installed by each format's udev rule.
           python3 - "$root" <<'PY'
           from pathlib import Path
           import re
@@ -149,113 +149,18 @@ jobs:
               assert '$' not in options, (fs, options)
               (root/f'{fs}.mount-options').write_text(options+'\n')
           PY
-
-          cat > "$root/init" <<'EOF'
-          #!/bin/sh
-          set -eu
-
-          fail() {
-              echo "AMIGA-RUNTIME-FAIL: $*" > /dev/ttyS0
-              poweroff -f
-              exit 1
-          }
-
-          mount -t proc proc /proc || fail proc
-          mount -t sysfs sysfs /sys || fail sysfs
-          mount -t devtmpfs devtmpfs /dev || fail devtmpfs
-
-          for fs in ofs ffs sfs sfs2 pfs3; do
-              insmod "/$fs.ko" || fail "insmod $fs"
-          done
-
-          qualify_rw() {
-              fs="$1"; dev="$2"; mnt="/mnt/$fs"
-              mount -t "$fs" "$dev" "$mnt" || fail "mount $fs"
-              echo "runtime-$fs" > "$mnt/new.txt" || fail "create $fs"
-              mkdir "$mnt/dir" || fail "mkdir $fs"
-              mv "$mnt/new.txt" "$mnt/dir/renamed.txt" || fail "rename $fs"
-              ln "$mnt/dir/renamed.txt" "$mnt/hard.txt" || fail "hardlink $fs"
-              ln -s dir/renamed.txt "$mnt/soft.txt" || fail "symlink $fs"
-              test "$(cat "$mnt/hard.txt")" = "runtime-$fs" || fail "readback $fs"
-              sync
-              umount "$mnt" || fail "unmount $fs"
-              mount -t "$fs" "$dev" "$mnt" || fail "remount $fs"
-              test "$(cat "$mnt/dir/renamed.txt")" = "runtime-$fs" || fail "remount-read $fs"
-              rm "$mnt/hard.txt" "$mnt/soft.txt" "$mnt/dir/renamed.txt" || fail "unlink $fs"
-              rmdir "$mnt/dir" || fail "rmdir $fs"
-              sync
-              umount "$mnt" || fail "final-unmount $fs"
-          }
-
-          qualify_sfs_rw() {
-              fs="$1"; dev="$2"; mnt="/mnt/$fs"
-              mount -t "$fs" "$dev" "$mnt" || fail "mount $fs"
-              echo "runtime-$fs" > "$mnt/new.txt" || fail "create $fs"
-              test "$(cat "$mnt/new.txt")" = "runtime-$fs" || fail "write-readback $fs"
-              mkdir "$mnt/dir" || fail "mkdir $fs"
-              mv "$mnt/new.txt" "$mnt/dir/renamed.txt" || fail "rename $fs"
-              ln -s dir/renamed.txt "$mnt/soft.txt" || fail "symlink $fs"
-              test "$(cat "$mnt/soft.txt")" = "runtime-$fs" || fail "symlink-read $fs"
-              sync
-              umount "$mnt" || fail "unmount $fs"
-              mount -t "$fs" "$dev" "$mnt" || fail "remount $fs"
-              test "$(cat "$mnt/dir/renamed.txt")" = "runtime-$fs" || fail "remount-read $fs"
-              test "$(cat "$mnt/soft.txt")" = "runtime-$fs" || fail "remount-symlink $fs"
-              : > "$mnt/dir/renamed.txt" || fail "truncate $fs"
-              test ! -s "$mnt/dir/renamed.txt" || fail "truncate-readback $fs"
-              rm "$mnt/soft.txt" "$mnt/dir/renamed.txt" || fail "unlink $fs"
-              rmdir "$mnt/dir" || fail "rmdir $fs"
-              sync
-              umount "$mnt" || fail "final-unmount $fs"
-          }
-
-          qualify_rw ofs /dev/vda
-          qualify_rw ffs /dev/vdb
-          qualify_sfs_rw sfs /dev/vdc
-          qualify_sfs_rw sfs2 /dev/vdd
-
-          mount -t pfs3 -o ro /dev/vde /mnt/pfs3 || fail "mount pfs3"
-          test -s /mnt/pfs3/frag || fail "fixture-read pfs3"
-          cat /mnt/pfs3/frag >/dev/null || fail "payload-read pfs3"
-          umount /mnt/pfs3 || fail "unmount pfs3"
-
-          qualify_desktop_user() {
-              fs="$1"; dev="$2"; mnt="/mnt/$fs"
-              options=$(cat "/$fs.mount-options")
-              mount -t "$fs" -o "$options" "$dev" "$mnt" || fail "desktop mount $fs"
-              test "$(stat -c '%u:%g' "$mnt")" = '1000:1000' || fail "desktop ownership $fs"
-              su -s /bin/sh -c 'test "$(id -u)" = 1000 && mkdir "$1/desktop-dir" && echo desktop-write > "$1/desktop-dir/file" && mv "$1/desktop-dir/file" "$1/desktop-dir/renamed"' desktop sh "$mnt" || fail "desktop create/write/rename $fs"
-              if su -s /bin/sh -c 'echo forbidden > "$1/other-user"' other sh "$mnt"; then
-                  fail "unrelated user was allowed to write $fs"
-              fi
-              sync
-              umount "$mnt" || fail "desktop unmount $fs"
-              mount -t "$fs" -o "$options" "$dev" "$mnt" || fail "desktop remount $fs"
-              su -s /bin/sh -c 'test "$(cat "$1/desktop-dir/renamed")" = desktop-write && rm "$1/desktop-dir/renamed" && rmdir "$1/desktop-dir"' desktop sh "$mnt" || fail "desktop persisted read/delete $fs"
-              umount "$mnt" || fail "desktop final unmount $fs"
-              echo "AMIGA-DESKTOP-USER-PASS: $fs" > /dev/ttyS0
-          }
-          qualify_desktop_user ofs /dev/vda
-          qualify_desktop_user ffs /dev/vdb
-          qualify_desktop_user sfs /dev/vdc
-          qualify_desktop_user sfs2 /dev/vdd
-
-          echo "AMIGA-RUNTIME-PASS" > /dev/ttyS0
-          poweroff -f
-          EOF
-          chmod +x "$root/init"
+          install -m 0755 tests/amiga_runtime_init.sh "$root/init"
           (cd "$root" && find . -print0 | cpio --null -ov --format=newc | gzip -9) \
             > /tmp/amiga-initramfs.cpio.gz
 
-      - name: Boot and exercise real Amiga media
+      - name: Boot, exercise and recover real Amiga media
         shell: bash
         run: |
           set -euo pipefail
-          timeout 240 qemu-system-x86_64 \
+          timeout 360 qemu-system-x86_64 \
             -machine accel=tcg \
             -m 768 \
             -nographic \
-            -no-reboot \
             -kernel /tmp/linux/arch/x86/boot/bzImage \
             -initrd /tmp/amiga-initramfs.cpio.gz \
             -append 'console=ttyS0 panic=1 rdinit=/init' \
@@ -265,6 +170,10 @@ jobs:
             -drive file=/tmp/sfs2.img,format=raw,if=virtio \
             -drive file=/tmp/pfs3.img,format=raw,if=virtio \
             2>&1 | tee /tmp/amiga-runtime.log
+          grep -Fq 'AMIGA-CRASH-ARMED' /tmp/amiga-runtime.log
+          for fs in ofs ffs sfs sfs2; do
+            grep -Fq "AMIGA-CRASH-RECOVERY-PASS: $fs" /tmp/amiga-runtime.log
+          done
           grep -Fq 'AMIGA-RUNTIME-PASS' /tmp/amiga-runtime.log
           ! grep -Fq 'AMIGA-RUNTIME-FAIL' /tmp/amiga-runtime.log
 
