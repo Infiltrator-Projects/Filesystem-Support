@@ -54,6 +54,15 @@ int main()
         return fail("unknown package removal was allowed");
     }
 
+    if (!removal_plan_matches_approval(
+            {"package-a", "package-b"}, {"package-b", "package-a"}) ||
+        removal_plan_matches_approval(
+            {"package-a", "package-b"}, {"package-a", "package-c"}) ||
+        removal_plan_matches_approval(
+            {"package-a"}, {"package-a", "package-a"})) {
+        return fail("removal approval is not bound to the exact package set");
+    }
+
     bool install_callback = false;
     bool install_success = true;
     install_packages_async(
@@ -158,6 +167,23 @@ int main()
     if (blocked.action != PackageActionKind::None ||
         blocked.button.enabled || blocked.button.label != "Package unavailable") {
         return fail("unavailable package policy is incorrect");
+    }
+
+    ProbeResult unreliable;
+    unreliable.reliable = false;
+    unreliable.module_name = "ext3";
+    unreliable.missing_packages = {"hfsprogs"};
+    const PackageActionPolicy unreliable_package =
+        package_action_policy(*hfs, unreliable);
+    const ModuleActionPolicy unreliable_module =
+        module_action_policy(*ext3, unreliable);
+    if (unreliable_package.action != PackageActionKind::None ||
+        !unreliable_package.button.visible || unreliable_package.button.enabled ||
+        unreliable_package.button.label != "Refresh required" ||
+        unreliable_module.action != ModuleActionKind::None ||
+        !unreliable_module.button.visible || unreliable_module.button.enabled ||
+        unreliable_module.button.label != "Refresh required") {
+        return fail("unreliable probes exposed an executable action");
     }
 
     const std::string native_detail =
