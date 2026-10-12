@@ -27,8 +27,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: filesystem-support-amiga-runtime-${{ github.sha }}
-  cancel-in-progress: true
+  group: filesystem-support-amiga-runtime-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   scope:
