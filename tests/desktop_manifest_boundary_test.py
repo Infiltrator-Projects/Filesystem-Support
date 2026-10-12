@@ -74,9 +74,6 @@ for token in ('modprobe', 'depmod', '/lib/modules/', 'sign_for_secure_boot'):
     if token in coordinator_code:
         raise SystemExit(f'kernel transaction logic leaked into coordinator: {token}')
 
-# Both halves of the split transaction must ship in the same package. This
-# prevents a source-only refactor where the coordinator is installed but its
-# kernel transaction implementation is accidentally omitted.
 cmake = (repo / 'CMakeLists.txt').read_text()
 for helper in (
     'packaging/linux/native-module-helper.sh',
@@ -85,9 +82,6 @@ for helper in (
     if helper not in cmake:
         raise SystemExit(f'packaging does not install required helper: {helper}')
 
-# The top-level native build graph owns only native filesystem/module policy.
-# Desktop membership belongs exclusively to data/desktop-filesystems.tsv and
-# the desktop-integration CMake layer.
 for token in (
     'desktop_kind',
     'desktop_variant',
@@ -107,8 +101,20 @@ for relative in (
     if 'native-filesystems.tsv' in text:
         raise SystemExit(f'{relative} still reads native deployment policy')
 
-# Runtime qualification must select desktop-integrated filesystems from the
-# desktop manifest and only look up their module identity in native policy.
+# Desktop state changes are committed only after udev has accepted and settled
+# the new rules. Rollback cleanup may be best-effort, but the forward path may
+# not silently discard refresh errors.
+desktop_helper = (repo / 'packaging/linux/desktop-integration.sh').read_text()
+for ignored in (
+    'udevadm control --reload-rules || true',
+    'udevadm trigger --subsystem-match=block --action=change || true',
+    'udevadm settle --timeout=30 || true',
+):
+    if ignored in desktop_helper:
+        raise SystemExit(f'desktop integration silently ignores refresh failure: {ignored}')
+if 'refresh_best_effort' not in desktop_helper:
+    raise SystemExit('desktop rollback has no explicit best-effort refresh path')
+
 amiga_workflow = (repo / '.github/workflows/amiga-runtime-qualification.yml').read_text()
 if 'data/desktop-filesystems.tsv' not in amiga_workflow:
     raise SystemExit('Amiga runtime qualification does not consume desktop policy')
@@ -117,8 +123,6 @@ if 'desktop_kind' in amiga_workflow:
 if "done < data/desktop-filesystems.tsv" not in amiga_workflow:
     raise SystemExit('Amiga runtime qualification is not driven by the desktop manifest')
 
-# The GTK shell owns presentation only. Action selection, safety interlocks,
-# removal planning and installer/module dispatch live behind desktop_actions.
 main = (repo / 'src/main.cpp').read_text()
 if '#include "desktop_actions.hpp"' not in main:
     raise SystemExit('GTK shell does not consume the desktop action boundary')
@@ -135,6 +139,11 @@ for token in (
 ):
     if token in main:
         raise SystemExit(f'installer/module primitive leaked into GTK shell: {token}')
+if 'prepare_package_desktop_action_async(' not in main:
+    raise SystemExit('GTK package removal planning is not asynchronous')
+for stale in ('ImagesFuse', 'NetworkVirtual', 'Images & FUSE', 'Network & Virtual'):
+    if stale in main:
+        raise SystemExit(f'GTK shell retains out-of-scope catalogue concept: {stale}')
 
 orchestration = (repo / 'src/desktop_actions.cpp').read_text()
 action_header = (repo / 'src/desktop_actions.hpp').read_text()
@@ -142,6 +151,7 @@ for required in (
     '#include "action_policy.hpp"',
     '#include "installer.hpp"',
     'prepare_package_desktop_action(',
+    'prepare_package_desktop_action_async(',
     'prepare_module_desktop_action(',
     'execute_desktop_action_async(',
 ):
@@ -153,6 +163,7 @@ for required in (
     'std::vector<std::string> packages',
     'std::string filesystem_id',
     'std::string module',
+    'PlanningRemoval',
 ):
     if required not in action_header:
         raise SystemExit(f'desktop action command is not explicit data: {required}')
@@ -162,6 +173,10 @@ for opaque in (
 ):
     if opaque in action_header or opaque in orchestration:
         raise SystemExit(f'opaque executable closure returned to desktop action model: {opaque}')
+if 'plan_package_removal(action.packages)' in orchestration:
+    raise SystemExit('desktop action preparation synchronously invokes Debian planning')
+if 'plan_package_removal_async(' not in orchestration:
+    raise SystemExit('desktop removal planning does not cross the async installer boundary')
 for required in ('src/desktop_actions.cpp', 'tests/desktop_actions_test.cpp'):
     if required not in cmake:
         raise SystemExit(f'build graph omits desktop action boundary asset: {required}')
@@ -171,8 +186,6 @@ for token in ('desktop_kind', 'desktop_variant'):
     if token in catalog_test:
         raise SystemExit(f'native catalogue validation still owns desktop policy: {token}')
 
-# Synchronous process execution has one source authority. Probe and installer
-# own policy only; neither may grow a private spawn implementation again.
 runner = (repo / 'src/process_runner.hpp').read_text()
 for required in ('struct CommandResult', 'run_command(', 'LC_ALL', 'g_spawn_sync'):
     if required not in runner:
@@ -184,7 +197,15 @@ for relative in ('src/probe.cpp', 'src/installer.cpp'):
     if 'struct CommandResult' in text or 'CommandResult run_command' in text:
         raise SystemExit(f'{relative} reintroduced private process execution')
 
-# Stable identity must not be materialized from the Linux support catalogue.
+# Probe caching is an implementation optimisation, not a caller serialization
+# contract. Each worker owns its own snapshot, so concurrent future callers do
+# not race cache mutation or invalidation.
+probe_impl = (repo / 'src/probe.cpp').read_text()
+if 'thread_local ProbeCache cache' not in probe_impl:
+    raise SystemExit('probe cache is process-global rather than worker-local')
+if 'static ProbeCache cache' in probe_impl:
+    raise SystemExit('probe cache reintroduced hidden process-global mutation')
+
 identity_impl = (repo / 'src/platform_support.cpp').read_text()
 if '#include "catalog.hpp"' in identity_impl:
     raise SystemExit('cross-platform identity still depends on Linux catalogue')
