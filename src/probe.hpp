@@ -26,6 +26,7 @@ enum class KernelState {
 
 struct ProbeResult {
     SupportState state = SupportState::Unavailable;
+    bool reliable = true;
     bool module_requirement_met = false;
     bool package_requirement_met = false;
     KernelState kernel_state = KernelState::NotApplicable;
