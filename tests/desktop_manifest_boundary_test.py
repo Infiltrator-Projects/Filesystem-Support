@@ -107,6 +107,16 @@ for relative in (
     if 'native-filesystems.tsv' in text:
         raise SystemExit(f'{relative} still reads native deployment policy')
 
+# Runtime qualification must select desktop-integrated filesystems from the
+# desktop manifest and only look up their module identity in native policy.
+amiga_workflow = (repo / '.github/workflows/amiga-runtime-qualification.yml').read_text()
+if 'data/desktop-filesystems.tsv' not in amiga_workflow:
+    raise SystemExit('Amiga runtime qualification does not consume desktop policy')
+if 'desktop_kind' in amiga_workflow:
+    raise SystemExit('Amiga runtime qualification still depends on retired native desktop columns')
+if "done < data/desktop-filesystems.tsv" not in amiga_workflow:
+    raise SystemExit('Amiga runtime qualification is not driven by the desktop manifest')
+
 # The GTK shell owns presentation only. Action selection, safety interlocks,
 # removal planning and installer/module dispatch live behind desktop_actions.
 main = (repo / 'src/main.cpp').read_text()
