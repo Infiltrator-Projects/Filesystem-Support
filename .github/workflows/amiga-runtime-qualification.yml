@@ -3,26 +3,6 @@ name: Amiga runtime qualification
 on:
   push:
     branches: [main]
-    paths:
-      - "CMakeLists.txt"
-      - "data/native-filesystems.tsv"
-      - "data/desktop-filesystems.tsv"
-      - "cmake/amiga-desktop-detection.cmake"
-      - "native/filesystems/ofs/**"
-      - "native/filesystems/ffs/**"
-      - "native/filesystems/sfs/**"
-      - "native/filesystems/sfs2/**"
-      - "native/filesystems/pfs3/**"
-      - "packaging/linux/native-module-helper.sh"
-      - "packaging/linux/kernel-module-helper.sh"
-      - "packaging/linux/desktop-integration.sh"
-      - "packaging/linux/gnome-disks-wrapper"
-      - "packaging/linux/nemo-wrapper"
-      - "packaging/linux/desktop-rules/**"
-      - "tests/amiga_runtime_init.sh"
-      - "tests/desktop_install_test.py"
-      - "tools/generate-sfs-runtime-images.py"
-      - ".github/workflows/amiga-runtime-qualification.yml"
   pull_request:
     paths:
       - "CMakeLists.txt"
@@ -45,18 +25,87 @@ on:
       - "tools/generate-sfs-runtime-images.py"
       - ".github/workflows/amiga-runtime-qualification.yml"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      sha:
+        description: Exact commit SHA to qualify
+        required: true
+        type: string
 
 concurrency:
-  group: filesystem-support-amiga-runtime-${{ github.ref }}
-  cancel-in-progress: true
+  group: filesystem-support-amiga-runtime-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'workflow_call' && inputs.sha || github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Decide whether Amiga runtime qualification is required
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_call" || \
+                "${{ github.event_name }}" == "workflow_dispatch" || \
+                "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          subject=$(git log -1 --format=%s)
+
+          # Release commits are qualified by the build workflow's explicit
+          # release DAG.  Do not run a duplicate standalone qualification.
+          if [[ "$subject" == Release\ * ]]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git rev-parse HEAD^ >/dev/null 2>&1 &&
+             git diff --quiet HEAD^ HEAD -- \
+               CMakeLists.txt \
+               data/native-filesystems.tsv \
+               data/desktop-filesystems.tsv \
+               cmake/amiga-desktop-detection.cmake \
+               native/filesystems/ofs \
+               native/filesystems/ffs \
+               native/filesystems/sfs \
+               native/filesystems/sfs2 \
+               native/filesystems/pfs3 \
+               packaging/linux/native-module-helper.sh \
+               packaging/linux/kernel-module-helper.sh \
+               packaging/linux/desktop-integration.sh \
+               packaging/linux/gnome-disks-wrapper \
+               packaging/linux/nemo-wrapper \
+               packaging/linux/desktop-rules \
+               tests/amiga_runtime_init.sh \
+               tests/desktop_install_test.py \
+               tools/generate-sfs-runtime-images.py \
+               .github/workflows/amiga-runtime-qualification.yml; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   linux-amiga-runtime:
+    needs: scope
+    if: needs.scope.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Checkout Filesystem Support
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
 
       - name: Install qualification dependencies
         shell: bash

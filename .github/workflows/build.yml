@@ -5,9 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
-  group: filesystem-support-build-v3-${{ github.ref }}
-  cancel-in-progress: true
+  group: filesystem-support-build-v5-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   desktop-integration:
@@ -260,3 +263,201 @@ jobs:
               }
           }
           Get-FileHash -Algorithm SHA256 -LiteralPath $driver, $cat | Format-Table
+
+  release-ext-runtime:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'Release ')
+    uses: ./.github/workflows/ext-runtime-qualification.yml
+    with:
+      sha: ${{ github.sha }}
+
+  release-amiga-runtime:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'Release ')
+    uses: ./.github/workflows/amiga-runtime-qualification.yml
+    with:
+      sha: ${{ github.sha }}
+
+  publish-release:
+    needs:
+      - desktop-integration
+      - source-boundary
+      - linux
+      - linux-native-modules-6-12
+      - linux-amiga-v7-module-api
+      - windows-manager
+      - windows-ext2-driver
+      - release-ext-runtime
+      - release-amiga-runtime
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'Release ')
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install release packaging dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends dpkg-dev python3
+
+      - name: Verify release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          subject=$(git log -1 --format=%s HEAD)
+          if [[ "$subject" != "Release $version" && "$subject" != "Release $version:"* ]]; then
+            echo "Release commit subject must begin with Release $version." >&2
+            exit 1
+          fi
+
+      - name: Retrieve the package built by this workflow run
+        uses: actions/download-artifact@v4
+        with:
+          name: filesystem-support-linux-package
+          path: dist
+
+      - name: Verify the qualified single Debian package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          deb="dist/Filesystem-Support-$version-amd64.deb"
+          test -f "$deb"
+          test "$(dpkg-deb -f "$deb" Package)" = infiltrator-filesystem-support
+          test "$(dpkg-deb -f "$deb" Version)" = "$version"
+          python3 tests/udisks_display_test.py --package "$deb"
+          test "$(dpkg-deb -f "$deb" Conflicts)" = infiltrator-filesystem-support-udisks
+          ! dpkg-deb -f "$deb" Depends | grep -Fq infiltrator-filesystem-support-udisks
+          dpkg-deb -c "$deb" > package-contents.txt
+          grep -Fq './usr/bin/fsinspect' package-contents.txt
+          grep -Fq '/desktop/templates/ofs.so' package-contents.txt
+          grep -Fq '/usr/lib/infiltrator-filesystem-support/native-filesystems.tsv' package-contents.txt
+          ! grep -Fq '59-infiltrator-filesystems.rules' package-contents.txt
+          test "$(find dist -maxdepth 1 -name '*.deb' | wc -l)" = 1
+          cp "$deb" .
+
+      - name: Build and verify the single-package run installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          run="Filesystem-Support-$version-amd64.run"
+          ./packaging/build-run.sh "Filesystem-Support-$version-amd64.deb" "$run"
+          test -x "$run"
+          help=$("./$run" --help)
+          grep -Fq '/usr/bin/fsinspect' <<<"$help"
+          grep -Fq 'per-filesystem desktop templates' <<<"$help"
+          grep -Fq 'project-native Amiga filesystems' <<<"$help"
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          sha256sum \
+            "Filesystem-Support-$version-amd64.deb" \
+            "Filesystem-Support-$version-amd64.run" \
+            > RELEASE_SHA256SUMS.txt
+
+      - name: Publish immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          tag="v$version"
+          deb="Filesystem-Support-$version-amd64.deb"
+          run="Filesystem-Support-$version-amd64.run"
+
+          git fetch origin --tags
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            tag_commit=$(git rev-list -n 1 "$tag")
+            test "$tag_commit" = "$GITHUB_SHA" || {
+              echo "Tag $tag does not point at the qualified release commit." >&2
+              exit 1
+            }
+          else
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "$tag"
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            target=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.target_commitish')
+            test "$target" = "$GITHUB_SHA" || {
+              echo "Release $tag targets $target instead of $GITHUB_SHA." >&2
+              exit 1
+            }
+
+            expected=$(printf '%s\n%s\n%s\n' "$deb" "$run" RELEASE_SHA256SUMS.txt | sort)
+            actual=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
+            test "$actual" = "$expected" || {
+              echo "Release $tag exists with a different asset set." >&2
+              exit 1
+            }
+
+            published=$(mktemp -d)
+            trap 'rm -rf "$published"' EXIT
+            gh release download "$tag" --dir "$published" \
+              --pattern "$deb" \
+              --pattern "$run" \
+              --pattern RELEASE_SHA256SUMS.txt
+            cmp "$deb" "$published/$deb"
+            cmp "$run" "$published/$run"
+            cmp RELEASE_SHA256SUMS.txt "$published/RELEASE_SHA256SUMS.txt"
+            echo "Release $tag already exists and exactly matches this workflow's qualified artifacts."
+            exit 0
+          fi
+
+          cat > release-notes.md <<EOF
+          Filesystem Support $version.
+
+          This release promotes the exact Debian package built and tested from commit $GITHUB_SHA after independent EXT and Amiga runtime qualification in the same release dependency graph.
+
+          Release assets:
+          - Generic AMD64 Debian package
+          - Native self-extracting .run installer
+          - SHA-256 checksum manifest
+
+          GitHub also provides source ZIP and TAR.GZ archives for this tag.
+          EOF
+
+          gh release create "$tag" \
+            "$deb" \
+            "$run" \
+            RELEASE_SHA256SUMS.txt \
+            --verify-tag \
+            --target "$GITHUB_SHA" \
+            --title "Filesystem Support $version" \
+            --notes-file release-notes.md \
+            --latest
+
+          expected=$(printf '%s\n%s\n%s\n' "$deb" "$run" RELEASE_SHA256SUMS.txt | sort)
+          actual=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
+          test "$actual" = "$expected"
+
+      - name: Withdraw retired desktop packages and their dependent installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 packaging/retire-desktop-package.py

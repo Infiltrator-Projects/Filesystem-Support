@@ -132,14 +132,52 @@ for required in ('sync || fail "crash arm sync"', 'AMIGA-CRASH-ARMED',
                  'AMIGA-CRASH-RECOVERY-PASS', 'reboot -f'):
     if required not in amiga_init:
         raise SystemExit(f'Amiga crash-recovery init lost required phase: {required}')
-release_workflow = (repo / '.github/workflows/release.yml').read_text()
-if 'tests/amiga_runtime_init\\.sh' not in release_workflow:
-    raise SystemExit('release gate ignores changes to the Amiga recovery qualification')
+
+# Release promotion belongs to the exact build run that produced the package.
+# The build run calls independent exact-SHA runtime qualification units and
+# publishes only after all build and qualification prerequisites succeed.
+build_workflow = (repo / '.github/workflows/build.yml').read_text()
+if (repo / '.github/workflows/release.yml').exists():
+    raise SystemExit('retired cross-workflow release coordinator still exists')
+for required in (
+    'uses: ./.github/workflows/ext-runtime-qualification.yml',
+    'uses: ./.github/workflows/amiga-runtime-qualification.yml',
+    'uses: actions/download-artifact@v4',
+    'publish-release:',
+    'sha: ${{ github.sha }}',
+):
+    if required not in build_workflow:
+        raise SystemExit(f'build release DAG lost required boundary: {required}')
+for forbidden in (
+    'workflow_run:',
+    'actions/runs?',
+    'wait_for_workflow',
+    'gh workflow run',
+    'cmake -S . -B build-release',
+    'git rev-parse origin/main',
+):
+    if forbidden in build_workflow:
+        raise SystemExit(f'build release DAG reintroduced coupled orchestration: {forbidden}')
+
+for relative in (
+    '.github/workflows/ext-runtime-qualification.yml',
+    '.github/workflows/amiga-runtime-qualification.yml',
+):
+    runtime_workflow = (repo / relative).read_text()
+    for required in ('workflow_call:', 'Exact commit SHA to qualify', 'inputs.sha'):
+        if required not in runtime_workflow:
+            raise SystemExit(f'{relative} lost reusable exact-SHA boundary: {required}')
+
+apt_workflow = (repo / '.github/workflows/apt-publication.yml').read_text()
+if 'workflows: ["build"]' not in apt_workflow:
+    raise SystemExit('APT publication does not follow the completed build/release DAG')
+for forbidden in ('workflows: ["Publish release"]', 'Waiting for GitHub release'):
+    if forbidden in apt_workflow:
+        raise SystemExit(f'APT publication reintroduced sibling release coupling: {forbidden}')
 
 # Ordinary CI must consume the two-field native deployment contract as two
 # fields; accepting obsolete trailing variable names silently preserves the old
 # ownership model and makes future drift harder to detect.
-build_workflow = (repo / '.github/workflows/build.yml').read_text()
 if 'read -r fs module desktop_kind desktop_variant' in build_workflow:
     raise SystemExit('build workflow still models retired native desktop columns')
 

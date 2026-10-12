@@ -44,6 +44,22 @@ Privileged command identity is policy, not environment. `pkexec`, APT and module
 
 Arguments remain structured argv values rather than shell command text. Package and module allowlists remain deny-by-default even after the executable itself has been selected from a trusted path.
 
+## Release promotion boundary
+
+Release publication is a promotion transaction owned by the exact `build` workflow run that produced the package. A release commit must not start a second build, search for a matching artifact in another workflow run, or depend on `main` remaining at the release SHA while qualification finishes.
+
+The `desktop-integration` build job produces the Debian package once and uploads it as the run's qualified package artifact. The release publisher consumes that same-run artifact directly. There is no release-specific CMake build and no substitute package may be manufactured after qualification.
+
+EXT and Amiga runtime qualifications are independent reusable units. On a release commit the build workflow calls both units with the immutable `github.sha`; GitHub's job dependency graph, not workflow names, polling loops or timing, determines when publication may proceed. Neither filesystem family owns release sequencing and neither family may trigger publication merely because its qualification finished last.
+
+The release publisher depends explicitly on the ordinary build jobs plus both runtime qualification calls. Tagging and GitHub Release creation therefore occur only after every required prerequisite for that exact SHA succeeds. Publication must remain idempotent: an existing tag or release is accepted only when it points to the same SHA and contains the same qualified assets.
+
+Push-triggered build runs are keyed by commit SHA and are not cancelled by later pushes to `main`; a pushed release SHA remains valid provenance even when development continues. Pull-request runs may cancel stale revisions by PR identity because they are not publication candidates.
+
+Central APT publication is the only remaining asynchronous workflow boundary because it crosses into the separate central repository. It starts only after the complete `build` workflow succeeds, verifies that the GitHub Release targets the same SHA once, and then requests/observes publication by the external repository. Internal GitHub Release publication must never be polled as a sibling workflow.
+
+Release state therefore moves in one direction: exact-SHA build and package artifact -> independent exact-SHA runtime qualifications in the same dependency graph -> GitHub Release promotion -> central APT publication. Later stages may verify upstream identity but must not rediscover, rebuild or silently substitute upstream state.
+
 ## Coupling rules
 
 - Filesystem semantics remain inside each canonical filesystem engine.
@@ -62,6 +78,11 @@ Arguments remain structured argv values rather than shell command text. Package 
 - Native replacement rollback must verify restoration of previous runtime selection when that module was previously loaded.
 - Cross-filesystem lists must have one explicit authority; CI must consume that authority rather than duplicate handwritten lists.
 - A coordinator may sequence independent transactions, but it must preserve the ownership and rollback boundary of each transaction.
+- A release is promoted from the exact package artifact produced by its own build run; publication must not rebuild it.
+- Runtime qualification belongs to each filesystem family; release sequencing belongs to the build dependency graph.
+- Release qualification uses explicit reusable-workflow calls by SHA, never workflow-name discovery, polling or sibling dispatch.
+- Push-triggered release evidence is SHA-bound and survives later main pushes; stale PR evidence may be cancelled by PR identity.
+- APT publication follows successful completion of the build/release DAG and is the only external asynchronous promotion boundary.
 
 ## Failure reporting
 
