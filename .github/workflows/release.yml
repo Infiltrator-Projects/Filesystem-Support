@@ -16,6 +16,7 @@ concurrency:
 jobs:
   publish:
     if: >-
+      github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main' &&
       startsWith(github.event.workflow_run.head_commit.message, 'Release ')
@@ -32,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ github.event.workflow_run.name }}" = "EXT runtime qualification"
+          test "${{ github.event.workflow_run.event }}" = "push"
           test "${{ github.event.workflow_run.conclusion }}" = "success"
 
       - name: Check out exact tested release commit
@@ -215,8 +217,30 @@ jobs:
           fi
 
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release $tag already exists; published releases are immutable." >&2
-            exit 1
+            target=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.target_commitish')
+            test "$target" = "$EXPECTED_SHA" || {
+              echo "Release $tag targets $target instead of $EXPECTED_SHA." >&2
+              exit 1
+            }
+
+            expected=$(printf '%s\n%s\n%s\n' "$deb" "$run" RELEASE_SHA256SUMS.txt | sort)
+            actual=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
+            test "$actual" = "$expected" || {
+              echo "Release $tag exists with a different asset set." >&2
+              exit 1
+            }
+
+            published=$(mktemp -d)
+            trap 'rm -rf "$published"' EXIT
+            gh release download "$tag" --dir "$published" \
+              --pattern "$deb" \
+              --pattern "$run" \
+              --pattern RELEASE_SHA256SUMS.txt
+            cmp "$deb" "$published/$deb"
+            cmp "$run" "$published/$run"
+            cmp RELEASE_SHA256SUMS.txt "$published/RELEASE_SHA256SUMS.txt"
+            echo "Release $tag already exists and exactly matches the qualified artifacts."
+            exit 0
           fi
 
           cat > release-notes.md <<EOF
