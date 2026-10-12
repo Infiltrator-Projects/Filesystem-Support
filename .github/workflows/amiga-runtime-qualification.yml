@@ -25,9 +25,15 @@ on:
       - "tools/generate-sfs-runtime-images.py"
       - ".github/workflows/amiga-runtime-qualification.yml"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      sha:
+        description: Exact commit SHA to qualify
+        required: true
+        type: string
 
 concurrency:
-  group: filesystem-support-amiga-runtime-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  group: filesystem-support-amiga-runtime-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'workflow_call' && inputs.sha || github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -39,7 +45,7 @@ jobs:
       - name: Checkout candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
           fetch-depth: 2
 
       - name: Decide whether Amiga runtime qualification is required
@@ -48,15 +54,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" || \
+          if [[ "${{ github.event_name }}" == "workflow_call" || \
+                "${{ github.event_name }}" == "workflow_dispatch" || \
                 "${{ github.event_name }}" == "pull_request" ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           subject=$(git log -1 --format=%s)
+
+          # Release commits are qualified by the build workflow's explicit
+          # release DAG.  Do not run a duplicate standalone qualification.
           if [[ "$subject" == Release\ * ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -95,7 +105,7 @@ jobs:
       - name: Checkout Filesystem Support
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
 
       - name: Install qualification dependencies
         shell: bash
