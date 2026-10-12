@@ -6,6 +6,8 @@ Filesystem implementations are independent deployment units. Shared orchestratio
 
 A native kernel-module transaction owns only the kernel module for the selected filesystem: build prerequisites, compilation, signing, replacement, `depmod`, module loading/unloading, selection verification and rollback of that module when the kernel transaction itself fails.
 
+A failed native-module replacement must restore both persistent and runtime state. Restoring the previous `.ko` on disk is insufficient when the previous module was loaded: rollback must reload it and verify that the kernel again selects the same module image that was active before the transaction.
+
 Desktop identification is a separate follow-up transaction. GNOME Disks/Nemo/udev integration may report failure after a kernel transaction commits, but it must not remove, restore, unload or otherwise roll back the committed kernel module.
 
 Per-filesystem desktop transactions own only the selected filesystem's active identification plugin and udev rule. OFS failure must not mutate FFS/SFS/SFS2/PFS3 state, and the same rule applies in every direction.
@@ -28,6 +30,20 @@ The GTK shell owns presentation state only: button sensitivity and labels, confi
 
 The installer backend remains the privileged-operation boundary. Moving an operation behind `DesktopAction` does not transfer command validation, package allowlisting, native-module validation or privilege escalation into the presentation layer.
 
+Package removal confirmation is bound to the exact simulated package set shown to the user. The installer must simulate removal again immediately before execution and compare the resulting package multiset with the approved plan. If package state changes the plan, execution fails closed and requires a new confirmation; being merely catalogue-managed is not sufficient authority to remove a different package set.
+
+## Probe truthfulness
+
+A support scan distinguishes verified absence from inability to inspect the system. Failure to read required Debian package inventory, repository inventory, kernel filesystem registration, module dependency metadata, or native module selection must never be converted into a normal `missing` or `unavailable` result.
+
+A result whose required inventory could not be verified is explicitly unreliable, is presented as incomplete, and exposes no package or module action until a later successful refresh. Partial cached inventory must never become executable policy.
+
+## Privilege boundary
+
+Privileged command identity is policy, not environment. `pkexec`, APT and module-management executables are resolved from fixed trusted system locations, and project helpers may be elevated only from the application-owned installed helper locations. The unprivileged process `PATH` must never decide which executable receives elevated privileges.
+
+Arguments remain structured argv values rather than shell command text. Package and module allowlists remain deny-by-default even after the executable itself has been selected from a trusted path.
+
 ## Coupling rules
 
 - Filesystem semantics remain inside each canonical filesystem engine.
@@ -40,9 +56,15 @@ The installer backend remains the privileged-operation boundary. Moving an opera
 - The top-level native build graph must not parse or validate desktop-integration fields.
 - The GTK shell must not import or invoke installer/package/module primitives directly.
 - Prepared desktop actions must be explicit data, not opaque executable callbacks.
+- Confirmed destructive plans must still match immediately before execution.
+- Failed inventory probes must disable actions rather than synthesize absence.
+- Privileged executable selection must not depend on the caller's `PATH`.
+- Native replacement rollback must verify restoration of previous runtime selection when that module was previously loaded.
 - Cross-filesystem lists must have one explicit authority; CI must consume that authority rather than duplicate handwritten lists.
 - A coordinator may sequence independent transactions, but it must preserve the ownership and rollback boundary of each transaction.
 
 ## Failure reporting
 
 Partial success is reported explicitly. If a native module commits and desktop integration subsequently fails, the operation reports that the module state remains committed and requires only the desktop/integration layer to be repaired. It must never present that situation as if the kernel transaction had been reverted.
+
+Likewise, rollback must not claim that the previous module state was restored unless both the persistent module image and any previously active runtime selection have been verified. Probe failures must report inability to verify state instead of presenting a guessed support classification.

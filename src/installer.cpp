@@ -173,6 +173,42 @@ void async_finished(GObject* source_object,
     g_clear_object(&job->process);
 }
 
+bool executable_file(const char* path)
+{
+    return path != nullptr &&
+           g_file_test(path, G_FILE_TEST_IS_REGULAR) &&
+           g_file_test(path, G_FILE_TEST_IS_EXECUTABLE);
+}
+
+std::string trusted_privileged_executable(const std::string& requested)
+{
+    if (requested == "apt-get") {
+        return executable_file("/usr/bin/apt-get")
+            ? "/usr/bin/apt-get"
+            : std::string();
+    }
+
+    if (requested == "modprobe") {
+        for (const char* const candidate : {
+                 "/usr/sbin/modprobe", "/sbin/modprobe"}) {
+            if (executable_file(candidate)) {
+                return candidate;
+            }
+        }
+        return {};
+    }
+
+    /* Absolute helpers are selected by fixed application policy before this
+     * point (for example native_module_helper_path()). Never search PATH for a
+     * privileged executable supplied by the unprivileged process environment. */
+    if (g_path_is_absolute(requested.c_str()) &&
+        executable_file(requested.c_str())) {
+        return requested;
+    }
+
+    return {};
+}
+
 void run_privileged_async(const std::vector<std::string>& arguments,
                           std::string success_message,
                           ActionCompletion completion)
@@ -182,33 +218,24 @@ void run_privileged_async(const std::vector<std::string>& arguments,
         return;
     }
 
-    gchar* pkexec = g_find_program_in_path("pkexec");
-    gchar* executable = nullptr;
-    if (g_path_is_absolute(arguments.front().c_str())) {
-        if (g_file_test(arguments.front().c_str(), G_FILE_TEST_IS_REGULAR) &&
-            g_file_test(arguments.front().c_str(), G_FILE_TEST_IS_EXECUTABLE)) {
-            executable = g_strdup(arguments.front().c_str());
-        }
-    } else {
-        executable = g_find_program_in_path(arguments.front().c_str());
-    }
+    constexpr const char* kPkexec = "/usr/bin/pkexec";
+    const std::string executable =
+        trusted_privileged_executable(arguments.front());
 
-    if (pkexec == nullptr || executable == nullptr) {
-        g_free(pkexec);
-        g_free(executable);
-        completion(false, "pkexec or the required system command is unavailable.");
+    if (!executable_file(kPkexec) || executable.empty()) {
+        completion(
+            false,
+            "The trusted privileged helper or required system command is unavailable.");
         return;
     }
 
     std::vector<std::string> owned;
     owned.reserve(arguments.size() + 1U);
-    owned.emplace_back(pkexec);
+    owned.emplace_back(kPkexec);
     owned.emplace_back(executable);
     for (std::size_t index = 1U; index < arguments.size(); ++index) {
         owned.push_back(arguments[index]);
     }
-    g_free(pkexec);
-    g_free(executable);
 
     std::vector<const gchar*> argv;
     argv.reserve(owned.size() + 1U);
@@ -280,8 +307,7 @@ std::string native_module_helper_path()
     };
 
     for (const char* const path : candidates) {
-        if (g_file_test(path, G_FILE_TEST_IS_REGULAR) &&
-            g_file_test(path, G_FILE_TEST_IS_EXECUTABLE)) {
+        if (executable_file(path)) {
             return path;
         }
     }
@@ -411,6 +437,17 @@ void plan_package_removal_async(const std::vector<std::string>& packages,
     g_object_unref(task);
 }
 
+bool removal_plan_matches_approval(
+    const std::vector<std::string>& approved_packages,
+    const std::vector<std::string>& current_packages)
+{
+    std::vector<std::string> approved = approved_packages;
+    std::vector<std::string> current = current_packages;
+    std::sort(approved.begin(), approved.end());
+    std::sort(current.begin(), current.end());
+    return approved == current;
+}
+
 void install_packages_async(const std::vector<std::string>& packages,
                             ActionCompletion completion)
 {
@@ -433,14 +470,27 @@ void install_packages_async(const std::vector<std::string>& packages,
         std::move(completion));
 }
 
-void remove_packages_async(const std::vector<std::string>& packages,
-                           ActionCompletion completion)
+void remove_packages_async(
+    const std::vector<std::string>& packages,
+    const std::vector<std::string>& approved_planned_packages,
+    ActionCompletion completion)
 {
     plan_package_removal_async(
         packages,
-        [packages, completion = std::move(completion)](RemovalPlan plan) mutable {
+        [packages,
+         approved_planned_packages,
+         completion = std::move(completion)](RemovalPlan plan) mutable {
             if (!plan.allowed) {
                 completion(false, plan.reason);
+                return;
+            }
+
+            if (!removal_plan_matches_approval(
+                    approved_planned_packages, plan.planned_packages)) {
+                completion(
+                    false,
+                    "The Debian removal plan changed after confirmation. "
+                    "Nothing was removed; review and confirm the new plan.");
                 return;
             }
 

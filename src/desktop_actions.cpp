@@ -188,11 +188,14 @@ void execute_desktop_action_async(
         install_packages_async(action.packages, std::move(completion));
         return;
     case DesktopActionKind::RemovePackages:
-        if (action.packages.empty()) {
+        if (action.packages.empty() || action.planned_packages.empty()) {
             fail_invalid_action(std::move(completion));
             return;
         }
-        remove_packages_async(action.packages, std::move(completion));
+        remove_packages_async(
+            action.packages,
+            action.planned_packages,
+            std::move(completion));
         return;
     case DesktopActionKind::InstallNativeModule:
         if (action.filesystem_id.empty() || action.module.empty()) {

@@ -22,10 +22,16 @@ RemovalPlan plan_package_removal(const std::vector<std::string>& packages);
 void plan_package_removal_async(const std::vector<std::string>& packages,
                                 RemovalPlanCompletion completion);
 
+bool removal_plan_matches_approval(
+    const std::vector<std::string>& approved_packages,
+    const std::vector<std::string>& current_packages);
+
 void install_packages_async(const std::vector<std::string>& packages,
                             ActionCompletion completion);
-void remove_packages_async(const std::vector<std::string>& packages,
-                           ActionCompletion completion);
+void remove_packages_async(
+    const std::vector<std::string>& packages,
+    const std::vector<std::string>& approved_planned_packages,
+    ActionCompletion completion);
 void load_module_async(const std::string& module,
                        ActionCompletion completion);
 void unload_module_async(const std::string& module,

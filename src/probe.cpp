@@ -28,6 +28,8 @@ struct ProbeCache {
     std::unordered_map<std::string, KernelState> module_states;
     std::unordered_map<std::string, std::string> preferred_module_files;
     std::string kernel_release;
+    std::string package_inventory_error;
+    std::string module_inventory_error;
 };
 
 ProbeCache& probe_cache()
@@ -40,6 +42,17 @@ ProbeCache& probe_cache()
      */
     thread_local ProbeCache cache;
     return cache;
+}
+
+void append_error(std::string* target, const std::string& message)
+{
+    if (target == nullptr || message.empty()) {
+        return;
+    }
+    if (!target->empty()) {
+        *target += " ";
+    }
+    *target += message;
 }
 
 std::string trim_ascii_whitespace(std::string value)
@@ -109,11 +122,14 @@ std::string module_name_from_path(std::string path)
     return normalize_module_name(path);
 }
 
-void load_registered_filesystems(ProbeCache* cache)
+bool load_registered_filesystems(ProbeCache* cache)
 {
     std::ifstream stream("/proc/filesystems");
-    std::string line;
+    if (!stream.is_open()) {
+        return false;
+    }
 
+    std::string line;
     while (std::getline(stream, line)) {
         std::istringstream parser(line);
         std::string token;
@@ -128,15 +144,19 @@ void load_registered_filesystems(ProbeCache* cache)
                 normalize_module_name(last));
         }
     }
+    return !stream.bad();
 }
 
-void load_module_file(const std::string& path,
+bool load_module_file(const std::string& path,
                       const bool dependency_file,
                       std::unordered_set<std::string>* destination)
 {
     std::ifstream stream(path);
-    std::string line;
+    if (!stream.is_open()) {
+        return false;
+    }
 
+    std::string line;
     while (std::getline(stream, line)) {
         if (dependency_file) {
             const std::size_t colon = line.find(':');
@@ -150,6 +170,7 @@ void load_module_file(const std::string& path,
             destination->insert(module);
         }
     }
+    return !stream.bad();
 }
 
 void load_module_inventory()
@@ -160,18 +181,33 @@ void load_module_inventory()
     }
     cache.module_inventory_loaded = true;
 
-    load_registered_filesystems(&cache);
+    if (!load_registered_filesystems(&cache)) {
+        append_error(
+            &cache.module_inventory_error,
+            "Unable to read the running kernel filesystem registry.");
+    }
 
     const std::string release = running_kernel_release();
     if (release.empty()) {
+        append_error(
+            &cache.module_inventory_error,
+            "Unable to determine the running kernel release.");
         return;
     }
 
     const std::string base = "/lib/modules/" + release + "/";
-    load_module_file(
-        base + "modules.builtin", false, &cache.builtin_modules);
-    load_module_file(
-        base + "modules.dep", true, &cache.loadable_modules);
+    if (!load_module_file(
+            base + "modules.builtin", false, &cache.builtin_modules)) {
+        append_error(
+            &cache.module_inventory_error,
+            "Unable to read modules.builtin for the running kernel.");
+    }
+    if (!load_module_file(
+            base + "modules.dep", true, &cache.loadable_modules)) {
+        append_error(
+            &cache.module_inventory_error,
+            "Unable to read modules.dep for the running kernel.");
+    }
 }
 
 bool module_loaded_now(const std::string_view module)
@@ -204,28 +240,40 @@ void load_package_inventory()
         "-f=${Package}\t${db:Status-Status}\n"
     });
 
-    std::istringstream installed_stream(installed.stdout_text);
     std::string line;
-    while (std::getline(installed_stream, line)) {
-        const std::size_t tab = line.find('\t');
-        if (tab == std::string::npos) {
-            continue;
-        }
+    if (installed.succeeded()) {
+        std::istringstream installed_stream(installed.stdout_text);
+        while (std::getline(installed_stream, line)) {
+            const std::size_t tab = line.find('\t');
+            if (tab == std::string::npos) {
+                continue;
+            }
 
-        std::string package = line.substr(0U, tab);
-        std::string status = trim_ascii_whitespace(line.substr(tab + 1U));
-        if (!package.empty() && status == "installed") {
-            cache.installed_packages.insert(std::move(package));
+            std::string package = line.substr(0U, tab);
+            std::string status = trim_ascii_whitespace(line.substr(tab + 1U));
+            if (!package.empty() && status == "installed") {
+                cache.installed_packages.insert(std::move(package));
+            }
         }
+    } else {
+        append_error(
+            &cache.package_inventory_error,
+            "Unable to read the installed Debian package inventory.");
     }
 
     const auto available = run_command({"apt-cache", "pkgnames"});
-    std::istringstream available_stream(available.stdout_text);
-    while (std::getline(available_stream, line)) {
-        line = trim_ascii_whitespace(std::move(line));
-        if (!line.empty()) {
-            cache.available_packages.insert(std::move(line));
+    if (available.succeeded()) {
+        std::istringstream available_stream(available.stdout_text);
+        while (std::getline(available_stream, line)) {
+            line = trim_ascii_whitespace(std::move(line));
+            if (!line.empty()) {
+                cache.available_packages.insert(std::move(line));
+            }
         }
+    } else {
+        append_error(
+            &cache.package_inventory_error,
+            "Unable to read the configured Debian repository inventory.");
     }
 }
 
@@ -259,6 +307,11 @@ std::string preferred_module_filename(const std::string_view module)
         result.succeeded()
             ? trim_ascii_whitespace(result.stdout_text)
             : std::string();
+    if (!result.succeeded()) {
+        append_error(
+            &cache.module_inventory_error,
+            "Unable to resolve the kernel-selected module file for " + name + ".");
+    }
     cache.preferred_module_files.emplace(name, filename);
     return filename;
 }
@@ -317,8 +370,9 @@ bool package_available(const std::string_view package)
 
     /*
      * apt-cache pkgnames covers normal binary packages in one fast inventory
-     * pass. Retain the old exact query as a fallback for virtual/edge package
-     * names instead of spawning it once for every catalogue row.
+     * pass. Retain the exact query as a fallback for virtual/edge package
+     * names. A failed primary inventory is reported by probe() and therefore
+     * can never become an actionable false absence.
      */
     const auto result = run_command({
         "apt-cache",
@@ -419,6 +473,10 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
         ? KernelState::NotApplicable
         : KernelState::Missing;
 
+    if (!descriptor.modules.empty()) {
+        load_module_inventory();
+    }
+
     for (const auto module : descriptor.modules) {
         const KernelState state = module_state(module);
 
@@ -459,6 +517,9 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
     }
 
     result.package_requirement_met = true;
+    if (!descriptor.packages.empty()) {
+        load_package_inventory();
+    }
     for (const auto package : descriptor.packages) {
         if (package_installed(package)) {
             continue;
@@ -472,6 +533,30 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
             result.repository_packages_available = false;
             result.unavailable_packages.emplace_back(package);
         }
+    }
+
+    const ProbeCache& cache = probe_cache();
+    const bool module_probe_failed =
+        !descriptor.modules.empty() && !cache.module_inventory_error.empty();
+    const bool package_probe_failed =
+        !descriptor.packages.empty() && !cache.package_inventory_error.empty();
+    if (module_probe_failed || package_probe_failed) {
+        result.reliable = false;
+        result.state = SupportState::Incomplete;
+        result.module_requirement_met = descriptor.modules.empty();
+        result.package_requirement_met = descriptor.packages.empty();
+        result.missing_packages.clear();
+        result.unavailable_packages.clear();
+        result.repository_packages_available = !package_probe_failed;
+        result.detail = "Support state could not be verified.";
+        if (module_probe_failed) {
+            result.detail += " " + cache.module_inventory_error;
+        }
+        if (package_probe_failed) {
+            result.detail += " " + cache.package_inventory_error;
+        }
+        result.detail += " Actions are disabled until a successful refresh.";
+        return result;
     }
 
     if (descriptor.project_native_linux &&

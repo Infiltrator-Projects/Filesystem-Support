@@ -175,6 +175,33 @@ EOF
     }
 }
 
+restore_previous_state() {
+    local previous_copy=$1
+    local previous_preferred=$2
+    local previous_loaded=$3
+
+    if module_loaded; then
+        modprobe -r "$module" >/dev/null 2>&1 || return 1
+    fi
+
+    if [[ -n "$previous_copy" ]]; then
+        install -m 0644 "$previous_copy" "$destination" || return 1
+    else
+        rm -f "$destination" || return 1
+    fi
+    depmod -a "$kernel" || return 1
+
+    if [[ "$previous_loaded" == true ]]; then
+        modprobe "$module" >/dev/null 2>&1 || return 1
+        local restored_selected
+        restored_selected=$(preferred_module_filename)
+        [[ -d "/sys/module/$module" &&
+           "$restored_selected" == "$previous_preferred" ]] || return 1
+    fi
+
+    return 0
+}
+
 install_native() {
     [[ -f "$source_linux/Makefile" ]] || {
         echo "packaged native source is missing for $filesystem" >&2
@@ -216,9 +243,11 @@ install_native() {
 
     local previous_preferred=""
     local previous_copy=""
+    local previous_loaded=false
     previous_preferred=$(preferred_module_filename)
 
     if module_loaded; then
+        previous_loaded=true
         if ! modprobe -r "$module"; then
             echo "$module is built-in or currently in use; refusing unsafe replacement" >&2
             exit 1
@@ -235,39 +264,24 @@ install_native() {
     depmod -a "$kernel"
 
     if ! modprobe "$module"; then
-        if [[ -n "$previous_copy" ]]; then
-            install -m 0644 "$previous_copy" "$destination"
+        if restore_previous_state \
+            "$previous_copy" "$previous_preferred" "$previous_loaded"; then
+            echo "new $module module could not be loaded; previous module state was restored" >&2
         else
-            rm -f "$destination"
+            echo "new $module module could not be loaded and the previous runtime state could not be fully restored" >&2
         fi
-        depmod -a "$kernel"
-
-        if [[ -n "$previous_preferred" &&
-              "$previous_preferred" != "(builtin)" &&
-              "$previous_preferred" != "$destination" ]]; then
-            modprobe "$module" >/dev/null 2>&1 || true
-        fi
-
-        echo "new $module module could not be loaded; installation was rolled back" >&2
         exit 1
     fi
 
     local selected
     selected=$(preferred_module_filename)
     if [[ "$selected" != "$destination" || ! -d "/sys/module/$module" ]]; then
-        modprobe -r "$module" >/dev/null 2>&1 || true
-        if [[ -n "$previous_copy" ]]; then
-            install -m 0644 "$previous_copy" "$destination"
+        if restore_previous_state \
+            "$previous_copy" "$previous_preferred" "$previous_loaded"; then
+            echo "kernel selected '$selected' instead of the Infiltrator module; previous module state was restored" >&2
         else
-            rm -f "$destination"
+            echo "kernel selected '$selected' instead of the Infiltrator module and the previous runtime state could not be fully restored" >&2
         fi
-        depmod -a "$kernel"
-        if [[ -n "$previous_preferred" &&
-              "$previous_preferred" != "(builtin)" &&
-              "$previous_preferred" != "$destination" ]]; then
-            modprobe "$module" >/dev/null 2>&1 || true
-        fi
-        echo "kernel selected '$selected' instead of the Infiltrator module; rolled back" >&2
         exit 1
     fi
 

@@ -77,6 +77,11 @@ PackageActionPolicy package_action_policy(const FilesystemDescriptor& descriptor
     }
 
     policy.button.visible = true;
+    if (!probe.reliable) {
+        policy.button.label = "Refresh required";
+        return policy;
+    }
+
     const bool missing = !probe.missing_packages.empty();
     const bool unavailable = !probe.unavailable_packages.empty();
 
@@ -116,6 +121,10 @@ ModuleActionPolicy module_action_policy(const FilesystemDescriptor& descriptor,
     }
 
     policy.button.visible = true;
+    if (!probe.reliable) {
+        policy.button.label = "Refresh required";
+        return policy;
+    }
 
     if (descriptor.project_native_linux) {
         policy.button.enabled = true;
