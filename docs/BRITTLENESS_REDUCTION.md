@@ -18,13 +18,13 @@ Cross-platform filesystem identity and Linux support policy are separate authori
 
 `linux_support_policies()` owns Linux-only access policy: packages, modules, provider class and access mode. The Linux `catalog()` is a materialized join of these two contracts plus project-native deployment policy. Windows, EFI and setup consumers therefore cannot inherit Debian policy simply by consuming filesystem identity.
 
-Native kernel deployment membership and desktop integration membership are also separate. `data/native-filesystems.tsv` determines which project-owned Linux modules can be managed. `data/desktop-filesystems.tsv` determines which of those filesystems participate in desktop identification. Desktop policy may depend on a native filesystem existing; native deployment must not depend on desktop presentation metadata.
+Native kernel deployment membership and desktop integration membership are also separate. `data/native-filesystems.tsv` owns exactly two fields: filesystem ID and native Linux module. `data/desktop-filesystems.tsv` independently determines which of those filesystems participate in desktop identification. Desktop policy may depend on a native filesystem existing; native deployment must not depend on desktop presentation metadata.
 
 ## Desktop action boundary
 
 The GTK shell owns presentation state only: button sensitivity and labels, confirmation dialogs, error display and refresh requests. It consumes prepared `DesktopAction` values from `desktop_actions` and must not call package-removal planning, APT execution, native-module installation/removal or `modprobe` operations directly.
 
-`desktop_actions` owns the translation from catalogue/probe state into an executable user action. It combines action policy with removal safety/interlocks and delegates actual privileged work to the installer backend behind an opaque executor. This keeps GTK lifetime and presentation concerns independent from Debian and kernel mutation mechanics.
+`desktop_actions` owns the translation from catalogue/probe state into an explicit command value. A prepared action contains an inspectable `DesktopActionKind` plus validated package/module/filesystem payload; it must not hide executable closures or captured backend state. This keeps the action model deterministic, auditable and independently testable while the installer backend remains the only owner of privileged execution.
 
 The installer backend remains the privileged-operation boundary. Moving an operation behind `DesktopAction` does not transfer command validation, package allowlisting, native-module validation or privilege escalation into the presentation layer.
 
@@ -36,8 +36,10 @@ The installer backend remains the privileged-operation boundary. Moving an opera
 - Package-level shared infrastructure cannot be removed while any dependent filesystem integration is active.
 - Stable filesystem identity must not depend on Linux provider or package policy.
 - Native module deployment must not depend on desktop-integration membership.
+- The native deployment manifest contains only filesystem/module ownership; desktop fields are forbidden.
 - The top-level native build graph must not parse or validate desktop-integration fields.
 - The GTK shell must not import or invoke installer/package/module primitives directly.
+- Prepared desktop actions must be explicit data, not opaque executable callbacks.
 - Cross-filesystem lists must have one explicit authority; CI must consume that authority rather than duplicate handwritten lists.
 - A coordinator may sequence independent transactions, but it must preserve the ownership and rollback boundary of each transaction.
 
