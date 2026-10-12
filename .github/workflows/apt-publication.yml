@@ -3,7 +3,7 @@ name: Publish to central APT repository
 
 on:
   workflow_run:
-    workflows: ["EXT runtime qualification"]
+    workflows: ["Publish release"]
     types: [completed]
 
 permissions:
@@ -16,7 +16,6 @@ concurrency:
 jobs:
   publish-apt:
     if: >-
-      github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main' &&
       startsWith(github.event.workflow_run.head_commit.message, 'Release ')
@@ -26,21 +25,20 @@ jobs:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
       APP_ID: filesystem-support
     steps:
-      - name: Verify qualification provenance
+      - name: Verify release-workflow provenance
         shell: bash
         run: |
           set -euo pipefail
-          test "${{ github.event.workflow_run.name }}" = "EXT runtime qualification"
-          test "${{ github.event.workflow_run.event }}" = "push"
+          test "${{ github.event.workflow_run.name }}" = "Publish release"
           test "${{ github.event.workflow_run.conclusion }}" = "success"
 
-      - name: Check out exact qualified release commit
+      - name: Check out exact published release commit
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
 
-      - name: Wait for exact GitHub release
+      - name: Verify exact GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -50,22 +48,13 @@ jobs:
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           tag="v$VERSION"
 
-          for attempt in $(seq 1 120); do
-            if release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null)"; then
-              target="$(jq -r '.target_commitish // empty' <<<"$release_json")"
-              if [[ "$target" == "$EXPECTED_SHA" ]]; then
-                echo "GitHub release $tag is published for $EXPECTED_SHA."
-                exit 0
-              fi
-              echo "Release $tag exists but targets $target, expected $EXPECTED_SHA." >&2
-              exit 1
-            fi
-            echo "Waiting for GitHub release $tag ($attempt/120)..."
-            sleep 5
-          done
-
-          echo "GitHub release $tag was not published within 10 minutes." >&2
-          exit 1
+          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag")"
+          target="$(jq -r '.target_commitish // empty' <<<"$release_json")"
+          test "$target" = "$EXPECTED_SHA" || {
+            echo "Release $tag targets $target, expected $EXPECTED_SHA." >&2
+            exit 1
+          }
+          echo "GitHub release $tag is published for $EXPECTED_SHA."
 
       - name: Trigger and verify central APT publication
         env:
