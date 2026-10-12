@@ -12,7 +12,7 @@ on:
         type: string
 
 concurrency:
-  group: filesystem-support-ext-runtime-${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
+  group: filesystem-support-ext-runtime-${{ github.event_name }}-${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
