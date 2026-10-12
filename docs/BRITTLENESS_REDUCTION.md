@@ -44,6 +44,18 @@ Privileged command identity is policy, not environment. `pkexec`, APT and module
 
 Arguments remain structured argv values rather than shell command text. Package and module allowlists remain deny-by-default even after the executable itself has been selected from a trusted path.
 
+## Release promotion boundary
+
+Release publication is a promotion transaction, not a build or filesystem-family transaction. The ordinary `build` workflow owns production of the qualified Debian package for an exact commit SHA. Release publication must consume that artifact directly and must not rebuild an alternative package from the same source.
+
+EXT and Amiga runtime qualifications are independent evidence for the same immutable release SHA. Neither filesystem family owns release sequencing, may publish the product, or may serve as the trigger solely because its qualification happened to finish last. Every release commit requires both qualifications to succeed for that SHA.
+
+A pushed commit is immutable release provenance even if `main` advances while its qualification is still running. Push-triggered build and runtime qualification must therefore be keyed by commit SHA and must not be cancelled by a later main push. Pull-request qualification may cancel stale revisions by PR identity because those revisions are not publication candidates.
+
+GitHub Release publication owns tagging and publication of the already-built artifact. Central APT publication is downstream of a successful GitHub Release and must not race a sibling publication workflow or poll for an artifact another sibling may not yet have published.
+
+Release state must flow in one direction: exact-SHA build, independent exact-SHA qualification, GitHub promotion, then central APT publication. Later stages may verify upstream identity but must not rediscover, rebuild, or silently substitute upstream state.
+
 ## Coupling rules
 
 - Filesystem semantics remain inside each canonical filesystem engine.
@@ -62,6 +74,10 @@ Arguments remain structured argv values rather than shell command text. Package 
 - Native replacement rollback must verify restoration of previous runtime selection when that module was previously loaded.
 - Cross-filesystem lists must have one explicit authority; CI must consume that authority rather than duplicate handwritten lists.
 - A coordinator may sequence independent transactions, but it must preserve the ownership and rollback boundary of each transaction.
+- A release is promoted from the exact successful build artifact; publication must not rebuild it.
+- Runtime qualification belongs to each filesystem family; release sequencing belongs to neither family.
+- Push-triggered release evidence is SHA-bound and survives later main pushes; stale PR evidence may be cancelled by PR identity.
+- APT publication follows successful GitHub Release publication rather than racing it.
 
 ## Failure reporting
 
