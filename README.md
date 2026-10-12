@@ -2,6 +2,8 @@
 
 Filesystem Support is the InfiltratorOS filesystem capability and integration manager. It owns the catalogue of real persistent local-storage filesystem formats that InfiltratorOS can recognise, install support for and, as each format is qualified, use as the filesystem beneath an InfiltratorOS installation.
 
+Current source release: **0.5.17**.
+
 The baseline Linux distribution is **Debian stable**. As of September 2026 that is Debian 13 "trixie". Derivatives can benefit where they retain Debian-compatible package names and APT behaviour, but the catalogue is authored and qualified against Debian first.
 
 ## Product scope
@@ -38,98 +40,86 @@ install/copy InfiltratorOS
         +--> install the matching Linux VFS support
         |    and include it in the initramfs when required
         |
-        +--> install the matching rEFInd/UEFI filesystem reader
-        |
-        +--> configure the boot entry
         v
-qualified bootable InfiltratorOS installation
+boot the installed system
 ```
 
-The corresponding boot path is:
+The setup surface exposes only filesystems whose complete install path is qualified. It does not infer support merely because a catalogue entry exists or because a Linux package can be installed.
 
-```text
-UEFI
-  -> rEFInd
-  -> selected filesystem's EFI reader
-  -> kernel + initramfs stored on that filesystem
-  -> Linux starts
-  -> selected filesystem's Linux VFS adapter/module
-  -> same filesystem mounts as /
-  -> InfiltratorOS
+## Support discovery
+
+Filesystem Support treats support as a capability that must be observed rather than assumed.
+
+The Linux manager scans the running system for:
+
+- kernel-registered filesystems;
+- loaded and available kernel modules;
+- installed Debian packages;
+- repository package availability;
+- project-owned native module state;
+- desktop identification/integration state.
+
+Probe failures are explicit. A failed package, repository, module or kernel inventory is not converted into a normal "missing" result and does not enable an action based on incomplete state.
+
+## Installation and removal
+
+Install and remove operations are scoped to the selected filesystem. Project-native filesystems deploy their own kernel driver and their own desktop-identification material. Package-backed filesystems use the selected provider package without turning provider package names into new filesystem identities.
+
+Destructive package removal is plan-bound: the exact package set shown for confirmation is simulated again immediately before execution and must still match. If package state changes underneath the confirmation, the operation fails closed and requires a new confirmation.
+
+Privileged executable selection is fixed to trusted system/application locations rather than inherited from the caller's `PATH`, and privileged operations use structured argument vectors rather than shell command strings.
+
+## Project-native Linux filesystems
+
+The project currently owns native Linux implementations for:
+
+- EXT2
+- EXT3
+- EXT4
+- Amiga OFS
+- Amiga FFS
+- SFS
+- SFS2
+- PFS3
+
+Each native filesystem is an independent deployment unit. Installing or removing one must not silently install, remove, unload or mutate another filesystem's driver.
+
+Kernel-module replacement is transactional. If replacement fails, rollback restores both the previous persistent module image and the previous runtime selection when that module had been loaded.
+
+## Desktop integration
+
+Desktop identification is a separate transaction from kernel-driver deployment. It publishes filesystem identity to udev/UDisks and desktop tools without making desktop metadata authoritative over kernel support.
+
+A successfully committed native driver is not rolled back merely because a later desktop-integration refresh fails; that partial success is reported explicitly so the failing layer can be repaired independently.
+
+## Windows
+
+The Windows tree contains the canonical project EXT2 driver build path and packaging/validation material. Windows support is maintained as a separate platform surface rather than by importing Debian/Linux package policy.
+
+## Build
+
+A normal Linux build uses CMake/Ninja:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-For example, an OFS installation ultimately means an OFS-formatted target, an OFS EFI reader for rEFInd and `ofs.ko` for Linux. An InfiltratorFS installation means the corresponding InfiltratorFS EFI reader and `infiltratorfs.ko`.
+Release qualification additionally exercises project-native filesystem builds, sanitizers/adversarial parser tests, runtime qualification, packaging, desktop-identification validation and Windows EXT2 code analysis.
 
-Catalogue membership does **not** by itself claim that a format is already safe to offer in the setup shell. A format becomes an enabled installation choice only after the formatter, Linux runtime support, initramfs/root semantics and EFI reader are qualified together. Read-only or incomplete current providers may therefore remain visible in the desktop catalogue while their setup choice is disabled.
+## Packaging
 
-## Native implementation strategy
+The release produces one Debian package and one self-extracting `.run` installer. Per-filesystem desktop templates are carried inside the main package and activated only for the selected filesystem; there is no supplemental desktop/UDisks Debian package.
 
-The long-term native implementation strategy is defined in [`docs/NATIVE_FILESYSTEM_VISION.md`](docs/NATIVE_FILESYSTEM_VISION.md). The goal is one canonical implementation of each filesystem's on-media semantics with thin operating-system adapters rather than independent Linux and Windows rewrites.
+The central Infiltrator repository publication path accepts only an exact qualified release commit and verifies the advertised application/version after publication.
 
-The source/dependency boundaries are defined in [`docs/NATIVE_CODE_ARCHITECTURE.md`](docs/NATIVE_CODE_ARCHITECTURE.md). Conventional local filesystems target independently deployable native adapters such as Linux VFS modules, without requiring a custom Linux kernel.
+## Architecture documentation
 
-## Runtime support model
+Key contracts are documented under `docs/`, including:
 
-For the desktop manager a filesystem reports **Installed** when its declared current Linux provider and required packages are present. **Available** means missing packages can be resolved from repositories already configured by the user. **Unavailable** means the declared provider cannot currently be supplied.
+- `FILESYSTEM_SUPPORT_MATRIX.md` — enumerated filesystem contract and status;
+- `BRITTLENESS_REDUCTION.md` — ownership, transaction, coupling and failure-reporting boundaries;
+- platform/build/runtime qualification documents and implementation notes.
 
-Kernel detection checks registered/built-in filesystem support, loaded modules and loadable modules rather than assuming that `modinfo` alone describes support.
-
-The current provider is an implementation detail. As project-native engines replace external providers, the catalogue identity remains stable.
-
-## Safety and package policy
-
-- The GUI itself remains unprivileged.
-- Read-only probing uses the local kernel, `dpkg-query` and `apt-cache`.
-- Install requests are delegated to PolicyKit and APT.
-- Package names come only from the built-in Linux support policy.
-- The application does not add repositories, enable Debian components, or silently pull packages from testing/unstable/experimental.
-- A package missing from configured repositories is reported as unavailable rather than pretending it can be installed.
-- Package removal is simulated first and is blocked if Debian would remove an unrelated or protected system package.
-- The application never performs automatic `apt autoremove`.
-- Loadable kernel modules may be loaded/unloaded; built-in drivers are never presented as removable.
-- Experimental implementations are labelled explicitly.
-
-## Shared library pin
-
-Filesystem Support is pinned to Infiltratr Common **1.19.38**, commit `7070c5812b50821fd7580101cb2289a3184f6b2c`.
-
-## Design
-
-The desktop application separates filesystem identity, Linux support policy, read-only support probing, the privileged installation backend and the GTK shell. Non-Linux surfaces consume the identity-only contract and add their own implementation/qualification state rather than cloning Linux provider rules.
-
-The Linux desktop shell follows the InfiltratorOS control-centre visual language used by System Settings: a branded application header with integrated search, persistent platform/status navigation, a dashboard home page with live support metrics and quick actions, and card-based catalogue views.
-
-## Amiga desktop integration
-
-The main Debian package carries inactive desktop templates for each native Amiga filesystem. Package configuration prepares the shared GNOME Disks launcher and, when Nemo is present, the shared Nemo launcher once. Those wrappers are inert when no per-filesystem plugin is active.
-
-**Install native** then installs only that filesystem's own `.ko`, scoped udev identification rule and single-filesystem desktop naming plugin. **Remove native** removes only that same per-filesystem set and refreshes connected devices. OFS, FFS, SFS, SFS2 and PFS3 remain independent; installing or removing one cannot create, remove or roll back another filesystem's state or the shared launcher infrastructure.
-
-Desktop mounts of OFS, FFS, SFS and SFS2 pass the requesting user's UID and primary GID through their own `setuid`/`setgid` mount options. PFS3 remains read-only until its mutation path is qualified.
-
-GNOME Disks and Nemo load only independently activated naming plugins for drivers present on the running kernel. The stock UDisks library and original desktop executables retain their distribution ownership and update path; package removal restores the shared launcher diversions after per-filesystem state is purged.
-
-The retired supplemental desktop package is removed automatically by the migration path introduced in 0.5.7. No additional Infiltrator desktop Debian package is built or distributed.
-
-## Source and CI contracts
-
-Filesystem-set knowledge used by build and source-boundary qualification is manifest-driven rather than copied into workflow YAML:
-
-- `data/native-filesystems.tsv` owns the project-native Linux deployment set and Amiga desktop variants.
-- `data/source-filesystems.txt` owns the set of in-repository real-format source trees.
-- `data/retired-source-identities.txt` owns historical provider/transport identities that must remain absent.
-
-The main build workflow consumes those manifests and prepares each pinned Linux kernel once per qualification job rather than cloning and preparing the same kernel separately for every native filesystem.
-
-## Releases
-
-The native `.run` contains the same qualified main Debian package and installs it through APT. A successful release publishes:
-
-- `Filesystem-Support-<version>-amd64.deb`
-- `Filesystem-Support-<version>-amd64.run`
-- `RELEASE_SHA256SUMS.txt`
-- GitHub source ZIP and TAR.GZ archives for the release tag.
-
-## Licence
-
-GPL-3.0-or-later.
+The implementation deliberately keeps filesystem semantics, support policy, privileged mutation, desktop presentation and setup capability as separate responsibilities so that adding or repairing one filesystem does not create hidden coupling to unrelated formats.
