@@ -7,6 +7,22 @@
 #include <utility>
 
 namespace filesystem_support {
+namespace {
+
+bool executable_disposition(const DesktopActionDisposition disposition)
+{
+    return disposition == DesktopActionDisposition::Execute ||
+           disposition == DesktopActionDisposition::ConfirmRemoval;
+}
+
+void fail_invalid_action(DesktopActionCompletion completion)
+{
+    if (completion) {
+        completion(false, "The prepared desktop action is not executable.");
+    }
+}
+
+} // namespace
 
 DesktopAction prepare_package_desktop_action(
     const FilesystemDescriptor& descriptor,
@@ -20,13 +36,11 @@ DesktopAction prepare_package_desktop_action(
     }
 
     if (policy.action == PackageActionKind::Install) {
-        const std::vector<std::string> packages = probe.missing_packages;
         action.disposition = DesktopActionDisposition::Execute;
+        action.kind = DesktopActionKind::InstallPackages;
         action.busy_label = "Installing…";
         action.failure_title = "Installation failed";
-        action.executor = [packages](DesktopActionCompletion completion) {
-            install_packages_async(packages, std::move(completion));
-        };
+        action.packages = probe.missing_packages;
         return action;
     }
 
@@ -39,34 +53,32 @@ DesktopAction prepare_package_desktop_action(
         return action;
     }
 
-    std::vector<std::string> packages;
-    packages.reserve(descriptor.packages.size());
+    action.packages.reserve(descriptor.packages.size());
     for (const auto package : descriptor.packages) {
-        packages.emplace_back(package);
+        action.packages.emplace_back(package);
     }
 
-    const RemovalPlan plan = plan_package_removal(packages);
+    const RemovalPlan plan = plan_package_removal(action.packages);
     if (!plan.allowed) {
         action.disposition = DesktopActionDisposition::Blocked;
         action.failure_title = "Removal blocked";
         action.message = plan.reason;
+        action.packages.clear();
         return action;
     }
 
     if (plan.planned_packages.empty()) {
         action.disposition = DesktopActionDisposition::Refresh;
+        action.packages.clear();
         return action;
     }
 
     action.disposition = DesktopActionDisposition::ConfirmRemoval;
+    action.kind = DesktopActionKind::RemovePackages;
     action.busy_label = "Removing…";
     action.failure_title = "Removal failed";
     action.planned_packages = plan.planned_packages;
     action.affected_entries = plan.affected_entries;
-    action.executor = [packages = std::move(packages)](
-                          DesktopActionCompletion completion) {
-        remove_packages_async(packages, std::move(completion));
-    };
     return action;
 }
 
@@ -80,48 +92,37 @@ DesktopAction prepare_module_desktop_action(
     }
 
     const ModuleActionPolicy policy = module_action_policy(descriptor, probe);
-    const std::string module = probe.module_name;
+    action.module = probe.module_name;
 
     switch (policy.action) {
-    case ModuleActionKind::InstallNative: {
-        const std::string filesystem_id(descriptor.id);
+    case ModuleActionKind::InstallNative:
         action.disposition = DesktopActionDisposition::Execute;
+        action.kind = DesktopActionKind::InstallNativeModule;
         action.busy_label = "Installing native…";
         action.failure_title = "Native module installation failed";
-        action.executor = [filesystem_id, module](DesktopActionCompletion completion) {
-            install_native_module_async(
-                filesystem_id, module, std::move(completion));
-        };
+        action.filesystem_id = std::string(descriptor.id);
         break;
-    }
-    case ModuleActionKind::RemoveNative: {
-        const std::string filesystem_id(descriptor.id);
+    case ModuleActionKind::RemoveNative:
         action.disposition = DesktopActionDisposition::Execute;
+        action.kind = DesktopActionKind::RemoveNativeModule;
         action.busy_label = "Removing native…";
         action.failure_title = "Native module removal failed";
-        action.executor = [filesystem_id, module](DesktopActionCompletion completion) {
-            remove_native_module_async(
-                filesystem_id, module, std::move(completion));
-        };
+        action.filesystem_id = std::string(descriptor.id);
         break;
-    }
     case ModuleActionKind::Load:
         action.disposition = DesktopActionDisposition::Execute;
+        action.kind = DesktopActionKind::LoadModule;
         action.busy_label = "Loading…";
         action.failure_title = "Module load failed";
-        action.executor = [module](DesktopActionCompletion completion) {
-            load_module_async(module, std::move(completion));
-        };
         break;
     case ModuleActionKind::Unload:
         action.disposition = DesktopActionDisposition::Execute;
+        action.kind = DesktopActionKind::UnloadModule;
         action.busy_label = "Unloading…";
         action.failure_title = "Module unload failed";
-        action.executor = [module](DesktopActionCompletion completion) {
-            unload_module_async(module, std::move(completion));
-        };
         break;
     case ModuleActionKind::None:
+        action.module.clear();
         break;
     }
 
@@ -132,17 +133,62 @@ void execute_desktop_action_async(
     DesktopAction action,
     DesktopActionCompletion completion)
 {
-    if ((action.disposition != DesktopActionDisposition::Execute &&
-         action.disposition != DesktopActionDisposition::ConfirmRemoval) ||
-        !action.executor) {
-        if (completion) {
-            completion(false, "The prepared desktop action is not executable.");
-        }
+    if (!executable_disposition(action.disposition)) {
+        fail_invalid_action(std::move(completion));
         return;
     }
 
-    auto executor = std::move(action.executor);
-    executor(std::move(completion));
+    switch (action.kind) {
+    case DesktopActionKind::InstallPackages:
+        if (action.packages.empty()) {
+            fail_invalid_action(std::move(completion));
+            return;
+        }
+        install_packages_async(action.packages, std::move(completion));
+        return;
+    case DesktopActionKind::RemovePackages:
+        if (action.packages.empty()) {
+            fail_invalid_action(std::move(completion));
+            return;
+        }
+        remove_packages_async(action.packages, std::move(completion));
+        return;
+    case DesktopActionKind::InstallNativeModule:
+        if (action.filesystem_id.empty() || action.module.empty()) {
+            fail_invalid_action(std::move(completion));
+            return;
+        }
+        install_native_module_async(
+            action.filesystem_id, action.module, std::move(completion));
+        return;
+    case DesktopActionKind::RemoveNativeModule:
+        if (action.filesystem_id.empty() || action.module.empty()) {
+            fail_invalid_action(std::move(completion));
+            return;
+        }
+        remove_native_module_async(
+            action.filesystem_id, action.module, std::move(completion));
+        return;
+    case DesktopActionKind::LoadModule:
+        if (action.module.empty()) {
+            fail_invalid_action(std::move(completion));
+            return;
+        }
+        load_module_async(action.module, std::move(completion));
+        return;
+    case DesktopActionKind::UnloadModule:
+        if (action.module.empty()) {
+            fail_invalid_action(std::move(completion));
+            return;
+        }
+        unload_module_async(action.module, std::move(completion));
+        return;
+    case DesktopActionKind::None:
+        fail_invalid_action(std::move(completion));
+        return;
+    }
+
+    fail_invalid_action(std::move(completion));
 }
 
 } // namespace filesystem_support
