@@ -36,5 +36,6 @@ jobs:
           ! grep -Fq 'Waiting for GitHub release' "$apt"
 
           grep -Fq 'github.event.pull_request.number || github.sha' "$build"
-          grep -Fq "filesystem-support-amiga-runtime-${dollar}{{ github.sha }}" "$amiga"
+          grep -Fq 'github.event.pull_request.number || github.sha' "$amiga"
+          grep -Fq "cancel-in-progress: ${dollar}{{ github.event_name == 'pull_request' }}" "$amiga"
           grep -Fq '[[ "$subject" == Release\ * ]]' "$amiga"
