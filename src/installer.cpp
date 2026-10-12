@@ -24,6 +24,11 @@ struct AsyncJob {
     std::string success_message;
 };
 
+struct RemovalPlanJob {
+    std::vector<std::string> packages;
+    RemovalPlanCompletion completion;
+};
+
 bool package_is_protected(const std::string& package, std::string* reason)
 {
     const auto result = run_command({
@@ -284,6 +289,49 @@ std::string native_module_helper_path()
     return {};
 }
 
+void destroy_removal_plan(gpointer data)
+{
+    delete static_cast<RemovalPlan*>(data);
+}
+
+void removal_plan_job_destroy(gpointer data)
+{
+    delete static_cast<RemovalPlanJob*>(data);
+}
+
+void removal_plan_worker(GTask* task,
+                         gpointer,
+                         gpointer task_data,
+                         GCancellable*)
+{
+    auto* job = static_cast<RemovalPlanJob*>(task_data);
+    auto* plan = new RemovalPlan(plan_package_removal(job->packages));
+    g_task_return_pointer(task, plan, destroy_removal_plan);
+}
+
+void removal_plan_finished(GObject*, GAsyncResult* result, gpointer)
+{
+    auto* task = G_TASK(result);
+    auto* job = static_cast<RemovalPlanJob*>(g_task_get_task_data(task));
+    GError* error = nullptr;
+    std::unique_ptr<RemovalPlan> plan(
+        static_cast<RemovalPlan*>(g_task_propagate_pointer(task, &error)));
+
+    if (job != nullptr && job->completion) {
+        if (plan != nullptr) {
+            job->completion(std::move(*plan));
+        } else {
+            RemovalPlan failed;
+            failed.reason = error != nullptr && error->message != nullptr
+                ? error->message
+                : "Debian removal planning did not complete.";
+            job->completion(std::move(failed));
+        }
+    }
+
+    g_clear_error(&error);
+}
+
 } // namespace
 
 RemovalPlan plan_package_removal(const std::vector<std::string>& packages)
@@ -349,6 +397,20 @@ RemovalPlan plan_package_removal(const std::vector<std::string>& packages)
     return plan;
 }
 
+void plan_package_removal_async(const std::vector<std::string>& packages,
+                                RemovalPlanCompletion completion)
+{
+    if (!completion) {
+        return;
+    }
+
+    GTask* task = g_task_new(nullptr, nullptr, removal_plan_finished, nullptr);
+    auto* job = new RemovalPlanJob {packages, std::move(completion)};
+    g_task_set_task_data(task, job, removal_plan_job_destroy);
+    g_task_run_in_thread(task, removal_plan_worker);
+    g_object_unref(task);
+}
+
 void install_packages_async(const std::vector<std::string>& packages,
                             ActionCompletion completion)
 {
@@ -374,28 +436,31 @@ void install_packages_async(const std::vector<std::string>& packages,
 void remove_packages_async(const std::vector<std::string>& packages,
                            ActionCompletion completion)
 {
-    const RemovalPlan plan = plan_package_removal(packages);
-    if (!plan.allowed) {
-        completion(false, plan.reason);
-        return;
-    }
+    plan_package_removal_async(
+        packages,
+        [packages, completion = std::move(completion)](RemovalPlan plan) mutable {
+            if (!plan.allowed) {
+                completion(false, plan.reason);
+                return;
+            }
 
-    if (plan.planned_packages.empty()) {
-        completion(true, "Nothing is currently installed for removal.");
-        return;
-    }
+            if (plan.planned_packages.empty()) {
+                completion(true, "Nothing is currently installed for removal.");
+                return;
+            }
 
-    std::vector<std::string> arguments = {
-        "apt-get",
-        "remove",
-        "-y"
-    };
-    arguments.insert(arguments.end(), packages.begin(), packages.end());
+            std::vector<std::string> arguments = {
+                "apt-get",
+                "remove",
+                "-y"
+            };
+            arguments.insert(arguments.end(), packages.begin(), packages.end());
 
-    run_privileged_async(
-        arguments,
-        "Removal completed successfully.",
-        std::move(completion));
+            run_privileged_async(
+                arguments,
+                "Removal completed successfully.",
+                std::move(completion));
+        });
 }
 
 void load_module_async(const std::string& module,
