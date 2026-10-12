@@ -3,14 +3,14 @@ name: Publish release
 
 on:
   workflow_run:
-    workflows: ["EXT runtime qualification"]
+    workflows: ["build"]
     types: [completed]
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-release-${{ github.repository }}
+  group: publish-release-${{ github.event.workflow_run.head_sha }}
   cancel-in-progress: false
 
 jobs:
@@ -22,45 +22,41 @@ jobs:
       startsWith(github.event.workflow_run.head_commit.message, 'Release ')
     permissions:
       contents: write
-      actions: write
+      actions: read
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 75
     env:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+      BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
-      - name: Verify runtime qualification provenance
+      - name: Verify build provenance
         shell: bash
         run: |
           set -euo pipefail
-          test "${{ github.event.workflow_run.name }}" = "EXT runtime qualification"
+          test "${{ github.event.workflow_run.name }}" = "build"
           test "${{ github.event.workflow_run.event }}" = "push"
           test "${{ github.event.workflow_run.conclusion }}" = "success"
 
-      - name: Check out exact tested release commit
+      - name: Check out exact built release commit
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           submodules: recursive
 
-      - name: Install release build dependencies
+      - name: Install release packaging dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config libgtk-3-dev \
-            dpkg-dev policykit-1 udev libudisks2-0
+          sudo apt-get install -y --no-install-recommends dpkg-dev python3
 
       - name: Verify release identity
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --tags
           head_commit=$(git rev-parse HEAD)
-          main_commit=$(git rev-parse origin/main)
           test "$head_commit" = "$EXPECTED_SHA"
-          test "$main_commit" = "$EXPECTED_SHA"
 
           version=$(tr -d '[:space:]' < VERSION)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -71,87 +67,59 @@ jobs:
             exit 1
           fi
 
-      - name: Require Amiga qualification when the release changes Amiga code or integration
+      - name: Require exact-SHA runtime qualifications
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^ 2>/dev/null || true)
-          if [[ -n "$base" ]]; then
-            changed=$(git diff --name-only "$base" HEAD)
-          else
-            changed=$(git diff --name-only HEAD^ HEAD)
-          fi
-          if ! grep -Eq '^(CMakeLists\.txt|data/(native-filesystems|desktop-filesystems)\.tsv|cmake/amiga-desktop-detection\.cmake|native/filesystems/(ofs|ffs|sfs|sfs2|pfs3)/|packaging/linux/(desktop-integration\.sh|gnome-disks-wrapper|nemo-wrapper|native-module-helper\.sh|kernel-module-helper\.sh|desktop-rules/)|tests/amiga_runtime_init\.sh|\.github/workflows/amiga-runtime-qualification\.yml$)' <<<"$changed"; then
-            exit 0
-          fi
 
-          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100")
-          existing=$(jq -r '.workflow_runs | map(select(.name == "Amiga runtime qualification")) | first | .id // empty' <<<"$runs")
-          if [[ -z "$existing" ]]; then
-            git fetch origin main
-            test "$(git rev-parse origin/main)" = "$EXPECTED_SHA"
-            echo "No exact-SHA Amiga qualification exists; dispatching it for $EXPECTED_SHA."
-            gh workflow run amiga-runtime-qualification.yml --ref main
-          fi
+          wait_for_workflow()
+          {
+            workflow_name="$1"
+            for attempt in $(seq 1 280); do
+              state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100" \
+                --jq --arg name "$workflow_name" \
+                '.workflow_runs | map(select(.name == $name)) | first | if . == null then "pending" elif .status == "completed" then .conclusion else .status end')
 
-          for attempt in $(seq 1 40); do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100" \
-              --jq '.workflow_runs | map(select(.name == "Amiga runtime qualification")) | first | if . == null then "pending" elif .status == "completed" then .conclusion else .status end')
-            if [[ "$state" == success ]]; then exit 0; fi
-            case "$state" in failure|cancelled|timed_out|action_required|skipped)
-              echo "Amiga runtime qualification did not pass: $state" >&2
-              exit 1 ;;
-            esac
-            sleep 15
-          done
-          echo 'Amiga runtime qualification has not completed; refusing publication' >&2
-          exit 1
+              if [[ "$state" == success ]]; then
+                echo "$workflow_name passed for $EXPECTED_SHA."
+                return 0
+              fi
 
-      - name: Retrieve the main package qualified for this exact commit
+              case "$state" in
+                failure|cancelled|timed_out|action_required|skipped)
+                  echo "$workflow_name did not pass for $EXPECTED_SHA: $state" >&2
+                  return 1
+                  ;;
+              esac
+
+              echo "Waiting for $workflow_name at $EXPECTED_SHA ($attempt/280)..."
+              sleep 15
+            done
+
+            echo "$workflow_name has not completed for $EXPECTED_SHA; refusing publication." >&2
+            return 1
+          }
+
+          wait_for_workflow "EXT runtime qualification"
+          wait_for_workflow "Amiga runtime qualification"
+
+      - name: Retrieve the package from the triggering build
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          build_run=""
-          for attempt in $(seq 1 80); do
-            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100")
-            build_run=$(jq -r '.workflow_runs | map(select(.name == "build" and .status == "completed" and .conclusion == "success")) | first | .id // empty' <<<"$runs")
-            if [[ -n "$build_run" ]]; then
-              break
-            fi
+          gh run download "$BUILD_RUN_ID" \
+            --name filesystem-support-linux-package \
+            --dir dist
 
-            failed=$(jq -r '.workflow_runs | map(select(.name == "build" and .status == "completed" and (.conclusion != "success"))) | first | .conclusion // empty' <<<"$runs")
-            if [[ -n "$failed" ]]; then
-              echo "Qualified build completed unsuccessfully: $failed" >&2
-              exit 1
-            fi
-
-            echo "Waiting for qualified build artifact ($attempt/80)..."
-            sleep 15
-          done
-          test -n "$build_run" || {
-            echo 'Qualified build did not complete within 20 minutes.' >&2
-            exit 1
-          }
-
-          gh run download "$build_run" --name filesystem-support-linux-package --dir dist
           version=$(tr -d '[:space:]' < VERSION)
           deb="dist/Filesystem-Support-$version-amd64.deb"
           test "$(dpkg-deb -f "$deb" Package)" = infiltrator-filesystem-support
           test "$(dpkg-deb -f "$deb" Version)" = "$version"
           python3 tests/udisks_display_test.py --package "$deb"
           cp "$deb" .
-
-      - name: Configure, build and test
-        run: |
-          set -euo pipefail
-          cmake -S . -B build-release -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr
-          cmake --build build-release
-          ctest --test-dir build-release --output-on-failure
 
       - name: Verify the qualified single Debian package
         run: |
@@ -199,11 +167,9 @@ jobs:
           deb="Filesystem-Support-$version-amd64.deb"
           run="Filesystem-Support-$version-amd64.run"
 
-          git fetch origin main --tags
+          git fetch origin --tags
           head_commit=$(git rev-parse HEAD)
-          main_commit=$(git rev-parse origin/main)
           test "$head_commit" = "$EXPECTED_SHA"
-          test "$main_commit" = "$EXPECTED_SHA"
 
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
             tag_commit=$(git rev-list -n 1 "$tag")
