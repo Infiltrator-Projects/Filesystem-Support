@@ -23,6 +23,27 @@ on:
       - "tests/desktop_install_test.py"
       - "tools/generate-sfs-runtime-images.py"
       - ".github/workflows/amiga-runtime-qualification.yml"
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "data/native-filesystems.tsv"
+      - "data/desktop-filesystems.tsv"
+      - "cmake/amiga-desktop-detection.cmake"
+      - "native/filesystems/ofs/**"
+      - "native/filesystems/ffs/**"
+      - "native/filesystems/sfs/**"
+      - "native/filesystems/sfs2/**"
+      - "native/filesystems/pfs3/**"
+      - "packaging/linux/native-module-helper.sh"
+      - "packaging/linux/kernel-module-helper.sh"
+      - "packaging/linux/desktop-integration.sh"
+      - "packaging/linux/gnome-disks-wrapper"
+      - "packaging/linux/nemo-wrapper"
+      - "packaging/linux/desktop-rules/**"
+      - "tests/amiga_runtime_init.sh"
+      - "tests/desktop_install_test.py"
+      - "tools/generate-sfs-runtime-images.py"
+      - ".github/workflows/amiga-runtime-qualification.yml"
   workflow_dispatch:
 
 concurrency:
