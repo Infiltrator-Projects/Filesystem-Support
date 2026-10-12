@@ -32,7 +32,13 @@ struct ProbeCache {
 
 ProbeCache& probe_cache()
 {
-    static ProbeCache cache;
+    /*
+     * Probing is intentionally cache-heavy, but the public probe helpers are
+     * not restricted to one caller thread. Keep each worker's inventory local
+     * to that thread so a future concurrent scan cannot race cache mutation or
+     * invalidate another worker's snapshot.
+     */
+    thread_local ProbeCache cache;
     return cache;
 }
 
