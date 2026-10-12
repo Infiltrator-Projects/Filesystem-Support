@@ -9,13 +9,15 @@
 namespace filesystem_support {
 
 struct CommandResult {
+    bool spawned = false;
     int exit_status = -1;
+    int wait_status = -1;
     std::string stdout_text;
     std::string stderr_text;
 
     bool succeeded() const noexcept
     {
-        return exit_status == 0;
+        return spawned && exit_status == 0;
     }
 
     std::string combined_output() const
@@ -32,16 +34,21 @@ struct CommandResult {
 
 // Single authority for synchronous child-process execution used by probing and
 // package planning. Callers own policy; this utility owns only process launch,
-// the stable C locale and output/status capture.
+// the stable C locale and output/status capture. Spawn and wait failures retain
+// a diagnostic so callers do not collapse an execution failure into an empty
+// generic error.
 inline CommandResult run_command(const std::vector<std::string>& arguments)
 {
     CommandResult result;
     if (arguments.empty()) {
+        result.stderr_text = "No command was supplied.";
         return result;
     }
 
     gchar* program = g_find_program_in_path(arguments.front().c_str());
     if (program == nullptr) {
+        result.stderr_text =
+            "Executable not found in PATH: " + arguments.front();
         return result;
     }
 
@@ -62,7 +69,7 @@ inline CommandResult run_command(const std::vector<std::string>& arguments)
     gchar* stdout_text = nullptr;
     gchar* stderr_text = nullptr;
     gint wait_status = -1;
-    GError* error = nullptr;
+    GError* spawn_error = nullptr;
 
     const gboolean spawned = g_spawn_sync(
         nullptr,
@@ -74,21 +81,36 @@ inline CommandResult run_command(const std::vector<std::string>& arguments)
         &stdout_text,
         &stderr_text,
         &wait_status,
-        &error);
+        &spawn_error);
 
-    if (spawned) {
-        result.exit_status =
-            g_spawn_check_wait_status(wait_status, nullptr) ? 0 : 1;
-        if (stdout_text != nullptr) {
-            result.stdout_text = stdout_text;
+    result.spawned = spawned != FALSE;
+    result.wait_status = wait_status;
+    if (stdout_text != nullptr) {
+        result.stdout_text = stdout_text;
+    }
+    if (stderr_text != nullptr) {
+        result.stderr_text = stderr_text;
+    }
+
+    if (!result.spawned) {
+        if (result.stderr_text.empty() && spawn_error != nullptr) {
+            result.stderr_text = spawn_error->message;
         }
-        if (stderr_text != nullptr) {
-            result.stderr_text = stderr_text;
+    } else {
+        GError* wait_error = nullptr;
+        if (g_spawn_check_wait_status(wait_status, &wait_error)) {
+            result.exit_status = 0;
+        } else {
+            result.exit_status = 1;
+            if (result.stderr_text.empty() && wait_error != nullptr) {
+                result.stderr_text = wait_error->message;
+            }
         }
+        g_clear_error(&wait_error);
     }
 
     g_strfreev(environment);
-    g_clear_error(&error);
+    g_clear_error(&spawn_error);
     g_free(stdout_text);
     g_free(stderr_text);
     return result;
