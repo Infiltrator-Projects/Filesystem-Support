@@ -2,6 +2,7 @@
 #include "action_policy.hpp"
 #include "catalog.hpp"
 #include "installer.hpp"
+#include "process_runner.hpp"
 
 #include <iostream>
 #include <string>
@@ -30,6 +31,12 @@ const filesystem_support::FilesystemDescriptor* find_entry(
 int main()
 {
     using namespace filesystem_support;
+
+    const CommandResult exit_status = run_command({"sh", "-c", "exit 42"});
+    if (!exit_status.spawned || exit_status.exit_status != 42 ||
+        exit_status.succeeded()) {
+        return fail("child process exit status was not preserved exactly");
+    }
 
     if (!package_is_catalogued("util-linux") ||
         package_is_catalogued("definitely-not-catalogued")) {
