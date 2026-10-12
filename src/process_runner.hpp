@@ -4,6 +4,7 @@
 #include <glib.h>
 
 #include <string>
+#include <sys/wait.h>
 #include <vector>
 
 namespace filesystem_support {
@@ -36,7 +37,8 @@ struct CommandResult {
 // package planning. Callers own policy; this utility owns only process launch,
 // the stable C locale and output/status capture. Spawn and wait failures retain
 // a diagnostic so callers do not collapse an execution failure into an empty
-// generic error.
+// generic error. Exact normal exit codes are preserved for callers that need
+// to distinguish an expected tool result from an execution failure.
 inline CommandResult run_command(const std::vector<std::string>& arguments)
 {
     CommandResult result;
@@ -97,16 +99,18 @@ inline CommandResult run_command(const std::vector<std::string>& arguments)
             result.stderr_text = spawn_error->message;
         }
     } else {
-        GError* wait_error = nullptr;
-        if (g_spawn_check_wait_status(wait_status, &wait_error)) {
-            result.exit_status = 0;
-        } else {
-            result.exit_status = 1;
+        if (WIFEXITED(wait_status)) {
+            result.exit_status = WEXITSTATUS(wait_status);
+        }
+
+        if (result.exit_status != 0) {
+            GError* wait_error = nullptr;
+            (void)g_spawn_check_wait_status(wait_status, &wait_error);
             if (result.stderr_text.empty() && wait_error != nullptr) {
                 result.stderr_text = wait_error->message;
             }
+            g_clear_error(&wait_error);
         }
-        g_clear_error(&wait_error);
     }
 
     g_strfreev(environment);
