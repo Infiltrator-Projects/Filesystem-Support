@@ -4,11 +4,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      sha:
+        description: Exact commit SHA to qualify
+        required: true
+        type: string
 
 concurrency:
-  # Every qualification is bound directly to the commit that triggered it.
-  group: filesystem-support-ext-runtime-${{ github.sha }}
-  cancel-in-progress: true
+  group: filesystem-support-ext-runtime-${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
+  cancel-in-progress: false
 
 jobs:
   scope:
@@ -19,7 +24,7 @@ jobs:
       - name: Checkout candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
           fetch-depth: 2
 
       - name: Decide whether EXT runtime qualification is required
@@ -28,18 +33,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_call" || \
+                "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           subject=$(git log -1 --format=%s)
 
-          # Every release commit is qualified directly. Ordinary commits only
-          # run the expensive qualification when EXT code or its qualification
-          # machinery changed.
+          # Release commits are qualified by the build workflow's explicit
+          # release DAG.  Do not run a duplicate standalone qualification.
           if [[ "$subject" == Release\ * ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -64,7 +69,7 @@ jobs:
       - name: Checkout qualified commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
 
       - name: Install kernel and runtime qualification dependencies
         shell: bash
