@@ -84,6 +84,16 @@ jobs:
           if ! grep -Eq '^(CMakeLists\.txt|data/(native-filesystems|desktop-filesystems)\.tsv|cmake/amiga-desktop-detection\.cmake|native/filesystems/(ofs|ffs|sfs|sfs2|pfs3)/|packaging/linux/(desktop-integration\.sh|gnome-disks-wrapper|nemo-wrapper|native-module-helper\.sh|kernel-module-helper\.sh|desktop-rules/)|tests/amiga_runtime_init\.sh|\.github/workflows/amiga-runtime-qualification\.yml$)' <<<"$changed"; then
             exit 0
           fi
+
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100")
+          existing=$(jq -r '.workflow_runs | map(select(.name == "Amiga runtime qualification")) | first | .id // empty' <<<"$runs")
+          if [[ -z "$existing" ]]; then
+            git fetch origin main
+            test "$(git rev-parse origin/main)" = "$EXPECTED_SHA"
+            echo "No exact-SHA Amiga qualification exists; dispatching it for $EXPECTED_SHA."
+            gh workflow run amiga-runtime-qualification.yml --ref main
+          fi
+
           for attempt in $(seq 1 40); do
             state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_SHA&per_page=100" \
               --jq '.workflow_runs | map(select(.name == "Amiga runtime qualification")) | first | if . == null then "pending" elif .status == "completed" then .conclusion else .status end')
