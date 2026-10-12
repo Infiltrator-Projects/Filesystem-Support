@@ -244,9 +244,9 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Build and validate canonical EXT2 driver
+      - name: Build, analyze and validate canonical EXT2 driver
         shell: powershell
-        run: .\windows\build\Build-Ext2Driver.ps1 -Configuration Release -Platform x64 -SkipCodeAnalysis
+        run: .\windows\build\Build-Ext2Driver.ps1 -Configuration Release -Platform x64
 
       - name: Verify staged driver package
         shell: powershell
