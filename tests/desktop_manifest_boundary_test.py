@@ -119,6 +119,22 @@ if 'desktop_kind' in amiga_workflow:
     raise SystemExit('Amiga runtime qualification still depends on retired native desktop columns')
 if "done < data/desktop-filesystems.tsv" not in amiga_workflow:
     raise SystemExit('Amiga runtime qualification is not driven by the desktop manifest')
+for required in (
+    'pull_request:',
+    'tests/amiga_runtime_init.sh',
+    'AMIGA-CRASH-ARMED',
+    'AMIGA-CRASH-RECOVERY-PASS',
+):
+    if required not in amiga_workflow:
+        raise SystemExit(f'Amiga recovery qualification lost required contract: {required}')
+amiga_init = (repo / 'tests/amiga_runtime_init.sh').read_text()
+for required in ('sync || fail "crash arm sync"', 'AMIGA-CRASH-ARMED',
+                 'AMIGA-CRASH-RECOVERY-PASS', 'reboot -f'):
+    if required not in amiga_init:
+        raise SystemExit(f'Amiga crash-recovery init lost required phase: {required}')
+release_workflow = (repo / '.github/workflows/release.yml').read_text()
+if 'tests/amiga_runtime_init\\.sh' not in release_workflow:
+    raise SystemExit('release gate ignores changes to the Amiga recovery qualification')
 
 # Ordinary CI must consume the two-field native deployment contract as two
 # fields; accepting obsolete trailing variable names silently preserves the old
