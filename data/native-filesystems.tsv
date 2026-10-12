@@ -1,11 +1,11 @@
 # Filesystem Support project-native Linux deployment manifest
-# id	module	reserved_kind	reserved_variant
+# id	module
 # Desktop integration membership is owned by data/desktop-filesystems.tsv.
-ext2	ext2	none	0
-ext3	ext3	none	0
-ext4	ext4	none	0
-ofs	ofs	none	0
-ffs	ffs	none	0
-sfs	sfs	none	0
-sfs2	sfs2	none	0
-pfs3	pfs3	none	0
+ext2	ext2
+ext3	ext3
+ext4	ext4
+ofs	ofs
+ffs	ffs
+sfs	sfs
+sfs2	sfs2
+pfs3	pfs3
