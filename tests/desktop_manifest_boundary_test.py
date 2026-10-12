@@ -101,9 +101,6 @@ for relative in (
     if 'native-filesystems.tsv' in text:
         raise SystemExit(f'{relative} still reads native deployment policy')
 
-# Desktop state changes are committed only after udev has accepted and settled
-# the new rules. Rollback cleanup may be best-effort, but the forward path may
-# not silently discard refresh errors.
 desktop_helper = (repo / 'packaging/linux/desktop-integration.sh').read_text()
 for ignored in (
     'udevadm control --reload-rules || true',
@@ -122,6 +119,27 @@ if 'desktop_kind' in amiga_workflow:
     raise SystemExit('Amiga runtime qualification still depends on retired native desktop columns')
 if "done < data/desktop-filesystems.tsv" not in amiga_workflow:
     raise SystemExit('Amiga runtime qualification is not driven by the desktop manifest')
+
+# Ordinary CI must consume the two-field native deployment contract as two
+# fields; accepting obsolete trailing variable names silently preserves the old
+# ownership model and makes future drift harder to detect.
+build_workflow = (repo / '.github/workflows/build.yml').read_text()
+if 'read -r fs module desktop_kind desktop_variant' in build_workflow:
+    raise SystemExit('build workflow still models retired native desktop columns')
+
+# Parser hardening is a permanent qualification layer, not an occasional local
+# diagnostic. The workflow must use both memory/UB sanitizers and malformed
+# media that drives the real fsinspect entry point.
+sanitizer_workflow = (repo / '.github/workflows/sanitizers.yml').read_text()
+for required in (
+    '-fsanitize=address,undefined',
+    'tests/parser_adversarial_test.py',
+    'build-sanitized/fsinspect',
+):
+    if required not in sanitizer_workflow:
+        raise SystemExit(f'sanitizer qualification lost required coverage: {required}')
+if not (repo / 'tests/parser_adversarial_test.py').is_file():
+    raise SystemExit('malformed-media parser corpus is missing')
 
 main = (repo / 'src/main.cpp').read_text()
 if '#include "desktop_actions.hpp"' not in main:
@@ -197,9 +215,6 @@ for relative in ('src/probe.cpp', 'src/installer.cpp'):
     if 'struct CommandResult' in text or 'CommandResult run_command' in text:
         raise SystemExit(f'{relative} reintroduced private process execution')
 
-# Probe caching is an implementation optimisation, not a caller serialization
-# contract. Each worker owns its own snapshot, so concurrent future callers do
-# not race cache mutation or invalidation.
 probe_impl = (repo / 'src/probe.cpp').read_text()
 if 'thread_local ProbeCache cache' not in probe_impl:
     raise SystemExit('probe cache is process-global rather than worker-local')
