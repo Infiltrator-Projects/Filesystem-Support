@@ -22,9 +22,10 @@ jobs:
           apt=.github/workflows/apt-publication.yml
           build=.github/workflows/build.yml
           amiga=.github/workflows/amiga-runtime-qualification.yml
+          dollar='$'
 
           grep -Fq 'workflows: ["build"]' "$release"
-          grep -Fq 'BUILD_RUN_ID: ${{ github.event.workflow_run.id }}' "$release"
+          grep -Fq "BUILD_RUN_ID: ${dollar}{{ github.event.workflow_run.id }}" "$release"
           grep -Fq 'wait_for_workflow "EXT runtime qualification"' "$release"
           grep -Fq 'wait_for_workflow "Amiga runtime qualification"' "$release"
           ! grep -Fq 'gh workflow run amiga-runtime-qualification.yml' "$release"
@@ -34,6 +35,6 @@ jobs:
           grep -Fq 'workflows: ["Publish release"]' "$apt"
           ! grep -Fq 'Waiting for GitHub release' "$apt"
 
-          grep -Fq "github.event.pull_request.number || github.sha" "$build"
-          grep -Fq 'filesystem-support-amiga-runtime-${{ github.sha }}' "$amiga"
+          grep -Fq 'github.event.pull_request.number || github.sha' "$build"
+          grep -Fq "filesystem-support-amiga-runtime-${dollar}{{ github.sha }}" "$amiga"
           grep -Fq '[[ "$subject" == Release\ * ]]' "$amiga"
