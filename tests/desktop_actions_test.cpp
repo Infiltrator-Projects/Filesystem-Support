@@ -49,9 +49,11 @@ int main()
         probe.missing_packages = {"test-package"};
         const DesktopAction action = prepare_package_desktop_action(entry, probe);
         if (action.disposition != DesktopActionDisposition::Execute ||
+            action.kind != DesktopActionKind::InstallPackages ||
+            action.packages != probe.missing_packages ||
             action.busy_label != "Installing…" ||
             action.failure_title != "Installation failed") {
-            return fail("package installation leaked or lost orchestration policy");
+            return fail("package installation command is not explicit and inspectable");
         }
     }
 
@@ -64,9 +66,11 @@ int main()
         probe.kernel_state = KernelState::LoadableLoaded;
         const DesktopAction action = prepare_package_desktop_action(entry, probe);
         if (action.disposition != DesktopActionDisposition::Blocked ||
+            action.kind != DesktopActionKind::None ||
+            !action.packages.empty() ||
             action.failure_title != "Unload module first" ||
             action.message.empty()) {
-            return fail("DKMS removal interlock is not owned by desktop orchestration");
+            return fail("DKMS removal interlock leaked an executable command");
         }
     }
 
@@ -78,17 +82,21 @@ int main()
         probe.project_native_installed = false;
         DesktopAction action = prepare_module_desktop_action(entry, probe);
         if (action.disposition != DesktopActionDisposition::Execute ||
+            action.kind != DesktopActionKind::InstallNativeModule ||
+            action.filesystem_id != "ofs" || action.module != "ofs" ||
             action.busy_label != "Installing native…" ||
             action.failure_title != "Native module installation failed") {
-            return fail("native installation is not hidden behind desktop orchestration");
+            return fail("native installation command is not explicit and inspectable");
         }
 
         probe.project_native_installed = true;
         action = prepare_module_desktop_action(entry, probe);
         if (action.disposition != DesktopActionDisposition::Execute ||
+            action.kind != DesktopActionKind::RemoveNativeModule ||
+            action.filesystem_id != "ofs" || action.module != "ofs" ||
             action.busy_label != "Removing native…" ||
             action.failure_title != "Native module removal failed") {
-            return fail("native removal is not hidden behind desktop orchestration");
+            return fail("native removal command is not explicit and inspectable");
         }
     }
 
@@ -100,23 +108,45 @@ int main()
         probe.kernel_state = KernelState::LoadableUnloaded;
         DesktopAction action = prepare_module_desktop_action(entry, probe);
         if (action.disposition != DesktopActionDisposition::Execute ||
+            action.kind != DesktopActionKind::LoadModule ||
+            action.module != "kernel-test" ||
             action.busy_label != "Loading…" ||
             action.failure_title != "Module load failed") {
-            return fail("module loading is not hidden behind desktop orchestration");
+            return fail("module load command is not explicit and inspectable");
         }
 
         probe.kernel_state = KernelState::LoadableLoaded;
         action = prepare_module_desktop_action(entry, probe);
         if (action.disposition != DesktopActionDisposition::Execute ||
+            action.kind != DesktopActionKind::UnloadModule ||
+            action.module != "kernel-test" ||
             action.busy_label != "Unloading…" ||
             action.failure_title != "Module unload failed") {
-            return fail("module unloading is not hidden behind desktop orchestration");
+            return fail("module unload command is not explicit and inspectable");
         }
 
         probe.kernel_state = KernelState::BuiltIn;
         action = prepare_module_desktop_action(entry, probe);
-        if (action.disposition != DesktopActionDisposition::None) {
-            return fail("non-actionable module state produced an executable desktop action");
+        if (action.disposition != DesktopActionDisposition::None ||
+            action.kind != DesktopActionKind::None ||
+            !action.module.empty()) {
+            return fail("non-actionable module state produced command payload");
+        }
+    }
+
+    {
+        bool completion_called = false;
+        bool completion_success = true;
+        std::string completion_message;
+        execute_desktop_action_async(
+            DesktopAction {},
+            [&](const bool success, const std::string& message) {
+                completion_called = true;
+                completion_success = success;
+                completion_message = message;
+            });
+        if (!completion_called || completion_success || completion_message.empty()) {
+            return fail("invalid desktop action did not fail closed");
         }
     }
 

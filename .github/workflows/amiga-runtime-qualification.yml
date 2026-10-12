@@ -6,6 +6,7 @@ on:
     paths:
       - "CMakeLists.txt"
       - "data/native-filesystems.tsv"
+      - "data/desktop-filesystems.tsv"
       - "cmake/amiga-desktop-detection.cmake"
       - "native/filesystems/ofs/**"
       - "native/filesystems/ffs/**"
@@ -68,12 +69,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+          while IFS=$'\t' read -r fs desktop_variant; do
             [[ -n "$fs" && "$fs" != \#* ]] || continue
-            [[ "$desktop_kind" == amiga ]] || continue
+            module=$(awk -F '\t' -v fs="$fs" '
+              $0 !~ /^#/ && NF == 2 && $1 == fs { print $2; found = 1; exit }
+              END { if (!found) exit 1 }
+            ' data/native-filesystems.tsv)
+            [[ -n "$module" ]]
             make -C /tmp/linux M="$PWD/native/filesystems/$fs/linux" modules
             test -s "native/filesystems/$fs/linux/$module.ko"
-          done < data/native-filesystems.tsv
+          done < data/desktop-filesystems.tsv
 
       - name: Build independent OFS FFS and PFS3 fixture generators
         shell: bash
@@ -120,11 +125,15 @@ jobs:
           for app in sh mount umount mkdir rmdir cat echo dd ln mv rm readlink sync poweroff stat wc insmod su id; do
             ln -s busybox "$root/bin/$app"
           done
-          while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+          while IFS=$'\t' read -r fs desktop_variant; do
             [[ -n "$fs" && "$fs" != \#* ]] || continue
-            [[ "$desktop_kind" == amiga ]] || continue
+            module=$(awk -F '\t' -v fs="$fs" '
+              $0 !~ /^#/ && NF == 2 && $1 == fs { print $2; found = 1; exit }
+              END { if (!found) exit 1 }
+            ' data/native-filesystems.tsv)
+            [[ -n "$module" ]]
             cp "native/filesystems/$fs/linux/$module.ko" "$root/$module.ko"
-          done < data/native-filesystems.tsv
+          done < data/desktop-filesystems.tsv
           printf 'root:x:0:0:root:/:/bin/sh\ndesktop:x:1000:1000:desktop:/:/bin/sh\nother:x:1001:1001:other:/:/bin/sh\n' > "$root/etc/passwd"
           printf 'root:x:0:\ndesktop:x:1000:\nother:x:1001:\n' > "$root/etc/group"
           # Exercise exactly the defaults installed by each format's udev rule.

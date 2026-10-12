@@ -14,8 +14,9 @@ cd "$root"
 source_manifest=data/source-filesystems.txt
 retired_manifest=data/retired-source-identities.txt
 native_manifest=data/native-filesystems.tsv
+desktop_manifest=data/desktop-filesystems.tsv
 
-for manifest in "$source_manifest" "$retired_manifest" "$native_manifest"; do
+for manifest in "$source_manifest" "$retired_manifest" "$native_manifest" "$desktop_manifest"; do
     [[ -s "$manifest" ]] || {
         echo "Required source contract manifest is missing or empty: $manifest" >&2
         exit 1
@@ -67,31 +68,19 @@ while IFS= read -r fs; do
     }
 done < <(manifest_values "$retired_manifest")
 
-# Validate the native deployment manifest structurally and ensure every managed
-# filesystem has exactly the source required by the installer. The manifest
-# itself is the authority; there is deliberately no second expected list.
+# Native deployment owns only filesystem/module identity. Desktop membership
+# and variants have a separate manifest and are forbidden from leaking back
+# into this contract.
 awk -F '\t' '
     BEGIN { ok = 1 }
     /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
-    NF != 4 {
+    NF != 2 {
         print "Invalid native manifest row: " $0 > "/dev/stderr"
         ok = 0
         next
     }
     $1 !~ /^[A-Za-z0-9_.+-]+$/ || $2 !~ /^[A-Za-z0-9_.+-]+$/ {
         print "Invalid native filesystem/module token: " $0 > "/dev/stderr"
-        ok = 0
-    }
-    $3 != "none" && $3 != "amiga" {
-        print "Invalid native desktop kind: " $0 > "/dev/stderr"
-        ok = 0
-    }
-    $3 == "none" && $4 != "0" {
-        print "Non-desktop filesystem has non-zero variant: " $0 > "/dev/stderr"
-        ok = 0
-    }
-    $3 == "amiga" && $4 !~ /^[1-9][0-9]*$/ {
-        print "Amiga filesystem has invalid desktop variant: " $0 > "/dev/stderr"
         ok = 0
     }
     seen_fs[$1]++ {
@@ -102,14 +91,10 @@ awk -F '\t' '
         print "Duplicate native module: " $2 > "/dev/stderr"
         ok = 0
     }
-    $4 != "0" && seen_variant[$4]++ {
-        print "Duplicate desktop variant: " $4 > "/dev/stderr"
-        ok = 0
-    }
     END { exit ok ? 0 : 1 }
 ' "$native_manifest"
 
-while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+while IFS=$'\t' read -r fs module; do
     [[ -n "$fs" && "${fs:0:1}" != "#" ]] || continue
     grep -Fxq "$fs" /tmp/filesystem-support-source.expected || {
         echo "Native filesystem $fs is not present in $source_manifest" >&2
@@ -118,6 +103,44 @@ while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
     test -d "native/filesystems/$fs/core"
     test -f "native/filesystems/$fs/linux/Makefile"
 done < "$native_manifest"
+
+# Desktop policy may reference only a managed native filesystem. Its variant
+# namespace is unique and positive, but it has no authority over native module
+# build/deployment membership.
+awk -F '\t' -v native="$native_manifest" '
+    BEGIN {
+        ok = 1
+        while ((getline line < native) > 0) {
+            if (line ~ /^[[:space:]]*#/ || line ~ /^[[:space:]]*$/) continue
+            split(line, fields, "\t")
+            managed[fields[1]] = 1
+        }
+        close(native)
+    }
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    NF != 2 {
+        print "Invalid desktop manifest row: " $0 > "/dev/stderr"
+        ok = 0
+        next
+    }
+    !managed[$1] {
+        print "Desktop filesystem is not managed natively: " $1 > "/dev/stderr"
+        ok = 0
+    }
+    $2 !~ /^[1-9][0-9]*$/ {
+        print "Invalid desktop variant: " $0 > "/dev/stderr"
+        ok = 0
+    }
+    seen_fs[$1]++ {
+        print "Duplicate desktop filesystem: " $1 > "/dev/stderr"
+        ok = 0
+    }
+    seen_variant[$2]++ {
+        print "Duplicate desktop variant: " $2 > "/dev/stderr"
+        ok = 0
+    }
+    END { exit ok ? 0 : 1 }
+' "$desktop_manifest"
 
 # OFS and FFS must not share AFFS-family runtime state. Only the tiny generic
 # kernel compatibility layer may be shared.
@@ -157,11 +180,10 @@ done
 
 # References are evidence only and are never compiled into active modules.
 ! grep -Fq '/reference' CMakeLists.txt
-while IFS=$'\t' read -r fs module desktop_kind desktop_variant; do
+while IFS=$'\t' read -r fs desktop_variant; do
     [[ -n "$fs" && "${fs:0:1}" != "#" ]] || continue
-    [[ "$desktop_kind" == "amiga" ]] || continue
     ! grep -Fq 'reference' "native/filesystems/$fs/linux/Makefile"
-done < "$native_manifest"
+done < "$desktop_manifest"
 
 # Windows EXT2 must consume the canonical EXT2 engine rather than a second
 # filesystem implementation.

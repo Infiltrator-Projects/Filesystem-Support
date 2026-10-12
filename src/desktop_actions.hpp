@@ -21,23 +21,27 @@ enum class DesktopActionDisposition {
     Blocked
 };
 
+enum class DesktopActionKind {
+    None,
+    InstallPackages,
+    RemovePackages,
+    InstallNativeModule,
+    RemoveNativeModule,
+    LoadModule,
+    UnloadModule
+};
+
 struct DesktopAction {
     DesktopActionDisposition disposition = DesktopActionDisposition::None;
+    DesktopActionKind kind = DesktopActionKind::None;
     std::string busy_label;
     std::string failure_title;
     std::string message;
     std::vector<std::string> planned_packages;
     std::vector<std::string> affected_entries;
-
-private:
-    std::function<void(DesktopActionCompletion)> executor;
-
-    friend DesktopAction prepare_package_desktop_action(
-        const FilesystemDescriptor&, const ProbeResult&);
-    friend DesktopAction prepare_module_desktop_action(
-        const FilesystemDescriptor&, const ProbeResult&);
-    friend void execute_desktop_action_async(
-        DesktopAction, DesktopActionCompletion);
+    std::vector<std::string> packages;
+    std::string filesystem_id;
+    std::string module;
 };
 
 DesktopAction prepare_package_desktop_action(
