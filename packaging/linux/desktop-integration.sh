@@ -40,11 +40,26 @@ is_desktop_filesystem() {
 }
 
 refresh() {
-    if [[ "$system_root" == / ]] && command -v udevadm >/dev/null 2>&1; then
-        udevadm control --reload-rules || true
-        udevadm trigger --subsystem-match=block --action=change || true
-        udevadm settle --timeout=30 || true
+    if [[ "$system_root" != / ]] || ! command -v udevadm >/dev/null 2>&1; then
+        return 0
     fi
+
+    udevadm control --reload-rules || {
+        echo 'udev rule reload failed; desktop filesystem identity was not refreshed' >&2
+        return 1
+    }
+    udevadm trigger --subsystem-match=block --action=change || {
+        echo 'udev block-device retrigger failed; desktop filesystem identity was not refreshed' >&2
+        return 1
+    }
+    udevadm settle --timeout=30 || {
+        echo 'udev did not settle after the desktop filesystem update' >&2
+        return 1
+    }
+}
+
+refresh_best_effort() {
+    refresh || echo 'warning: udev refresh failed during rollback cleanup' >&2
 }
 
 has_active() {
@@ -187,7 +202,7 @@ run_kind_transaction() {
             trap - EXIT
             if [[ $result -ne 0 && $committed -eq 0 ]]; then
                 restore_kind "$kind" "$work"
-                refresh
+                refresh_best_effort
             fi
             rm -rf "$work"
             exit "$result"
@@ -274,7 +289,7 @@ case "$action" in
             local result=$?
             trap - EXIT
             rm -f "$transition_rule"
-            refresh
+            refresh_best_effort
             exit "$result"
         }
         trap cleanup_transition EXIT

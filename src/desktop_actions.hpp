@@ -13,8 +13,12 @@ namespace filesystem_support {
 using DesktopActionCompletion =
     std::function<void(bool, const std::string&)>;
 
+struct DesktopAction;
+using DesktopActionPrepared = std::function<void(DesktopAction)>;
+
 enum class DesktopActionDisposition {
     None,
+    PlanningRemoval,
     Execute,
     ConfirmRemoval,
     Refresh,
@@ -47,6 +51,11 @@ struct DesktopAction {
 DesktopAction prepare_package_desktop_action(
     const FilesystemDescriptor& descriptor,
     const ProbeResult& probe);
+
+void prepare_package_desktop_action_async(
+    const FilesystemDescriptor& descriptor,
+    const ProbeResult& probe,
+    DesktopActionPrepared completion);
 
 DesktopAction prepare_module_desktop_action(
     const FilesystemDescriptor& descriptor,

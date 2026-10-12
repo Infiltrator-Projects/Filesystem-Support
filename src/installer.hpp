@@ -16,7 +16,11 @@ struct RemovalPlan {
     std::string reason;
 };
 
+using RemovalPlanCompletion = std::function<void(RemovalPlan)>;
+
 RemovalPlan plan_package_removal(const std::vector<std::string>& packages);
+void plan_package_removal_async(const std::vector<std::string>& packages,
+                                RemovalPlanCompletion completion);
 
 void install_packages_async(const std::vector<std::string>& packages,
                             ActionCompletion completion);

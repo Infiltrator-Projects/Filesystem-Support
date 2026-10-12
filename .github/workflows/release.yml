@@ -81,7 +81,7 @@ jobs:
           else
             changed=$(git diff --name-only HEAD^ HEAD)
           fi
-          if ! grep -Eq '^(CMakeLists\.txt|data/(native-filesystems|desktop-filesystems)\.tsv|cmake/amiga-desktop-detection\.cmake|native/filesystems/(ofs|ffs|sfs|sfs2|pfs3)/|packaging/linux/(desktop-integration\.sh|gnome-disks-wrapper|nemo-wrapper|native-module-helper\.sh|kernel-module-helper\.sh|desktop-rules/)|\.github/workflows/amiga-runtime-qualification\.yml$)' <<<"$changed"; then
+          if ! grep -Eq '^(CMakeLists\.txt|data/(native-filesystems|desktop-filesystems)\.tsv|cmake/amiga-desktop-detection\.cmake|native/filesystems/(ofs|ffs|sfs|sfs2|pfs3)/|packaging/linux/(desktop-integration\.sh|gnome-disks-wrapper|nemo-wrapper|native-module-helper\.sh|kernel-module-helper\.sh|desktop-rules/)|tests/amiga_runtime_init\.sh|\.github/workflows/amiga-runtime-qualification\.yml$)' <<<"$changed"; then
             exit 0
           fi
           for attempt in $(seq 1 40); do
