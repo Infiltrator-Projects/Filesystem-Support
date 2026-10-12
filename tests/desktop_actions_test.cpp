@@ -59,6 +59,20 @@ int main()
 
     {
         auto entry = descriptor(
+            "userspace-remove", SupportProvider::Userspace, {}, {"test-package"});
+        ProbeResult probe;
+        const DesktopAction action = prepare_package_desktop_action(entry, probe);
+        if (action.disposition != DesktopActionDisposition::PlanningRemoval ||
+            action.kind != DesktopActionKind::None ||
+            action.packages != std::vector<std::string>{"test-package"} ||
+            action.busy_label != "Checking removal…" ||
+            action.failure_title != "Removal planning failed") {
+            return fail("package removal planning is not an explicit non-blocking state");
+        }
+    }
+
+    {
+        auto entry = descriptor(
             "dkms-test", SupportProvider::Dkms,
             {"dkms-test"}, {"dkms-test-package"});
         ProbeResult probe;
