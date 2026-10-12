@@ -1,0 +1,39 @@
+name: Release orchestration contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/build.yml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/apt-publication.yml"
+      - ".github/workflows/amiga-runtime-qualification.yml"
+      - ".github/workflows/release-contract.yml"
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify release ownership boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          release=.github/workflows/release.yml
+          apt=.github/workflows/apt-publication.yml
+          build=.github/workflows/build.yml
+          amiga=.github/workflows/amiga-runtime-qualification.yml
+
+          grep -Fq 'workflows: ["build"]' "$release"
+          grep -Fq 'BUILD_RUN_ID: ${{ github.event.workflow_run.id }}' "$release"
+          grep -Fq 'wait_for_workflow "EXT runtime qualification"' "$release"
+          grep -Fq 'wait_for_workflow "Amiga runtime qualification"' "$release"
+          ! grep -Fq 'gh workflow run amiga-runtime-qualification.yml' "$release"
+          ! grep -Fq 'git rev-parse origin/main' "$release"
+          ! grep -Fq 'cmake -S . -B build-release' "$release"
+
+          grep -Fq 'workflows: ["Publish release"]' "$apt"
+          ! grep -Fq 'Waiting for GitHub release' "$apt"
+
+          grep -Fq "github.event.pull_request.number || github.sha" "$build"
+          grep -Fq 'filesystem-support-amiga-runtime-${{ github.sha }}' "$amiga"
+          grep -Fq '[[ "$subject" == Release\ * ]]' "$amiga"
