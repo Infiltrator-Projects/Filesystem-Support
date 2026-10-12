@@ -132,9 +132,33 @@ for required in ('sync || fail "crash arm sync"', 'AMIGA-CRASH-ARMED',
                  'AMIGA-CRASH-RECOVERY-PASS', 'reboot -f'):
     if required not in amiga_init:
         raise SystemExit(f'Amiga crash-recovery init lost required phase: {required}')
+
+# Release publication is a neutral promotion step. It consumes the package
+# produced by the exact triggering build and requires independent runtime
+# qualifications for that SHA; no filesystem family owns release sequencing.
 release_workflow = (repo / '.github/workflows/release.yml').read_text()
-if 'tests/amiga_runtime_init\\.sh' not in release_workflow:
-    raise SystemExit('release gate ignores changes to the Amiga recovery qualification')
+for required in (
+    'workflows: ["build"]',
+    'BUILD_RUN_ID: ${{ github.event.workflow_run.id }}',
+    'wait_for_workflow "EXT runtime qualification"',
+    'wait_for_workflow "Amiga runtime qualification"',
+):
+    if required not in release_workflow:
+        raise SystemExit(f'release promotion lost required ownership boundary: {required}')
+for forbidden in (
+    'workflows: ["EXT runtime qualification"]',
+    'gh workflow run amiga-runtime-qualification.yml',
+    'git rev-parse origin/main',
+    'cmake -S . -B build-release',
+):
+    if forbidden in release_workflow:
+        raise SystemExit(f'release promotion reintroduced coupled orchestration: {forbidden}')
+
+apt_workflow = (repo / '.github/workflows/apt-publication.yml').read_text()
+if 'workflows: ["Publish release"]' not in apt_workflow:
+    raise SystemExit('APT publication does not follow completed GitHub release publication')
+if 'Waiting for GitHub release' in apt_workflow:
+    raise SystemExit('APT publication races and polls a sibling GitHub release workflow')
 
 # Ordinary CI must consume the two-field native deployment contract as two
 # fields; accepting obsolete trailing variable names silently preserves the old
