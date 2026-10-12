@@ -48,8 +48,6 @@ enum class ViewFilter {
     Amiga,
     Apple,
     UnixBsd,
-    ImagesFuse,
-    NetworkVirtual,
     Native,
     Installed,
     Available,
@@ -170,21 +168,6 @@ bool descriptor_matches_family(const fs::FilesystemDescriptor& descriptor,
                family_contains(descriptor, "BSD") ||
                family_contains(descriptor, "SGI") ||
                family_contains(descriptor, "QNX");
-    case ViewFilter::ImagesFuse:
-        return family_contains(descriptor, "Image") ||
-               family_contains(descriptor, "FUSE") ||
-               family_contains(descriptor, "Archive") ||
-               family_contains(descriptor, "Optical") ||
-               family_contains(descriptor, "Overlay") ||
-               family_contains(descriptor, "Encryption");
-    case ViewFilter::NetworkVirtual:
-        return family_contains(descriptor, "Network") ||
-               family_contains(descriptor, "Distributed") ||
-               family_contains(descriptor, "Cloud") ||
-               family_contains(descriptor, "Virtualisation") ||
-               family_contains(descriptor, "Container") ||
-               family_contains(descriptor, "Device") ||
-               family_contains(descriptor, "Desktop");
     default:
         return true;
     }
@@ -211,8 +194,6 @@ const char* filter_title(const ViewFilter filter)
     case ViewFilter::Amiga: return "Amiga Filesystems";
     case ViewFilter::Apple: return "Apple Filesystems";
     case ViewFilter::UnixBsd: return "Unix & BSD";
-    case ViewFilter::ImagesFuse: return "Images, FUSE & Overlays";
-    case ViewFilter::NetworkVirtual: return "Network & Virtual";
     case ViewFilter::Native: return "Infiltrator Native";
     case ViewFilter::Installed: return "Ready Support";
     case ViewFilter::Available: return "Available Support";
@@ -238,10 +219,6 @@ const char* filter_summary(const ViewFilter filter)
         return "Classic Mac, HFS+, APFS and Apple storage access.";
     case ViewFilter::UnixBsd:
         return "Unix, BSD, workstation and historical filesystems.";
-    case ViewFilter::ImagesFuse:
-        return "Disk images, optical media, FUSE providers and overlays.";
-    case ViewFilter::NetworkVirtual:
-        return "Network, distributed, cloud and virtual filesystems.";
     case ViewFilter::Native:
         return "Project-native kernel modules managed by Infiltrator.";
     case ViewFilter::Installed:
@@ -649,21 +626,23 @@ bool confirm_removal(GtkWindow* parent, const fs::DesktopAction& action)
     return response == GTK_RESPONSE_ACCEPT;
 }
 
-void package_clicked(GtkButton*, gpointer user_data)
+void handle_package_action(RowState* row, fs::DesktopAction action)
 {
-    auto* row = static_cast<RowState*>(user_data);
-    if (row == nullptr || row->app == nullptr || !row->probed ||
-        row->descriptor == nullptr) {
+    if (row == nullptr || row->app == nullptr || row->app->shutting_down) {
         return;
     }
 
     AppState* state = row->app;
-    fs::DesktopAction action =
-        fs::prepare_package_desktop_action(*row->descriptor, row->probe);
-
     switch (action.disposition) {
     case fs::DesktopActionDisposition::None:
         render_row(row);
+        return;
+    case fs::DesktopActionDisposition::PlanningRemoval:
+        render_row(row);
+        show_message(
+            GTK_WINDOW(state->window), GTK_MESSAGE_ERROR,
+            "Removal planning failed",
+            "The removal plan did not reach a final state.");
         return;
     case fs::DesktopActionDisposition::Refresh:
         start_scan(state);
@@ -700,6 +679,28 @@ void package_clicked(GtkButton*, gpointer user_data)
                     failure_title.c_str(), message);
             }
             start_scan(state);
+        });
+}
+
+void package_clicked(GtkButton*, gpointer user_data)
+{
+    auto* row = static_cast<RowState*>(user_data);
+    if (row == nullptr || row->app == nullptr || !row->probed ||
+        row->descriptor == nullptr || row->app->shutting_down) {
+        return;
+    }
+
+    gtk_widget_set_sensitive(row->package_button, FALSE);
+    gtk_button_set_label(GTK_BUTTON(row->package_button), "Checking…");
+
+    fs::prepare_package_desktop_action_async(
+        *row->descriptor,
+        row->probe,
+        [row](fs::DesktopAction action) {
+            if (row->app == nullptr || row->app->shutting_down) {
+                return;
+            }
+            handle_package_action(row, std::move(action));
         });
 }
 
@@ -1088,10 +1089,6 @@ GtkWidget* build_sidebar(AppState* state)
         "computer-symbolic", "Apple", ViewFilter::Apple));
     gtk_container_add(GTK_CONTAINER(list), make_navigation_row(
         "utilities-terminal-symbolic", "Unix & BSD", ViewFilter::UnixBsd));
-    gtk_container_add(GTK_CONTAINER(list), make_navigation_row(
-        "media-optical-symbolic", "Images & FUSE", ViewFilter::ImagesFuse));
-    gtk_container_add(GTK_CONTAINER(list), make_navigation_row(
-        "network-wired-symbolic", "Network & Virtual", ViewFilter::NetworkVirtual));
 
     gtk_container_add(GTK_CONTAINER(list), make_navigation_heading("STATUS"));
     gtk_container_add(GTK_CONTAINER(list), make_navigation_row(
@@ -1236,7 +1233,7 @@ GtkWidget* build_home_page(AppState* state)
         0, 0, 1, 1);
     GtkWidget* coverage = make_info_card(
         "folder-documents-symbolic", "Catalogue Coverage", "—",
-        "Kernel, userspace, FUSE and tools are presented through one support catalogue.",
+        "Kernel, userspace and tool providers are presented through one filesystem catalogue.",
         &state->coverage_count);
     gtk_grid_attach(GTK_GRID(info), coverage, 1, 0, 1, 1);
     gtk_box_pack_start(GTK_BOX(page), info, FALSE, FALSE, 0);
