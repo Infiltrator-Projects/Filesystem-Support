@@ -3,7 +3,7 @@ name: Publish to central APT repository
 
 on:
   workflow_run:
-    workflows: ["Publish release"]
+    workflows: ["build"]
     types: [completed]
 
 permissions:
@@ -16,6 +16,7 @@ concurrency:
 jobs:
   publish-apt:
     if: >-
+      github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main' &&
       startsWith(github.event.workflow_run.head_commit.message, 'Release ')
@@ -25,13 +26,6 @@ jobs:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
       APP_ID: filesystem-support
     steps:
-      - name: Verify release-workflow provenance
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "${{ github.event.workflow_run.name }}" = "Publish release"
-          test "${{ github.event.workflow_run.conclusion }}" = "success"
-
       - name: Check out exact published release commit
         uses: actions/checkout@v4
         with:
@@ -44,42 +38,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(tr -d '[:space:]' < VERSION)"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          tag="v$VERSION"
-
-          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag")"
-          target="$(jq -r '.target_commitish // empty' <<<"$release_json")"
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="v$version"
+          release_json=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag")
+          target=$(jq -r '.target_commitish // empty' <<<"$release_json")
           test "$target" = "$EXPECTED_SHA" || {
             echo "Release $tag targets $target, expected $EXPECTED_SHA." >&2
             exit 1
           }
-          echo "GitHub release $tag is published for $EXPECTED_SHA."
 
       - name: Trigger and verify central APT publication
         env:
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
-          DISPATCH_TOKEN: ${{ secrets.APT_REPOSITORY_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ secrets.APT_REPOSITORY_DISPATCH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(tr -d '[:space:]' < VERSION)"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-
-          payload="$(jq -nc \
-            --arg repository "$GITHUB_REPOSITORY" \
-            --arg sha "$RELEASE_SHA" \
-            '{event_type:"application-release",client_payload:{repository:$repository,sha:$sha}}')"
-
+          version=$(tr -d '[:space:]' < VERSION)
           dispatched=false
-          if [[ -n "${DISPATCH_TOKEN:-}" ]]; then
-            if curl --fail-with-body --silent --show-error \
-              --request POST \
-              --header "Authorization: Bearer $DISPATCH_TOKEN" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28" \
-              --data "$payload" \
-              https://api.github.com/repos/Infiltrator-Projects/Infiltrator-Repository/dispatches; then
+
+          if [[ -n "${GH_TOKEN:-}" ]]; then
+            payload=$(jq -nc \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --arg sha "$RELEASE_SHA" \
+              '{event_type:"application-release",client_payload:{repository:$repository,sha:$sha}}')
+            if gh api --method POST \
+              repos/Infiltrator-Projects/Infiltrator-Repository/dispatches \
+              --input - <<<"$payload"; then
               echo "Immediate APT dispatch accepted; verifying publication."
               dispatched=true
             else
@@ -92,9 +78,9 @@ jobs:
           catalogue='https://infiltrator-projects.github.io/Infiltrator-Repository/catalogue/apps.json'
 
           if curl -fsS --retry 2 --retry-delay 1 "$catalogue?release=$RELEASE_SHA&attempt=0" \
-            | jq -e --arg id "$APP_ID" --arg version "$VERSION" \
+            | jq -e --arg id "$APP_ID" --arg version "$version" \
               '.[] | select(.id == $id and .version == $version)' >/dev/null; then
-            echo "APT repository already advertises $APP_ID $VERSION."
+            echo "APT repository already advertises $APP_ID $version."
             exit 0
           fi
 
@@ -104,14 +90,14 @@ jobs:
 
           for attempt in $(seq 1 120); do
             if curl -fsS --retry 2 --retry-delay 1 "$catalogue?release=$RELEASE_SHA&attempt=$attempt" \
-              | jq -e --arg id "$APP_ID" --arg version "$VERSION" \
+              | jq -e --arg id "$APP_ID" --arg version "$version" \
                 '.[] | select(.id == $id and .version == $version)' >/dev/null; then
-              echo "APT repository advertises $APP_ID $VERSION."
+              echo "APT repository advertises $APP_ID $version."
               exit 0
             fi
-            echo "Waiting for APT publication of $APP_ID $VERSION ($attempt/120)..."
+            echo "Waiting for APT publication of $APP_ID $version ($attempt/120)..."
             sleep 10
           done
 
-          echo "::error::Central APT repository did not advertise $APP_ID $VERSION within 20 minutes."
+          echo "::error::Central APT repository did not advertise $APP_ID $version within 20 minutes."
           exit 1
