@@ -6,8 +6,8 @@ on:
   pull_request:
 
 concurrency:
-  group: filesystem-support-build-v3-${{ github.ref }}
-  cancel-in-progress: true
+  group: filesystem-support-build-v4-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   desktop-integration:
