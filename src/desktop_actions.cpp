@@ -22,6 +22,41 @@ void fail_invalid_action(DesktopActionCompletion completion)
     }
 }
 
+void finish_removal_plan(DesktopAction action,
+                         RemovalPlan plan,
+                         DesktopActionPrepared completion)
+{
+    if (!completion) {
+        return;
+    }
+
+    if (!plan.allowed) {
+        action.disposition = DesktopActionDisposition::Blocked;
+        action.kind = DesktopActionKind::None;
+        action.failure_title = "Removal blocked";
+        action.message = std::move(plan.reason);
+        action.packages.clear();
+        completion(std::move(action));
+        return;
+    }
+
+    if (plan.planned_packages.empty()) {
+        action.disposition = DesktopActionDisposition::Refresh;
+        action.kind = DesktopActionKind::None;
+        action.packages.clear();
+        completion(std::move(action));
+        return;
+    }
+
+    action.disposition = DesktopActionDisposition::ConfirmRemoval;
+    action.kind = DesktopActionKind::RemovePackages;
+    action.busy_label = "Removing…";
+    action.failure_title = "Removal failed";
+    action.planned_packages = std::move(plan.planned_packages);
+    action.affected_entries = std::move(plan.affected_entries);
+    completion(std::move(action));
+}
+
 } // namespace
 
 DesktopAction prepare_package_desktop_action(
@@ -53,33 +88,39 @@ DesktopAction prepare_package_desktop_action(
         return action;
     }
 
+    action.disposition = DesktopActionDisposition::PlanningRemoval;
+    action.busy_label = "Checking removal…";
+    action.failure_title = "Removal planning failed";
     action.packages.reserve(descriptor.packages.size());
     for (const auto package : descriptor.packages) {
         action.packages.emplace_back(package);
     }
-
-    const RemovalPlan plan = plan_package_removal(action.packages);
-    if (!plan.allowed) {
-        action.disposition = DesktopActionDisposition::Blocked;
-        action.failure_title = "Removal blocked";
-        action.message = plan.reason;
-        action.packages.clear();
-        return action;
-    }
-
-    if (plan.planned_packages.empty()) {
-        action.disposition = DesktopActionDisposition::Refresh;
-        action.packages.clear();
-        return action;
-    }
-
-    action.disposition = DesktopActionDisposition::ConfirmRemoval;
-    action.kind = DesktopActionKind::RemovePackages;
-    action.busy_label = "Removing…";
-    action.failure_title = "Removal failed";
-    action.planned_packages = plan.planned_packages;
-    action.affected_entries = plan.affected_entries;
     return action;
+}
+
+void prepare_package_desktop_action_async(
+    const FilesystemDescriptor& descriptor,
+    const ProbeResult& probe,
+    DesktopActionPrepared completion)
+{
+    DesktopAction action = prepare_package_desktop_action(descriptor, probe);
+    if (!completion) {
+        return;
+    }
+
+    if (action.disposition != DesktopActionDisposition::PlanningRemoval) {
+        completion(std::move(action));
+        return;
+    }
+
+    const std::vector<std::string> packages = action.packages;
+    plan_package_removal_async(
+        packages,
+        [action = std::move(action),
+         completion = std::move(completion)](RemovalPlan plan) mutable {
+            finish_removal_plan(
+                std::move(action), std::move(plan), std::move(completion));
+        });
 }
 
 DesktopAction prepare_module_desktop_action(
