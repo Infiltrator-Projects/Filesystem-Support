@@ -12,14 +12,19 @@ for line in native.read_text().splitlines():
     if not line or line.startswith('#'):
         continue
     fields = line.split('\t')
-    if len(fields) < 2:
-        raise SystemExit(f'invalid native row: {line}')
-    fs, module = fields[:2]
+    if len(fields) != 2:
+        raise SystemExit(f'invalid native row; deployment manifest owns only id/module: {line}')
+    fs, module = fields
     if fs in native_rows:
         raise SystemExit(f'duplicate native filesystem: {fs}')
     if module in native_rows.values():
         raise SystemExit(f'duplicate native module: {module}')
     native_rows[fs] = module
+
+native_manifest_text = native.read_text()
+for retired in ('reserved_kind', 'reserved_variant', 'desktop_kind', 'desktop_variant'):
+    if retired in native_manifest_text:
+        raise SystemExit(f'native deployment manifest retains desktop-era field: {retired}')
 
 desktop_rows = {}
 variants = set()
@@ -122,6 +127,7 @@ for token in (
         raise SystemExit(f'installer/module primitive leaked into GTK shell: {token}')
 
 orchestration = (repo / 'src/desktop_actions.cpp').read_text()
+action_header = (repo / 'src/desktop_actions.hpp').read_text()
 for required in (
     '#include "action_policy.hpp"',
     '#include "installer.hpp"',
@@ -131,6 +137,21 @@ for required in (
 ):
     if required not in orchestration:
         raise SystemExit(f'desktop action boundary lost required ownership: {required}')
+for required in (
+    'enum class DesktopActionKind',
+    'DesktopActionKind kind',
+    'std::vector<std::string> packages',
+    'std::string filesystem_id',
+    'std::string module',
+):
+    if required not in action_header:
+        raise SystemExit(f'desktop action command is not explicit data: {required}')
+for opaque in (
+    'std::function<void(DesktopActionCompletion)> executor',
+    'action.executor =',
+):
+    if opaque in action_header or opaque in orchestration:
+        raise SystemExit(f'opaque executable closure returned to desktop action model: {opaque}')
 for required in ('src/desktop_actions.cpp', 'tests/desktop_actions_test.cpp'):
     if required not in cmake:
         raise SystemExit(f'build graph omits desktop action boundary asset: {required}')
