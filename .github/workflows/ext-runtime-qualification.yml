@@ -3,20 +3,11 @@ name: EXT runtime qualification
 on:
   push:
     branches: [main]
-    paths:
-      - "native/filesystems/ext2/**"
-      - "native/filesystems/ext3/**"
-      - "native/filesystems/ext4/**"
-      - ".github/workflows/ext-runtime-qualification.yml"
-  workflow_run:
-    workflows: ["build"]
-    types: [completed]
   workflow_dispatch:
 
 concurrency:
-  # EXT qualification is isolated by tested commit so unrelated filesystem
-  # work cannot cancel a rewrite chunk that is already being proved.
-  group: filesystem-support-ext-runtime-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  # Every qualification is bound directly to the commit that triggered it.
+  group: filesystem-support-ext-runtime-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -28,7 +19,7 @@ jobs:
       - name: Checkout candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 2
 
       - name: Decide whether EXT runtime qualification is required
@@ -44,16 +35,11 @@ jobs:
 
           subject=$(git log -1 --format=%s)
 
-          # Ordinary EXT rewrite chunks are qualified directly by the push
-          # trigger.  The build-completion trigger is retained only so a
-          # Release commit is forced through runtime qualification even when
-          # the release commit itself changes no EXT source.
-          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            if [[ "$subject" == Release\ * ]]; then
-              echo "run=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "run=false" >> "$GITHUB_OUTPUT"
-            fi
+          # Every release commit is qualified directly. Ordinary commits only
+          # run the expensive qualification when EXT code or its qualification
+          # machinery changed.
+          if [[ "$subject" == Release\ * ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -78,7 +64,7 @@ jobs:
       - name: Checkout qualified commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Install kernel and runtime qualification dependencies
         shell: bash
