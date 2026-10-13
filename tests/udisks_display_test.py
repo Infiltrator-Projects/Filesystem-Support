@@ -90,7 +90,12 @@ def check(stock_only=False, modules_root=Path("/lib/modules"), enabled=None):
         ("pfs3", "PFS/1", "Amiga Professional File System 3", "Amiga PFS3"),
     )
     for kind, version, long_name, short_name in cases:
-        if stock_only or (enabled is not None and kind not in enabled) or not (modules / f"{kind}.ko").is_file():
+        # Wrapper integration supplies the explicit active plugin set. In that
+        # mode active desktop state is the authority and module filenames are
+        # intentionally irrelevant. Standalone detector tests without an
+        # explicit active set retain their module-root fixture semantics.
+        active = (kind in enabled) if enabled is not None else (modules / f"{kind}.ko").is_file()
+        if stock_only or not active:
             assert name("filesystem", kind, version, True) == f"Unknown ({kind} {version})"
             assert name("filesystem", kind, "", True) == f"Unknown ({kind})"
             assert name("filesystem", kind, version, False) == kind
