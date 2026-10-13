@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Guard repository-level ownership and release invariants.
+"""Guard repository-wide ownership, dependency and release invariants.
 
-These checks intentionally target architectural contracts rather than incidental
-implementation syntax. They keep retired control planes from returning and make
-release qualification/promotion rules executable alongside the source.
+This test protects architectural contracts that span subsystems. Desktop/native
+presentation ownership has its own focused test; this file covers boundaries
+whose failure would otherwise couple unrelated implementation or delivery paths.
 """
 
 from pathlib import Path
@@ -22,8 +22,8 @@ def text(path: str) -> str:
     return (repo / path).read_text(encoding="utf-8")
 
 
-# Dead migration/build surfaces must stay dead. The native deployment manifest
-# and per-filesystem linux/Makefiles are the only native Linux build authority.
+# Dead migration/build surfaces must stay dead. Native deployment is owned by
+# data/native-filesystems.tsv plus each filesystem's Linux build unit.
 for retired in (
     "kernel/Makefile",
     "kernel/README.md",
@@ -38,6 +38,45 @@ require("Current source release:" not in readme,
         "README duplicates VERSION as a hand-maintained release number")
 require("[`VERSION`](VERSION)" in readme,
         "README does not identify VERSION as the source/release authority")
+
+# Process execution is one mechanism. Probe and installer may apply different
+# policy, but neither may grow a private spawning implementation.
+runner = text("src/process_runner.hpp")
+for required in ("struct CommandResult", "run_command(", "LC_ALL", "g_spawn_sync"):
+    require(required in runner, f"process runner lost required mechanism: {required}")
+for relative in ("src/probe.cpp", "src/installer.cpp"):
+    source = text(relative)
+    require('#include "process_runner.hpp"' in source,
+            f"{relative} does not use the shared process runner")
+    require("struct CommandResult" not in source and "CommandResult run_command" not in source,
+            f"{relative} reintroduced private process execution")
+
+# Probe cache ownership is worker-local. Inventory is cached for one refresh,
+# never as hidden mutable process-global state shared between concurrent scans.
+probe = text("src/probe.cpp")
+require("thread_local ProbeCache cache" in probe,
+        "probe cache is not worker-local")
+require("static ProbeCache cache" not in probe,
+        "probe cache reintroduced hidden process-global mutation")
+
+# Platform-neutral identity cannot depend on Linux provider policy. Linux joins
+# the two boundaries explicitly in catalog.cpp.
+identity = text("src/platform_support.cpp")
+require('#include "catalog.hpp"' not in identity,
+        "cross-platform identity depends on Linux catalogue")
+for linux_token in ("SupportProvider::", "project_native_linux", "linux_support_policies"):
+    require(linux_token not in identity,
+            f"Linux policy leaked into identity implementation: {linux_token}")
+
+catalog = text("src/catalog.cpp")
+for required in ("filesystem_identity.hpp", "linux_support_policy.hpp"):
+    require(required in catalog,
+            f"Linux catalogue is not joining explicit boundaries: {required}")
+
+linux_policy = text("src/linux_support_policy.hpp")
+for identity_field in ("description;", "family;", "std::string_view name;"):
+    require(identity_field not in linux_policy,
+            f"filesystem identity leaked into Linux policy: {identity_field}")
 
 # Reference refresh must discover the current repository boundary. A workflow
 # must never own a second historical list capable of recreating retired trees.
@@ -58,9 +97,9 @@ for retired in (
     require(f"native/filesystems/{retired}" not in refresh,
             f"reference refresh hard-codes retired source identity: {retired}")
 
-# VERSION/tag identity is the one release-state authority. Commit prose is not
-# executable release state, and publication consumes rather than rebuilds the
-# artefacts qualified by the producer job.
+# VERSION/tag identity is the release-state authority. Commit prose is not
+# executable state, and publication consumes rather than rebuilds the exact
+# qualified bundle created by the producer job.
 build = text(".github/workflows/build.yml")
 for forbidden in (
     "startsWith(github.event.head_commit.message",
@@ -68,8 +107,11 @@ for forbidden in (
     "cmake -S . -B build-release",
     "gh workflow run",
     "actions/runs?",
+    "wait_for_workflow",
+    "git rev-parse origin/main",
 ):
-    require(forbidden not in build, f"release workflow retained hidden/coupled state: {forbidden}")
+    require(forbidden not in build,
+            f"release workflow retained hidden/coupled state: {forbidden}")
 for required in (
     "release-state:",
     "git ls-remote --tags origin",
@@ -79,6 +121,7 @@ for required in (
     "filesystem-support-linux-release",
     "actions/download-artifact@v4",
     "publish-release:",
+    "github.ref }}",
 ):
     require(required in build, f"release DAG lost required contract: {required}")
 
@@ -91,22 +134,41 @@ require("build-run.sh" not in publisher,
         "publisher rebuilds the .run installer instead of promoting qualified bytes")
 require("sha256sum -c RELEASE_SHA256SUMS.txt" in build,
         "qualified release bundle is not checksum-verified")
+require("filesystem-support-build-v6-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}" in build,
+        "main release candidates are not serialized by branch")
+
+for relative in (
+    ".github/workflows/ext-runtime-qualification.yml",
+    ".github/workflows/amiga-runtime-qualification.yml",
+    ".github/workflows/sanitizers.yml",
+):
+    workflow = text(relative)
+    for required in ("workflow_call:", "Exact commit SHA to qualify", "inputs.sha"):
+        require(required in workflow,
+                f"{relative} lost reusable exact-SHA boundary: {required}")
 
 sanitizers = text(".github/workflows/sanitizers.yml")
-require("workflow_call:" in sanitizers,
-        "sanitizer qualification is not callable from the exact release DAG")
-require("Exact commit SHA to qualify" in sanitizers,
-        "sanitizer reusable boundary does not document exact-SHA ownership")
+for required in (
+    "-fsanitize=address,undefined",
+    "tests/parser_adversarial_test.py",
+    "build-sanitized/fsinspect",
+):
+    require(required in sanitizers,
+            f"sanitizer qualification lost required coverage: {required}")
 require("\n  push:" not in sanitizers,
         "sanitizers duplicate release work as an independent main-push workflow")
+require((repo / "tests/parser_adversarial_test.py").is_file(),
+        "malformed-media parser corpus is missing")
 
 apt = text(".github/workflows/apt-publication.yml")
 for forbidden in (
     "head_commit.message",
     "startsWith(",
     "Waiting for GitHub release",
+    'workflows: ["Publish release"]',
 ):
-    require(forbidden not in apt, f"APT publication retained hidden release state: {forbidden}")
+    require(forbidden not in apt,
+            f"APT publication retained hidden release state: {forbidden}")
 for required in (
     'workflows: ["build"]',
     "head_sha",
@@ -127,5 +189,13 @@ for design in (
 migration = text("docs/EXTFS_FOR_WINDOWS_MIGRATION.md")
 require("archive/extfs-for-windows-v0.9.9/" not in migration,
         "migration ledger claims a live archive path that is not present")
+windows_arch = text("docs/WINDOWS_FILESYSTEM_ARCHITECTURE.md")
+require("104-filesystem" not in windows_arch,
+        "Windows architecture retains obsolete catalogue size")
+require("temporary-mounter" not in windows_arch and "temporary file/volume-mounter" not in windows_arch,
+        "Windows architecture retains an undocumented product mounter fallback")
+windows_lifecycle = text("docs/windows/WINDOWS_DRIVER_LIFECYCLE.md")
+require("sources remain in the migration archive" not in windows_lifecycle,
+        "Windows lifecycle claims a non-existent live migration archive")
 
 print("repository architecture contract: PASS")
