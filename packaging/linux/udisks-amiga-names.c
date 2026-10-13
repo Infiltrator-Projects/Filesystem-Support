@@ -3,7 +3,9 @@
  *
  * The distribution UDisks client and GIO implementation remain authoritative
  * for every unrelated filesystem. A compiled copy of this file is activated
- * only when its matching project-native driver is installed.
+ * only when its matching project-native driver has committed desktop
+ * integration state. The active plugin is therefore presentation truth; this
+ * library must not rediscover kernel deployment state or module identity.
  */
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -15,10 +17,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
-#include "../../src/native_amiga_support.h"
 
-/* Each compiled file contains exactly one filesystem's names. The installer
- * deploys that file only with that filesystem's own native driver. */
+/* Each compiled file contains exactly one filesystem's names. The desktop
+ * transaction deploys only the plugin for the selected filesystem. */
 #if IFS_NAMES_VARIANT == 1
 #define IFS_TYPE "ofs"
 #define IFS_LONG_NAME "Amiga Original File System"
@@ -185,8 +186,11 @@ gchar *udisks_client_get_id_for_display(void *client, const gchar *usage,
                                         const gchar *type, const gchar *version,
                                         gboolean long_name)
 {
+    /* Presence of this per-filesystem shared object in the launcher's active
+     * set is the desktop transaction's committed state. Rechecking a .ko here
+     * would make this presentation hook a second native-deployment authority. */
     if (g_strcmp0(usage, "filesystem") == 0 &&
-        g_strcmp0(type, IFS_TYPE) == 0 && ifs_native_amiga_installed(IFS_TYPE)) {
+        g_strcmp0(type, IFS_TYPE) == 0) {
         if (!long_name)
             return g_strdup(IFS_SHORT_NAME);
         if (version == NULL || *version == '\0')
