@@ -6,9 +6,9 @@
 # Kernel-module state and desktop identification are deliberately independent
 # transactions. This coordinator sequences mutations, but it owns neither
 # rollback domain: kernel-module-helper owns kernel state and desktop-integration
-# owns presentation state. It also exposes the native layer's installed-state
-# query so presentation recovery never has to reconstruct module identity from a
-# filesystem ID or read the native deployment manifest itself.
+# owns presentation state. Read-only installed-state queries are forwarded to
+# the kernel owner so presentation recovery never reconstructs module identity
+# or learns kernel deployment paths.
 set -euo pipefail
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
@@ -27,37 +27,14 @@ usage() {
 self_dir=$(cd "$(dirname "$0")" && pwd)
 kernel_helper="$self_dir/kernel-module-helper"
 desktop_helper="$self_dir/desktop-integration"
-manifest="$self_dir/native-filesystems.tsv"
 
 [[ -x "$kernel_helper" ]] || {
     echo "kernel module helper is missing; reinstall Filesystem Support" >&2
     exit 1
 }
-[[ -r "$manifest" ]] || {
-    echo "native filesystem deployment manifest is missing" >&2
-    exit 1
-}
-
-managed_module_for() {
-    local filesystem=$1
-    awk -F '\t' -v fs="$filesystem" '
-        $0 !~ /^#/ && NF == 2 && $1 == fs { print $2; found = 1; exit }
-        END { if (!found) exit 1 }
-    ' "$manifest"
-}
 
 if [[ $# -eq 2 && $1 == is-installed ]]; then
-    filesystem=$2
-    if ! module=$(managed_module_for "$filesystem"); then
-        echo "refusing unmanaged native filesystem: $filesystem" >&2
-        exit 2
-    fi
-
-    kernel=$(uname -r)
-    if [[ -f "/lib/modules/$kernel/updates/infiltrator/$module.ko" ]]; then
-        exit 0
-    fi
-    exit 3
+    exec "$kernel_helper" is-installed "$2"
 fi
 
 [[ $# -eq 3 ]] || usage
