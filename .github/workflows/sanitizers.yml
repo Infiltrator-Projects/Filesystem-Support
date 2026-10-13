@@ -1,15 +1,6 @@
 name: sanitizer and adversarial qualification
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "CMakeLists.txt"
-      - "src/**"
-      - "native/**"
-      - "tools/fsinspect/**"
-      - "tests/**"
-      - ".github/workflows/sanitizers.yml"
   pull_request:
     paths:
       - "CMakeLists.txt"
@@ -18,11 +9,17 @@ on:
       - "tools/fsinspect/**"
       - "tests/**"
       - ".github/workflows/sanitizers.yml"
+  workflow_call:
+    inputs:
+      sha:
+        description: Exact commit SHA to qualify
+        required: true
+        type: string
   workflow_dispatch:
 
 concurrency:
-  group: filesystem-support-sanitizers-${{ github.ref }}
-  cancel-in-progress: true
+  group: filesystem-support-sanitizers-${{ github.ref }}-${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   linux-sanitizers:
@@ -32,9 +29,10 @@ jobs:
       ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:detect_leaks=1
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
     steps:
-      - name: Checkout
+      - name: Checkout exact qualification source
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
           submodules: recursive
 
       - name: Install dependencies
