@@ -38,7 +38,7 @@ foreach(native_line IN LISTS FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
 
     string(REPLACE "\t" ";" native_fields "${native_line}")
     list(LENGTH native_fields native_field_count)
-    if(native_field_count LESS 2)
+    if(NOT native_field_count EQUAL 2)
         message(FATAL_ERROR
             "Invalid native filesystem manifest row: ${native_line}")
     endif()
@@ -94,7 +94,6 @@ file(WRITE "${FILESYSTEM_SUPPORT_NATIVE_POLICY_HEADER}" "${native_policy_header}
 
 set(INFILTRATR_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/infiltratr-common")
 set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.38")
-set(INFILTRATR_COMMON_EXPECTED_COMMIT "7070c5812b50821fd7580101cb2289a3184f6b2c")
 
 if(NOT EXISTS "${INFILTRATR_COMMON_DIR}/VERSION")
     message(FATAL_ERROR "Pinned Infiltratr Common submodule is required")
@@ -107,18 +106,29 @@ if(NOT INFILTRATR_COMMON_VERSION STREQUAL INFILTRATR_COMMON_EXPECTED_VERSION)
         "Filesystem Support requires Common ${INFILTRATR_COMMON_EXPECTED_VERSION}; found ${INFILTRATR_COMMON_VERSION}")
 endif()
 
+# Git itself owns the exact Common revision through the submodule gitlink. Do
+# not duplicate that SHA in CMake: compare the checked-out submodule directly
+# with the commit recorded by this Filesystem Support revision.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
     find_package(Git REQUIRED)
     execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_CURRENT_SOURCE_DIR}"
+                rev-parse "HEAD:src/infiltratr-common"
+        RESULT_VARIABLE COMMON_GITLINK_RESULT
+        OUTPUT_VARIABLE INFILTRATR_COMMON_GITLINK
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    execute_process(
         COMMAND "${GIT_EXECUTABLE}" -C "${INFILTRATR_COMMON_DIR}" rev-parse HEAD
-        RESULT_VARIABLE COMMON_GIT_RESULT
+        RESULT_VARIABLE COMMON_CHECKOUT_RESULT
         OUTPUT_VARIABLE INFILTRATR_COMMON_COMMIT
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
-    if(NOT COMMON_GIT_RESULT EQUAL 0 OR
-       NOT INFILTRATR_COMMON_COMMIT STREQUAL INFILTRATR_COMMON_EXPECTED_COMMIT)
+    if(NOT COMMON_GITLINK_RESULT EQUAL 0 OR
+       NOT COMMON_CHECKOUT_RESULT EQUAL 0 OR
+       NOT INFILTRATR_COMMON_COMMIT STREQUAL INFILTRATR_COMMON_GITLINK)
         message(FATAL_ERROR
-            "Filesystem Support requires Common commit ${INFILTRATR_COMMON_EXPECTED_COMMIT}; found ${INFILTRATR_COMMON_COMMIT}")
+            "Infiltratr Common checkout ${INFILTRATR_COMMON_COMMIT} does not match repository gitlink ${INFILTRATR_COMMON_GITLINK}")
     endif()
 endif()
 

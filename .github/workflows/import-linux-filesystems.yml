@@ -17,138 +17,78 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Fetch pinned Linux reference sources
+      - name: Resolve current reference-only Linux trees
         shell: bash
         run: |
           set -euo pipefail
+
+          mapfile -t native_ids < <(
+            awk -F '\t' '$0 !~ /^[[:space:]]*(#|$)/ { print $1 }' data/native-filesystems.tsv
+          )
+          mapfile -t reference_ids < <(
+            find native/filesystems \
+              -mindepth 3 -maxdepth 3 -type d \
+              -path '*/reference/linux' -printf '%P\n' |
+              awk -F/ '{ print $1 }' | sort -u
+          )
+
+          : > /tmp/linux-reference-filesystems.txt
+          for fs in "${reference_ids[@]}"; do
+            if printf '%s\n' "${native_ids[@]}" | grep -Fxq "$fs"; then
+              # Active project-native implementations may retain historical
+              # Linux evidence. That evidence is provenance, not a refresh target.
+              continue
+            fi
+            grep -Fxq "$fs" data/source-filesystems.txt || {
+              echo "Reference tree is outside the source manifest: $fs" >&2
+              exit 1
+            }
+            if grep -Ev '^[[:space:]]*(#|$)' data/retired-source-identities.txt |
+                 grep -Fxq "$fs"; then
+              echo "Retired source identity cannot be refreshed: $fs" >&2
+              exit 1
+            fi
+            printf '%s\n' "$fs" >> /tmp/linux-reference-filesystems.txt
+          done
+
+          test -s /tmp/linux-reference-filesystems.txt || {
+            echo 'No current reference-only Linux trees were found.' >&2
+            exit 1
+          }
+
+          mapfile -t sparse_paths < <(
+            sed 's#^#fs/#' /tmp/linux-reference-filesystems.txt
+          )
           git clone --filter=blob:none --no-checkout --depth 1 --branch v6.12.107 \
             https://github.com/gregkh/linux.git /tmp/linux
           git -C /tmp/linux sparse-checkout init --cone
-          git -C /tmp/linux sparse-checkout set \
-            fs/xfs fs/btrfs fs/f2fs fs/jfs fs/nilfs2 fs/reiserfs \
-            fs/erofs fs/minix fs/romfs fs/cramfs fs/squashfs fs/bcachefs \
-            fs/overlayfs fs/ecryptfs fs/jffs2 fs/ubifs fs/zonefs fs/gfs2 \
-            fs/ocfs2 fs/adfs fs/befs fs/bfs fs/efs fs/hpfs fs/qnx4 \
-            fs/qnx6 fs/sysv fs/ufs fs/omfs fs/fat fs/exfat fs/ntfs3 fs/hfs \
-            fs/hfsplus fs/isofs fs/udf fs/fuse fs/smb/client fs/smb/common \
-            fs/nfs fs/ceph fs/9p fs/orangefs
+          git -C /tmp/linux sparse-checkout set "${sparse_paths[@]}"
           git -C /tmp/linux checkout
 
-      - name: Refresh non-EXT copied reference trees
+      - name: Refresh current reference-only Linux trees
         shell: bash
         run: |
           set -euo pipefail
 
-          copy_tree() {
-            local source_path="$1"
-            local destination="$2"
+          while IFS= read -r fs; do
+            source="/tmp/linux/fs/$fs"
+            destination="native/filesystems/$fs/reference/linux"
+            test -d "$source" || {
+              echo "Pinned Linux source is missing fs/$fs" >&2
+              exit 1
+            }
+            test -d "$destination" || {
+              echo "Current reference destination disappeared: $destination" >&2
+              exit 1
+            }
             rm -rf "$destination"
             mkdir -p "$destination"
-            cp -a "/tmp/linux/$source_path/." "$destination/"
-          }
+            cp -a "$source/." "$destination/"
+          done < /tmp/linux-reference-filesystems.txt
 
-          # Rewrite-state filesystems are deliberately excluded. EXT2/3/4 and
-          # OFS/FFS are actively being migrated and must not be overwritten.
-          # XFS remains reference/import state until its canonical engine is independently rewritten.
-          copy_tree fs/xfs native/filesystems/xfs/reference/linux
-          # Btrfs remains imported reference evidence.
-          copy_tree fs/btrfs native/filesystems/btrfs/reference/linux
-          copy_tree fs/f2fs native/filesystems/f2fs/reference/linux
-          # JFS remains reference/import state until its canonical engine is independently rewritten.
-          copy_tree fs/jfs native/filesystems/jfs/reference/linux
-          copy_tree fs/nilfs2 native/filesystems/nilfs2/reference/linux
-          # ReiserFS remains reference/import state until its canonical engine is
-          # independently rewritten.
-          copy_tree fs/reiserfs native/filesystems/reiserfs/reference/linux
-          copy_tree fs/erofs native/filesystems/erofs/reference/linux
-          copy_tree fs/minix native/filesystems/minix/reference/linux
-          # ROMFS remains reference/import state; the former ROMFS-first
-          # architecture milestone was superseded by EXT2.
-          copy_tree fs/romfs native/filesystems/romfs/reference/linux
-          copy_tree fs/cramfs native/filesystems/cramfs/reference/linux
-          # SquashFS remains reference/import state until its canonical
-          # read/decompression engine is independently rewritten.
-          copy_tree fs/squashfs native/filesystems/squashfs/reference/linux
-          # Bcachefs is still reference/import state. Keep the Linux tree
-          # visibly separate from future canonical project source.
-          copy_tree fs/bcachefs native/filesystems/bcachefs/reference/linux
-          # OverlayFS remains reference/import state. Keep copied Linux source
-          # behind the explicit provenance boundary until an independent
-          # canonical overlay engine is implemented.
-          copy_tree fs/overlayfs native/filesystems/overlayfs/reference/linux
-          copy_tree fs/ecryptfs native/filesystems/ecryptfs/reference/linux
-          # JFFS2 remains reference/import state until its canonical engine is independently rewritten.
-          copy_tree fs/jffs2 native/filesystems/jffs2/reference/linux
-          # UBIFS remains reference/import state until its canonical
-          # filesystem engine and UBI storage boundary are independently rewritten.
-          copy_tree fs/ubifs native/filesystems/ubifs/reference/linux
-          copy_tree fs/zonefs native/filesystems/zonefs/kernel
-          copy_tree fs/gfs2 native/filesystems/gfs2/reference/linux
-          # OCFS2 is a shared-disk clustered filesystem in reference/import
-          # state. Keep the upstream Linux filesystem, DLM and cluster code
-          # visibly separate from future canonical/project adapter source.
-          copy_tree fs/ocfs2 native/filesystems/ocfs2/reference/linux
-          # ADFS remains imported reference evidence until its canonical
-          # local-filesystem engine and OS adapters are independently rewritten.
-          copy_tree fs/adfs native/filesystems/adfs/reference/linux
-          # BeFS remains reference/import state.
-          copy_tree fs/befs native/filesystems/befs/reference/linux
-          copy_tree fs/bfs native/filesystems/bfs/reference/linux
-          copy_tree fs/efs native/filesystems/efs/reference/linux
-          # HPFS remains reference/import state until its canonical engine is independently rewritten.
-          copy_tree fs/hpfs native/filesystems/hpfs/reference/linux
-          # QNX4 remains reference/import state until its canonical engine is
-          # independently rewritten.
-          copy_tree fs/qnx4 native/filesystems/qnx4/reference/linux
-          # QNX6 remains reference/import state until its canonical engine is
-          # independently rewritten.
-          copy_tree fs/qnx6 native/filesystems/qnx6/reference/linux
-          # SysV remains reference/import state until its canonical
-          # multi-variant engine is independently rewritten.
-          copy_tree fs/sysv native/filesystems/sysv/reference/linux
-          # UFS remains reference/import state until its canonical multi-variant
-          # UFS engine is independently rewritten.
-          copy_tree fs/ufs native/filesystems/ufs/reference/linux
-          # OMFS remains imported reference evidence until its canonical
-          # local-filesystem engine and thin OS adapters are independently written.
-          copy_tree fs/omfs native/filesystems/omfs/reference/linux
-          copy_tree fs/fat native/filesystems/fat/reference/linux
-          copy_tree fs/exfat native/filesystems/exfat/reference/linux
-          # NTFS3 is a Linux provider/reference for the single canonical NTFS
-          # ownership point under native/filesystems/ntfs. Keep copied Linux
-          # source visibly separated from future project-authored NTFS code.
-          copy_tree fs/ntfs3 native/filesystems/ntfs3/reference/linux
-          copy_tree fs/hfs native/filesystems/hfs/reference/linux
-          # HFS+ remains reference/import state until its canonical engine is independently rewritten.
-          copy_tree fs/hfsplus native/filesystems/hfsplus/reference/linux
-          # ISO9660 remains reference/import state until its canonical engine is independently rewritten.
-          copy_tree fs/isofs native/filesystems/iso9660/reference/linux
-          # UDF remains reference/import state until its canonical ECMA-167/UDF
-          # engine is independently rewritten.
-          copy_tree fs/udf native/filesystems/udf/reference/linux
-          # VirtioFS remains reference/import state. Preserve the Linux FUSE +
-          # virtio-fs client implementation strictly as reference evidence.
-          copy_tree fs/fuse native/filesystems/virtiofs/reference/linux
-
-          # SMB/CIFS is a network filesystem. Preserve the Linux client/common
-          # sources solely as reference evidence for the canonical userspace core.
-          rm -rf native/filesystems/cifs/reference/linux
-          mkdir -p native/filesystems/cifs/reference/linux
-          cp -a /tmp/linux/fs/smb/client native/filesystems/cifs/reference/linux/client
-          cp -a /tmp/linux/fs/smb/common native/filesystems/cifs/reference/linux/common
-
-          copy_tree fs/nfs native/filesystems/nfs/reference/linux
-          # CephFS is distributed/network storage; keep the kernel client as
-          # explicit reference evidence for a future canonical userspace core.
-          copy_tree fs/ceph native/filesystems/cephfs/reference/linux
-          # 9P is a remote protocol. Keep the upstream Linux V9FS tree solely
-          # as reference material; project-owned code will live outside this
-          # directory behind the canonical userspace-service boundary.
-          copy_tree fs/9p native/filesystems/9p/reference/linux
-          # OrangeFS is a distributed/network filesystem in reference/import
-          # state. Keep the upstream Linux client visibly separate from any
-          # future canonical client core or userspace/provider adapter.
-          copy_tree fs/orangefs native/filesystems/orangefs/reference/linux
+          # A refresh is not allowed to change repository scope, native
+          # deployment membership or any of the project-owned rewrite boundaries.
+          bash tools/validate-source-contract.sh
 
       - name: Commit refreshed reference trees
         shell: bash
@@ -162,5 +102,5 @@ jobs:
             echo "No reference-tree changes."
             exit 0
           fi
-          git commit -m "Refresh copied non-EXT filesystem reference sources"
+          git commit -m "Refresh copied reference filesystem sources"
           git push origin HEAD:main

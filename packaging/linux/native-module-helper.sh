@@ -9,6 +9,8 @@
 # presentation state. A desktop failure therefore cannot undo committed kernel
 # state, and a kernel failure prevents the desktop transaction from starting.
 set -euo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 usage() {
     echo "usage: $0 <install|remove> <filesystem-id> <module-name>" >&2

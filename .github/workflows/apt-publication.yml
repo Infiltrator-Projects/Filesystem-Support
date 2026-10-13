@@ -18,21 +18,21 @@ jobs:
     if: >-
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      startsWith(github.event.workflow_run.head_commit.message, 'Release ')
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
       APP_ID: filesystem-support
     steps:
-      - name: Check out exact published release commit
+      - name: Check out exact completed build source
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
 
-      - name: Verify exact GitHub release
+      - name: Resolve exact published release state
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -41,14 +41,34 @@ jobs:
           version=$(tr -d '[:space:]' < VERSION)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           tag="v$version"
-          release_json=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag")
+
+          if ! release_json=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null); then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No GitHub release exists for $tag at this completed build; APT publication is not applicable."
+            exit 0
+          fi
+
           target=$(jq -r '.target_commitish // empty' <<<"$release_json")
-          test "$target" = "$EXPECTED_SHA" || {
-            echo "Release $tag targets $target, expected $EXPECTED_SHA." >&2
+          if [[ "$target" != "$EXPECTED_SHA" ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Release $tag targets $target, not completed build $EXPECTED_SHA; APT publication is not applicable."
+            exit 0
+          fi
+
+          expected=$(printf '%s\n%s\n%s\n' \
+            "Filesystem-Support-$version-amd64.deb" \
+            "Filesystem-Support-$version-amd64.run" \
+            RELEASE_SHA256SUMS.txt | sort)
+          actual=$(jq -r '.assets[].name' <<<"$release_json" | sort)
+          test "$actual" = "$expected" || {
+            echo "Release $tag does not contain the exact qualified asset set." >&2
             exit 1
           }
 
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
       - name: Trigger and verify central APT publication
+        if: steps.release.outputs.publish == 'true'
         env:
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
           GH_TOKEN: ${{ secrets.APT_REPOSITORY_DISPATCH_TOKEN }}

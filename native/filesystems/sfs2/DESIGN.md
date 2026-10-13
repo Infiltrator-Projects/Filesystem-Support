@@ -191,13 +191,21 @@ core/
   sfs2_core.c/.h        canonical root/root-info, object and extent rules
 
 linux/
-  README.md             Linux adapter not yet implemented
+  Makefile              independent project-native module build
+  allocation.c          allocation/bitmap adapter mechanics
+  core_bridge.c         canonical-core bridge
+  disk_layout.h         Linux adapter disk-layout declarations
+  io.c                  block I/O adapter
+  lifecycle.c           superblock/module lifecycle
+  linux_adapter.h       Linux adapter contract
+  mapping.c             extent/block mapping
+  namespace.c           VFS namespace operations
 
 windows/
   README.md             Windows adapter not yet implemented
 ```
 
-The canonical core is already independent from SFS. Future adapters must compile and call this core rather than creating a second SFS2 implementation.
+The Linux adapter is implemented and is part of the project-native deployment manifest. The canonical core remains independent from SFS, and adapter code must not reintroduce SFS0 semantics or a second SFS2 implementation. Capability claims remain governed by qualification evidence rather than by the mere presence of adapter source.
 
 ## Forensic completion notes against current SFS2 product documentation
 

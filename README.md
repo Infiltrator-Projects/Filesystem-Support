@@ -2,7 +2,7 @@
 
 Filesystem Support is the InfiltratorOS filesystem capability and integration manager. It owns the catalogue of real persistent local-storage filesystem formats that InfiltratorOS can recognise, install support for and, as each format is qualified, use as the filesystem beneath an InfiltratorOS installation.
 
-Current source release: **0.5.19**.
+The authoritative source/release version is stored in [`VERSION`](VERSION). Published releases use the corresponding `v<version>` tag only after that exact source revision and its release artefacts have completed qualification.
 
 The baseline Linux distribution is **Debian stable**. As of September 2026 that is Debian 13 "trixie". Derivatives can benefit where they retain Debian-compatible package names and APT behaviour, but the catalogue is authored and qualified against Debian first.
 
@@ -112,7 +112,7 @@ Release qualification additionally exercises project-native filesystem builds, s
 
 The release produces one Debian package and one self-extracting `.run` installer. Per-filesystem desktop templates are carried inside the main package and activated only for the selected filesystem; there is no supplemental desktop/UDisks Debian package.
 
-The central Infiltrator repository publication path accepts only an exact qualified release commit and verifies the advertised application/version after publication.
+The central Infiltrator repository publication path accepts only an exact qualified release revision and verifies the advertised application/version after publication.
 
 ## Architecture documentation
 

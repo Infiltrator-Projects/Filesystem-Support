@@ -8,6 +8,8 @@
 # filesystem module. It deliberately has no knowledge of desktop integration,
 # udev presentation policy, GNOME Disks, Nemo or any other presentation layer.
 set -euo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 usage() {
     echo "usage: $0 <install|remove> <filesystem-id> <module-name>" >&2
@@ -31,7 +33,7 @@ manifest="$self_dir/native-filesystems.tsv"
 }
 
 awk -F '\t' -v fs="$filesystem" -v mod="$module" '
-    $0 !~ /^#/ && NF >= 2 && $1 == fs && $2 == mod { found = 1; exit }
+    $0 !~ /^#/ && NF == 2 && $1 == fs && $2 == mod { found = 1; exit }
     END { exit found ? 0 : 1 }
 ' "$manifest" || {
     echo "refusing unmanaged native filesystem module: $filesystem/$module" >&2
@@ -202,6 +204,21 @@ restore_previous_state() {
     return 0
 }
 
+fail_with_restore() {
+    local reason=$1
+    local previous_copy=$2
+    local previous_preferred=$3
+    local previous_loaded=$4
+
+    if restore_previous_state \
+        "$previous_copy" "$previous_preferred" "$previous_loaded"; then
+        echo "$reason; previous module state was restored" >&2
+    else
+        echo "$reason and the previous module state could not be fully restored" >&2
+    fi
+    return 1
+}
+
 install_native() {
     [[ -f "$source_linux/Makefile" ]] || {
         echo "packaged native source is missing for $filesystem" >&2
@@ -246,6 +263,13 @@ install_native() {
     local previous_loaded=false
     previous_preferred=$(preferred_module_filename)
 
+    # Snapshot persistent state before touching runtime state. From the first
+    # successful unload onward every failure path is required to restore both.
+    if [[ -f "$destination" ]]; then
+        previous_copy="$tmp/previous.ko"
+        cp -a "$destination" "$previous_copy"
+    fi
+
     if module_loaded; then
         previous_loaded=true
         if ! modprobe -r "$module"; then
@@ -254,35 +278,38 @@ install_native() {
         fi
     fi
 
-    mkdir -p "$destination_dir"
-    if [[ -f "$destination" ]]; then
-        previous_copy="$tmp/previous.ko"
-        cp -a "$destination" "$previous_copy"
+    if ! mkdir -p "$destination_dir"; then
+        fail_with_restore \
+            "could not prepare the native module destination" \
+            "$previous_copy" "$previous_preferred" "$previous_loaded"
+        return 1
     fi
-
-    install -m 0644 "$built" "$destination"
-    depmod -a "$kernel"
-
+    if ! install -m 0644 "$built" "$destination"; then
+        fail_with_restore \
+            "could not replace the native module image" \
+            "$previous_copy" "$previous_preferred" "$previous_loaded"
+        return 1
+    fi
+    if ! depmod -a "$kernel"; then
+        fail_with_restore \
+            "dependency metadata refresh failed after native module replacement" \
+            "$previous_copy" "$previous_preferred" "$previous_loaded"
+        return 1
+    fi
     if ! modprobe "$module"; then
-        if restore_previous_state \
-            "$previous_copy" "$previous_preferred" "$previous_loaded"; then
-            echo "new $module module could not be loaded; previous module state was restored" >&2
-        else
-            echo "new $module module could not be loaded and the previous runtime state could not be fully restored" >&2
-        fi
-        exit 1
+        fail_with_restore \
+            "new $module module could not be loaded" \
+            "$previous_copy" "$previous_preferred" "$previous_loaded"
+        return 1
     fi
 
     local selected
     selected=$(preferred_module_filename)
     if [[ "$selected" != "$destination" || ! -d "/sys/module/$module" ]]; then
-        if restore_previous_state \
-            "$previous_copy" "$previous_preferred" "$previous_loaded"; then
-            echo "kernel selected '$selected' instead of the Infiltrator module; previous module state was restored" >&2
-        else
-            echo "kernel selected '$selected' instead of the Infiltrator module and the previous runtime state could not be fully restored" >&2
-        fi
-        exit 1
+        fail_with_restore \
+            "kernel selected '$selected' instead of the Infiltrator module" \
+            "$previous_copy" "$previous_preferred" "$previous_loaded"
+        return 1
     fi
 
     echo "$filesystem native module installed and loaded for kernel $kernel"
@@ -294,18 +321,39 @@ remove_native() {
         return 0
     fi
 
-    local selected
-    selected=$(preferred_module_filename)
+    local tmp
+    local previous_copy
+    local previous_preferred
+    local previous_loaded=false
+    tmp=$(mktemp -d)
+    cleanup_tmp=$tmp
+    previous_copy="$tmp/previous.ko"
+    cp -a "$destination" "$previous_copy"
+    previous_preferred=$(preferred_module_filename)
 
-    if module_loaded && [[ "$selected" == "$destination" ]]; then
+    if module_loaded; then
+        previous_loaded=true
+    fi
+
+    if [[ "$previous_loaded" == true && "$previous_preferred" == "$destination" ]]; then
         if ! modprobe -r "$module"; then
             echo "$module is currently in use; unmount dependent filesystems before removal" >&2
             exit 1
         fi
     fi
 
-    rm -f "$destination"
-    depmod -a "$kernel"
+    if ! rm -f "$destination"; then
+        fail_with_restore \
+            "could not remove the native module image" \
+            "$previous_copy" "$previous_preferred" "$previous_loaded"
+        return 1
+    fi
+    if ! depmod -a "$kernel"; then
+        fail_with_restore \
+            "dependency metadata refresh failed after native module removal" \
+            "$previous_copy" "$previous_preferred" "$previous_loaded"
+        return 1
+    fi
     rmdir "$destination_dir" 2>/dev/null || true
 
     echo "$filesystem native module removed for kernel $kernel"

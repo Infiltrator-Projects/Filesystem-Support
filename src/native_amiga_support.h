@@ -13,8 +13,27 @@
 #define IFS_NATIVE_MODULES_ROOT "/lib/modules"
 #endif
 
-/* Match the manager and native-module helper: installing one project-owned
- * module grants desktop recognition only to that exact filesystem. */
+/* This helper answers only whether a caller-supplied native module identity is
+ * installed for the running kernel. Desktop membership is owned by
+ * data/desktop-filesystems.tsv and must not be duplicated here. The token
+ * validator is a path-safety boundary, not a filesystem allowlist. */
+static inline int ifs_native_module_token_valid(const char *type)
+{
+    const unsigned char *cursor;
+
+    if (type == NULL || *type == '\0')
+        return 0;
+    for (cursor = (const unsigned char *)type; *cursor != '\0'; ++cursor) {
+        if ((*cursor >= 'a' && *cursor <= 'z') ||
+            (*cursor >= 'A' && *cursor <= 'Z') ||
+            (*cursor >= '0' && *cursor <= '9') ||
+            *cursor == '_' || *cursor == '.' || *cursor == '+' || *cursor == '-')
+            continue;
+        return 0;
+    }
+    return 1;
+}
+
 static inline int ifs_native_amiga_installed(const char *type)
 {
     struct utsname kernel;
@@ -22,10 +41,7 @@ static inline int ifs_native_amiga_installed(const char *type)
     char path[512];
     int length;
 
-    if (type == NULL ||
-        (strcmp(type, "ofs") != 0 && strcmp(type, "ffs") != 0 &&
-         strcmp(type, "sfs") != 0 && strcmp(type, "sfs2") != 0 &&
-         strcmp(type, "pfs3") != 0))
+    if (!ifs_native_module_token_valid(type))
         return 0;
     if (uname(&kernel) != 0)
         return 0;

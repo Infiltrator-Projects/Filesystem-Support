@@ -8,8 +8,12 @@ on:
 permissions:
   contents: read
 
+# Main pushes are serialized by branch. This closes the race in which two
+# untagged commits carrying the same VERSION could both begin promotion before
+# the first run establishes the immutable v<version> tag. PRs remain isolated
+# by PR number and may cancel stale work.
 concurrency:
-  group: filesystem-support-build-v5-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  group: filesystem-support-build-v6-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -39,11 +43,64 @@ jobs:
       - name: Verify actual APT install, retirement migration and purge
         run: bash tests/desktop_package_test.sh dist-desktop/*.deb
 
-      - name: Preserve the qualified main package
+      - name: Build and verify the complete release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          deb="dist-desktop/Filesystem-Support-$version-amd64.deb"
+          run="dist-desktop/Filesystem-Support-$version-amd64.run"
+          test -f "$deb"
+          ./packaging/build-run.sh "$deb" "$run"
+          test -x "$run"
+
+          help=$("$run" --help)
+          grep -Fq '/usr/bin/fsinspect' <<<"$help"
+          grep -Fq 'per-filesystem desktop templates' <<<"$help"
+          grep -Fq 'project-native Amiga filesystems' <<<"$help"
+
+          # Qualification is about the bytes that will be promoted. Prove that
+          # the wrapper contains exactly the Debian package already exercised by
+          # the package/install tests, not a later rebuild or second package.
+          python3 - "$deb" "$run" <<'PY'
+          from pathlib import Path
+          import io
+          import sys
+          import tarfile
+
+          deb = Path(sys.argv[1]).read_bytes()
+          wrapper = Path(sys.argv[2]).read_bytes()
+          marker = b"\n__ARCHIVE_BELOW__\n"
+          start = wrapper.find(marker)
+          if start < 0:
+              raise SystemExit("run installer archive marker is missing")
+          payload = wrapper[start + len(marker):]
+          with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+              names = archive.getnames()
+              if names != ["filesystem-support.deb"]:
+                  raise SystemExit(f"unexpected run payload: {names}")
+              embedded = archive.extractfile("filesystem-support.deb")
+              if embedded is None or embedded.read() != deb:
+                  raise SystemExit("run installer does not embed the qualified Debian package")
+          PY
+
+          (
+            cd dist-desktop
+            sha256sum \
+              "Filesystem-Support-$version-amd64.deb" \
+              "Filesystem-Support-$version-amd64.run" \
+              > RELEASE_SHA256SUMS.txt
+            sha256sum -c RELEASE_SHA256SUMS.txt
+          )
+
+      - name: Preserve the exact qualified release bundle
         uses: actions/upload-artifact@v4
         with:
-          name: filesystem-support-linux-package
-          path: dist-desktop/*.deb
+          name: filesystem-support-linux-release
+          path: |
+            dist-desktop/Filesystem-Support-*-amd64.deb
+            dist-desktop/Filesystem-Support-*-amd64.run
+            dist-desktop/RELEASE_SHA256SUMS.txt
           if-no-files-found: error
 
   source-boundary:
@@ -81,8 +138,10 @@ jobs:
             fi
           fi
 
-      - name: Validate source and implementation boundaries
-        run: bash tools/validate-source-contract.sh
+      - name: Validate source and repository architecture boundaries
+        run: |
+          bash tools/validate-source-contract.sh
+          python3 tests/repository_architecture_test.py .
 
   linux:
     runs-on: ubuntu-24.04
@@ -264,20 +323,64 @@ jobs:
           }
           Get-FileHash -Algorithm SHA256 -LiteralPath $driver, $cat | Format-Table
 
+  # VERSION + its immutable tag are the release-state authority. An untagged
+  # source version on main is eligible for promotion; an existing tag at another
+  # SHA means this is ordinary post-release workflow-only maintenance.
+  release-state:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      promote: ${{ steps.state.outputs.promote }}
+    steps:
+      - name: Check out exact candidate source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve immutable version/tag state
+        id: state
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="v$version"
+          tag_refs=$(git ls-remote --tags origin "refs/tags/$tag" "refs/tags/$tag^{}")
+          if [[ -z "$tag_refs" ]]; then
+            echo "promote=true" >> "$GITHUB_OUTPUT"
+            echo "$tag does not exist; this exact source version enters release qualification."
+            exit 0
+          fi
+
+          tag_commit=$(awk '$2 ~ /\^\{\}$/ { print $1 }' <<<"$tag_refs" | tail -n1)
+          if [[ -z "$tag_commit" ]]; then
+            tag_commit=$(awk 'NR == 1 { print $1 }' <<<"$tag_refs")
+          fi
+          if [[ "$tag_commit" == "$GITHUB_SHA" ]]; then
+            echo "promote=true" >> "$GITHUB_OUTPUT"
+            echo "$tag already identifies this exact SHA; idempotent release verification is allowed."
+          else
+            echo "promote=false" >> "$GITHUB_OUTPUT"
+            echo "$tag already identifies $tag_commit; this SHA is not a release candidate."
+          fi
+
+  release-sanitizers:
+    needs: release-state
+    if: needs.release-state.outputs.promote == 'true'
+    uses: ./.github/workflows/sanitizers.yml
+    with:
+      sha: ${{ github.sha }}
+
   release-ext-runtime:
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      startsWith(github.event.head_commit.message, 'Release ')
+    needs: release-state
+    if: needs.release-state.outputs.promote == 'true'
     uses: ./.github/workflows/ext-runtime-qualification.yml
     with:
       sha: ${{ github.sha }}
 
   release-amiga-runtime:
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      startsWith(github.event.head_commit.message, 'Release ')
+    needs: release-state
+    if: needs.release-state.outputs.promote == 'true'
     uses: ./.github/workflows/amiga-runtime-qualification.yml
     with:
       sha: ${{ github.sha }}
@@ -291,30 +394,21 @@ jobs:
       - linux-amiga-v7-module-api
       - windows-manager
       - windows-ext2-driver
+      - release-state
+      - release-sanitizers
       - release-ext-runtime
       - release-amiga-runtime
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      startsWith(github.event.head_commit.message, 'Release ')
+    if: needs.release-state.outputs.promote == 'true'
     permissions:
       contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Check out exact release commit
+      - name: Check out exact qualified release source
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-          submodules: recursive
-
-      - name: Install release packaging dependencies
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends dpkg-dev python3
 
       - name: Verify release identity
         shell: bash
@@ -323,60 +417,39 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           version=$(tr -d '[:space:]' < VERSION)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          subject=$(git log -1 --format=%s HEAD)
-          if [[ "$subject" != "Release $version" && "$subject" != "Release $version:"* ]]; then
-            echo "Release commit subject must begin with Release $version." >&2
-            exit 1
-          fi
 
-      - name: Retrieve the package built by this workflow run
+      - name: Retrieve the exact qualified release bundle
         uses: actions/download-artifact@v4
         with:
-          name: filesystem-support-linux-package
+          name: filesystem-support-linux-release
           path: dist
 
-      - name: Verify the qualified single Debian package
+      - name: Verify qualified release artefacts without rebuilding
         shell: bash
         run: |
           set -euo pipefail
           version=$(tr -d '[:space:]' < VERSION)
-          deb="dist/Filesystem-Support-$version-amd64.deb"
-          test -f "$deb"
-          test "$(dpkg-deb -f "$deb" Package)" = infiltrator-filesystem-support
-          test "$(dpkg-deb -f "$deb" Version)" = "$version"
-          python3 tests/udisks_display_test.py --package "$deb"
-          test "$(dpkg-deb -f "$deb" Conflicts)" = infiltrator-filesystem-support-udisks
-          ! dpkg-deb -f "$deb" Depends | grep -Fq infiltrator-filesystem-support-udisks
-          dpkg-deb -c "$deb" > package-contents.txt
+          deb="Filesystem-Support-$version-amd64.deb"
+          run="Filesystem-Support-$version-amd64.run"
+          test -f "dist/$deb"
+          test -f "dist/$run"
+          test -f dist/RELEASE_SHA256SUMS.txt
+          (
+            cd dist
+            sha256sum -c RELEASE_SHA256SUMS.txt
+          )
+          test "$(dpkg-deb -f "dist/$deb" Package)" = infiltrator-filesystem-support
+          test "$(dpkg-deb -f "dist/$deb" Version)" = "$version"
+          python3 tests/udisks_display_test.py --package "dist/$deb"
+          test "$(dpkg-deb -f "dist/$deb" Conflicts)" = infiltrator-filesystem-support-udisks
+          ! dpkg-deb -f "dist/$deb" Depends | grep -Fq infiltrator-filesystem-support-udisks
+          dpkg-deb -c "dist/$deb" > package-contents.txt
           grep -Fq './usr/bin/fsinspect' package-contents.txt
           grep -Fq '/desktop/templates/ofs.so' package-contents.txt
           grep -Fq '/usr/lib/infiltrator-filesystem-support/native-filesystems.tsv' package-contents.txt
           ! grep -Fq '59-infiltrator-filesystems.rules' package-contents.txt
           test "$(find dist -maxdepth 1 -name '*.deb' | wc -l)" = 1
-          cp "$deb" .
-
-      - name: Build and verify the single-package run installer
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(tr -d '[:space:]' < VERSION)
-          run="Filesystem-Support-$version-amd64.run"
-          ./packaging/build-run.sh "Filesystem-Support-$version-amd64.deb" "$run"
-          test -x "$run"
-          help=$("./$run" --help)
-          grep -Fq '/usr/bin/fsinspect' <<<"$help"
-          grep -Fq 'per-filesystem desktop templates' <<<"$help"
-          grep -Fq 'project-native Amiga filesystems' <<<"$help"
-
-      - name: Generate checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(tr -d '[:space:]' < VERSION)
-          sha256sum \
-            "Filesystem-Support-$version-amd64.deb" \
-            "Filesystem-Support-$version-amd64.run" \
-            > RELEASE_SHA256SUMS.txt
+          test "$(find dist -maxdepth 1 -name '*.run' | wc -l)" = 1
 
       - name: Publish immutable GitHub release
         env:
@@ -423,9 +496,9 @@ jobs:
               --pattern "$deb" \
               --pattern "$run" \
               --pattern RELEASE_SHA256SUMS.txt
-            cmp "$deb" "$published/$deb"
-            cmp "$run" "$published/$run"
-            cmp RELEASE_SHA256SUMS.txt "$published/RELEASE_SHA256SUMS.txt"
+            cmp "dist/$deb" "$published/$deb"
+            cmp "dist/$run" "$published/$run"
+            cmp dist/RELEASE_SHA256SUMS.txt "$published/RELEASE_SHA256SUMS.txt"
             echo "Release $tag already exists and exactly matches this workflow's qualified artifacts."
             exit 0
           fi
@@ -433,7 +506,7 @@ jobs:
           cat > release-notes.md <<EOF
           Filesystem Support $version.
 
-          This release promotes the exact Debian package built and tested from commit $GITHUB_SHA after independent EXT and Amiga runtime qualification in the same release dependency graph.
+          This release promotes the exact Debian package, self-extracting installer and checksum manifest built and tested from commit $GITHUB_SHA. EXT, Amiga and sanitizer/adversarial qualification all ran against that same immutable SHA before publication.
 
           Release assets:
           - Generic AMD64 Debian package
@@ -444,9 +517,9 @@ jobs:
           EOF
 
           gh release create "$tag" \
-            "$deb" \
-            "$run" \
-            RELEASE_SHA256SUMS.txt \
+            "dist/$deb" \
+            "dist/$run" \
+            dist/RELEASE_SHA256SUMS.txt \
             --verify-tag \
             --target "$GITHUB_SHA" \
             --title "Filesystem Support $version" \
