@@ -18,12 +18,12 @@ templates="$self_dir/desktop/templates"
 active="$base/usr/lib/infiltrator-filesystem-support/desktop/active"
 rules="$base/etc/udev/rules.d"
 manifest="$base/usr/lib/infiltrator-filesystem-support/desktop-filesystems.tsv"
+native_state="$self_dir/native-module-helper"
 disks_original="$base/usr/bin/gnome-disks.filesystem-support-original"
 disks_launcher="$base/usr/bin/gnome-disks"
 nemo_original="$base/usr/bin/nemo.filesystem-support-original"
 nemo_launcher="$base/usr/bin/nemo"
 package=infiltrator-filesystem-support
-kernel=$(uname -r)
 [[ -r "$manifest" ]] || { echo 'desktop filesystem manifest is missing' >&2; exit 1; }
 mkdir -p "$base/run/lock"
 exec 9>"$base/run/lock/infiltrator-filesystem-support-desktop.lock"
@@ -387,6 +387,10 @@ case "$action" in
         ;;
     sync)
         [[ $# -eq 1 ]] || exit 2
+        [[ -x "$native_state" ]] || {
+            echo 'native module state authority is missing; reinstall Filesystem Support' >&2
+            exit 1
+        }
 
         # Package-level shared launcher setup happens once here. Individual
         # filesystem transactions below never create or remove diversions.
@@ -405,11 +409,22 @@ case "$action" in
         trap cleanup_transition EXIT
         install -m 0644 "$templates/cleanup.rules" "$transition_rule"
         while IFS= read -r kind; do
-            if [[ -f "$base/lib/modules/$kernel/updates/infiltrator/$kind.ko" ]]; then
-                install_kind "$kind"
-            else
-                remove_kind "$kind"
-            fi
+            set +e
+            "$native_state" is-installed "$kind"
+            native_status=$?
+            set -e
+            case "$native_status" in
+                0)
+                    install_kind "$kind"
+                    ;;
+                3)
+                    remove_kind "$kind"
+                    ;;
+                *)
+                    echo "native installed state could not be determined for $kind; desktop sync aborted" >&2
+                    exit 1
+                    ;;
+            esac
         done < <(desktop_filesystems)
         rm -f "$transition_rule"
         trap - EXIT
