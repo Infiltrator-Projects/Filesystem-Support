@@ -123,6 +123,7 @@ units as project-authored:
 - `volume_admin.c`
 - `journal_durability.c`
 - `security_support.c`
+- `orphan_recovery.c`
 - `embedded_jbd2.h`
 - `truncate.h`
 - `fsmap.h`
@@ -132,6 +133,11 @@ units as project-authored:
 - `extents_status.h`
 - `ext4_extents.h`
 - `xattr.h`
+
+`orphan_recovery.c` is an independently replaced, bounded recovery unit. It
+owns the supported orphan-chain and orphan-file recovery semantics and was
+promoted only after forced unclean-reboot recovery and independent checker
+validation, as recorded by the provenance ledger.
 
 These files remain Linux adapter or adapter-contract code where they contain
 host integration. Host-neutral EXT4 rules continue to migrate into `core/`
@@ -155,7 +161,6 @@ replaced:
 - `journal_transactions.c`
 - `multiblock_allocation.c`
 - `namespace_mutation.c`
-- `orphan_recovery.c`
 - `writeback_io.c`
 - `online_resize.c`
 - `lifecycle.c`
