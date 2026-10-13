@@ -39,6 +39,22 @@ require("Current source release:" not in readme,
 require("[`VERSION`](VERSION)" in readme,
         "README does not identify VERSION as the source/release authority")
 
+# The native manifest schema and Common revision each have one authority.
+# CMake consumes the exact two-column native schema, while Git's submodule
+# gitlink owns the precise Common SHA. CMake may retain an explicit Common
+# semantic-version compatibility requirement, but not a second literal SHA.
+cmake = text("CMakeLists.txt")
+require("if(NOT native_field_count EQUAL 2)" in cmake,
+        "CMake accepts undeclared trailing native-manifest fields")
+require("INFILTRATR_COMMON_EXPECTED_COMMIT" not in cmake,
+        "CMake duplicates the Common gitlink as a hard-coded commit authority")
+for required in (
+    'rev-parse "HEAD:src/infiltratr-common"',
+    "INFILTRATR_COMMON_GITLINK",
+    "INFILTRATR_COMMON_EXPECTED_VERSION",
+):
+    require(required in cmake, f"Common dependency contract lost boundary: {required}")
+
 # Process execution is one mechanism. Probe and installer may apply different
 # policy, but neither may grow a private spawning implementation.
 runner = text("src/process_runner.hpp")
