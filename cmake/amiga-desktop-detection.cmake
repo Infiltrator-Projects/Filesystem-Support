@@ -100,9 +100,9 @@ foreach(desktop_fs IN LISTS FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
         add_library(${desktop_target}-test SHARED
             "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/udisks-amiga-names.c")
         target_link_libraries(${desktop_target}-test PRIVATE PkgConfig::GLIB2 PkgConfig::GIO2 ${CMAKE_DL_LIBS} Threads::Threads)
-        target_compile_definitions(${desktop_target}-test PRIVATE IFS_NAMES_VARIANT=${desktop_variant}
-            IFS_DESKTOP_TESTING=1
-            IFS_NATIVE_MODULES_ROOT="${CMAKE_CURRENT_BINARY_DIR}/desktop-test-root/lib/modules")
+        target_compile_definitions(${desktop_target}-test PRIVATE
+            IFS_NAMES_VARIANT=${desktop_variant}
+            IFS_DESKTOP_TESTING=1)
         set_target_properties(${desktop_target}-test PROPERTIES PREFIX "" OUTPUT_NAME "${desktop_fs}"
             C_VISIBILITY_PRESET hidden LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/desktop-test-templates")
         filesystem_support_configure(${desktop_target}-test)
