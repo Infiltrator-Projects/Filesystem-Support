@@ -3,8 +3,9 @@
 ## Purpose
 
 This document preserves and generalises the durable Windows driver engineering
-learned in the former ExtFS-for-Windows repository. The old EXT-specific
-installer and signing scripts are not production inputs.
+learned during the former ExtFS-for-Windows migration. The old EXT-specific
+installer and signing scripts are not production inputs and are not retained as
+a fallback product path.
 
 ## Build and package
 
@@ -19,7 +20,7 @@ Before publication:
 2. validate the INF with InfVerif;
 3. generate the CAT from the exact staged SYS and INF with Inf2Cat;
 4. record SHA-256 hashes for SYS and CAT;
-5. never compile an archived standalone filesystem engine into a live driver.
+5. never compile a retired standalone filesystem engine into a live driver.
 
 `windows/build/Build-Ext2Driver.ps1` is the first implementation of this
 pipeline.
@@ -94,7 +95,9 @@ helpers.
 ## Retired standalone mechanisms
 
 The former ExtFS NSIS setup, EXT-specific service names, self-signed release
-installers and standalone publication workflows are retired. Their exact
-v0.9.9 sources remain in the migration archive for provenance. Their durable
-safety rules are represented above and in the live generic Filesystem Support
-build/test paths.
+installers and standalone publication workflows are retired. Their durable
+safety rules have been classified into the live Filesystem Support architecture,
+build and qualification contracts. Historical provenance is recoverable from
+the recorded migration baseline and repository/release history; there is no
+live migration archive that may be compiled or treated as a compatibility
+fallback.
