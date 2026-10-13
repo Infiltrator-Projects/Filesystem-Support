@@ -74,13 +74,7 @@ disks = root / 'usr/bin/gnome-disks'
 nemo = root / 'usr/bin/nemo'
 disks.symlink_to(sys.executable)
 nemo.symlink_to(sys.executable)
-
-# The UDisks/GIO presentation fixture needs filesystem-named module markers for
-# its own simulation. Keep those in a different module tree so that presentation
-# testing cannot accidentally satisfy the native-state query above.
-display_modules_root = root / 'display-modules'
-display_args = (source / 'tests/udisks_display_test.py', '--preloaded',
-                '--modules-root', display_modules_root)
+display_args = (source / 'tests/udisks_display_test.py', '--preloaded')
 original_disks_hash = hashlib.sha256(disks.read_bytes()).hexdigest()
 original_nemo_hash = hashlib.sha256(nemo.read_bytes()).hexdigest()
 
@@ -118,12 +112,9 @@ run(helper, 'sync')
 check_files(set(), prepared=True)
 
 modules = root / 'lib/modules' / platform.release() / 'updates/infiltrator'
-display_modules = display_modules_root / platform.release() / 'updates/infiltrator'
 modules.mkdir(parents=True)
-display_modules.mkdir(parents=True)
 for kind in kinds:
     (modules / f'{module_by_kind[kind]}.ko').touch()
-    (display_modules / f'{kind}.ko').touch()
 
 for mask in range(1 << len(kinds)):
     selected = {kind for bit, kind in enumerate(kinds) if mask & (1 << bit)}
@@ -147,7 +138,6 @@ check_files(set(), prepared=True)
 
 for kind in kinds[-2:]:
     (modules / f'{module_by_kind[kind]}.ko').unlink()
-    (display_modules / f'{kind}.ko').unlink()
 legacy_rules = root / 'etc/udev/rules.d'
 legacy_rules.mkdir(parents=True, exist_ok=True)
 (legacy_rules / '59-infiltrator-ofs.rules').write_text('legacy\n')
