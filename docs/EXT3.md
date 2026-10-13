@@ -40,6 +40,8 @@ native/filesystems/ext3/
     namespace_mutation.c
     extended_metadata.c
     lifecycle.c
+    journal_frontend.c
+    revision_policy.c
     journal_durability.c
     journal_core.c
     journal_transactions.c
@@ -128,6 +130,20 @@ Owns mount, superblock publication, module/VFS lifetime and Linux-only
 filesystem lifecycle. This unit remains migration implementation until
 independently replaced.
 
+### `journal_frontend.c`
+
+Owns the project-authored Linux-facing journal front-end boundary used by EXT3
+filesystem operations. It translates the adapter's durability requests into the
+embedded journal contract without moving JBD transaction semantics into VFS
+callers.
+
+### `revision_policy.c`
+
+Owns the independently written, bounded original-revision to dynamic-revision
+transition policy. Its authority is deliberately narrow: revision-dependent
+superblock defaults and the transition diagnostic remain here rather than being
+reimplemented in lifecycle or allocation code.
+
 ### `journal_durability.c`
 
 Owns the project-authored checkpoint, commit, recovery and revoke implementation
@@ -162,6 +178,8 @@ Currently project-authored EXT3 units are:
 - `linux/allocation.c`
 - `linux/directory_io.c`
 - `linux/file_io.c`
+- `linux/journal_frontend.c`
+- `linux/revision_policy.c`
 - `linux/journal_durability.c`
 
 The following responsibility-named Linux units remain materially inherited
@@ -188,8 +206,8 @@ The Linux build remains one module:
 obj-m += ext3.o
 
 ext3-y := core_bridge.o allocation.o directory_io.o file_io.o inode_adapter.o \
-          namespace_mutation.o lifecycle.o extended_metadata.o \
-          journal_durability.o journal_core.o journal_transactions.o
+          namespace_mutation.o lifecycle.o extended_metadata.o journal_frontend.o \
+          revision_policy.o journal_durability.o journal_core.o journal_transactions.o
 ```
 
 There is one EXT3 filesystem module, `ext3.ko`.
