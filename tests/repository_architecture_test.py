@@ -162,6 +162,14 @@ for relative in (
     for required in ("workflow_call:", "Exact commit SHA to qualify", "inputs.sha"):
         require(required in workflow,
                 f"{relative} lost reusable exact-SHA boundary: {required}")
+    for forbidden in (
+        "\n  push:",
+        "Release commit subject",
+        "git log -1 --format=%s",
+        "subject=$(git log",
+    ):
+        require(forbidden not in workflow,
+                f"{relative} retained independent release choreography: {forbidden}")
 
 sanitizers = text(".github/workflows/sanitizers.yml")
 for required in (
@@ -171,8 +179,6 @@ for required in (
 ):
     require(required in sanitizers,
             f"sanitizer qualification lost required coverage: {required}")
-require("\n  push:" not in sanitizers,
-        "sanitizers duplicate release work as an independent main-push workflow")
 require((repo / "tests/parser_adversarial_test.py").is_file(),
         "malformed-media parser corpus is missing")
 
