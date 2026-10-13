@@ -8,6 +8,8 @@
 # A filesystem operation therefore changes only its own active plugin and udev
 # rule and cannot tear down another filesystem's shared desktop infrastructure.
 set -euo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 system_root=/
 [[ "$system_root" != / || ${EUID} -eq 0 ]] || { echo 'desktop integration requires root' >&2; exit 1; }
 base=${system_root%/}
@@ -116,9 +118,117 @@ enable_nemo_launcher() {
     trap - RETURN
 }
 
+preflight_launchers() {
+    local owner
+
+    owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks)
+    [[ -z "$owner" || "$owner" == "$package" ]] || {
+        echo "Disks already has a diversion owned by $owner; refusing to replace it" >&2
+        return 1
+    }
+    [[ -f "$templates/gnome-disks" ]] || {
+        echo 'GNOME Disks launcher template is missing' >&2
+        return 1
+    }
+    if [[ -z "$owner" ]]; then
+        [[ -f "$disks_launcher" ]] || {
+            echo 'GNOME Disks is missing' >&2
+            return 1
+        }
+    else
+        [[ -f "$disks_original" && -f "$disks_launcher" ]] || {
+            echo 'Filesystem Support GNOME Disks diversion state is incomplete' >&2
+            return 1
+        }
+    fi
+
+    owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo)
+    if [[ -z "$owner" && ! -e "$nemo_launcher" && ! -e "$nemo_original" ]]; then
+        return 0
+    fi
+    [[ -z "$owner" || "$owner" == "$package" ]] || {
+        echo "Nemo already has a diversion owned by $owner; refusing to replace it" >&2
+        return 1
+    }
+    [[ -f "$templates/nemo" ]] || {
+        echo 'Nemo launcher template is missing' >&2
+        return 1
+    }
+    if [[ -z "$owner" ]]; then
+        [[ -f "$nemo_launcher" && ! -e "$nemo_original" ]] || {
+            echo 'Nemo launcher state is inconsistent before diversion' >&2
+            return 1
+        }
+    else
+        [[ -f "$nemo_original" && -f "$nemo_launcher" ]] || {
+            echo 'Filesystem Support Nemo diversion state is incomplete' >&2
+            return 1
+        }
+    fi
+}
+
 enable_launchers() {
-    enable_disks_launcher
-    enable_nemo_launcher
+    preflight_launchers
+
+    # Shared launcher setup is one package-level transaction. Snapshot any
+    # package-owned wrapper before replacing it; a newly-created diversion is
+    # removed on failure so a later launcher error cannot leave half-prepared
+    # package state.
+    (
+        set -eEuo pipefail
+        local work initial_disks_owner initial_nemo_owner result rollback_failed
+        work=$(mktemp -d)
+        initial_disks_owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks)
+        initial_nemo_owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo)
+        if [[ "$initial_disks_owner" == "$package" ]]; then
+            cp -a "$disks_launcher" "$work/disks-launcher"
+        fi
+        if [[ "$initial_nemo_owner" == "$package" ]]; then
+            cp -a "$nemo_launcher" "$work/nemo-launcher"
+        fi
+
+        rollback_launchers() {
+            result=$?
+            trap - EXIT
+            rollback_failed=0
+            if [[ $result -ne 0 ]]; then
+                if [[ -z "$initial_nemo_owner" ]]; then
+                    if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo) == "$package" ]]; then
+                        rm -f "$nemo_launcher"
+                        dpkg-divert --root="$system_root" --package "$package" --remove --rename \
+                            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo || rollback_failed=1
+                    fi
+                elif [[ "$initial_nemo_owner" == "$package" && -f "$work/nemo-launcher" ]]; then
+                    install -m 0755 "$work/nemo-launcher" "$nemo_launcher" || rollback_failed=1
+                fi
+
+                if [[ -z "$initial_disks_owner" ]]; then
+                    if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks) == "$package" ]]; then
+                        rm -f "$disks_launcher"
+                        dpkg-divert --root="$system_root" --package "$package" --remove --rename \
+                            --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks || rollback_failed=1
+                    fi
+                elif [[ "$initial_disks_owner" == "$package" && -f "$work/disks-launcher" ]]; then
+                    install -m 0755 "$work/disks-launcher" "$disks_launcher" || rollback_failed=1
+                fi
+
+                if [[ $rollback_failed -ne 0 ]]; then
+                    echo 'shared desktop launcher setup failed and previous launcher state could not be fully restored' >&2
+                else
+                    echo 'shared desktop launcher setup failed; previous launcher state was restored' >&2
+                fi
+            fi
+            rm -rf "$work"
+            exit "$result"
+        }
+        trap rollback_launchers EXIT
+
+        enable_disks_launcher
+        enable_nemo_launcher
+
+        trap - EXIT
+        rm -rf "$work"
+    )
 }
 
 disable_launchers() {
