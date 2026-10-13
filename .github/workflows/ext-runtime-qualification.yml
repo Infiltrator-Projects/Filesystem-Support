@@ -1,8 +1,14 @@
 name: EXT runtime qualification
 
 on:
-  push:
-    branches: [main]
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "native/filesystems/ext2/**"
+      - "native/filesystems/ext3/**"
+      - "native/filesystems/ext4/**"
+      - ".github/workflows/build.yml"
+      - ".github/workflows/ext-runtime-qualification.yml"
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -12,57 +18,11 @@ on:
         type: string
 
 concurrency:
-  group: filesystem-support-ext-runtime-${{ github.event_name }}-${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
-  cancel-in-progress: false
+  group: filesystem-support-ext-runtime-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'workflow_call' && inputs.sha || github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  scope:
-    runs-on: ubuntu-24.04
-    outputs:
-      run: ${{ steps.scope.outputs.run }}
-    steps:
-      - name: Checkout candidate
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
-          fetch-depth: 2
-
-      - name: Decide whether EXT runtime qualification is required
-        id: scope
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "${{ github.event_name }}" == "workflow_call" || \
-                "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          subject=$(git log -1 --format=%s)
-
-          # Release commits are qualified by the build workflow's explicit
-          # release DAG.  Do not run a duplicate standalone qualification.
-          if [[ "$subject" == Release\ * ]]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if git rev-parse HEAD^ >/dev/null 2>&1 &&
-             git diff --quiet HEAD^ HEAD -- \
-               native/filesystems/ext2 \
-               native/filesystems/ext3 \
-               native/filesystems/ext4 \
-               .github/workflows/build.yml \
-               .github/workflows/ext-runtime-qualification.yml; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
-
   linux-ext-runtime-qualification:
-    needs: scope
-    if: needs.scope.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -183,7 +143,7 @@ jobs:
           mount -t sysfs sysfs /sys || fail "sysfs"
           mount -t devtmpfs devtmpfs /dev || fail "devtmpfs"
 
-          # All three modules must coexist.  This catches duplicate private
+          # All three modules must coexist. This catches duplicate private
           # helper/JBD/cache symbols as well as registration conflicts.
           insmod /ext2.ko || fail "insmod ext2"
           insmod /ext3.ko || fail "insmod ext3"
