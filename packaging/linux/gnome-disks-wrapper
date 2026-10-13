@@ -2,17 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 # Filesystem Support per-filesystem Disks launcher.
+#
+# The desktop active directory is the committed presentation state. Native
+# deployment policy is owned by the kernel helper and desktop synchronizer; a
+# launcher must not reconstruct filesystem-to-module identity or inspect kernel
+# deployment paths before consuming an already-active presentation plugin.
 system_root=/
 base=${system_root%/}
 original=$base/usr/bin/gnome-disks.filesystem-support-original
 manifest=$base/usr/lib/infiltrator-filesystem-support/desktop-filesystems.tsv
-kernel=$(uname -r)
 names=
 if [ -r "$manifest" ]; then
     for filesystem in $(awk -F '\t' '$0 !~ /^#/ && NF == 2 { print $1 }' "$manifest"); do
         file=$base/usr/lib/infiltrator-filesystem-support/desktop/active/$filesystem.so
-        module=$base/lib/modules/$kernel/updates/infiltrator/$filesystem.ko
-        if [ -f "$file" ] && [ -f "$module" ]; then
+        if [ -f "$file" ]; then
             names=${names:+$names:}$file
         fi
     done
