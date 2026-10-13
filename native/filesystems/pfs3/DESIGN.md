@@ -148,16 +148,18 @@ Current state:
 
 ```text
 core/
-  pfs3_core.c/.h         root, extension, directory and anode format engine
+  pfs3_core.c/.h         canonical root, extension, directory and anode format engine
 
 linux/
-  README.md              Linux adapter not yet implemented
+  Makefile               independent project-native module build
+  core_bridge.c          canonical-core bridge
+  pfs3_linux.c           Linux VFS/block-device adapter
 
 windows/
   README.md              Windows adapter not yet implemented
 ```
 
-The future Linux and Windows drivers must use the same canonical anode, directory, root and extension rules.
+The Linux adapter is implemented and is part of the project-native deployment manifest. Its current advertised access mode is read-only; the existence of the adapter is not evidence for unimplemented write/recovery paths. Linux and future Windows adapters must use the same canonical anode, directory, root and extension rules rather than creating a second PFS3 implementation.
 
 ## Forensic completion notes against the PFS3 distribution's disk-structure guide
 
