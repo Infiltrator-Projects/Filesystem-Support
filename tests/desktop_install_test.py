@@ -135,8 +135,8 @@ check_files(set(), prepared=False)
 run(helper, 'install', kinds[0], success=False)
 check_files(set(), prepared=False)
 
-# A foreign diversion blocks package-level preparation before any filesystem
-# state is touched.
+# A foreign Disks diversion blocks package-level preparation before any
+# filesystem state is touched.
 run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--add', '--rename',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
 run(helper, 'sync', success=False)
@@ -147,6 +147,21 @@ assert owner('/usr/bin/gnome-disks') == 'foreign-test-owner'
 assert owner('/usr/bin/nemo') == ''
 run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--remove', '--rename',
     '--divert', '/usr/bin/gnome-disks.foreign', '/usr/bin/gnome-disks')
+check_files(set(), prepared=False)
+
+# A conflict discovered at the second shared launcher must not leave the first
+# launcher diverted. This is the package-level transaction boundary that was
+# historically vulnerable to half-prepared configuration.
+run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--add', '--rename',
+    '--divert', '/usr/bin/nemo.foreign', '/usr/bin/nemo')
+run(helper, 'sync', success=False)
+assert owner('/usr/bin/gnome-disks') == ''
+assert owner('/usr/bin/nemo') == 'foreign-test-owner'
+assert hashlib.sha256(disks.read_bytes()).hexdigest() == original_disks_hash
+assert not list((private / 'desktop/active').glob('*.so'))
+assert not list((root / 'etc/udev/rules.d').glob('99-infiltrator-*.rules'))
+run('dpkg-divert', f'--root={root}', '--package', 'foreign-test-owner', '--remove', '--rename',
+    '--divert', '/usr/bin/nemo.foreign', '/usr/bin/nemo')
 check_files(set(), prepared=False)
 
 # Re-prepare, prove one filesystem transaction leaves launcher ownership alone,
