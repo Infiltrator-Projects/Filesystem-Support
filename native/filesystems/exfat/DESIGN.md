@@ -34,8 +34,8 @@ native/filesystems/exfat/
   reference/linux/      pinned upstream Linux evidence
 ```
 
-The separate `exfat-fuse` catalogue identity is a provider choice, not a
-second exFAT implementation.
+`exfat-fuse` is an alternate provider choice for the same exFAT format, not a
+separate catalogue identity or a second exFAT implementation.
 
 ## Canonical ownership
 

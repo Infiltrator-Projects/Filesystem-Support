@@ -134,6 +134,10 @@ if(BUILD_TESTING)
     add_test(NAME filesystem-support-native-helper-boundary
         COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_helper_boundary_test.sh"
             "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME filesystem-support-forensic-ownership-boundary
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/ownership_boundary_test.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME filesystem-support-desktop-manifest-boundary
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop_manifest_boundary_test.py"
@@ -147,6 +151,7 @@ string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
     ", udev, util-linux, libudisks2-0, gnome-disk-utility")
 set(CPACK_DEBIAN_PACKAGE_CONFLICTS "infiltrator-filesystem-support-udisks")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/prerm"
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/postinst"
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/postrm")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION TRUE)

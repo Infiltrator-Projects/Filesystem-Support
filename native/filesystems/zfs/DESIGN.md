@@ -22,9 +22,9 @@ implementation is deliberately admitted and independently qualified.
 
 Filesystem Support may own only one canonical ZFS implementation.
 
-The separate `zfs-fuse` catalogue identity is an external userspace provider
-for the same filesystem family. It must not become a second project ZFS parser,
-pool engine or mutation implementation.
+`zfs-fuse` is an alternate external userspace provider for the same filesystem
+family, not a separate catalogue identity. It must not become a second project
+ZFS parser, pool engine or mutation implementation.
 
 If ZFS enters first-party development, persistent ZFS semantics belong in this
 directory's canonical `core/`. Linux, Windows and userspace access paths must

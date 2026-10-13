@@ -20,7 +20,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 10
     env:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
       APP_ID: filesystem-support
@@ -67,7 +67,7 @@ jobs:
 
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
-      - name: Trigger and verify central APT publication
+      - name: Request central APT publication
         if: steps.release.outputs.publish == 'true'
         env:
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -76,7 +76,16 @@ jobs:
         run: |
           set -euo pipefail
           version=$(tr -d '[:space:]' < VERSION)
-          dispatched=false
+          catalogue='https://infiltrator-projects.github.io/Infiltrator-Repository/catalogue/apps.json'
+
+          # The central repository is the sole publication authority. If it has
+          # already consumed this exact release, there is nothing to request.
+          if curl -fsS --retry 2 --retry-delay 1 "$catalogue?release=$RELEASE_SHA" \
+            | jq -e --arg id "$APP_ID" --arg version "$version" --arg sha "$RELEASE_SHA" \
+              '.[] | select(.id == $id and .version == $version and .release_sha == $sha)' >/dev/null; then
+            echo "Central APT already advertises exact release $APP_ID $version ($RELEASE_SHA)."
+            exit 0
+          fi
 
           if [[ -n "${GH_TOKEN:-}" ]]; then
             payload=$(jq -nc \
@@ -86,38 +95,15 @@ jobs:
             if gh api --method POST \
               repos/Infiltrator-Projects/Infiltrator-Repository/dispatches \
               --input - <<<"$payload"; then
-              echo "Immediate APT dispatch accepted; verifying publication."
-              dispatched=true
-            else
-              echo "::warning::Immediate APT dispatch failed; waiting for the central scheduled publisher."
-            fi
-          else
-            echo "::warning::APT dispatch token unavailable; waiting for the central scheduled publisher."
-          fi
-
-          catalogue='https://infiltrator-projects.github.io/Infiltrator-Repository/catalogue/apps.json'
-
-          if curl -fsS --retry 2 --retry-delay 1 "$catalogue?release=$RELEASE_SHA&attempt=0" \
-            | jq -e --arg id "$APP_ID" --arg version "$version" \
-              '.[] | select(.id == $id and .version == $version)' >/dev/null; then
-            echo "APT repository already advertises $APP_ID $version."
-            exit 0
-          fi
-
-          if [[ "$dispatched" != true ]]; then
-            echo "Immediate APT dispatch unavailable; waiting for central repository publication."
-          fi
-
-          for attempt in $(seq 1 120); do
-            if curl -fsS --retry 2 --retry-delay 1 "$catalogue?release=$RELEASE_SHA&attempt=$attempt" \
-              | jq -e --arg id "$APP_ID" --arg version "$version" \
-                '.[] | select(.id == $id and .version == $version)' >/dev/null; then
-              echo "APT repository advertises $APP_ID $version."
+              echo "Central APT publication request accepted for $APP_ID $version ($RELEASE_SHA)."
               exit 0
             fi
-            echo "Waiting for APT publication of $APP_ID $version ($attempt/120)..."
-            sleep 10
-          done
+            echo "::warning::Immediate APT dispatch failed; the central scheduled publisher remains authoritative."
+          else
+            echo "Immediate APT dispatch token unavailable; the central scheduled publisher remains authoritative."
+          fi
 
-          echo "::error::Central APT repository did not advertise $APP_ID $version within 20 minutes."
-          exit 1
+          # Do not turn GitHub scheduler latency into a source-repository build
+          # failure. The central publisher discovers releases independently and
+          # validates exact artefact bytes before publishing them.
+          echo "Release $APP_ID $version is eligible for asynchronous central APT publication."

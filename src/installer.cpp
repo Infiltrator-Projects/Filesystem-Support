@@ -18,6 +18,10 @@
 namespace filesystem_support {
 namespace {
 
+constexpr const char* kAptGet = "/usr/bin/apt-get";
+constexpr const char* kDpkgQuery = "/usr/bin/dpkg-query";
+constexpr const char* kPkexec = "/usr/bin/pkexec";
+
 struct AsyncJob {
     GSubprocess* process = nullptr;
     ActionCompletion completion;
@@ -32,7 +36,7 @@ struct RemovalPlanJob {
 bool package_is_protected(const std::string& package, std::string* reason)
 {
     const auto result = run_command({
-        "dpkg-query",
+        kDpkgQuery,
         "-W",
         "-f=${Essential}\n${Protected}\n${Priority}\n",
         package
@@ -182,10 +186,8 @@ bool executable_file(const char* path)
 
 std::string trusted_privileged_executable(const std::string& requested)
 {
-    if (requested == "apt-get") {
-        return executable_file("/usr/bin/apt-get")
-            ? "/usr/bin/apt-get"
-            : std::string();
+    if (requested == kAptGet) {
+        return executable_file(kAptGet) ? kAptGet : std::string();
     }
 
     if (requested == "modprobe") {
@@ -218,7 +220,6 @@ void run_privileged_async(const std::vector<std::string>& arguments,
         return;
     }
 
-    constexpr const char* kPkexec = "/usr/bin/pkexec";
     const std::string executable =
         trusted_privileged_executable(arguments.front());
 
@@ -369,7 +370,7 @@ RemovalPlan plan_package_removal(const std::vector<std::string>& packages)
     }
 
     std::vector<std::string> arguments = {
-        "apt-get",
+        kAptGet,
         "-s",
         "-o",
         "Debug::NoLocking=1",
@@ -458,7 +459,7 @@ void install_packages_async(const std::vector<std::string>& packages,
     }
 
     std::vector<std::string> arguments = {
-        "apt-get",
+        kAptGet,
         "install",
         "-y"
     };
@@ -500,7 +501,7 @@ void remove_packages_async(
             }
 
             std::vector<std::string> arguments = {
-                "apt-get",
+                kAptGet,
                 "remove",
                 "-y"
             };

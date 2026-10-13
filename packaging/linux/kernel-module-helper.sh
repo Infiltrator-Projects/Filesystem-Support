@@ -5,9 +5,9 @@
 #
 # This helper owns build prerequisites, compilation, signing, replacement,
 # depmod, module selection, load/unload, rollback and read-only installed-state
-# queries for exactly one native filesystem module. It deliberately has no
-# knowledge of desktop integration, udev presentation policy, GNOME Disks, Nemo
-# or any other presentation layer.
+# queries for native filesystem modules. It deliberately has no knowledge of
+# desktop integration, udev presentation policy, GNOME Disks, Nemo or any other
+# presentation layer.
 set -euo pipefail
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
@@ -15,6 +15,7 @@ export PATH
 usage() {
     echo "usage: $0 <install|remove> <filesystem-id> <module-name>" >&2
     echo "       $0 is-installed <filesystem-id>" >&2
+    echo "       $0 remove-all" >&2
     exit 2
 }
 
@@ -37,6 +38,61 @@ managed_module_for() {
         END { if (!found) exit 1 }
     ' "$manifest"
 }
+
+remove_stale_kernel_directories() {
+    local current_kernel
+    local directory
+    local release
+    local staging
+    current_kernel=$(uname -r)
+
+    for directory in /lib/modules/*/updates/infiltrator; do
+        [[ -d "$directory" ]] || continue
+        release=${directory#/lib/modules/}
+        release=${release%/updates/infiltrator}
+
+        if [[ "$release" == "$current_kernel" ]]; then
+            rmdir "$directory" 2>/dev/null || true
+            continue
+        fi
+
+        # This directory is owned exclusively by Filesystem Support. Rename it
+        # as one unit so stale-kernel cleanup has one persistent rollback point
+        # instead of reimplementing per-filesystem membership outside the
+        # canonical manifest.
+        staging="${directory}.filesystem-support-removing.$$"
+        [[ ! -e "$staging" ]] || {
+            echo "stale native-module cleanup staging path already exists: $staging" >&2
+            return 1
+        }
+        mv "$directory" "$staging"
+        if depmod -a "$release"; then
+            rm -rf -- "$staging"
+            continue
+        fi
+
+        mv "$staging" "$directory"
+        depmod -a "$release" >/dev/null 2>&1 || true
+        echo "dependency metadata refresh failed while removing native modules for stale kernel $release; previous state was restored" >&2
+        return 1
+    done
+}
+
+if [[ $# -eq 1 && $1 == remove-all ]]; then
+    while IFS=$'\t' read -r filesystem module extra; do
+        [[ -n "${filesystem:-}" ]] || continue
+        [[ "$filesystem" == \#* ]] && continue
+        [[ -n "${module:-}" && -z "${extra:-}" ]] || {
+            echo "invalid native filesystem deployment manifest row" >&2
+            exit 1
+        }
+        "$0" remove "$filesystem" "$module"
+    done < "$manifest"
+
+    remove_stale_kernel_directories
+    echo "all Filesystem Support native modules removed"
+    exit 0
+fi
 
 if [[ $# -eq 2 && $1 == is-installed ]]; then
     filesystem=$2
@@ -205,8 +261,9 @@ restore_previous_state() {
     local previous_copy=$1
     local previous_preferred=$2
     local previous_loaded=$3
+    local restore_runtime=$4
 
-    if module_loaded; then
+    if [[ "$restore_runtime" == true ]] && module_loaded; then
         modprobe -r "$module" >/dev/null 2>&1 || return 1
     fi
 
@@ -217,7 +274,7 @@ restore_previous_state() {
     fi
     depmod -a "$kernel" || return 1
 
-    if [[ "$previous_loaded" == true ]]; then
+    if [[ "$restore_runtime" == true && "$previous_loaded" == true ]]; then
         modprobe "$module" >/dev/null 2>&1 || return 1
         local restored_selected
         restored_selected=$(preferred_module_filename)
@@ -233,9 +290,10 @@ fail_with_restore() {
     local previous_copy=$2
     local previous_preferred=$3
     local previous_loaded=$4
+    local restore_runtime=$5
 
     if restore_previous_state \
-        "$previous_copy" "$previous_preferred" "$previous_loaded"; then
+        "$previous_copy" "$previous_preferred" "$previous_loaded" "$restore_runtime"; then
         echo "$reason; previous module state was restored" >&2
     else
         echo "$reason and the previous module state could not be fully restored" >&2
@@ -305,25 +363,25 @@ install_native() {
     if ! mkdir -p "$destination_dir"; then
         fail_with_restore \
             "could not prepare the native module destination" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded"
+            "$previous_copy" "$previous_preferred" "$previous_loaded" true
         return 1
     fi
     if ! install -m 0644 "$built" "$destination"; then
         fail_with_restore \
             "could not replace the native module image" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded"
+            "$previous_copy" "$previous_preferred" "$previous_loaded" true
         return 1
     fi
     if ! depmod -a "$kernel"; then
         fail_with_restore \
             "dependency metadata refresh failed after native module replacement" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded"
+            "$previous_copy" "$previous_preferred" "$previous_loaded" true
         return 1
     fi
     if ! modprobe "$module"; then
         fail_with_restore \
             "new $module module could not be loaded" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded"
+            "$previous_copy" "$previous_preferred" "$previous_loaded" true
         return 1
     fi
 
@@ -332,7 +390,7 @@ install_native() {
     if [[ "$selected" != "$destination" || ! -d "/sys/module/$module" ]]; then
         fail_with_restore \
             "kernel selected '$selected' instead of the Infiltrator module" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded"
+            "$previous_copy" "$previous_preferred" "$previous_loaded" true
         return 1
     fi
 
@@ -349,6 +407,7 @@ remove_native() {
     local previous_copy
     local previous_preferred
     local previous_loaded=false
+    local runtime_changed=false
     tmp=$(mktemp -d)
     cleanup_tmp=$tmp
     previous_copy="$tmp/previous.ko"
@@ -364,18 +423,19 @@ remove_native() {
             echo "$module is currently in use; unmount dependent filesystems before removal" >&2
             exit 1
         fi
+        runtime_changed=true
     fi
 
     if ! rm -f "$destination"; then
         fail_with_restore \
             "could not remove the native module image" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded"
+            "$previous_copy" "$previous_preferred" "$previous_loaded" "$runtime_changed"
         return 1
     fi
     if ! depmod -a "$kernel"; then
         fail_with_restore \
             "dependency metadata refresh failed after native module removal" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded"
+            "$previous_copy" "$previous_preferred" "$previous_loaded" "$runtime_changed"
         return 1
     fi
     rmdir "$destination_dir" 2>/dev/null || true

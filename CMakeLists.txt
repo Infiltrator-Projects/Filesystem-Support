@@ -228,27 +228,37 @@ target_include_directories(infiltratr-fs-pfs3-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/pfs3/core")
 filesystem_support_configure(infiltratr-fs-pfs3-core)
 
-# The catalogue is intentionally platform-neutral. Linux package/probe policy
-# is layered on top of it; the Windows manager consumes the same identities.
-add_library(filesystem-support-catalog STATIC
-    src/catalog.cpp
+# Stable on-media identity is a platform-neutral authority. Keep it physically
+# separate from Linux package/provider policy so non-Linux consumers cannot
+# acquire Debian concerns through a target-level dependency.
+add_library(filesystem-support-identity STATIC
     src/platform_support.cpp)
+target_include_directories(filesystem-support-identity
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(filesystem-support-identity
+    PUBLIC InfiltratrCommon::Portable)
+target_compile_definitions(filesystem-support-identity
+    PUBLIC FILESYSTEM_SUPPORT_VERSION="${PROJECT_VERSION}")
+filesystem_support_configure(filesystem-support-identity)
+
+# Linux catalogue materializes stable identity with Linux provider/package and
+# native-deployment policy. This target is therefore intentionally Linux-aware.
+add_library(filesystem-support-catalog STATIC
+    src/catalog.cpp)
 target_include_directories(filesystem-support-catalog
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src"
     PRIVATE "${FILESYSTEM_SUPPORT_GENERATED_DIR}")
 target_link_libraries(filesystem-support-catalog
-    PUBLIC InfiltratrCommon::Portable)
-target_compile_definitions(filesystem-support-catalog
-    PUBLIC FILESYSTEM_SUPPORT_VERSION="${PROJECT_VERSION}")
+    PUBLIC filesystem-support-identity InfiltratrCommon::Portable)
 filesystem_support_configure(filesystem-support-catalog)
 
 if(WIN32)
-    # Native Windows management shell. It deliberately exposes the complete
-    # catalogue while keeping unqualified filesystem modules non-installable.
+    # Native Windows management shell consumes stable filesystem identity only;
+    # Debian package/provider policy is not part of its dependency graph.
     add_executable(filesystem-support WIN32
         windows/manager/main.cpp)
     target_link_libraries(filesystem-support
-        PRIVATE filesystem-support-catalog Comctl32)
+        PRIVATE filesystem-support-identity Comctl32)
     target_compile_definitions(filesystem-support
         PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
     filesystem_support_configure(filesystem-support)
@@ -457,7 +467,7 @@ if(BUILD_TESTING)
     add_executable(filesystem-support-windows-catalog-test
         tests/windows_catalog_test.cpp)
     target_link_libraries(filesystem-support-windows-catalog-test
-        PRIVATE filesystem-support-catalog)
+        PRIVATE filesystem-support-identity)
     filesystem_support_configure(filesystem-support-windows-catalog-test)
     add_test(
         NAME filesystem-support-windows-catalog

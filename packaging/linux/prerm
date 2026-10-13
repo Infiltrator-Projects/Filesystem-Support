@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -e
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+case "$1" in
+    remove)
+        # Native modules are runtime-created package state rather than dpkg
+        # payload files. Remove them while the kernel transaction authority and
+        # canonical manifest are still installed; postrm is intentionally too
+        # late for this responsibility.
+        helper=/usr/lib/infiltrator-filesystem-support/kernel-module-helper
+        if [ ! -x "$helper" ]; then
+            echo "Filesystem Support kernel-module helper is missing; refusing to orphan native modules" >&2
+            exit 1
+        fi
+        "$helper" remove-all
+        ;;
+    upgrade|deconfigure|failed-upgrade)
+        # Package upgrades retain native runtime state. A later explicit native
+        # install transaction rebuilds modules against the selected package.
+        ;;
+esac
+
+exit 0

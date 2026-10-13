@@ -7,15 +7,11 @@ applies the normal canonical-filesystem architecture: NTFS semantics are owned
 once by one host-neutral engine and operating systems expose that engine through
 thin adapters.
 
-The catalogue currently exposes two external provider paths for the same
-filesystem:
-
-- `ntfs` — Debian's mature NTFS-3G userspace provider;
-- `ntfs3` — the Linux kernel's native NTFS3 provider when the running kernel
-  supplies it.
-
-Those provider identities are not separate filesystems and must never become
-separate Filesystem Support NTFS implementations.
+The catalogue exposes exactly one NTFS filesystem identity: `ntfs`. Its current
+conservative Debian access path is NTFS-3G. Linux `ntfs3` is an alternate kernel
+provider for the same on-media format and may be useful interoperability or
+reference evidence, but it is not a second catalogue identity and does not
+create a second Filesystem Support implementation.
 
 ## Current implementation state
 

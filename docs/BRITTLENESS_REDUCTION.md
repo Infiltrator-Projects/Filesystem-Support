@@ -8,6 +8,8 @@ A native kernel-module transaction owns only the kernel module for the selected 
 
 A failed native-module replacement must restore both persistent and runtime state. Restoring the previous `.ko` on disk is insufficient when the previous module was loaded: rollback must reload it and verify that the kernel again selects the same module image that was active before the transaction.
 
+Rollback owns only state the failed transaction actually changed. Removing a project-owned module image that is not the kernel-selected runtime provider may restore the persistent image after a later failure, but it must not unload or reload the unrelated running provider merely because a module with the same logical name is loaded.
+
 Desktop identification is a separate follow-up transaction. GNOME Disks/Nemo/udev integration may report failure after a kernel transaction commits, but it must not remove, restore, unload or otherwise roll back the committed kernel module.
 
 Per-filesystem desktop transactions own only the selected filesystem's active identification plugin and udev rule. OFS failure must not mutate FFS/SFS/SFS2/PFS3 state, and the same rule applies in every direction.
@@ -23,6 +25,8 @@ Cross-platform filesystem identity and Linux support policy are separate authori
 Native kernel deployment membership and desktop integration membership are also separate. `data/native-filesystems.tsv` owns exactly two fields: filesystem ID and native Linux module. `data/desktop-filesystems.tsv` independently determines which of those filesystems participate in desktop identification. Desktop policy may depend on a native filesystem existing; native deployment must not depend on desktop presentation metadata.
 
 The kernel helper is the only runtime owner of filesystem-to-module deployment identity and installed project-module state. Package-level desktop synchronization may query that owner through the native coordinator, but it must not reconstruct a module filename from a filesystem ID or read the native manifest itself.
+
+Native `.ko` files are runtime-created package state rather than dpkg payload files. Final package removal therefore invokes the kernel helper's aggregate teardown from `prerm`, while both the helper and canonical native manifest still exist. The aggregate teardown consumes that manifest and reuses the ordinary per-filesystem removal transaction for the running kernel; maintainer scripts must not carry a copied filesystem/module list. Stale-kernel `updates/infiltrator` directories are project-owned as a unit and are removed transactionally with `depmod` rollback.
 
 The desktop `active/` directory is the committed presentation state consumed by the GNOME Disks and Nemo launchers. A launcher preloads the active plugin set and does not re-query kernel paths or reproduce native deployment policy. Managed native install/remove and package synchronization are responsible for keeping active presentation state aligned with native deployment; launchers are consumers, not a second state authority.
 
@@ -44,7 +48,9 @@ A result whose required inventory could not be verified is explicitly unreliable
 
 ## Privilege boundary
 
-Privileged command identity is policy, not environment. `pkexec`, APT and module-management executables are resolved from fixed trusted system locations, and project helpers may be elevated only from the application-owned installed helper locations. The unprivileged process `PATH` must never decide which executable receives elevated privileges.
+Privileged command identity is policy, not environment. `pkexec`, APT, `dpkg-query` and module-management executables are resolved from fixed trusted system locations, and project helpers may be elevated only from the application-owned installed helper locations. The unprivileged process `PATH` must never decide which executable receives elevated privileges or which executable manufactures a destructive plan.
+
+The APT executable that simulates and validates a removal is the same fixed executable identity later elevated to execute that removal. Protection metadata likewise comes from the fixed system `dpkg-query`. Approval must never be based on a PATH-shadowed command while execution uses a different binary.
 
 Arguments remain structured argv values rather than shell command text. Package and module allowlists remain deny-by-default even after the executable itself has been selected from a trusted path.
 
@@ -64,6 +70,8 @@ The release publisher depends explicitly on the ordinary build/package/module/Wi
 
 Central APT publication is the only asynchronous workflow boundary because it crosses into the separate central repository. It follows successful completion of `build`, then checks whether the version's GitHub Release targets that completed build SHA and has the exact expected asset set. A successful ordinary build that is not the release target exits the APT publication workflow without publishing.
 
+The source repository may request immediate central publication when a repository-dispatch credential is available. It must not convert GitHub scheduler latency into a source-build failure when that credential is absent or dispatch is unavailable. In that case the central repository's scheduled publisher independently discovers the exact release and remains the publication authority; final publication is verified at the central repository rather than by a fixed source-side polling deadline.
+
 Release state therefore moves in one direction: untagged source `VERSION` on serialized `main` -> exact-SHA build/package/bundle qualification -> independent exact-SHA runtime and sanitizer qualification in the same dependency graph -> immutable `v<version>` GitHub Release -> central APT publication. Later stages verify upstream identity; they do not rediscover, rebuild or silently substitute upstream state.
 
 ## Coupling rules
@@ -80,10 +88,12 @@ Release state therefore moves in one direction: untagged source `VERSION` on ser
 - Desktop launchers consume committed active presentation state and must not inspect kernel deployment paths or duplicate native module policy.
 - The GTK shell must not import or invoke installer/package/module primitives directly.
 - Prepared desktop actions must be explicit data, not opaque executable callbacks.
-- Confirmed destructive plans must still match immediately before execution.
+- Confirmed destructive plans must still match immediately before execution and must use the same trusted APT identity as execution.
 - Failed inventory probes must disable actions rather than synthesize absence.
-- Privileged executable selection must not depend on the caller's `PATH`.
+- Privileged executable selection and destructive planning must not depend on the caller's `PATH`.
 - Native replacement rollback must verify restoration of previous runtime selection when that module was previously loaded.
+- Native rollback must not mutate runtime state that the failed transaction never changed.
+- Final package removal must delegate native runtime-state cleanup to the kernel authority while its manifest is still installed.
 - Cross-filesystem lists must have one explicit authority; CI must consume that authority rather than duplicate handwritten lists.
 - A coordinator may sequence independent transactions, but it must preserve the ownership and rollback boundary of each transaction.
 - `VERSION` plus its immutable tag is release state; commit prose is not executable policy.
@@ -91,10 +101,10 @@ Release state therefore moves in one direction: untagged source `VERSION` on ser
 - Runtime/sanitizer qualification owns evidence for its subsystem; release sequencing belongs to the build dependency graph.
 - Release qualification uses explicit reusable-workflow calls by SHA, never workflow-name discovery, polling or sibling dispatch.
 - Main release candidates are serialized so the version/tag decision cannot race.
-- APT publication follows successful completion of the build/release DAG and is the only external asynchronous promotion boundary.
+- APT publication follows successful completion of the build/release DAG and is the only external asynchronous promotion boundary; source CI must not impose a scheduler-latency deadline on the central authority.
 
 ## Failure reporting
 
 Partial success is reported explicitly. If a native module commits and desktop integration subsequently fails, the operation reports that the module state remains committed and requires only the desktop/integration layer to be repaired. It must never present that situation as if the kernel transaction had been reverted.
 
-Likewise, rollback must not claim that the previous module state was restored unless both the persistent module image and any previously active runtime selection have been verified. Probe failures must report inability to verify state instead of presenting a guessed support classification.
+Likewise, rollback must not claim that the previous module state was restored unless both the persistent module image and any previously active runtime selection that the transaction changed have been verified. Probe failures must report inability to verify state instead of presenting a guessed support classification.

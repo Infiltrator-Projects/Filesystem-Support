@@ -25,7 +25,8 @@ IfsStatus ifs_byte_reader_skip(IfsByteReader *reader, const size_t length)
 {
     if (reader == NULL)
         return IFS_ERROR_ARGUMENT;
-    if (length > ifs_byte_reader_remaining(reader))
+    if (reader->cursor > reader->length ||
+        length > reader->length - reader->cursor)
         return IFS_ERROR_RANGE;
 
     reader->cursor += length;
@@ -38,8 +39,15 @@ IfsStatus ifs_byte_reader_take(IfsByteReader *reader,
 {
     if (reader == NULL || bytes == NULL)
         return IFS_ERROR_ARGUMENT;
-    if (length > ifs_byte_reader_remaining(reader))
+    if (reader->cursor > reader->length ||
+        length > reader->length - reader->cursor)
         return IFS_ERROR_RANGE;
+    if (reader->bytes == NULL) {
+        if (length != 0U || reader->length != 0U)
+            return IFS_ERROR_RANGE;
+        *bytes = NULL;
+        return IFS_OK;
+    }
 
     *bytes = reader->bytes + reader->cursor;
     reader->cursor += length;

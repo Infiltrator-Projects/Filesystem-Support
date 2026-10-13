@@ -49,6 +49,7 @@ int main(void)
     };
     unsigned char copied[4] = {0};
     IfsByteReader reader;
+    const ifs_u8 *taken = NULL;
     ifs_u16 be16 = 0U;
     ifs_u32 le32 = 0U;
     IfsFilesystemDescriptor descriptor = {
@@ -81,6 +82,21 @@ int main(void)
         return fail("little-endian decode failed");
     if (ifs_byte_reader_skip(&reader, 3U) != IFS_ERROR_RANGE)
         return fail("reader overrun was not rejected");
+
+    /* A zero-length read over an empty reader must not perform pointer
+     * arithmetic on a null storage base. The result is an empty span. */
+    ifs_byte_reader_init(&reader, NULL, sizeof(bytes));
+    taken = (const ifs_u8 *)bytes;
+    if (ifs_byte_reader_take(&reader, 0U, &taken) != IFS_OK || taken != NULL)
+        return fail("empty reader zero-length take was not deterministic");
+
+    /* The reader is a public value type. Reject externally corrupted cursor
+     * state even when the requested operation is zero bytes. */
+    reader.cursor = 1U;
+    if (ifs_byte_reader_skip(&reader, 0U) != IFS_ERROR_RANGE)
+        return fail("invalid reader cursor accepted zero-length skip");
+    if (ifs_byte_reader_take(&reader, 0U, &taken) != IFS_ERROR_RANGE)
+        return fail("invalid reader cursor accepted zero-length take");
 
     if (!ifs_filesystem_descriptor_is_valid(&descriptor))
         return fail("valid descriptor rejected");
