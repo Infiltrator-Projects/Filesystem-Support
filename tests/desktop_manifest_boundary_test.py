@@ -107,6 +107,29 @@ for relative in (
     if "native-filesystems.tsv" in source:
         raise SystemExit(f"{relative} still reads native deployment policy")
 
+# Launchers and the activated UDisks/GIO plugin are presentation consumers.
+# They may consume the committed desktop active set, but must never grow a
+# second native-module state machine or reconstruct module paths/names.
+for relative in (
+    "packaging/linux/gnome-disks-wrapper",
+    "packaging/linux/nemo-wrapper",
+    "packaging/linux/udisks-amiga-names.c",
+):
+    source = (repo / relative).read_text(encoding="utf-8")
+    for token in (
+        "/lib/modules",
+        "native-filesystems.tsv",
+        "ifs_native_amiga_installed",
+        "IFS_NATIVE_MODULES_ROOT",
+    ):
+        if token in source:
+            raise SystemExit(f"presentation code owns native deployment state: {relative}: {token}")
+
+amiga_desktop_cmake = (repo / "cmake/amiga-desktop-detection.cmake").read_text(encoding="utf-8")
+desktop_test_definition = "IFS_NATIVE_MODULES_ROOT=\"${CMAKE_CURRENT_BINARY_DIR}/desktop-test-root/lib/modules\""
+if desktop_test_definition in amiga_desktop_cmake:
+    raise SystemExit("desktop plugin test target still injects native module state")
+
 desktop_helper = (repo / "packaging/linux/desktop-integration.sh").read_text(encoding="utf-8")
 for ignored in (
     "udevadm control --reload-rules || true",
