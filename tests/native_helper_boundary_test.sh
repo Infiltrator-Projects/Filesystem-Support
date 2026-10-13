@@ -27,6 +27,12 @@ def shell_code(text: str) -> str:
 coordinator_code = shell_code(coordinator)
 kernel_code = shell_code(kernel)
 
+# Privileged helpers must not inherit an arbitrary caller command search path.
+trusted_path = 'PATH=/usr/sbin:/usr/bin:/sbin:/bin'
+for name, source in (('coordinator', coordinator), ('kernel helper', kernel)):
+    if trusted_path not in source or 'export PATH' not in source:
+        raise SystemExit(f'{name} does not pin the privileged command search path')
+
 # The kernel transaction must be presentation-blind. These are architectural
 # boundaries, not naming conventions: if executable references return, kernel
 # rollback can once again become coupled to presentation state.
@@ -49,6 +55,25 @@ for token in (
 ):
     if token not in kernel_code:
         raise SystemExit(f'kernel helper lost required kernel ownership: {token}')
+
+# The deployment manifest schema is exactly filesystem/module. Accepting extra
+# columns here would create a hidden compatibility schema distinct from CMake.
+if 'NF == 2 && $1 == fs && $2 == mod' not in kernel_code:
+    raise SystemExit('kernel helper does not enforce the exact native manifest schema')
+
+# Once old runtime state is unloaded, every persistent mutation and dependency
+# refresh is guarded by the same restoration path. Install and removal both own
+# recovery instead of relying on set -e to abandon a half-applied transaction.
+for required in (
+    'fail_with_restore()',
+    'restore_previous_state',
+    'if ! install -m 0644 "$built" "$destination"; then',
+    'if ! depmod -a "$kernel"; then',
+    'if ! modprobe "$module"; then',
+    'if ! rm -f "$destination"; then',
+):
+    if required not in kernel:
+        raise SystemExit(f'kernel transaction lost recovery boundary: {required}')
 
 # The coordinator may sequence transactions, but must not own implementation or
 # rollback mechanics from either subsystem.
