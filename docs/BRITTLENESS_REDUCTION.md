@@ -22,6 +22,10 @@ Cross-platform filesystem identity and Linux support policy are separate authori
 
 Native kernel deployment membership and desktop integration membership are also separate. `data/native-filesystems.tsv` owns exactly two fields: filesystem ID and native Linux module. `data/desktop-filesystems.tsv` independently determines which of those filesystems participate in desktop identification. Desktop policy may depend on a native filesystem existing; native deployment must not depend on desktop presentation metadata.
 
+The kernel helper is the only runtime owner of filesystem-to-module deployment identity and installed project-module state. Package-level desktop synchronization may query that owner through the native coordinator, but it must not reconstruct a module filename from a filesystem ID or read the native manifest itself.
+
+The desktop `active/` directory is the committed presentation state consumed by the GNOME Disks and Nemo launchers. A launcher preloads the active plugin set and does not re-query kernel paths or reproduce native deployment policy. Managed native install/remove and package synchronization are responsible for keeping active presentation state aligned with native deployment; launchers are consumers, not a second state authority.
+
 ## Desktop action boundary
 
 The GTK shell owns presentation state only: button sensitivity and labels, confirmation dialogs, error display and refresh requests. It consumes prepared `DesktopAction` values from `desktop_actions` and must not call package-removal planning, APT execution, native-module installation/removal or `modprobe` operations directly.
@@ -72,6 +76,8 @@ Release state therefore moves in one direction: untagged source `VERSION` on ser
 - Native module deployment must not depend on desktop-integration membership.
 - The native deployment manifest contains only filesystem/module ownership; desktop fields are forbidden.
 - The top-level native build graph must not parse or validate desktop-integration fields.
+- Desktop synchronization queries native installed state through its owner; it must not derive module filenames from filesystem IDs.
+- Desktop launchers consume committed active presentation state and must not inspect kernel deployment paths or duplicate native module policy.
 - The GTK shell must not import or invoke installer/package/module primitives directly.
 - Prepared desktop actions must be explicit data, not opaque executable callbacks.
 - Confirmed destructive plans must still match immediately before execution.
