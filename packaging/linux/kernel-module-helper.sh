@@ -31,6 +31,24 @@ manifest="$self_dir/native-filesystems.tsv"
     exit 1
 }
 
+kernel_lock_path=/run/lock/infiltrator-filesystem-support-kernel.lock
+acquire_kernel_mutation_lock() {
+    # Native filesystem modules are separate products, but depmod metadata and
+    # kernel module selection are shared host state. One transaction therefore
+    # owns that state at a time. remove-all invokes this helper recursively, so
+    # descendants inherit the already-held descriptor instead of deadlocking on
+    # the same lock while preserving one aggregate removal transaction.
+    if [[ ${FILESYSTEM_SUPPORT_KERNEL_LOCK_FD:-} == 9 ]] &&
+       [[ $(readlink /proc/$$/fd/9 2>/dev/null || true) == "$kernel_lock_path" ]]; then
+        return 0
+    fi
+
+    mkdir -p /run/lock
+    exec 9>"$kernel_lock_path"
+    flock -x 9
+    export FILESYSTEM_SUPPORT_KERNEL_LOCK_FD=9
+}
+
 managed_module_for() {
     local requested=$1
     awk -F '\t' -v fs="$requested" '
@@ -79,6 +97,7 @@ remove_stale_kernel_directories() {
 }
 
 if [[ $# -eq 1 && $1 == remove-all ]]; then
+    acquire_kernel_mutation_lock
     while IFS=$'\t' read -r filesystem module extra; do
         [[ -n "${filesystem:-}" ]] || continue
         [[ "$filesystem" == \#* ]] && continue
@@ -119,6 +138,8 @@ awk -F '\t' -v fs="$filesystem" -v mod="$module" '
     echo "refusing unmanaged native filesystem module: $filesystem/$module" >&2
     exit 2
 }
+
+acquire_kernel_mutation_lock
 
 source_fs="$self_dir/native/filesystems/$filesystem"
 source_linux="$source_fs/linux"

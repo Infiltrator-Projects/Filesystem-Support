@@ -56,6 +56,21 @@ for token in (
     if token not in kernel_code:
         raise SystemExit(f'kernel helper lost required kernel ownership: {token}')
 
+# All native module mutations share depmod and module-selection state. The
+# kernel authority itself must serialize that state; putting the lock in the
+# UI or coordinator would leave direct helper/prerm paths outside the contract.
+for required in (
+    'kernel_lock_path=/run/lock/infiltrator-filesystem-support-kernel.lock',
+    'acquire_kernel_mutation_lock()',
+    'flock -x 9',
+    'export FILESYSTEM_SUPPORT_KERNEL_LOCK_FD=9',
+    '[[ $(readlink /proc/$$/fd/9 2>/dev/null || true) == "$kernel_lock_path" ]]',
+):
+    if required not in kernel:
+        raise SystemExit(f'kernel mutation serialization lost boundary: {required}')
+if kernel.count('acquire_kernel_mutation_lock') < 3:
+    raise SystemExit('kernel mutation lock is not applied to remove-all and direct mutations')
+
 # Secure-Boot key discovery follows the declared Debian baseline and accepts
 # Ubuntu/Mint's distinct shim-signed location only as a derivative fallback.
 # The helper consumes an existing distribution signing identity; it must not
@@ -116,6 +131,7 @@ for token in (
     'previous_copy',
     'restore_kind',
     'snapshot_kind',
+    'infiltrator-filesystem-support-kernel.lock',
 ):
     if token in coordinator_code:
         raise SystemExit(f'transaction implementation leaked into coordinator: {token}')
