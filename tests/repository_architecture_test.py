@@ -200,7 +200,7 @@ for required in (
     require(required in apt, f"APT publication lost exact-release gate: {required}")
 
 # Current-state documentation must not claim implementation paths that no
-# longer exist or deny adapters that are actually shipped by the native manifest.
+# longer exist or present historical migration targets as current authority.
 for design in (
     "native/filesystems/sfs2/DESIGN.md",
     "native/filesystems/pfs3/DESIGN.md",
@@ -212,8 +212,10 @@ migration = text("docs/EXTFS_FOR_WINDOWS_MIGRATION.md")
 require("archive/extfs-for-windows-v0.9.9/" not in migration,
         "migration ledger claims a live archive path that is not present")
 windows_arch = text("docs/WINDOWS_FILESYSTEM_ARCHITECTURE.md")
-require("104-filesystem" not in windows_arch,
-        "Windows architecture retains obsolete catalogue size")
+require("The current catalogue size is determined by the compiled catalogue and support matrix" in windows_arch,
+        "Windows architecture does not identify the live catalogue authorities")
+require("Historical migration targets" in windows_arch and "not current product authority" in windows_arch,
+        "Windows architecture does not explicitly retire historical catalogue-size targets")
 require("temporary-mounter" not in windows_arch and "temporary file/volume-mounter" not in windows_arch,
         "Windows architecture retains an undocumented product mounter fallback")
 windows_lifecycle = text("docs/windows/WINDOWS_DRIVER_LIFECYCLE.md")
