@@ -1,17 +1,60 @@
 #!/bin/sh
 set -e
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 case "$1" in remove|purge)
-    # Package payloads have already been removed, so this cleanup is self-contained.
-    mkdir -p /run/udev/rules.d
-    cat > /run/udev/rules.d/58-infiltrator-transition.rules <<'RULE'
-ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_FS_TYPE}=="ofs|ffs|sfs|sfs2|pfs3", ENV{ID_FS_USAGE}="", ENV{ID_FS_TYPE}="", ENV{ID_FS_VERSION}="", ENV{ID_FS_LABEL}="", ENV{ID_FS_LABEL_ENC}="", ENV{ID_FS_BLOCK_SIZE}="", ENV{UDISKS_NAME}="", ENV{UDISKS_ICON_NAME}="", ENV{UDISKS_SYMBOLIC_ICON_NAME}="", ENV{UDISKS_MOUNT_OPTIONS_DEFAULTS}="", ENV{UDISKS_MOUNT_OPTIONS_ALLOW}=""
-RULE
-    for filesystem in ofs ffs sfs sfs2 pfs3; do
-        rm -f "/etc/udev/rules.d/59-infiltrator-$filesystem.rules"
-        rm -f "/etc/udev/rules.d/99-infiltrator-$filesystem.rules"
-        rm -f "/usr/lib/infiltrator-filesystem-support/desktop/active/$filesystem.so"
+    # Package payloads have already been removed. Derive the identities that
+    # still require cleanup from the project-owned active state instead of
+    # maintaining a second filesystem list in this maintainer script.
+    filesystems=''
+    for owned in \
+        /etc/udev/rules.d/59-infiltrator-*.rules \
+        /etc/udev/rules.d/99-infiltrator-*.rules \
+        /usr/lib/infiltrator-filesystem-support/desktop/active/*.so; do
+        [ -e "$owned" ] || continue
+        name=${owned##*/}
+        case "$name" in
+            59-infiltrator-*.rules|99-infiltrator-*.rules)
+                filesystem=${name#*-infiltrator-}
+                filesystem=${filesystem%.rules}
+                ;;
+            *.so)
+                filesystem=${name%.so}
+                ;;
+            *)
+                continue
+                ;;
+        esac
+        case "$filesystem" in
+            ''|*[!A-Za-z0-9_.+-]*) continue ;;
+        esac
+        case " $filesystems " in
+            *" $filesystem "*) ;;
+            *) filesystems="$filesystems $filesystem" ;;
+        esac
     done
+
+    transition_rule=/run/udev/rules.d/58-infiltrator-transition.rules
+    if [ -n "$filesystems" ]; then
+        mkdir -p /run/udev/rules.d
+        alternatives=''
+        for filesystem in $filesystems; do
+            if [ -z "$alternatives" ]; then
+                alternatives=$filesystem
+            else
+                alternatives="$alternatives|$filesystem"
+            fi
+        done
+        printf '%s\n' \
+            "ACTION==\"add|change\", SUBSYSTEM==\"block\", ENV{ID_FS_TYPE}==\"$alternatives\", ENV{ID_FS_USAGE}=\"\", ENV{ID_FS_TYPE}=\"\", ENV{ID_FS_VERSION}=\"\", ENV{ID_FS_LABEL}=\"\", ENV{ID_FS_LABEL_ENC}=\"\", ENV{ID_FS_BLOCK_SIZE}=\"\", ENV{UDISKS_NAME}=\"\", ENV{UDISKS_ICON_NAME}=\"\", ENV{UDISKS_SYMBOLIC_ICON_NAME}=\"\", ENV{UDISKS_MOUNT_OPTIONS_DEFAULTS}=\"\", ENV{UDISKS_MOUNT_OPTIONS_ALLOW}=\"\"" \
+            > "$transition_rule"
+    fi
+
+    rm -f /etc/udev/rules.d/59-infiltrator-*.rules
+    rm -f /etc/udev/rules.d/99-infiltrator-*.rules
+    rm -f /usr/lib/infiltrator-filesystem-support/desktop/active/*.so
+
     if [ "$(dpkg-divert --listpackage /usr/bin/gnome-disks)" = infiltrator-filesystem-support ]; then
         test -f /usr/bin/gnome-disks.filesystem-support-original
         rm -f /usr/bin/gnome-disks
@@ -24,13 +67,19 @@ RULE
         dpkg-divert --package infiltrator-filesystem-support --remove --rename \
             --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
     fi
+
+    # Package removal cannot be made transactional with the already-removed
+    # payload. Refresh is therefore best-effort cleanup; the temporary rule is
+    # always removed so a transient udev failure cannot leave global policy.
     if command -v udevadm >/dev/null 2>&1; then
         udevadm control --reload-rules || true
         udevadm trigger --subsystem-match=block --action=change || true
         udevadm settle --timeout=30 || true
     fi
-    rm -f /run/udev/rules.d/58-infiltrator-transition.rules
-    if command -v udevadm >/dev/null 2>&1; then udevadm control --reload-rules || true; fi
+    rm -f "$transition_rule"
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules || true
+    fi
     ;;
 esac
 
