@@ -56,6 +56,27 @@ for token in (
     if token not in kernel_code:
         raise SystemExit(f'kernel helper lost required kernel ownership: {token}')
 
+# Secure-Boot key discovery follows the declared Debian baseline and accepts
+# Ubuntu/Mint's distinct shim-signed location only as a derivative fallback.
+# The helper consumes an existing distribution signing identity; it must not
+# manufacture another private-key authority inside Filesystem Support.
+debian_key = '/var/lib/dkms/mok.key'
+debian_cert = '/var/lib/dkms/mok.pub'
+derivative_key = '/var/lib/shim-signed/mok/MOK.priv'
+derivative_cert = '/var/lib/shim-signed/mok/MOK.der'
+for token in (debian_key, debian_cert, derivative_key, derivative_cert):
+    if token not in kernel_code:
+        raise SystemExit(f'kernel helper lost supported Secure-Boot identity: {token}')
+if kernel_code.index(debian_key) > kernel_code.index(derivative_key):
+    raise SystemExit('Debian Secure-Boot identity is not the primary signing convention')
+for forbidden in (
+    '/var/lib/infiltrator-filesystem-support/mok',
+    'openssl req',
+    'openssl genpkey',
+):
+    if forbidden in kernel_code:
+        raise SystemExit(f'kernel helper created a competing signing authority: {forbidden}')
+
 # The deployment manifest schema is exactly filesystem/module. Accepting extra
 # columns here would create a hidden compatibility schema distinct from CMake.
 if 'NF == 2 && $1 == fs && $2 == mod' not in kernel_code:

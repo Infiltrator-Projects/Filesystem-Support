@@ -183,6 +183,25 @@ secure_boot_enabled() {
     [[ "$(od -An -t u1 -j 4 -N 1 "$variable" 2>/dev/null | tr -d '[:space:]')" == "1" ]]
 }
 
+secure_boot_signing_identity() {
+    # Debian's DKMS tooling owns the normal distribution MOK at /var/lib/dkms.
+    # Ubuntu/Mint derivatives retain a different shim-signed convention. Treat
+    # both as external signing identities and prefer the Debian baseline first;
+    # Filesystem Support must not create a competing private-key authority.
+    local candidate
+    for candidate in \
+        '/var/lib/dkms/mok.key|/var/lib/dkms/mok.pub' \
+        '/var/lib/shim-signed/mok/MOK.priv|/var/lib/shim-signed/mok/MOK.der'; do
+        local key=${candidate%%|*}
+        local cert=${candidate#*|}
+        if [[ -r "$key" && -r "$cert" ]]; then
+            printf '%s\t%s\n' "$key" "$cert"
+            return 0
+        fi
+    done
+    return 1
+}
+
 kernel_build_compiler() {
     local compile_header="$kernel_build/include/generated/compile.h"
     local compiler=""
@@ -207,32 +226,38 @@ sign_for_secure_boot() {
 
     secure_boot_enabled || return 0
 
-    local key=/var/lib/shim-signed/mok/MOK.priv
-    local cert=/var/lib/shim-signed/mok/MOK.der
-
-    if [[ ! -r "$key" || ! -r "$cert" ]]; then
+    local identity
+    local key
+    local cert
+    if ! identity=$(secure_boot_signing_identity); then
         cat >&2 <<'EOF'
-Secure Boot is enabled, but no Ubuntu/Mint Machine Owner Key is available.
+Secure Boot is enabled, but no supported enrolled-signing identity is available.
 
-Create and enroll the system MOK once with:
-  sudo update-secureboot-policy --new-key
-  sudo update-secureboot-policy --enroll-key
+On Debian, configure/enroll the normal DKMS Machine Owner Key, for example:
+  sudo apt install dkms
+  sudo dkms generate_mok
+  sudo mokutil --import /var/lib/dkms/mok.pub
 
 Then reboot, complete MOK enrollment in the firmware/shim screen, and run
-Install native again. Filesystem Support will not disable Secure Boot or
-install an unsigned kernel module.
+Install native again.
+
+Ubuntu/Mint's /var/lib/shim-signed/mok/MOK.priv + MOK.der identity is also
+accepted when present. Filesystem Support will not disable Secure Boot, create
+a second signing-key authority, or install an unsigned kernel module.
 EOF
         exit 1
     fi
+    IFS=$'\t' read -r key cert <<<"$identity"
 
     if command -v mokutil >/dev/null 2>&1 &&
        mokutil --help 2>&1 | grep -q -- '--test-key'; then
         if ! mokutil --test-key "$cert" >/dev/null 2>&1; then
-            cat >&2 <<'EOF'
-Secure Boot is enabled and a MOK exists, but that certificate is not enrolled.
+            cat >&2 <<EOF
+Secure Boot is enabled and a signing identity exists at:
+  $cert
 
-Run:
-  sudo update-secureboot-policy --enroll-key
+That certificate is not enrolled. Import it with:
+  sudo mokutil --import $cert
 
 Then reboot, complete MOK enrollment, and run Install native again.
 EOF
