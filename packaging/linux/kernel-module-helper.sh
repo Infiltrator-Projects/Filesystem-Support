@@ -1,36 +1,60 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Kernel-only native filesystem transaction.
+# Kernel-only native filesystem transaction and state authority.
 #
 # This helper owns build prerequisites, compilation, signing, replacement,
-# depmod, module selection, load/unload and rollback for exactly one native
-# filesystem module. It deliberately has no knowledge of desktop integration,
-# udev presentation policy, GNOME Disks, Nemo or any other presentation layer.
+# depmod, module selection, load/unload, rollback and read-only installed-state
+# queries for exactly one native filesystem module. It deliberately has no
+# knowledge of desktop integration, udev presentation policy, GNOME Disks, Nemo
+# or any other presentation layer.
 set -euo pipefail
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
 usage() {
     echo "usage: $0 <install|remove> <filesystem-id> <module-name>" >&2
+    echo "       $0 is-installed <filesystem-id>" >&2
     exit 2
 }
 
-[[ $# -eq 3 ]] || usage
 [[ ${EUID} -eq 0 ]] || {
     echo "kernel module helper must run as root" >&2
     exit 1
 }
 
-action=$1
-filesystem=$2
-module=$3
 self_dir=$(cd "$(dirname "$0")" && pwd)
 manifest="$self_dir/native-filesystems.tsv"
 [[ -r "$manifest" ]] || {
     echo "native filesystem deployment manifest is missing" >&2
     exit 1
 }
+
+managed_module_for() {
+    local requested=$1
+    awk -F '\t' -v fs="$requested" '
+        $0 !~ /^#/ && NF == 2 && $1 == fs { print $2; found = 1; exit }
+        END { if (!found) exit 1 }
+    ' "$manifest"
+}
+
+if [[ $# -eq 2 && $1 == is-installed ]]; then
+    filesystem=$2
+    if ! module=$(managed_module_for "$filesystem"); then
+        echo "refusing unmanaged native filesystem: $filesystem" >&2
+        exit 2
+    fi
+    kernel=$(uname -r)
+    destination="/lib/modules/$kernel/updates/infiltrator/$module.ko"
+    [[ -f "$destination" ]] && exit 0
+    exit 3
+fi
+
+[[ $# -eq 3 ]] || usage
+action=$1
+filesystem=$2
+module=$3
+[[ "$action" == install || "$action" == remove ]] || usage
 
 awk -F '\t' -v fs="$filesystem" -v mod="$module" '
     $0 !~ /^#/ && NF == 2 && $1 == fs && $2 == mod { found = 1; exit }
