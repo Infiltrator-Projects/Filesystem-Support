@@ -41,6 +41,32 @@ fixture_script(source / 'packaging/linux/gnome-disks-wrapper', templates / 'gnom
 fixture_script(source / 'packaging/linux/nemo-wrapper', templates / 'nemo')
 helper = private / 'desktop-integration'
 fixture_script(source / 'packaging/linux/desktop-integration.sh', helper)
+
+# Desktop recovery must not infer a kernel-module filename from filesystem
+# identity. Give every test filesystem a deliberately different module name and
+# expose only the native coordinator's installed-state contract to the desktop
+# helper. Any return of "$kind.ko" coupling therefore fails this integration
+# test even though current production module names happen to equal their IDs.
+module_by_kind = {kind: f'fixture_{kind}_native' for kind in kinds}
+native_state = private / 'native-module-helper'
+case_rows = '\n'.join(
+    f'        {kind}) module={shlex.quote(module)} ;;'
+    for kind, module in module_by_kind.items()
+)
+native_state.write_text(
+    '#!/usr/bin/env bash\n'
+    'set -euo pipefail\n'
+    '[[ $# -eq 2 && $1 == is-installed ]] || exit 2\n'
+    'case "$2" in\n'
+    f'{case_rows}\n'
+    '        *) exit 2 ;;\n'
+    'esac\n'
+    f'path={shlex.quote(str(root))}/lib/modules/$(uname -r)/updates/infiltrator/$module.ko\n'
+    '[[ -f "$path" ]] && exit 0\n'
+    'exit 3\n'
+)
+native_state.chmod(0o755)
+
 (root / 'var/lib/dpkg').mkdir(parents=True)
 (root / 'var/lib/dpkg/status').touch()
 (root / 'usr/bin').mkdir(parents=True)
@@ -89,7 +115,7 @@ check_files(set(), prepared=True)
 modules = root / 'lib/modules' / platform.release() / 'updates/infiltrator'
 modules.mkdir(parents=True)
 for kind in kinds:
-    (modules / f'{kind}.ko').touch()
+    (modules / f'{module_by_kind[kind]}.ko').touch()
 
 for mask in range(1 << len(kinds)):
     selected = {kind for bit, kind in enumerate(kinds) if mask & (1 << bit)}
@@ -112,7 +138,7 @@ run(helper, 'purge')
 check_files(set(), prepared=True)
 
 for kind in kinds[-2:]:
-    (modules / f'{kind}.ko').unlink()
+    (modules / f'{module_by_kind[kind]}.ko').unlink()
 legacy_rules = root / 'etc/udev/rules.d'
 legacy_rules.mkdir(parents=True, exist_ok=True)
 (legacy_rules / '59-infiltrator-ofs.rules').write_text('legacy\n')
