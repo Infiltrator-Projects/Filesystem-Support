@@ -207,3 +207,7 @@ grep -Fq 'metadata.o' native/filesystems/ext2/linux/Makefile
 grep -Fq -- '-DCONFIG_EXT2_FS_XATTR=1' native/filesystems/ext2/linux/Makefile
 grep -Fq -- '-DCONFIG_EXT2_FS_POSIX_ACL=1' native/filesystems/ext2/linux/Makefile
 grep -Fq -- '-DCONFIG_EXT2_FS_SECURITY=1' native/filesystems/ext2/linux/Makefile
+
+# The focused desktop/native architecture test is part of this contract rather
+# than an uninvoked repository artefact.
+python3 tests/desktop_manifest_boundary_test.py "$root"
