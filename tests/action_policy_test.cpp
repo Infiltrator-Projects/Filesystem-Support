@@ -134,10 +134,21 @@ int main()
         return fail("native install presentation leaked or changed semantics");
     }
 
-    ProbeResult native_installed = native_missing;
-    native_installed.project_native_installed = true;
-    native_installed.project_native_selected = true;
-    native_installed.kernel_state = KernelState::LoadableLoaded;
+    ProbeResult native_stale = native_missing;
+    native_stale.project_native_installed = true;
+    native_stale.project_native_selected = true;
+    native_stale.kernel_state = KernelState::LoadableLoaded;
+    const ModuleActionPolicy update_native =
+        module_action_policy(*ext3, native_stale);
+    if (update_native.action != ModuleActionKind::InstallNative ||
+        !update_native.button.enabled || !update_native.button.primary ||
+        update_native.button.destructive ||
+        update_native.button.label != "Update native") {
+        return fail("stale native module is not exposed as an update operation");
+    }
+
+    ProbeResult native_installed = native_stale;
+    native_installed.project_native_current = true;
     const ModuleActionPolicy remove_native =
         module_action_policy(*ext3, native_installed);
     if (remove_native.action != ModuleActionKind::RemoveNative ||
@@ -191,6 +202,12 @@ int main()
         !unreliable_module.button.visible || unreliable_module.button.enabled ||
         unreliable_module.button.label != "Refresh required") {
         return fail("unreliable probes exposed an executable action");
+    }
+
+    const std::string stale_detail =
+        support_detail_text(*ext3, native_stale);
+    if (stale_detail.find("update required") == std::string::npos) {
+        return fail("support detail hides stale native source state");
     }
 
     const std::string native_detail =
