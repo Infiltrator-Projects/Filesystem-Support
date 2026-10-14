@@ -105,8 +105,8 @@ for required in (
 ):
     if required not in kernel:
         raise SystemExit(f'native source freshness lost exact-input contract: {required}')
-if '"native/platform/linux_kernel" \\\n            -type f' in digest:
-    raise SystemExit('native source freshness again hashes the shared adapter for every filesystem')
+if '"native/platform/linux_kernel"' in digest:
+    raise SystemExit('native source freshness again hashes the shared adapter directory for every filesystem')
 for forbidden in ("-name 'README*'", "-name 'Kconfig'"):
     if forbidden in digest:
         raise SystemExit(f'non-build input entered native freshness digest: {forbidden}')
