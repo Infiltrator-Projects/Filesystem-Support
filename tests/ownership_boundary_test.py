@@ -3,9 +3,9 @@
 """Protect ownership and lifecycle boundaries found by the forensic review.
 
 These checks intentionally target authority relationships rather than private
-implementation shape: trusted destructive command identity, platform-neutral
-catalogue ownership, native-module lifetime/state ownership, asynchronous
-publication, and format-centric provider documentation.
+implementation shape: trusted command identity, platform-neutral catalogue
+ownership, native-module lifetime/state ownership, asynchronous publication,
+and format-centric provider documentation.
 """
 
 from pathlib import Path
@@ -38,6 +38,18 @@ for forbidden in (
 ):
     require(forbidden not in installer,
             f"caller PATH can again select Debian planning command: {forbidden}")
+
+runner = text("src/process_runner.hpp")
+for required in (
+    'trusted_command_path',
+    '"/usr/bin", "/usr/sbin", "/bin", "/sbin"',
+    'g_path_is_absolute(command.c_str())',
+    'command.find(\'/\') != std::string::npos',
+):
+    require(required in runner,
+            f"synchronous process trust boundary lost: {required}")
+require('g_find_program_in_path' not in runner,
+        "synchronous observation/planning commands again depend on caller PATH")
 
 cmake = text("CMakeLists.txt")
 for required in (
