@@ -71,6 +71,23 @@ for required in (
 if kernel.count('acquire_kernel_mutation_lock') < 3:
     raise SystemExit('kernel mutation lock is not applied to remove-all and direct mutations')
 
+# Read-only observation belongs to the kernel authority and must remain usable
+# by the unprivileged manager. The coordinator forwards the query rather than
+# reconstructing deployment state or requiring an authentication prompt.
+for required in (
+    'if [[ $# -eq 2 && $1 == status ]]; then',
+    'native_source_digest_for()',
+    'source_stamp="$destination.source-sha256"',
+    "printf 'installed\\t%s\\t%s\\n'",
+):
+    if required not in kernel:
+        raise SystemExit(f'kernel state observation lost contract: {required}')
+if coordinator_code.index('if [[ $# -eq 2 && ( $1 == is-installed || $1 == status ) ]]') > coordinator_code.index('[[ ${EUID} -eq 0 ]]'):
+    raise SystemExit('read-only native state query was moved behind the privilege gate')
+for forbidden in ('/lib/modules/', '.source-sha256', 'native_source_digest_for'):
+    if forbidden in coordinator_code:
+        raise SystemExit(f'kernel state policy leaked into coordinator: {forbidden}')
+
 # Secure-Boot key discovery follows the declared Debian baseline and accepts
 # Ubuntu/Mint's distinct shim-signed location only as a derivative fallback.
 # The helper consumes an existing distribution signing identity; it must not
@@ -98,15 +115,19 @@ if 'NF == 2 && $1 == fs && $2 == mod' not in kernel_code:
     raise SystemExit('kernel helper does not enforce the exact native manifest schema')
 
 # Once old runtime state is unloaded, every persistent mutation and dependency
-# refresh is guarded by the same restoration path. Install and removal both own
-# recovery instead of relying on set -e to abandon a half-applied transaction.
+# refresh is guarded by the same restoration path. The source provenance stamp
+# is part of that persistent transaction; it may never describe different bytes
+# from the module image after either success or rollback.
 for required in (
     'fail_with_restore()',
     'restore_previous_state',
+    'local restore_runtime=$5',
+    'previous_stamp_copy',
     'if ! install -m 0644 "$built" "$destination"; then',
+    'if ! install -m 0644 "$tmp/current.source-sha256" "$source_stamp"; then',
     'if ! depmod -a "$kernel"; then',
     'if ! modprobe "$module"; then',
-    'if ! rm -f "$destination"; then',
+    'if ! rm -f "$destination" "$source_stamp"; then',
 ):
     if required not in kernel:
         raise SystemExit(f'kernel transaction lost recovery boundary: {required}')
