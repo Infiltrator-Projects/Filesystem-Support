@@ -4,7 +4,7 @@
 
 These checks intentionally target authority relationships rather than private
 implementation shape: trusted destructive command identity, platform-neutral
-catalogue ownership, native-module lifetime/rollback ownership, asynchronous
+catalogue ownership, native-module lifetime/state ownership, asynchronous
 publication, and format-centric provider documentation.
 """
 
@@ -56,13 +56,24 @@ kernel = text("packaging/linux/kernel-module-helper.sh")
 for required in (
     "remove_stale_kernel_directories()",
     "if [[ $# -eq 1 && $1 == remove-all ]]; then",
-    'local restore_runtime=$4',
+    'local restore_runtime=$5',
     'local runtime_changed=false',
     'runtime_changed=true',
     '"$previous_loaded" "$runtime_changed"',
+    'native_source_digest_for()',
+    'source_stamp="$destination.source-sha256"',
+    'if [[ $# -eq 2 && $1 == status ]]; then',
 ):
     require(required in kernel,
-            f"kernel lifetime/rollback ownership lost boundary: {required}")
+            f"kernel lifetime/state ownership lost boundary: {required}")
+
+probe = text("src/probe.cpp")
+require('/updates/infiltrator/' not in probe,
+        "product probe reconstructed the kernel authority deployment path")
+require('native-module-helper' in probe and '"status"' in probe,
+        "product probe no longer consumes observed native state through the coordinator")
+require('project_native_current' in probe,
+        "product probe lost native source-freshness state")
 
 prerm = text("packaging/linux/prerm")
 require('"$helper" remove-all' in prerm,
