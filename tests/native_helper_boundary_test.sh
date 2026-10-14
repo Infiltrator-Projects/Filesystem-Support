@@ -88,6 +88,34 @@ for forbidden in ('/lib/modules/', '.source-sha256', 'native_source_digest_for')
     if forbidden in coordinator_code:
         raise SystemExit(f'kernel state policy leaked into coordinator: {forbidden}')
 
+# Source freshness must describe the bytes that can actually affect a module.
+# Documentation/Kconfig changes are not runtime build inputs, and the shared
+# Linux compatibility header belongs in a filesystem digest only when that
+# filesystem source consumes it. This prevents unrelated changes from forcing
+# an unnecessary unload/rebuild of a current module.
+digest = kernel.split('native_source_digest_for() {', 1)[1].split(
+    'preferred_module_filename_for() {', 1)[0]
+for required in (
+    'uses_shared_linux_kernel_adapter()',
+    "-name 'Makefile'",
+    "-name '*.c'",
+    "-name '*.h'",
+    'if uses_shared_linux_kernel_adapter "$requested"; then',
+    'native/platform/linux_kernel/vfs_compat.h',
+):
+    if required not in kernel:
+        raise SystemExit(f'native source freshness lost exact-input contract: {required}')
+if '"native/platform/linux_kernel" \\\n            -type f' in digest:
+    raise SystemExit('native source freshness again hashes the shared adapter for every filesystem')
+for forbidden in ("-name 'README*'", "-name 'Kconfig'"):
+    if forbidden in digest:
+        raise SystemExit(f'non-build input entered native freshness digest: {forbidden}')
+install_block = kernel.split('install_native() {', 1)[1].split('remove_native() {', 1)[0]
+if '[[ -f "$source_platform/vfs_compat.h" ]]' in install_block:
+    raise SystemExit('all native modules again depend on the optional shared Linux adapter')
+if 'if uses_shared_linux_kernel_adapter "$filesystem"; then' not in install_block:
+    raise SystemExit('native build staging no longer follows the actual shared-adapter dependency')
+
 # Secure-Boot key discovery follows the declared Debian baseline and accepts
 # Ubuntu/Mint's distinct shim-signed location only as a derivative fallback.
 # The helper consumes an existing distribution signing identity; it must not
