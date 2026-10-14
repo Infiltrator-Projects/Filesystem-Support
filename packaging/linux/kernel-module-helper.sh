@@ -52,30 +52,54 @@ managed_module_for() {
     ' "$manifest"
 }
 
+uses_shared_linux_kernel_adapter() {
+    local requested=$1
+    local source_fs="$self_dir/native/filesystems/$requested"
+
+    # The shared adapter is a build input only for modules that include it.
+    # Derive that relationship from the filesystem source itself instead of
+    # maintaining a second consumer list beside the actual include graph.
+    grep -Rqs \
+        --include='*.c' --include='*.h' \
+        'platform/linux_kernel/vfs_compat[.]h' \
+        "$source_fs/core" "$source_fs/linux"
+}
+
 native_source_digest_for() {
     local requested=$1
     local source_fs="$self_dir/native/filesystems/$requested"
     local source_platform="$self_dir/native/platform/linux_kernel"
 
-    [[ -d "$source_fs/core" && -d "$source_fs/linux" && -d "$source_platform" ]] || {
+    [[ -d "$source_fs/core" && -d "$source_fs/linux" &&
+       -f "$source_fs/linux/Makefile" ]] || {
         echo "packaged native source is incomplete for $requested" >&2
         return 1
     }
 
-    # The digest is over the exact packaged source inputs used by the native
-    # build, not over the product version. An unrelated UI/documentation release
-    # therefore does not invalidate a module, while any real build-input change
-    # deterministically marks the preserved runtime module stale.
+    if uses_shared_linux_kernel_adapter "$requested" &&
+       [[ ! -f "$source_platform/vfs_compat.h" ]]; then
+        echo "packaged shared Linux kernel adapter source is missing for $requested" >&2
+        return 1
+    fi
+
+    # Hash only actual native build inputs. README/Kconfig/reference material is
+    # intentionally excluded because the out-of-tree module build consumes the
+    # Linux Makefile plus C/header sources. The shared compatibility header is
+    # included only for filesystems whose source includes it. This prevents an
+    # unrelated documentation or adapter change from making a current module
+    # appear stale and forcing a needless unload/rebuild.
     (
         cd "$self_dir"
         find \
             "native/filesystems/$requested/core" \
             "native/filesystems/$requested/linux" \
-            "native/platform/linux_kernel" \
-            -type f -print0 |
-            LC_ALL=C sort -z |
-            xargs -0 sha256sum
-    ) | sha256sum | awk '{print $1}'
+            -type f \
+            \( -name 'Makefile' -o -name '*.c' -o -name '*.h' \) \
+            -print0
+        if uses_shared_linux_kernel_adapter "$requested"; then
+            printf '%s\0' "native/platform/linux_kernel/vfs_compat.h"
+        fi
+    ) | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}'
 }
 
 preferred_module_filename_for() {
@@ -441,10 +465,6 @@ install_native() {
         echo "packaged native source is missing for $filesystem" >&2
         exit 1
     }
-    [[ -f "$source_platform/vfs_compat.h" ]] || {
-        echo "packaged shared Linux kernel adapter source is missing" >&2
-        exit 1
-    }
 
     local source_digest
     source_digest=$(native_source_digest_for "$filesystem") || exit 1
@@ -457,12 +477,13 @@ install_native() {
     cleanup_tmp=$tmp
     tmp_native="$tmp/native"
 
-    mkdir -p \
-        "$tmp_native/filesystems/$filesystem" \
-        "$tmp_native/platform"
+    mkdir -p "$tmp_native/filesystems/$filesystem"
     cp -a "$source_fs/core" "$tmp_native/filesystems/$filesystem/core"
     cp -a "$source_linux" "$tmp_native/filesystems/$filesystem/linux"
-    cp -a "$source_platform" "$tmp_native/platform/linux_kernel"
+    if uses_shared_linux_kernel_adapter "$filesystem"; then
+        mkdir -p "$tmp_native/platform"
+        cp -a "$source_platform" "$tmp_native/platform/linux_kernel"
+    fi
 
     local build_cc
     build_cc=$(kernel_build_compiler)
