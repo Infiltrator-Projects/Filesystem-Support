@@ -63,5 +63,5 @@ Write-Host ''
 Write-Host 'Windows manager build completed.'
 Write-Host "Manager: $($manager.FullName)"
 Write-Host ''
-Write-Host 'No filesystem driver module is built or installable yet.'
-Write-Host 'EXT2 remains the first shared-engine Windows qualification target.'
+Write-Host 'EXT2 has a separate WDK build/validation path in Build-Ext2Driver.ps1.'
+Write-Host 'It remains deliberately non-installable until Windows lifecycle, trust and runtime qualification are complete.'
