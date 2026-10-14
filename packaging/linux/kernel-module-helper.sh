@@ -14,14 +14,9 @@ export PATH
 
 usage() {
     echo "usage: $0 <install|remove> <filesystem-id> <module-name>" >&2
-    echo "       $0 is-installed <filesystem-id>" >&2
+    echo "       $0 <is-installed|status> <filesystem-id>" >&2
     echo "       $0 remove-all" >&2
     exit 2
-}
-
-[[ ${EUID} -eq 0 ]] || {
-    echo "kernel module helper must run as root" >&2
-    exit 1
 }
 
 self_dir=$(cd "$(dirname "$0")" && pwd)
@@ -55,6 +50,77 @@ managed_module_for() {
         $0 !~ /^#/ && NF == 2 && $1 == fs { print $2; found = 1; exit }
         END { if (!found) exit 1 }
     ' "$manifest"
+}
+
+native_source_digest_for() {
+    local requested=$1
+    local source_fs="$self_dir/native/filesystems/$requested"
+    local source_platform="$self_dir/native/platform/linux_kernel"
+
+    [[ -d "$source_fs/core" && -d "$source_fs/linux" && -d "$source_platform" ]] || {
+        echo "packaged native source is incomplete for $requested" >&2
+        return 1
+    }
+
+    # The digest is over the exact packaged source inputs used by the native
+    # build, not over the product version. An unrelated UI/documentation release
+    # therefore does not invalidate a module, while any real build-input change
+    # deterministically marks the preserved runtime module stale.
+    (
+        cd "$self_dir"
+        find \
+            "native/filesystems/$requested/core" \
+            "native/filesystems/$requested/linux" \
+            "native/platform/linux_kernel" \
+            -type f -print0 |
+            LC_ALL=C sort -z |
+            xargs -0 sha256sum
+    ) | sha256sum | awk '{print $1}'
+}
+
+preferred_module_filename_for() {
+    local requested_module=$1
+    modinfo -F filename "$requested_module" 2>/dev/null | head -n1 || true
+}
+
+native_status() {
+    local requested=$1
+    local requested_module
+    local kernel
+    local destination
+    local stamp
+    local recorded_digest=""
+    local current_digest
+    local freshness=stale
+    local selection=unselected
+
+    if ! requested_module=$(managed_module_for "$requested"); then
+        echo "refusing unmanaged native filesystem: $requested" >&2
+        return 2
+    fi
+
+    kernel=$(uname -r)
+    destination="/lib/modules/$kernel/updates/infiltrator/$requested_module.ko"
+    stamp="$destination.source-sha256"
+
+    if [[ ! -f "$destination" ]]; then
+        printf 'absent\tstale\tunselected\n'
+        return 0
+    fi
+
+    current_digest=$(native_source_digest_for "$requested") || return 1
+    if [[ -r "$stamp" ]]; then
+        read -r recorded_digest < "$stamp" || true
+    fi
+    if [[ -n "$recorded_digest" && "$recorded_digest" == "$current_digest" ]]; then
+        freshness=current
+    fi
+
+    if [[ $(preferred_module_filename_for "$requested_module") == "$destination" ]]; then
+        selection=selected
+    fi
+
+    printf 'installed\t%s\t%s\n' "$freshness" "$selection"
 }
 
 remove_stale_kernel_directories() {
@@ -96,6 +162,32 @@ remove_stale_kernel_directories() {
     done
 }
 
+# Read-only queries intentionally precede the privilege gate. The desktop and
+# manager need observed state, not mutation rights, and forcing them to elevate
+# would either cause authentication prompts during scans or encourage policy
+# duplication outside this authority.
+if [[ $# -eq 2 && $1 == is-installed ]]; then
+    filesystem=$2
+    if ! module=$(managed_module_for "$filesystem"); then
+        echo "refusing unmanaged native filesystem: $filesystem" >&2
+        exit 2
+    fi
+    kernel=$(uname -r)
+    destination="/lib/modules/$kernel/updates/infiltrator/$module.ko"
+    [[ -f "$destination" ]] && exit 0
+    exit 3
+fi
+
+if [[ $# -eq 2 && $1 == status ]]; then
+    native_status "$2"
+    exit $?
+fi
+
+[[ ${EUID} -eq 0 ]] || {
+    echo "kernel module helper mutations must run as root" >&2
+    exit 1
+}
+
 if [[ $# -eq 1 && $1 == remove-all ]]; then
     acquire_kernel_mutation_lock
     while IFS=$'\t' read -r filesystem module extra; do
@@ -111,18 +203,6 @@ if [[ $# -eq 1 && $1 == remove-all ]]; then
     remove_stale_kernel_directories
     echo "all Filesystem Support native modules removed"
     exit 0
-fi
-
-if [[ $# -eq 2 && $1 == is-installed ]]; then
-    filesystem=$2
-    if ! module=$(managed_module_for "$filesystem"); then
-        echo "refusing unmanaged native filesystem: $filesystem" >&2
-        exit 2
-    fi
-    kernel=$(uname -r)
-    destination="/lib/modules/$kernel/updates/infiltrator/$module.ko"
-    [[ -f "$destination" ]] && exit 0
-    exit 3
 fi
 
 [[ $# -eq 3 ]] || usage
@@ -148,6 +228,7 @@ kernel=$(uname -r)
 kernel_build="/lib/modules/$kernel/build"
 destination_dir="/lib/modules/$kernel/updates/infiltrator"
 destination="$destination_dir/$module.ko"
+source_stamp="$destination.source-sha256"
 
 cleanup_tmp=""
 cleanup() {
@@ -187,7 +268,7 @@ module_loaded() {
 }
 
 preferred_module_filename() {
-    modinfo -F filename "$module" 2>/dev/null | head -n1 || true
+    preferred_module_filename_for "$module"
 }
 
 secure_boot_enabled() {
@@ -305,9 +386,10 @@ EOF
 
 restore_previous_state() {
     local previous_copy=$1
-    local previous_preferred=$2
-    local previous_loaded=$3
-    local restore_runtime=$4
+    local previous_stamp_copy=$2
+    local previous_preferred=$3
+    local previous_loaded=$4
+    local restore_runtime=$5
 
     if [[ "$restore_runtime" == true ]] && module_loaded; then
         modprobe -r "$module" >/dev/null 2>&1 || return 1
@@ -317,6 +399,11 @@ restore_previous_state() {
         install -m 0644 "$previous_copy" "$destination" || return 1
     else
         rm -f "$destination" || return 1
+    fi
+    if [[ -n "$previous_stamp_copy" ]]; then
+        install -m 0644 "$previous_stamp_copy" "$source_stamp" || return 1
+    else
+        rm -f "$source_stamp" || return 1
     fi
     depmod -a "$kernel" || return 1
 
@@ -334,12 +421,14 @@ restore_previous_state() {
 fail_with_restore() {
     local reason=$1
     local previous_copy=$2
-    local previous_preferred=$3
-    local previous_loaded=$4
-    local restore_runtime=$5
+    local previous_stamp_copy=$3
+    local previous_preferred=$4
+    local previous_loaded=$5
+    local restore_runtime=$6
 
     if restore_previous_state \
-        "$previous_copy" "$previous_preferred" "$previous_loaded" "$restore_runtime"; then
+        "$previous_copy" "$previous_stamp_copy" "$previous_preferred" \
+        "$previous_loaded" "$restore_runtime"; then
         echo "$reason; previous module state was restored" >&2
     else
         echo "$reason and the previous module state could not be fully restored" >&2
@@ -356,6 +445,9 @@ install_native() {
         echo "packaged shared Linux kernel adapter source is missing" >&2
         exit 1
     }
+
+    local source_digest
+    source_digest=$(native_source_digest_for "$filesystem") || exit 1
 
     ensure_build_environment
 
@@ -388,14 +480,20 @@ install_native() {
 
     local previous_preferred=""
     local previous_copy=""
+    local previous_stamp_copy=""
     local previous_loaded=false
     previous_preferred=$(preferred_module_filename)
 
     # Snapshot persistent state before touching runtime state. From the first
-    # successful unload onward every failure path is required to restore both.
+    # successful unload onward every failure path is required to restore both
+    # the module image and the exact source-provenance stamp that described it.
     if [[ -f "$destination" ]]; then
         previous_copy="$tmp/previous.ko"
         cp -a "$destination" "$previous_copy"
+    fi
+    if [[ -f "$source_stamp" ]]; then
+        previous_stamp_copy="$tmp/previous.source-sha256"
+        cp -a "$source_stamp" "$previous_stamp_copy"
     fi
 
     if module_loaded; then
@@ -409,25 +507,37 @@ install_native() {
     if ! mkdir -p "$destination_dir"; then
         fail_with_restore \
             "could not prepare the native module destination" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded" true
+            "$previous_copy" "$previous_stamp_copy" "$previous_preferred" \
+            "$previous_loaded" true
         return 1
     fi
     if ! install -m 0644 "$built" "$destination"; then
         fail_with_restore \
             "could not replace the native module image" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded" true
+            "$previous_copy" "$previous_stamp_copy" "$previous_preferred" \
+            "$previous_loaded" true
+        return 1
+    fi
+    printf '%s\n' "$source_digest" > "$tmp/current.source-sha256"
+    if ! install -m 0644 "$tmp/current.source-sha256" "$source_stamp"; then
+        fail_with_restore \
+            "could not record native module source provenance" \
+            "$previous_copy" "$previous_stamp_copy" "$previous_preferred" \
+            "$previous_loaded" true
         return 1
     fi
     if ! depmod -a "$kernel"; then
         fail_with_restore \
             "dependency metadata refresh failed after native module replacement" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded" true
+            "$previous_copy" "$previous_stamp_copy" "$previous_preferred" \
+            "$previous_loaded" true
         return 1
     fi
     if ! modprobe "$module"; then
         fail_with_restore \
             "new $module module could not be loaded" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded" true
+            "$previous_copy" "$previous_stamp_copy" "$previous_preferred" \
+            "$previous_loaded" true
         return 1
     fi
 
@@ -436,7 +546,8 @@ install_native() {
     if [[ "$selected" != "$destination" || ! -d "/sys/module/$module" ]]; then
         fail_with_restore \
             "kernel selected '$selected' instead of the Infiltrator module" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded" true
+            "$previous_copy" "$previous_stamp_copy" "$previous_preferred" \
+            "$previous_loaded" true
         return 1
     fi
 
@@ -445,12 +556,14 @@ install_native() {
 
 remove_native() {
     if [[ ! -f "$destination" ]]; then
+        rm -f "$source_stamp"
         echo "$filesystem native module is not installed for kernel $kernel"
         return 0
     fi
 
     local tmp
     local previous_copy
+    local previous_stamp_copy=""
     local previous_preferred
     local previous_loaded=false
     local runtime_changed=false
@@ -458,6 +571,10 @@ remove_native() {
     cleanup_tmp=$tmp
     previous_copy="$tmp/previous.ko"
     cp -a "$destination" "$previous_copy"
+    if [[ -f "$source_stamp" ]]; then
+        previous_stamp_copy="$tmp/previous.source-sha256"
+        cp -a "$source_stamp" "$previous_stamp_copy"
+    fi
     previous_preferred=$(preferred_module_filename)
 
     if module_loaded; then
@@ -472,16 +589,18 @@ remove_native() {
         runtime_changed=true
     fi
 
-    if ! rm -f "$destination"; then
+    if ! rm -f "$destination" "$source_stamp"; then
         fail_with_restore \
-            "could not remove the native module image" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded" "$runtime_changed"
+            "could not remove the native module image and provenance" \
+            "$previous_copy" "$previous_stamp_copy" "$previous_preferred" \
+            "$previous_loaded" "$runtime_changed"
         return 1
     fi
     if ! depmod -a "$kernel"; then
         fail_with_restore \
             "dependency metadata refresh failed after native module removal" \
-            "$previous_copy" "$previous_preferred" "$previous_loaded" "$runtime_changed"
+            "$previous_copy" "$previous_stamp_copy" "$previous_preferred" \
+            "$previous_loaded" "$runtime_changed"
         return 1
     fi
     rmdir "$destination_dir" 2>/dev/null || true
