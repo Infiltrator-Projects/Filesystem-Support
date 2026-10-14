@@ -529,8 +529,3 @@ jobs:
           expected=$(printf '%s\n%s\n%s\n' "$deb" "$run" RELEASE_SHA256SUMS.txt | sort)
           actual=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
           test "$actual" = "$expected"
-
-      - name: Withdraw retired desktop packages and their dependent installers
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 packaging/retire-desktop-package.py
