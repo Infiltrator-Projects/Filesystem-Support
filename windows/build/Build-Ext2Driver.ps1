@@ -17,10 +17,24 @@ $inf = Join-Path $driverRoot 'filesystem_support_ext2.inf'
 $release = Join-Path $root "release\windows\ext2\$Platform"
 $packagesConfig = Join-Path $PSScriptRoot 'packages.config'
 $packagesDir = Join-Path $root 'build\windows-wdk-packages'
-$wdkNuGetVersion = '10.0.28000.2526'
 $wdkPackageName = if ($Platform -eq 'ARM64') { 'Microsoft.Windows.WDK.ARM64' } else { 'Microsoft.Windows.WDK.x64' }
-$driverVersion = '0.4.2.0'
-$driverDate = '09/23/2026'
+
+# packages.config is the one authority for the pinned WDK/SDK dependency set.
+# Read the selected platform package version from that manifest instead of
+# duplicating the same version literal in build orchestration.
+[xml]$packageManifest = Get-Content -LiteralPath $packagesConfig -Raw
+$wdkPackageEntry = @(
+    $packageManifest.packages.package |
+        Where-Object { $_.id -eq $wdkPackageName }
+)
+if ($wdkPackageEntry.Count -ne 1) {
+    throw "Expected exactly one $wdkPackageName entry in $packagesConfig; found $($wdkPackageEntry.Count)."
+}
+$wdkNuGetVersion = [string]$wdkPackageEntry[0].version
+if ([string]::IsNullOrWhiteSpace($wdkNuGetVersion)) {
+    throw "$wdkPackageName in $packagesConfig has no pinned version."
+}
+
 function Get-PortableExecutableMachine {
     param([Parameter(Mandatory)][string]$Path)
     $stream = [IO.File]::OpenRead($Path)
@@ -47,7 +61,6 @@ function Find-NuGet {
 
     throw 'NuGet was not found. Install Microsoft.NuGet (winget install --id Microsoft.NuGet --source winget).'
 }
-
 
 function Enter-VisualStudioDeveloperShell {
     if ($env:VSCMD_VER) {
@@ -223,15 +236,18 @@ if ($peMachine -ne $expectedPeMachine) {
     throw ('Driver machine mismatch: expected 0x{0:X4} for {1}, found 0x{2:X4}.' -f $expectedPeMachine, $Platform, $peMachine)
 }
 
-# The checked-in INF is the release manifest. WDK's build output may carry a
-# development timestamp/version, so never stage that generated copy.
+# The checked-in INF is the release manifest and the one authority for
+# DriverVer. WDK's build output may carry a development timestamp/version, so
+# never stage that generated copy and never duplicate DriverVer in this script.
 $driverVerLine = Get-Content -LiteralPath $inf |
     Where-Object { $_ -match '^\s*DriverVer\s*=' } |
     Select-Object -First 1
-$normalisedDriverVer = $driverVerLine -replace '\s', ''
-$expectedDriverVer = "DriverVer=$driverDate,$driverVersion"
-if ($normalisedDriverVer -ne $expectedDriverVer) {
-    throw "Source INF version mismatch: expected '$expectedDriverVer', found '$driverVerLine'."
+if (-not $driverVerLine) {
+    throw "Source INF does not declare DriverVer: $inf"
+}
+$driverVerValue = ($driverVerLine -replace '^\s*DriverVer\s*=\s*', '').Trim()
+if ($driverVerValue -notmatch '^\d{2}/\d{2}/\d{4},\d+\.\d+\.\d+\.\d+$') {
+    throw "Source INF DriverVer has an unexpected format: '$driverVerLine'."
 }
 
 if (Test-Path -LiteralPath $release) {
@@ -277,7 +293,7 @@ $report = @(
     "InfVerif: $infverif"
     "Inf2Cat: $inf2cat"
     "CodeAnalysis: $(-not $SkipCodeAnalysis)"
-    "DriverVer: $driverDate,$driverVersion"
+    "DriverVer: $driverVerValue"
     "Driver: $stagedDriver"
     "DriverSHA256: $hash"
     "CatalogSHA256: $catHash"
