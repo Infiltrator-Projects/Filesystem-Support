@@ -6,22 +6,17 @@
 # Kernel-module state and desktop identification are deliberately independent
 # transactions. This coordinator sequences mutations, but it owns neither
 # rollback domain: kernel-module-helper owns kernel state and desktop-integration
-# owns presentation state. Read-only installed-state queries are forwarded to
-# the kernel owner so presentation recovery never reconstructs module identity
-# or learns kernel deployment paths.
+# owns presentation state. Read-only state queries are forwarded to the kernel
+# owner so presentation and product code never reconstruct module identity,
+# deployment paths or source-freshness policy.
 set -euo pipefail
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
 usage() {
     echo "usage: $0 <install|remove> <filesystem-id> <module-name>" >&2
-    echo "       $0 is-installed <filesystem-id>" >&2
+    echo "       $0 <is-installed|status> <filesystem-id>" >&2
     exit 2
-}
-
-[[ ${EUID} -eq 0 ]] || {
-    echo "native module coordinator must run as root" >&2
-    exit 1
 }
 
 self_dir=$(cd "$(dirname "$0")" && pwd)
@@ -33,9 +28,17 @@ desktop_helper="$self_dir/desktop-integration"
     exit 1
 }
 
-if [[ $# -eq 2 && $1 == is-installed ]]; then
-    exec "$kernel_helper" is-installed "$2"
+# Read-only state belongs to the kernel authority but does not require
+# privilege. Keeping these queries usable by the unprivileged manager removes
+# any reason for presentation code to infer /lib/modules layout itself.
+if [[ $# -eq 2 && ( $1 == is-installed || $1 == status ) ]]; then
+    exec "$kernel_helper" "$1" "$2"
 fi
+
+[[ ${EUID} -eq 0 ]] || {
+    echo "native module coordinator mutations must run as root" >&2
+    exit 1
+}
 
 [[ $# -eq 3 ]] || usage
 action=$1

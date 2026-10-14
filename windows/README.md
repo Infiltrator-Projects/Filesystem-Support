@@ -1,7 +1,7 @@
 # Filesystem Support on Windows
 
 The Windows product is the Windows front end for the same master filesystem
-catalogue used elsewhere in Filesystem Support.
+identity catalogue used elsewhere in Filesystem Support.
 
 `windows/manager/` contains the management application. It displays every
 catalogue entry and enables installation only when that filesystem has a
@@ -14,16 +14,23 @@ not itself a compiler. Windows driver packages are built by the WDK build
 pipeline; the manager selects, installs, removes, inspects and diagnoses
 qualified packages.
 
-Planned live layout:
+Current architecture:
 
 - `native/platform/windows/` — reusable Windows IFS/WDK adapter.
 - `native/filesystems/<id>/core/` — canonical filesystem semantics shared
   with Linux.
-- `windows/build/` — WDK build, package validation and signing orchestration.
-- `windows/installer/` — installation/package support used by the manager.
-- `windows/test/` — host readiness, Driver Verifier, diagnostics and
-  filesystem-contract qualification.
+- `native/filesystems/ext2/windows/` — current EXT2 proving adapter/package.
+- `windows/build/` — Windows manager build plus EXT2 WDK build, validation and
+  staging orchestration.
+- `windows/test/` — host readiness and filesystem-contract qualification.
 - `windows/manager/` — catalogue-driven GUI.
 
-The former ExtFS-for-Windows tree remains archived byte-for-byte as migration
-evidence until the EXT2 proving path has replaced its independent EXT core.
+EXT2 is the current Windows proving path. Its WDK package is built and
+statically validated, but it remains deliberately non-installable in the
+manager until the Windows driver lifecycle, trust and runtime qualification
+gates are complete.
+
+The former ExtFS-for-Windows source tree is not a live repository authority.
+Historical migration/provenance evidence and the remaining inherited EXT3/EXT4
+responsibility boundaries are recorded in the maintained documentation under
+`docs/`.

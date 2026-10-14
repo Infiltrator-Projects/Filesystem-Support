@@ -31,13 +31,15 @@ A change to Debian packaging or Linux module selection must therefore not requir
 
 Mutable deployment sets also have explicit owners. `data/native-filesystems.tsv` is the authority for project-native Linux module deployment. `data/desktop-filesystems.tsv` is the separate authority for desktop identification membership and may reference only project-native filesystems. `data/source-filesystems.txt` is the authority for in-repository format trees, and `data/retired-source-identities.txt` contains historical source identities that must remain absent. CI consumes these authorities rather than carrying independent handwritten copies.
 
+Project-native runtime state also has one authority. `packaging/linux/kernel-module-helper.sh` owns the deployment path, selected provider, source freshness and mutation/rollback transaction for each managed native module. The manager and desktop integration consume read-only observations through `native-module-helper`; they do not reconstruct `/lib/modules` project paths or duplicate source-freshness policy. A native module is current only when its recorded source digest matches the exact packaged filesystem core, Linux adapter and shared Linux-kernel adapter inputs used for the build. Package upgrades deliberately preserve a running native module, but a changed native source payload therefore becomes explicitly stale and is presented as **Update native** rather than **Ready**.
+
 ## Core layers
 
 Filesystem Support is split into backend responsibilities plus presentation shells.
 
 1. **Filesystem identity contract** owns stable on-media format identity exposed through `filesystem_identities()`.
 2. **Linux catalogue and capability policy** owns current Debian provider requirements, kernel-module aliases, limitations and qualification state for the Linux manager.
-3. **Probe** performs read-only inspection of installed packages, configured APT repositories, registered filesystems, built-in kernel drivers, loaded modules and loadable modules.
+3. **Probe** performs read-only inspection of installed packages, configured APT repositories, registered filesystems, built-in/loadable kernel drivers and authoritative project-native state observations.
 4. **Installer/action backend** is the only layer allowed to request privilege escalation. Package and module names originate only from trusted compiled Linux capability data.
 5. **Filesystem implementation boundary** owns canonical format semantics and the platform adapters needed to expose them to Linux, Windows and the boot environment.
 6. **Presentation shells** consume the appropriate boundary. The desktop GTK shell manages Linux support on a running system. Windows consumes filesystem identity plus Windows implementation state. The setup shell must consume identity and explicit setup qualification rather than Linux desktop provider state.
@@ -54,7 +56,7 @@ For the current Linux desktop manager:
 
 **Unavailable** means the declared provider cannot currently be supplied.
 
-Kernel detection checks `/proc/filesystems` for registered/built-in support, `/sys/module` for loaded modules and `modinfo` for loadable modules. This avoids equating one provider-discovery mechanism with filesystem identity.
+Kernel detection checks `/proc/filesystems`, `/sys/module`, `modules.builtin`, `modules.dep` and `modinfo` for generic kernel availability. Project-native installed/current/selected state is queried separately from the kernel-module authority. This avoids equating one provider-discovery mechanism with filesystem identity and prevents the product probe from becoming a second deployment authority.
 
 ## Provider model
 

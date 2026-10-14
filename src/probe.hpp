@@ -33,6 +33,7 @@ struct ProbeResult {
     std::string module_name;
     bool project_native_module = false;
     bool project_native_installed = false;
+    bool project_native_current = false;
     bool project_native_selected = false;
     bool repository_packages_available = true;
     std::vector<std::string> missing_packages;
@@ -44,8 +45,6 @@ void invalidate_probe_cache();
 bool package_installed(std::string_view package);
 bool package_available(std::string_view package);
 bool module_available(std::string_view module);
-bool project_native_module_installed(std::string_view module);
-bool project_native_module_selected(std::string_view module);
 KernelState module_state(std::string_view module);
 ProbeResult probe(const FilesystemDescriptor& descriptor);
 const char* support_state_label(SupportState state);

@@ -3,6 +3,7 @@
 
 #include <glib.h>
 
+#include <array>
 #include <string>
 #include <sys/wait.h>
 #include <vector>
@@ -33,12 +34,52 @@ struct CommandResult {
     }
 };
 
+// Resolve observation/planning tools independently of the caller's PATH. The
+// process runner is used to manufacture support state and destructive package
+// plans; allowing an unprivileged environment to substitute dpkg-query,
+// apt-cache, modinfo or another helper would make those observations less
+// trustworthy than the privileged execution path that later consumes them.
+// Absolute command identities remain exact. Bare system-tool names are resolved
+// only through the conventional immutable system locations below; callers that
+// own an application helper already pass its validated absolute path.
+inline std::string trusted_command_path(const std::string& command)
+{
+    if (command.empty()) {
+        return {};
+    }
+
+    if (g_path_is_absolute(command.c_str())) {
+        return g_file_test(command.c_str(), G_FILE_TEST_IS_REGULAR) &&
+               g_file_test(command.c_str(), G_FILE_TEST_IS_EXECUTABLE)
+            ? command
+            : std::string();
+    }
+
+    if (command.find('/') != std::string::npos) {
+        return {};
+    }
+
+    static constexpr std::array<const char*, 4> kTrustedSystemDirectories = {
+        "/usr/bin", "/usr/sbin", "/bin", "/sbin"
+    };
+    for (const char* const directory : kTrustedSystemDirectories) {
+        const std::string candidate =
+            std::string(directory) + "/" + command;
+        if (g_file_test(candidate.c_str(), G_FILE_TEST_IS_REGULAR) &&
+            g_file_test(candidate.c_str(), G_FILE_TEST_IS_EXECUTABLE)) {
+            return candidate;
+        }
+    }
+    return {};
+}
+
 // Single authority for synchronous child-process execution used by probing and
-// package planning. Callers own policy; this utility owns only process launch,
-// the stable C locale and output/status capture. Spawn and wait failures retain
-// a diagnostic so callers do not collapse an execution failure into an empty
-// generic error. Exact normal exit codes are preserved for callers that need
-// to distinguish an expected tool result from an execution failure.
+// package planning. Callers own command/argument policy; this utility owns only
+// trusted process resolution, launch, the stable C locale and output/status
+// capture. Spawn and wait failures retain a diagnostic so callers do not
+// collapse an execution failure into an empty generic error. Exact normal exit
+// codes are preserved for callers that distinguish an expected tool result
+// from an execution failure.
 inline CommandResult run_command(const std::vector<std::string>& arguments)
 {
     CommandResult result;
@@ -47,16 +88,16 @@ inline CommandResult run_command(const std::vector<std::string>& arguments)
         return result;
     }
 
-    gchar* program = g_find_program_in_path(arguments.front().c_str());
-    if (program == nullptr) {
+    const std::string program = trusted_command_path(arguments.front());
+    if (program.empty()) {
         result.stderr_text =
-            "Executable not found in PATH: " + arguments.front();
+            "Executable not found in trusted system locations: " +
+            arguments.front();
         return result;
     }
 
     std::vector<std::string> owned = arguments;
     owned.front() = program;
-    g_free(program);
 
     std::vector<gchar*> argv;
     argv.reserve(owned.size() + 1U);

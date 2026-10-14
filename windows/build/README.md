@@ -1,11 +1,28 @@
 # Windows build orchestration
 
-`Build-Windows.ps1` is the live Windows build entry point for Filesystem Support.
+`Build-Windows.ps1` is the Windows manager build entry point. It configures the
+repository with CMake, builds the catalogue-driven manager and runs the
+platform-neutral tests.
 
-Today it configures the repository with CMake, builds the catalogue-driven Windows manager and runs the platform-neutral tests. It deliberately does not build or install a filesystem kernel driver yet because no Windows filesystem module has passed the shared-engine qualification gate.
+`Build-Ext2Driver.ps1` is the current WDK proving pipeline. It restores the
+pinned WDK/SDK dependency set declared by `packages.config`, builds the EXT2
+adapter for x64 or ARM64, runs driver code analysis, validates the release INF,
+checks PE architecture, generates the catalogue from the exact staged SYS/INF
+pair and writes a build report with SHA-256 identities. The checked-in INF owns
+`DriverVer`; the build script consumes that value rather than maintaining a
+second version/date authority.
 
-As EXT2 reaches the next migration milestone, this directory will absorb the general WDK mechanisms preserved from ExtFS-for-Windows: pinned WDK/SDK tool acquisition, x64 and ARM64 builds, warnings-as-errors, driver code analysis, INF validation, PE architecture validation, catalogue generation, signing/staging and reproducible package manifests.
+Building and statically validating the EXT2 package does **not** make it
+installable. The Windows manager continues to expose installation only after a
+filesystem's driver lifecycle, trust and runtime qualification gates have been
+completed. EXT2 remains the proving path for those remaining gates.
 
-Those mechanisms must be generalized around the Windows adapter/module model. The archived `extfs.vcxproj` must not be revived unchanged because it directly compiles the duplicate `core/extfs*.c` implementation.
+The build pipeline uses the canonical EXT2 core plus the Windows adapter. The
+former ExtFS-for-Windows duplicate core is not a live build input or repository
+authority; its historical provenance is documented under `docs/`.
 
-The long-term build produces the `filesystem-support.exe` manager, the reusable Windows platform adapter, and each Windows-qualified canonical filesystem module. A filesystem becomes installable in the manager only after its corresponding driver package has completed qualification.
+The long-term build surface remains the `filesystem-support.exe` manager, the
+reusable Windows platform adapter, and each Windows-qualified canonical
+filesystem module. New filesystems should reuse the general WDK mechanisms only
+where their contracts are genuinely common; format-specific semantics remain in
+the corresponding filesystem core/adapter.

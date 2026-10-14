@@ -71,6 +71,51 @@ for required in (
 if kernel.count('acquire_kernel_mutation_lock') < 3:
     raise SystemExit('kernel mutation lock is not applied to remove-all and direct mutations')
 
+# Read-only observation belongs to the kernel authority and must remain usable
+# by the unprivileged manager. The coordinator forwards the query rather than
+# reconstructing deployment state or requiring an authentication prompt.
+for required in (
+    'if [[ $# -eq 2 && $1 == status ]]; then',
+    'native_source_digest_for()',
+    'source_stamp="$destination.source-sha256"',
+    "printf 'installed\\t%s\\t%s\\n'",
+):
+    if required not in kernel:
+        raise SystemExit(f'kernel state observation lost contract: {required}')
+if coordinator_code.index('if [[ $# -eq 2 && ( $1 == is-installed || $1 == status ) ]]') > coordinator_code.index('[[ ${EUID} -eq 0 ]]'):
+    raise SystemExit('read-only native state query was moved behind the privilege gate')
+for forbidden in ('/lib/modules/', '.source-sha256', 'native_source_digest_for'):
+    if forbidden in coordinator_code:
+        raise SystemExit(f'kernel state policy leaked into coordinator: {forbidden}')
+
+# Source freshness must describe the bytes that can actually affect a module.
+# Documentation/Kconfig changes are not runtime build inputs, and the shared
+# Linux compatibility header belongs in a filesystem digest only when that
+# filesystem source consumes it. This prevents unrelated changes from forcing
+# an unnecessary unload/rebuild of a current module.
+digest = kernel.split('native_source_digest_for() {', 1)[1].split(
+    'preferred_module_filename_for() {', 1)[0]
+for required in (
+    'uses_shared_linux_kernel_adapter()',
+    "-name 'Makefile'",
+    "-name '*.c'",
+    "-name '*.h'",
+    'if uses_shared_linux_kernel_adapter "$requested"; then',
+    'native/platform/linux_kernel/vfs_compat.h',
+):
+    if required not in kernel:
+        raise SystemExit(f'native source freshness lost exact-input contract: {required}')
+if '"native/platform/linux_kernel"' in digest:
+    raise SystemExit('native source freshness again hashes the shared adapter directory for every filesystem')
+for forbidden in ("-name 'README*'", "-name 'Kconfig'"):
+    if forbidden in digest:
+        raise SystemExit(f'non-build input entered native freshness digest: {forbidden}')
+install_block = kernel.split('install_native() {', 1)[1].split('remove_native() {', 1)[0]
+if '[[ -f "$source_platform/vfs_compat.h" ]]' in install_block:
+    raise SystemExit('all native modules again depend on the optional shared Linux adapter')
+if 'if uses_shared_linux_kernel_adapter "$filesystem"; then' not in install_block:
+    raise SystemExit('native build staging no longer follows the actual shared-adapter dependency')
+
 # Secure-Boot key discovery follows the declared Debian baseline and accepts
 # Ubuntu/Mint's distinct shim-signed location only as a derivative fallback.
 # The helper consumes an existing distribution signing identity; it must not
@@ -98,15 +143,19 @@ if 'NF == 2 && $1 == fs && $2 == mod' not in kernel_code:
     raise SystemExit('kernel helper does not enforce the exact native manifest schema')
 
 # Once old runtime state is unloaded, every persistent mutation and dependency
-# refresh is guarded by the same restoration path. Install and removal both own
-# recovery instead of relying on set -e to abandon a half-applied transaction.
+# refresh is guarded by the same restoration path. The source provenance stamp
+# is part of that persistent transaction; it may never describe different bytes
+# from the module image after either success or rollback.
 for required in (
     'fail_with_restore()',
     'restore_previous_state',
+    'local restore_runtime=$5',
+    'previous_stamp_copy',
     'if ! install -m 0644 "$built" "$destination"; then',
+    'if ! install -m 0644 "$tmp/current.source-sha256" "$source_stamp"; then',
     'if ! depmod -a "$kernel"; then',
     'if ! modprobe "$module"; then',
-    'if ! rm -f "$destination"; then',
+    'if ! rm -f "$destination" "$source_stamp"; then',
 ):
     if required not in kernel:
         raise SystemExit(f'kernel transaction lost recovery boundary: {required}')

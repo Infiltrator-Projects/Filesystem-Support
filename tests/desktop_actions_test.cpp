@@ -104,6 +104,7 @@ int main()
         }
 
         probe.project_native_installed = true;
+        probe.project_native_current = true;
         action = prepare_module_desktop_action(entry, probe);
         if (action.disposition != DesktopActionDisposition::Execute ||
             action.kind != DesktopActionKind::RemoveNativeModule ||

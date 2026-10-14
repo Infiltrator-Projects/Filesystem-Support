@@ -26,10 +26,17 @@ struct ProbeCache {
     std::unordered_set<std::string> builtin_modules;
     std::unordered_set<std::string> loadable_modules;
     std::unordered_map<std::string, KernelState> module_states;
-    std::unordered_map<std::string, std::string> preferred_module_files;
     std::string kernel_release;
     std::string package_inventory_error;
     std::string module_inventory_error;
+};
+
+struct NativeModuleObservation {
+    bool reliable = false;
+    bool installed = false;
+    bool current = false;
+    bool selected = false;
+    std::string error;
 };
 
 ProbeCache& probe_cache()
@@ -277,43 +284,80 @@ void load_package_inventory()
     }
 }
 
-std::string project_native_module_path(const std::string_view module)
+std::string native_state_helper_path()
 {
-    const std::string release = running_kernel_release();
-    if (release.empty() || module.empty()) {
-        return {};
-    }
+    static const char* const candidates[] = {
+        "/usr/lib/infiltrator-filesystem-support/native-module-helper",
+        "/usr/local/lib/infiltrator-filesystem-support/native-module-helper"
+    };
 
-    return "/lib/modules/" + release +
-           "/updates/infiltrator/" + std::string(module) + ".ko";
+    for (const char* const candidate : candidates) {
+        if (g_file_test(candidate, G_FILE_TEST_IS_REGULAR) &&
+            g_file_test(candidate, G_FILE_TEST_IS_EXECUTABLE)) {
+            return candidate;
+        }
+    }
+    return {};
 }
 
-std::string preferred_module_filename(const std::string_view module)
+NativeModuleObservation query_native_module_state(
+    const std::string_view filesystem_id)
 {
-    ProbeCache& cache = probe_cache();
-    const std::string name(module);
-    const auto found = cache.preferred_module_files.find(name);
-    if (found != cache.preferred_module_files.end()) {
-        return found->second;
+    NativeModuleObservation observation;
+    const std::string helper = native_state_helper_path();
+    if (helper.empty()) {
+        observation.error =
+            "The installed native-module state authority is unavailable.";
+        return observation;
     }
 
-    const auto result = run_command({
-        "modinfo",
-        "-F",
-        "filename",
-        name
+    const auto status = run_command({
+        helper,
+        "status",
+        std::string(filesystem_id)
     });
-    const std::string filename =
-        result.succeeded()
-            ? trim_ascii_whitespace(result.stdout_text)
-            : std::string();
-    if (!result.succeeded()) {
-        append_error(
-            &cache.module_inventory_error,
-            "Unable to resolve the kernel-selected module file for " + name + ".");
+    if (!status.succeeded()) {
+        observation.error = status.combined_output();
+        if (observation.error.empty()) {
+            observation.error = "Native-module state query failed.";
+        }
+        return observation;
     }
-    cache.preferred_module_files.emplace(name, filename);
-    return filename;
+
+    std::istringstream stream(trim_ascii_whitespace(status.stdout_text));
+    std::string presence;
+    std::string freshness;
+    std::string selection;
+    std::string extra;
+    if (!std::getline(stream, presence, '\t') ||
+        !std::getline(stream, freshness, '\t') ||
+        !std::getline(stream, selection, '\t') ||
+        std::getline(stream, extra, '\t')) {
+        observation.error = "Native-module state authority returned malformed data.";
+        return observation;
+    }
+
+    if (presence == "absent") {
+        if (freshness != "stale" || selection != "unselected") {
+            observation.error = "Native-module absent state was inconsistent.";
+            return observation;
+        }
+        observation.reliable = true;
+        return observation;
+    }
+
+    if (presence != "installed" ||
+        (freshness != "current" && freshness != "stale") ||
+        (selection != "selected" && selection != "unselected")) {
+        observation.error = "Native-module state authority returned unknown state.";
+        return observation;
+    }
+
+    observation.reliable = true;
+    observation.installed = true;
+    observation.current = freshness == "current";
+    observation.selected = selection == "selected";
+    return observation;
 }
 
 std::string join_names(const std::vector<std::string>& names)
@@ -446,26 +490,10 @@ bool module_available(const std::string_view module)
     return module_state(module) != KernelState::Missing;
 }
 
-bool project_native_module_installed(const std::string_view module)
-{
-    const std::string path = project_native_module_path(module);
-    return !path.empty() &&
-           g_file_test(path.c_str(), G_FILE_TEST_IS_REGULAR);
-}
-
-bool project_native_module_selected(const std::string_view module)
-{
-    const std::string path = project_native_module_path(module);
-    if (path.empty()) {
-        return false;
-    }
-
-    return preferred_module_filename(module) == path;
-}
-
 ProbeResult probe(const FilesystemDescriptor& descriptor)
 {
     ProbeResult result;
+    NativeModuleObservation native_observation;
 
     result.project_native_module = descriptor.project_native_linux;
     result.module_requirement_met = descriptor.modules.empty();
@@ -494,17 +522,20 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
     }
 
     if (descriptor.project_native_linux) {
+        native_observation = query_native_module_state(descriptor.id);
         if (descriptor.modules.size() == 1U) {
             result.module_name = std::string(descriptor.modules.front());
-            result.project_native_installed =
-                project_native_module_installed(descriptor.modules.front());
-            result.project_native_selected =
-                result.project_native_installed &&
-                project_native_module_selected(descriptor.modules.front());
+        }
+        if (native_observation.reliable) {
+            result.project_native_installed = native_observation.installed;
+            result.project_native_current = native_observation.current;
+            result.project_native_selected = native_observation.selected;
         }
 
         result.module_requirement_met =
+            native_observation.reliable &&
             result.project_native_installed &&
+            result.project_native_current &&
             result.project_native_selected &&
             (result.kernel_state == KernelState::LoadableLoaded ||
              result.kernel_state == KernelState::LoadableUnloaded);
@@ -540,7 +571,9 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
         !descriptor.modules.empty() && !cache.module_inventory_error.empty();
     const bool package_probe_failed =
         !descriptor.packages.empty() && !cache.package_inventory_error.empty();
-    if (module_probe_failed || package_probe_failed) {
+    const bool native_probe_failed =
+        descriptor.project_native_linux && !native_observation.reliable;
+    if (module_probe_failed || package_probe_failed || native_probe_failed) {
         result.reliable = false;
         result.state = SupportState::Incomplete;
         result.module_requirement_met = descriptor.modules.empty();
@@ -554,6 +587,9 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
         }
         if (package_probe_failed) {
             result.detail += " " + cache.package_inventory_error;
+        }
+        if (native_probe_failed) {
+            result.detail += " " + native_observation.error;
         }
         result.detail += " Actions are disabled until a successful refresh.";
         return result;
@@ -571,7 +607,12 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
                 join_names(result.missing_packages) + ".";
         }
     } else if (descriptor.project_native_linux &&
-               result.project_native_installed &&
+               !result.project_native_current) {
+        result.state = SupportState::Incomplete;
+        result.detail =
+            "The installed native module was built from different packaged "
+            "source. Update native support before treating it as current.";
+    } else if (descriptor.project_native_linux &&
                !result.project_native_selected) {
         result.state = SupportState::Incomplete;
         result.detail =
@@ -582,7 +623,7 @@ ProbeResult probe(const FilesystemDescriptor& descriptor)
                result.package_requirement_met) {
         result.state = SupportState::Ready;
         result.detail = descriptor.project_native_linux
-            ? "The Infiltrator native kernel module is installed for this kernel."
+            ? "The current Infiltrator native kernel module is installed for this kernel."
             : "Support is ready on this Debian system.";
     } else if (!result.unavailable_packages.empty()) {
         result.state = SupportState::Unavailable;

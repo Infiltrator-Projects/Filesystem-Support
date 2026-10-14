@@ -50,6 +50,8 @@ std::string support_detail_text(const FilesystemDescriptor& descriptor,
             detail += "Infiltrator native: ";
             if (!probe.project_native_installed) {
                 detail += "not installed";
+            } else if (!probe.project_native_current) {
+                detail += "installed, update required";
             } else if (!probe.project_native_selected) {
                 detail += "installed, not selected by kernel";
             } else {
@@ -128,14 +130,16 @@ ModuleActionPolicy module_action_policy(const FilesystemDescriptor& descriptor,
 
     if (descriptor.project_native_linux) {
         policy.button.enabled = true;
-        if (probe.project_native_installed) {
+        if (probe.project_native_installed && probe.project_native_current) {
             policy.action = ModuleActionKind::RemoveNative;
             policy.button.destructive = true;
             policy.button.label = "Remove native";
         } else {
             policy.action = ModuleActionKind::InstallNative;
             policy.button.primary = true;
-            policy.button.label = "Install native";
+            policy.button.label = probe.project_native_installed
+                ? "Update native"
+                : "Install native";
         }
         return policy;
     }
