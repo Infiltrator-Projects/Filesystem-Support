@@ -135,8 +135,9 @@ const std::vector<FilesystemIdentity>& filesystem_identities()
 NativeImplementationState windows_native_state(const std::string_view filesystem_id)
 {
     // EXT2 is the proving implementation for the shared-engine architecture.
-    // It is deliberately not installable until the canonical engine has
-    // replaced both the Linux-specific and former ExtFS implementations.
+    // Its canonical engine already serves both platform adapters; Windows
+    // remains non-installable until the IFS lifecycle, trust and runtime
+    // qualification contract is complete.
     if (filesystem_id == "ext2") {
         return NativeImplementationState::InProgress;
     }
