@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.28
+
+- Move the governing engineering philosophy into `docs/PHILOSOPHY.md` and update maintained documentation references.
+
 ## 0.5.27
 
 - Isolate source-contract scratch files so concurrent checks cannot overwrite each other's evidence.
