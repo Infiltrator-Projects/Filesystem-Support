@@ -94,14 +94,14 @@ jobs:
         run: |
           set -euo pipefail
           git clone https://github.com/Infiltrator-Projects/Defragmenter.git /tmp/defragger
-          git -C /tmp/defragger checkout c57f94fcc242a77170cb4175835222cab8f5c17c
+          git -C /tmp/defragger checkout 83c6c6f7bed72e1d040c6def478714144705ba2d
           git -C /tmp/defragger submodule update --init --recursive
           cmake -S /tmp/defragger/defragger -B /tmp/defrag-build \
             -G Ninja -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build /tmp/defrag-build --target \
-            linux-defragger-test-media-mkfs-ofs \
-            linux-defragger-test-media-mkfs-ffs \
-            linux-defragger-pfs3-native-test
+            defragmenter-test-media-mkfs-ofs \
+            defragmenter-test-media-mkfs-ffs \
+            defragmenter-pfs3-native-test
 
       - name: Manufacture independent Amiga media
         shell: bash
@@ -115,7 +115,7 @@ jobs:
             --variant sfs --output /tmp/sfs.img --blocks 4096 --volume RuntimeSFS
           python3 tools/generate-sfs-runtime-images.py \
             --variant sfs2 --output /tmp/sfs2.img --blocks 4096 --volume RuntimeSFS2
-          /tmp/defrag-build/linux-defragger-pfs3-native-test \
+          /tmp/defrag-build/defragmenter-pfs3-native-test \
             --write-fixture /tmp/pfs3.img fragmented
           test -s /tmp/ofs.img
           test -s /tmp/ffs.img
