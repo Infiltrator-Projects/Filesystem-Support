@@ -9,7 +9,7 @@
 #include <unordered_set>
 #include <utility>
 
-namespace filesystem_support {
+namespace filesystems {
 namespace {
 
 bool safe_catalog_token(const std::string_view value)
@@ -269,4 +269,4 @@ bool catalog_is_valid()
     return true;
 }
 
-} // namespace filesystem_support
+} // namespace filesystems

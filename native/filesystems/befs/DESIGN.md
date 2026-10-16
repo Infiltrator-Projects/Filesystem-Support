@@ -3,7 +3,7 @@
 ## Classification
 
 BeFS is the BeOS filesystem and is a conventional local block filesystem.
-Filesystem Support therefore applies the normal canonical-engine architecture:
+Filesystems therefore applies the normal canonical-engine architecture:
 
 ```text
                   befs/core/
@@ -37,7 +37,7 @@ BeFS is currently **reference/import state**.
 
 The source under `reference/linux/` is the pinned upstream Linux BeFS driver.
 It is primarily useful as a mature read-oriented compatibility reference for
-legacy BeOS media. Filesystem Support does not claim that source as its own
+legacy BeOS media. Filesystems does not claim that source as its own
 implementation.
 
 The reference tree keeps its upstream SPDX identifiers, copyrights, filenames,

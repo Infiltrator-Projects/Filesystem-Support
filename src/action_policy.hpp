@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-namespace filesystem_support {
+namespace filesystems {
 
 enum class PackageActionKind {
     None,
@@ -49,4 +49,4 @@ PackageActionPolicy package_action_policy(const FilesystemDescriptor& descriptor
 ModuleActionPolicy module_action_policy(const FilesystemDescriptor& descriptor,
                                         const ProbeResult& probe);
 
-} // namespace filesystem_support
+} // namespace filesystems

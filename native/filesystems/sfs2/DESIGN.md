@@ -180,9 +180,9 @@ Both root copies are validated independently before sequence selection.
 
 The checksum field is zero during calculation and SFS words are interpreted in big-endian form. SmartFilesystem 1.279-compatible output uses a whole-block sum of `0xFFFFFFFE` for `SFS\2`, one less than the `0xFFFFFFFF` SFS0 convention.
 
-This is a material format distinction. Filesystem Support's SFS2 checksum generator now targets a whole-block sum of `0xFFFFFFFE`, and the core test checks that exact invariant rather than merely testing self-consistency.
+This is a material format distinction. the Filesystems SFS2 checksum generator now targets a whole-block sum of `0xFFFFFFFE`, and the core test checks that exact invariant rather than merely testing self-consistency.
 
-## Filesystem Support source design
+## Filesystems source design
 
 Current state:
 
@@ -224,7 +224,7 @@ The user-visible compatibility baseline is:
 
 ### Encoded width versus supported limit
 
-The current Filesystem Support core models the SFS2 file-size field as 48 bits (`high_32 + low_16`) and therefore has a much larger numerical encoding ceiling than 1 TiB.
+The current Filesystems core models the SFS2 file-size field as 48 bits (`high_32 + low_16`) and therefore has a much larger numerical encoding ceiling than 1 TiB.
 
 That 48-bit encoding ceiling is not the same thing as the officially supported SFS2 file-size limit. The design document must preserve both facts:
 
@@ -237,13 +237,13 @@ The writer must not advertise the full 48-bit numerical range until authoritativ
 
 The low-level structure gap from the first documentation pass is now closed for the public/primary implementation surface. Object/container, hash, node, B-tree, bitmap, admin-space, soft-link and transaction block families were cross-checked against the AROS SFS implementation, while the exact SFS2 deltas and empty-volume output were cross-checked against a formatter documented as byte-for-byte verified against SmartFilesystem 1.279.
 
-That closes the documentation gap. It does not mean the current Filesystem Support SFS2 core implements every writer path; implementation completeness remains a separate engineering and qualification status.
+That closes the documentation gap. It does not mean the current Filesystems SFS2 core implements every writer path; implementation completeness remains a separate engineering and qualification status.
 
 ### Compatibility warning
 
 Historical "SFS2" implementations existed before the large-file SFS\2 format used by later SFS releases. Contemporary SFS release notes explicitly warned that the newer SFS\2 format was not compatible with older SFS2 variants. Qualification fixtures must therefore record the producing implementation/version and not assume every volume labelled "SFS2" shares one disk format.
 
-## Design rules used by Filesystem Support
+## Design rules used by Filesystems
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.
 - `linux/` is a Linux VFS/block-device/module adapter, not a second filesystem implementation.
@@ -263,4 +263,4 @@ A filesystem is not considered complete merely because it compiles. Qualificatio
 - SFS2 handler-compatible layout deltas and format topology: `ChuckyGang/AmiPart/src/nativefmt.c`, documented there as byte-for-byte verified against SmartFilesystem 1.279 under AmiFUSE.
 - Independent parser corroboration: `aaru-dps/Aaru/Aaru.Filesystems/SFS/` for version 4, 27-byte object layout, `sizeh` position and 48-bit file-size assembly.
 
-These sources establish the documented structure surface. Handler-produced real-media fixtures remain required before Filesystem Support advertises complete writable support.
+These sources establish the documented structure surface. Handler-produced real-media fixtures remain required before Filesystems advertises complete writable support.

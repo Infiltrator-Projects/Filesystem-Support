@@ -3,7 +3,7 @@
 ## Classification
 
 The Minix filesystem family (v1, v2 and v3) is a conventional local block
-filesystem. Filesystem Support therefore applies the one-canonical-filesystem
+filesystem. Filesystems therefore applies the one-canonical-filesystem
 architecture: format and filesystem semantics belong in a host-neutral core,
 with thin operating-system adapters around that core.
 
@@ -11,7 +11,7 @@ with thin operating-system adapters around that core.
 
 Minix is currently **reference/import state**.
 
-Filesystem Support does not claim the imported Linux Minix implementation as
+Filesystems does not claim the imported Linux Minix implementation as
 project-authored code. The pinned upstream source is retained unchanged beneath
 `reference/linux/` as compatibility, format and failure-behaviour evidence.
 
@@ -69,7 +69,7 @@ three unrelated host implementations.
 Upstream files such as `inode.c`, `namei.c`, `bitmap.c` and
 `itree_*.c` remain unchanged only under `reference/linux/`.
 
-Project-authored source must be cut around Filesystem Support responsibilities
+Project-authored source must be cut around Filesystems responsibilities
 and portable Minix invariants. Moving, renaming, merging or recommenting copied
 Linux source is never evidence that it has crossed the authorship boundary.
 
@@ -98,6 +98,6 @@ but must never overwrite future project-owned implementation directories.
 
 ## Completion rule
 
-The current tree is reference evidence only. Minix is not a Filesystem Support
+The current tree is reference evidence only. Minix is not a Filesystems
 native implementation until a canonical project-authored engine and applicable
 adapter are independently implemented and qualified.

@@ -6,7 +6,7 @@ set -euo pipefail
 source_root=$(realpath "$1")
 work=$(mktemp -d)
 module_dir="/lib/modules/$(uname -r)/updates/infiltrator"
-helper=/usr/lib/infiltrator-filesystem-support/desktop-integration
+helper=/usr/lib/filesystems/desktop-integration
 kind=
 loop=
 cleanup() {

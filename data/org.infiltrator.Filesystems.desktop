@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Filesystem Support
+Name=Filesystems
 Comment=Discover and install filesystem support
-Exec=filesystem-support
+Exec=filesystems
 Icon=drive-harddisk
 Terminal=false
 Categories=System;Settings;

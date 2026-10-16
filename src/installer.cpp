@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 namespace {
 
 constexpr const char* kAptGet = "/usr/bin/apt-get";
@@ -303,8 +303,8 @@ bool packages_are_catalogued(const std::vector<std::string>& packages,
 std::string native_module_helper_path()
 {
     static const char* const candidates[] = {
-        "/usr/lib/infiltrator-filesystem-support/native-module-helper",
-        "/usr/local/lib/infiltrator-filesystem-support/native-module-helper"
+        "/usr/lib/filesystems/native-module-helper",
+        "/usr/local/lib/filesystems/native-module-helper"
     };
 
     for (const char* const path : candidates) {
@@ -555,8 +555,8 @@ void install_native_module_async(const std::string& filesystem_id,
     if (helper.empty()) {
         completion(
             false,
-            "The Filesystem Support native-module helper is not installed. "
-            "Reinstall Filesystem Support from the current package.");
+            "The Filesystems native-module helper is not installed. "
+            "Reinstall Filesystems from the current package.");
         return;
     }
 
@@ -579,8 +579,8 @@ void remove_native_module_async(const std::string& filesystem_id,
     if (helper.empty()) {
         completion(
             false,
-            "The Filesystem Support native-module helper is not installed. "
-            "Reinstall Filesystem Support from the current package.");
+            "The Filesystems native-module helper is not installed. "
+            "Reinstall Filesystems from the current package.");
         return;
     }
 
@@ -590,4 +590,4 @@ void remove_native_module_async(const std::string& filesystem_id,
         std::move(completion));
 }
 
-} // namespace filesystem_support
+} // namespace filesystems

@@ -1,6 +1,10 @@
-# Filesystem Support
+# Filesystems
 
-Filesystem Support is the InfiltratorOS filesystem capability and integration manager. It owns the catalogue of real persistent local-storage filesystem formats that InfiltratorOS can recognise, install support for and, as each format is qualified, use as the filesystem beneath an InfiltratorOS installation.
+Filesystems is the InfiltratorOS filesystem capability and integration manager. It owns the catalogue of real persistent local-storage filesystem formats that InfiltratorOS can recognise, install support for and, as each format is qualified, use as the filesystem beneath an InfiltratorOS installation.
+
+The application and repository are named **Filesystems**. **Boot** starts the
+selected operating system, and **Setup** is the name reserved for the future
+installer. **InfiltratorFS** remains a distinct filesystem format in the catalogue.
 
 The authoritative source/release version is stored in [`VERSION`](VERSION). Published releases use the corresponding `v<version>` tag only after that exact source revision and its release artefacts have completed qualification.
 
@@ -16,15 +20,15 @@ Out of scope are network and cloud mounts, distributed client protocols that do 
 
 Provider choice is subordinate to filesystem identity. NTFS is one filesystem whether the current Linux access path is NTFS-3G, NTFS3 or a future Infiltrator-owned adapter. APFS is one filesystem whether accessed through a FUSE reference provider or a kernel driver. The user chooses a format, not an implementation brand.
 
-The complete enumerated contract is maintained in [`docs/FILESYSTEM_SUPPORT_MATRIX.md`](docs/FILESYSTEM_SUPPORT_MATRIX.md). CI verifies that every compiled catalogue ID appears there exactly once.
+The complete enumerated contract is maintained in [`docs/FILESYSTEMS_MATRIX.md`](docs/FILESYSTEMS_MATRIX.md). CI verifies that every compiled catalogue ID appears there exactly once.
 
 ## Two product surfaces, one identity contract
 
-Filesystem Support has different presentation contexts that consume the same stable filesystem identities while keeping platform-specific support policy separate.
+Filesystems has different presentation contexts that consume the same stable filesystem identities while keeping platform-specific support policy separate.
 
 The normal **desktop manager** combines the identity contract with Linux support policy: it discovers support already present on the running system, installs or removes the current provider for a filesystem, loads or unloads eligible kernel modules, reports limitations and integrates supported formats with the desktop storage stack.
 
-The **InfiltratorOS setup shell** is deliberately a different interface. During operating-system installation it asks which qualified filesystem should be used for the target storage and then drives the installation transaction through Filesystem Support's setup capability contract. Windows, EFI and setup consumers use the identity-only API rather than inheriting Debian package or Linux module policy.
+The planned **Setup** installer has its own interface. During operating-system installation it will ask which qualified filesystem should be used for the target storage and drive the installation transaction through the Filesystems setup capability contract. Windows, EFI and setup consumers use the identity-only API rather than inheriting Debian package or Linux module policy.
 
 The intended setup flow is:
 
@@ -48,7 +52,7 @@ The setup surface exposes only filesystems whose complete install path is qualif
 
 ## Support discovery
 
-Filesystem Support treats support as a capability that must be observed rather than assumed.
+Filesystems treats support as a capability that must be observed rather than assumed.
 
 The Linux manager scans the running system for:
 
@@ -118,7 +122,7 @@ The central Infiltrator repository publication path accepts only an exact qualif
 
 Key contracts are documented under `docs/`, including:
 
-- `FILESYSTEM_SUPPORT_MATRIX.md` — enumerated filesystem contract and status;
+- `FILESYSTEMS_MATRIX.md` — enumerated filesystem contract and status;
 - `BRITTLENESS_REDUCTION.md` — ownership, transaction, coupling and failure-reporting boundaries;
 - platform/build/runtime qualification documents and implementation notes.
 

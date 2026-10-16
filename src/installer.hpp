@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 
 using ActionCompletion = std::function<void(bool, const std::string&)>;
 
@@ -43,4 +43,4 @@ void remove_native_module_async(const std::string& filesystem_id,
                                 const std::string& module,
                                 ActionCompletion completion);
 
-} // namespace filesystem_support
+} // namespace filesystems

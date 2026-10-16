@@ -3,7 +3,7 @@
 ## Classification
 
 NILFS2 is a conventional local log-structured block filesystem with continuous
-checkpoint/snapshot and segment-cleaning semantics. Filesystem Support therefore
+checkpoint/snapshot and segment-cleaning semantics. Filesystems therefore
 applies the one-canonical-filesystem architecture.
 
 ## Current implementation state
@@ -12,7 +12,7 @@ NILFS2 is currently **reference/import state**.
 
 The Linux NILFS2 implementation beneath `reference/linux/` is pinned upstream
 source retained as format, interoperability and recovery evidence. It is not
-project-authored Filesystem Support code. Its original filenames, licences and
+project-authored Filesystems code. Its original filenames, licences and
 source boundaries remain intact.
 
 Moving that source out of the retired `kernel/` staging directory is
@@ -76,6 +76,6 @@ but must never overwrite future project-owned implementation directories.
 
 ## Completion rule
 
-The current tree is reference evidence only. NILFS2 is not a Filesystem Support
+The current tree is reference evidence only. NILFS2 is not a Filesystems
 native implementation until the canonical core and applicable adapter are
 independently implemented and qualified.

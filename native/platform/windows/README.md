@@ -1,7 +1,7 @@
 # Windows native platform adapter
 
 This directory is the Windows operating-system boundary for canonical
-Filesystem Support engines.
+Filesystems engines.
 
 It must contain only Windows integration: IFS/WDK lifecycle, IRP dispatch,
 VCB/FCB/CCB ownership, Cache Manager and Memory Manager integration, Windows

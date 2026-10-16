@@ -1,6 +1,6 @@
 # Architecture
 
-Filesystem Support is the shared filesystem-capability backend for both the normal InfiltratorOS desktop manager and the InfiltratorOS installation shell.
+Filesystems is the shared filesystem-capability backend for both the normal InfiltratorOS desktop manager and the InfiltratorOS installation shell.
 
 ## Scope boundary
 
@@ -35,7 +35,7 @@ Project-native runtime state also has one authority. `packaging/linux/kernel-mod
 
 ## Core layers
 
-Filesystem Support is split into backend responsibilities plus presentation shells.
+Filesystems is split into backend responsibilities plus presentation shells.
 
 1. **Filesystem identity contract** owns stable on-media format identity exposed through `filesystem_identities()`.
 2. **Linux catalogue and capability policy** owns current Debian provider requirements, kernel-module aliases, limitations and qualification state for the Linux manager.
@@ -44,7 +44,7 @@ Filesystem Support is split into backend responsibilities plus presentation shel
 5. **Filesystem implementation boundary** owns canonical format semantics and the platform adapters needed to expose them to Linux, Windows and the boot environment.
 6. **Presentation shells** consume the appropriate boundary. The desktop GTK shell manages Linux support on a running system. Windows consumes filesystem identity plus Windows implementation state. The setup shell must consume identity and explicit setup qualification rather than Linux desktop provider state.
 
-The baseline Linux distribution is Debian stable. Filesystem Support must not silently add repositories, enable repository components or cross from stable into testing/unstable/experimental.
+The baseline Linux distribution is Debian stable. Filesystems must not silently add repositories, enable repository components or cross from stable into testing/unstable/experimental.
 
 ## Desktop support state
 
@@ -132,6 +132,6 @@ Package removal is simulated first. The backend refuses removal if Debian would 
 
 ## Shared code
 
-Infiltratr Common is pinned as a git submodule. Filesystem Support consumes appropriate project identity/search/design infrastructure from Common, but the userspace Common library is never linked into kernel modules.
+Infiltratr Common is pinned as a git submodule. Filesystems consumes appropriate project identity/search/design infrastructure from Common, but the userspace Common library is never linked into kernel modules.
 
 The canonical filesystem engine boundary and native source rules are defined in [`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md). The long-term product and bootable-root vision is defined in [`NATIVE_FILESYSTEM_VISION.md`](NATIVE_FILESYSTEM_VISION.md).

@@ -133,17 +133,15 @@ def main():
     if args.package:
         def field(name):
             return subprocess.check_output(["dpkg-deb", "-f", str(args.package), name], text=True).strip()
-        assert field("Package") == "infiltrator-filesystem-support"
-        assert field("Conflicts") == "infiltrator-filesystem-support-udisks"
-        assert "infiltrator-filesystem-support-udisks" not in field("Depends")
-        for name in ("Provides", "Replaces", "Breaks"):
+        assert field("Package") == "filesystems"
+        for name in ("Provides", "Replaces", "Breaks", "Conflicts"):
             assert not field(name), (name, field(name))
         assert "libudisks2-0" in field("Depends")
         assert "gnome-disk-utility" in field("Depends")
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(["dpkg-deb", "-R", str(args.package), directory], check=True)
             root = Path(directory)
-            templates = root / "usr/lib/infiltrator-filesystem-support/desktop/templates"
+            templates = root / "usr/lib/filesystems/desktop/templates"
             for kind in ("ofs", "ffs", "sfs", "sfs2", "pfs3"):
                 assert (templates / f"{kind}.so").is_file()
                 assert (templates / f"{kind}.rules").is_file()
@@ -151,7 +149,7 @@ def main():
                 assert f"--filesystem {kind} /dev/%k" in rule
             assert (templates / "gnome-disks").is_file()
             assert (templates / "nemo").is_file()
-            assert not (root / "usr/lib/infiltrator-filesystem-support/desktop/active").exists()
+            assert not (root / "usr/lib/filesystems/desktop/active").exists()
             assert not list(root.glob("usr/lib/*/libudisks*"))
             assert not list(root.glob("usr/share/doc/libudisks*"))
             assert not (root / "usr/bin/gnome-disks").exists()

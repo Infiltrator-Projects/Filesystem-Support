@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#ifndef FILESYSTEM_SUPPORT_EXT2_WINDOWS_DRIVER_H
-#define FILESYSTEM_SUPPORT_EXT2_WINDOWS_DRIVER_H
+#ifndef FILESYSTEMS_EXT2_WINDOWS_DRIVER_H
+#define FILESYSTEMS_EXT2_WINDOWS_DRIVER_H
 
 #include <ntifs.h>
 #include <ntdddisk.h>

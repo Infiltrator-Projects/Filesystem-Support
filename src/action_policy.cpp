@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "action_policy.hpp"
 
-namespace filesystem_support {
+namespace filesystems {
 namespace {
 
 std::string_view install_label(const FilesystemDescriptor& descriptor)
@@ -173,4 +173,4 @@ ModuleActionPolicy module_action_policy(const FilesystemDescriptor& descriptor,
     return policy;
 }
 
-} // namespace filesystem_support
+} // namespace filesystems

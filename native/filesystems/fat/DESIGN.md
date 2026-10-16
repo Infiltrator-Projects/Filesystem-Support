@@ -11,7 +11,7 @@ implementations.
 
 FAT is currently **reference/import state**. The pinned Linux FAT/VFAT/MS-DOS
 implementation is preserved under `reference/linux/` with upstream licensing
-and provenance. It is not project-authored Filesystem Support code.
+and provenance. It is not project-authored Filesystems code.
 
 ## Current directory contract
 

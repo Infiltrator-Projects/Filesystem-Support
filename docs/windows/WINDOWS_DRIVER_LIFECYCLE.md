@@ -36,7 +36,7 @@ embedded-signed so its hashes describe the exact shipped bytes. Signature
 inspection must be bounded and must verify catalogue membership.
 
 Production distribution must follow Microsoft's supported driver-signing
-process. Filesystem Support must not instruct production users to disable
+process. Filesystems must not instruct production users to disable
 Secure Boot or enable TESTSIGNING. A production installer must verify the
 trusted signature and target architecture before changing driver state.
 
@@ -96,7 +96,7 @@ helpers.
 
 The former ExtFS NSIS setup, EXT-specific service names, self-signed release
 installers and standalone publication workflows are retired. Their durable
-safety rules have been classified into the live Filesystem Support architecture,
+safety rules have been classified into the live Filesystems architecture,
 build and qualification contracts. Historical provenance is recoverable from
 the recorded migration baseline and repository/release history; there is no
 live migration archive that may be compiled or treated as a compatibility

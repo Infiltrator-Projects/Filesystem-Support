@@ -1,4 +1,4 @@
-# Filesystem Support project-native Linux deployment manifest
+# Filesystems project-native Linux deployment manifest
 # id	module
 # Desktop integration membership is owned by data/desktop-filesystems.tsv.
 ext2	ext2

@@ -6,7 +6,7 @@ HFS+ (Mac OS Extended) and HFSX are conventional local block filesystems.
 HFSX is the case-sensitive variant of the same filesystem family; it is not a
 second independent filesystem implementation.
 
-Filesystem Support therefore applies the canonical local-filesystem
+Filesystems therefore applies the canonical local-filesystem
 architecture:
 
 ```text
@@ -23,7 +23,7 @@ architecture:
 
 HFS+ is currently **reference/import state**.
 
-There is no project-authored HFS+ canonical engine and no Filesystem Support
+There is no project-authored HFS+ canonical engine and no Filesystems
 HFS+ native driver claimed by this directory. The source under
 `reference/linux/` is the pinned upstream Linux HFS+ implementation copied by
 the reference-refresh workflow.
@@ -33,7 +33,7 @@ implementation boundaries. Moving the reference source beneath
 `reference/linux/` is provenance/layout hygiene only; it does not turn that
 implementation into project-authored code.
 
-The reference tree is not the permanent Filesystem Support source architecture.
+The reference tree is not the permanent Filesystems source architecture.
 
 ## Current directory layout
 
@@ -103,7 +103,7 @@ The upstream reference filenames such as `btree.c`, `catalog.c`,
 `extents.c`, `inode.c`, `super.c`, `unicode.c` and `xattr.c` remain
 unchanged under `reference/linux/` so their provenance is obvious.
 
-Project-authored HFS+ files must be cut around Filesystem Support
+Project-authored HFS+ files must be cut around Filesystems
 responsibilities and portable invariants. Copying, renaming, merging,
 recommenting or moving an upstream file is never evidence that its
 implementation has been rewritten.
@@ -149,6 +149,6 @@ never overwrite future project-authored `core/`, `linux/`, `windows/` or
 
 ## Completion rule
 
-A Filesystem Support HFS+ implementation is not claimed until a canonical core
+A Filesystems HFS+ implementation is not claimed until a canonical core
 and at least one adapter have independent implementation and qualification
 evidence. The current reference tree is evidence only.

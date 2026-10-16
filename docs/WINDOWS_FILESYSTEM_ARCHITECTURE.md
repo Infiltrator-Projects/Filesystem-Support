@@ -2,13 +2,13 @@
 
 ## Decision
 
-Filesystem Support owns one canonical implementation of each project-native filesystem. Filesystem-specific semantics are implemented once; Linux and Windows provide operating-system adapters around that implementation and must not maintain competing interpretations of the on-disk format.
+Filesystems owns one canonical implementation of each project-native filesystem. Filesystem-specific semantics are implemented once; Linux and Windows provide operating-system adapters around that implementation and must not maintain competing interpretations of the on-disk format.
 
 EXT2 is the current Windows proving implementation. The architecture is extended to another filesystem only when the common host contract is strong enough for that filesystem without weakening its semantics or moving format-specific policy into a generic layer.
 
 ## Product boundary
 
-Filesystem Support owns:
+Filesystems owns:
 
 - stable filesystem identities and capability presentation;
 - canonical per-filesystem engines where the project has native ownership;
@@ -125,7 +125,7 @@ EXT3 and EXT4 remain distinct filesystem implementations. They are not Windows a
 
 ## Driver module model
 
-Each qualified Windows filesystem is an independently installable filesystem-driver package. Binary naming may carry the `filesystem_support_` prefix required by the build/package system; module identity is subordinate to the filesystem identity rather than a reason to create another format identity.
+Each qualified Windows filesystem is an independently installable filesystem-driver package. Binary naming may carry the `filesystems_` prefix required by the build/package system; module identity is subordinate to the filesystem identity rather than a reason to create another format identity.
 
 A filesystem-specific Windows driver may link its canonical `core/` plus reusable Windows mechanisms. It must not copy a historical Windows filesystem implementation and then diverge it per filesystem.
 
@@ -164,4 +164,4 @@ The live lifecycle requirements are maintained in [`windows/WINDOWS_DRIVER_LIFEC
 
 ## Linux boundary
 
-No Windows development exception changes Linux ownership. Where Filesystem Support ships a project-owned Linux VFS module, Linux Install/Remove manages that real module. It must not substitute FUSE, a loopback network share, an image mounter or administration tools and report them as native support.
+No Windows development exception changes Linux ownership. Where Filesystems ships a project-owned Linux VFS module, Linux Install/Remove manages that real module. It must not substitute FUSE, a loopback network share, an image mounter or administration tools and report them as native support.

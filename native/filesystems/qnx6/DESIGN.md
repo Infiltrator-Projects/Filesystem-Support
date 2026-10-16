@@ -2,7 +2,7 @@
 
 ## Classification
 
-QNX6 Power-Safe is a conventional local block filesystem. Filesystem Support
+QNX6 Power-Safe is a conventional local block filesystem. Filesystems
 therefore applies the standard canonical-engine architecture:
 
 ```text
@@ -23,7 +23,7 @@ their adapters.
 
 QNX6 is currently **reference/import state**.
 
-There is no project-authored canonical QNX6 engine and no Filesystem Support
+There is no project-authored canonical QNX6 engine and no Filesystems
 QNX6 native driver claimed by this directory. The source under
 `reference/linux/` is the pinned upstream Linux QNX6 implementation copied by
 `.github/workflows/import-linux-filesystems.yml`.
@@ -33,7 +33,7 @@ boundaries. They are evidence about QNX6 interoperability, not project-authored
 production code.
 
 The former top-level `kernel/` staging path was misleading because unchanged
-upstream Linux source appeared to be a Filesystem Support native module. The
+upstream Linux source appeared to be a Filesystems native module. The
 reference source is therefore kept behind the explicit provenance boundary.
 
 ## Current directory layout
@@ -110,6 +110,6 @@ the imported reference tree and must never overwrite future project-owned
 
 ## Completion rule
 
-The current tree is reference evidence only. QNX6 becomes a Filesystem Support
+The current tree is reference evidence only. QNX6 becomes a Filesystems
 first-party implementation only when the canonical engine and applicable host
 adapter have independent implementation and qualification evidence.

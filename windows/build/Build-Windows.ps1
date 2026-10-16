@@ -28,35 +28,35 @@ $cmake = Find-CMake
 $ctest = Find-CTest
 $generatorPlatform = if ($Platform -eq 'ARM64') { 'ARM64' } else { 'x64' }
 
-Write-Host "Filesystem Support Windows build"
+Write-Host "Filesystems Windows build"
 Write-Host "Root:          $root"
 Write-Host "Build:         $buildRoot"
 Write-Host "Configuration: $Configuration"
 Write-Host "Platform:      $Platform"
 
-& $cmake -S $root -B $buildRoot -A $generatorPlatform -DFILESYSTEM_SUPPORT_WARNINGS_AS_ERRORS=ON
+& $cmake -S $root -B $buildRoot -A $generatorPlatform -DFILESYSTEMS_WARNINGS_AS_ERRORS=ON
 if ($LASTEXITCODE -ne 0) {
     throw "CMake configure failed with exit code $LASTEXITCODE."
 }
 
-& $cmake --build $buildRoot --config $Configuration --target filesystem-support
+& $cmake --build $buildRoot --config $Configuration --target filesystems
 if ($LASTEXITCODE -ne 0) {
-    throw "Filesystem Support manager build failed with exit code $LASTEXITCODE."
+    throw "Filesystems manager build failed with exit code $LASTEXITCODE."
 }
 
 if (-not $SkipTests) {
     & $ctest --test-dir $buildRoot -C $Configuration --output-on-failure
     if ($LASTEXITCODE -ne 0) {
-        throw "Filesystem Support Windows tests failed with exit code $LASTEXITCODE."
+        throw "Filesystems Windows tests failed with exit code $LASTEXITCODE."
     }
 }
 
-$manager = Get-ChildItem -LiteralPath $buildRoot -Filter 'filesystem-support.exe' -File -Recurse -ErrorAction SilentlyContinue |
+$manager = Get-ChildItem -LiteralPath $buildRoot -Filter 'filesystems.exe' -File -Recurse -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTimeUtc -Descending |
     Select-Object -First 1
 
 if (-not $manager) {
-    throw 'Build completed but filesystem-support.exe could not be located.'
+    throw 'Build completed but filesystems.exe could not be located.'
 }
 
 Write-Host ''

@@ -10,7 +10,7 @@ read-only.
 
 EFS is currently **reference/import state**. The pinned Linux implementation is
 preserved under `reference/linux/` with its original licensing, provenance
-and source boundaries. Filesystem Support does not claim it as project-authored
+and source boundaries. Filesystems does not claim it as project-authored
 code.
 
 ## Current directory contract

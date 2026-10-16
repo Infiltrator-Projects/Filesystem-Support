@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Filesystem Support owns one EXT3 implementation.
+Filesystems owns one EXT3 implementation.
 
 EXT3 extends the EXT2 block-group family with JBD transactional durability and
 recovery. The journal is part of EXT3 correctness; it is not an optional wrapper
@@ -14,7 +14,7 @@ Linux deployment produces exactly one independently deployable module:
 ext3.ko
 ```
 
-The journal implementation is embedded in that module. Filesystem Support does
+The journal implementation is embedded in that module. Filesystems does
 not deploy a separate `jbd.ko` or metadata-cache helper module.
 
 ## Permanent responsibility layout
@@ -59,7 +59,7 @@ The historical Linux migration boundaries such as `balloc.c`, `ialloc.c`,
 active file boundaries.
 
 Those names may remain useful when studying historical implementations, but
-they are not the Filesystem Support architecture and must not be restored merely
+they are not the Filesystems architecture and must not be restored merely
 to resemble Linux source organization.
 
 ## Canonical core

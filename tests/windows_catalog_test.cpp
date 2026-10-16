@@ -17,23 +17,23 @@ int fail(const char* message)
 
 int main()
 {
-    const auto& entries = filesystem_support::filesystem_identities();
+    const auto& entries = filesystems::filesystem_identities();
     if (entries.empty()) {
         return fail("identity catalogue is empty");
     }
 
     bool found_ext2 = false;
     for (const auto& entry : entries) {
-        const auto state = filesystem_support::windows_native_state(entry.id);
+        const auto state = filesystems::windows_native_state(entry.id);
         const bool installable =
-            filesystem_support::windows_native_installable(entry.id);
+            filesystems::windows_native_installable(entry.id);
 
         if (entry.id == std::string_view("ext2")) {
             found_ext2 = true;
-            if (state != filesystem_support::NativeImplementationState::InProgress) {
+            if (state != filesystems::NativeImplementationState::InProgress) {
                 return fail("EXT2 must remain in progress until shared-engine qualification");
             }
-        } else if (state != filesystem_support::NativeImplementationState::NotImplemented) {
+        } else if (state != filesystems::NativeImplementationState::NotImplemented) {
             std::cerr << "windows_catalog_test: unexpected Windows implementation state for "
                       << entry.id << '\n';
             return 1;

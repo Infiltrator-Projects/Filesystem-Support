@@ -8,7 +8,7 @@ userspace and read-only through `vmfs6-tools`.
 
 ## Current implementation state
 
-Filesystem Support contains no first-party VMFS6 implementation. The current
+Filesystems contains no first-party VMFS6 implementation. The current
 product path is the external read-only userspace provider managed through the
 catalogue/action backend.
 

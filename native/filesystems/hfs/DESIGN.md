@@ -10,7 +10,7 @@ architecture.
 
 HFS is currently **reference/import state**. The pinned upstream Linux HFS
 source under `reference/linux/` is preserved as compatibility evidence and is
-not project-authored Filesystem Support code.
+not project-authored Filesystems code.
 
 ## Target layout
 

@@ -4,7 +4,7 @@
 
 PFS3 is an Amiga filesystem family based around reserved metadata blocks, anodes, directory blocks, optional extension metadata and mode bits controlling format capabilities.
 
-Filesystem Support's canonical PFS3 core currently recognises PFS1/PFS2 disk identities used by the supported format family and validates the structures required to extend toward a complete PFS3 implementation.
+the Filesystems canonical PFS3 core currently recognises PFS1/PFS2 disk identities used by the supported format family and validates the structures required to extend toward a complete PFS3 implementation.
 
 ## Disk identity
 
@@ -13,7 +13,7 @@ Recognised disk types include:
 - `PFS\1` — `0x50465301`;
 - `PFS\2` — `0x50465302`.
 
-The root record carries an option/mode word. Filesystem Support defines mode bits for:
+The root record carries an option/mode word. Filesystems defines mode bits for:
 
 - hard-disk layout;
 - split anodes;
@@ -142,7 +142,7 @@ The root tracks both normal free blocks and an always-free reserve. Allocation m
 
 A roving pointer allows the allocator to avoid restarting every search at block zero. Extended-roving mode adds more detailed state in the extension record.
 
-## Filesystem Support source design
+## Filesystems source design
 
 Current state:
 
@@ -202,7 +202,7 @@ The original guide specifies 1024-byte reserved blocks even when the device/logi
 
 The root datestamp is an update counter, not merely wall-clock time. Reserved metadata blocks carry related datestamps so repair tools can order versions of metadata.
 
-PFS3's consistency design uses atomic metadata-state transitions. A complete Filesystem Support writer therefore needs to model metadata version/publication order, not only decode individual valid blocks.
+PFS3's consistency design uses atomic metadata-state transitions. A complete Filesystems writer therefore needs to model metadata version/publication order, not only decode individual valid blocks.
 
 ### Block IDs
 
@@ -367,7 +367,7 @@ The original hard-disk structure guide describes the root/boot identity `PFS\1`.
 
 Those namespaces must not be conflated: the handler identifier used to select a filesystem implementation and the root block's on-disk identity are related but are not always the same value.
 
-## Design rules used by Filesystem Support
+## Design rules used by Filesystems
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.
 - `linux/` is a Linux VFS/block-device/module adapter, not a second filesystem implementation.

@@ -32,7 +32,7 @@ on:
         type: string
 
 concurrency:
-  group: filesystem-support-amiga-runtime-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'workflow_call' && inputs.sha || github.sha) }}
+  group: filesystems-amiga-runtime-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'workflow_call' && inputs.sha || github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - name: Checkout Filesystem Support
+      - name: Checkout Filesystems
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}

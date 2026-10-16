@@ -52,7 +52,7 @@ The canonical core computes indirect paths independently of Linux buffer-head me
 
 ## Directories
 
-Directories use EXT-style variable records and may use HTree indexing. Filesystem Support contains host-neutral validation for record geometry and the historical EXT hash families:
+Directories use EXT-style variable records and may use HTree indexing. Filesystems contains host-neutral validation for record geometry and the historical EXT hash families:
 
 - legacy;
 - half-MD4;
@@ -106,7 +106,7 @@ EXT3 supports online growth semantics through group addition/extension. Allocati
 
 Resize calculations use checked arithmetic and validate that newly published group metadata is addressable before updating the superblock.
 
-## Filesystem Support source design
+## Filesystems source design
 
 ```text
 core/
@@ -132,7 +132,7 @@ The journal remains embedded in `ext3.ko`; there is no separately deployed JBD h
 
 ## Current implementation boundary
 
-Some EXT3 Linux units still contain inherited implementation while they are being replaced. Their provenance remains explicit. The permanent file boundaries above are nevertheless Filesystem Support responsibility boundaries rather than the historical Linux EXT3/JBD source layout.
+Some EXT3 Linux units still contain inherited implementation while they are being replaced. Their provenance remains explicit. The permanent file boundaries above are nevertheless Filesystems responsibility boundaries rather than the historical Linux EXT3/JBD source layout.
 
 ## Forensic completion notes against EXT3/JBD documentation
 
@@ -212,7 +212,7 @@ Recovery scans transaction sequence order, collects revokes, then replays valid 
 
 EXT3's historical JBD format must not silently inherit JBD2-only assumptions such as 64-bit JBD2 tags, v2/v3 per-tag checksum layouts or fast-commit records. Those belong to EXT4/JBD2 unless a specific EXT3-compatible extension is deliberately implemented and qualified.
 
-## Design rules used by Filesystem Support
+## Design rules used by Filesystems
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.
 - `linux/` is a Linux VFS/block-device/module adapter, not a second filesystem implementation.

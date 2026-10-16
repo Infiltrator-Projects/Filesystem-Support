@@ -34,15 +34,15 @@ test ! -e tools/harden-ext-ranges.py
 
 # Source trees are declared once in data/source-filesystems.txt. CI does not
 # maintain its own copy of the catalogue subset.
-manifest_values "$source_manifest" | sort > /tmp/filesystem-support-source.expected
-if [[ $(wc -l < /tmp/filesystem-support-source.expected) -ne \
-      $(sort -u /tmp/filesystem-support-source.expected | wc -l) ]]; then
+manifest_values "$source_manifest" | sort > /tmp/filesystems-source.expected
+if [[ $(wc -l < /tmp/filesystems-source.expected) -ne \
+      $(sort -u /tmp/filesystems-source.expected | wc -l) ]]; then
     echo "Duplicate filesystem in $source_manifest" >&2
     exit 1
 fi
 find native/filesystems -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
-    sort > /tmp/filesystem-support-source.actual
-diff -u /tmp/filesystem-support-source.expected /tmp/filesystem-support-source.actual
+    sort > /tmp/filesystems-source.actual
+diff -u /tmp/filesystems-source.expected /tmp/filesystems-source.actual
 
 while IFS= read -r fs; do
     [[ "$fs" =~ ^[A-Za-z0-9_.+-]+$ ]] || {
@@ -53,7 +53,7 @@ while IFS= read -r fs; do
         echo "Missing design/provenance contract for $fs" >&2
         exit 1
     }
-done < /tmp/filesystem-support-source.expected
+done < /tmp/filesystems-source.expected
 
 # Retired provider/transport/overlay/archive identities are kept in one data
 # file so adding or removing an historical guard does not require editing CI.
@@ -96,7 +96,7 @@ awk -F '\t' '
 
 while IFS=$'\t' read -r fs module; do
     [[ -n "$fs" && "${fs:0:1}" != "#" ]] || continue
-    grep -Fxq "$fs" /tmp/filesystem-support-source.expected || {
+    grep -Fxq "$fs" /tmp/filesystems-source.expected || {
         echo "Native filesystem $fs is not present in $source_manifest" >&2
         exit 1
     }
@@ -196,9 +196,9 @@ test ! -e native/filesystems/ext2/windows/ext2_compat.h
 ! grep -R -E 'archive/extfs-for-windows|core/extfs(_classic_resize|_resize_dispatch)?\.c' \
     native/filesystems/ext2/windows windows/build CMakeLists.txt
 grep -Fq '..\core\ext2_core.c' \
-    native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
+    native/filesystems/ext2/windows/filesystems_ext2.vcxproj
 grep -Fq '..\core\ext2_engine.c' \
-    native/filesystems/ext2/windows/filesystem_support_ext2.vcxproj
+    native/filesystems/ext2/windows/filesystems_ext2.vcxproj
 grep -Fq '#include "../core/ext2_engine.h"' \
     native/filesystems/ext2/windows/ext2_driver.h
 grep -Fq '#include "../core/ext2_engine.c"' \

@@ -81,7 +81,7 @@ Upstream files such as `do_balan.c`, `fix_node.c`, `ibalance.c`,
 `lbalance.c`, `stree.c`, `journal.c`, `inode.c` and `super.c`
 remain unchanged beneath `reference/linux/`.
 
-Project-authored source must be cut around Filesystem Support responsibilities
+Project-authored source must be cut around Filesystems responsibilities
 and portable invariants rather than preserving or cosmetically renaming the
 Linux translation units. Moving, merging or recommenting imported code is never
 evidence that it has crossed the authorship boundary.

@@ -11,7 +11,7 @@ case "$1" in remove|purge)
     for owned in \
         /etc/udev/rules.d/59-infiltrator-*.rules \
         /etc/udev/rules.d/99-infiltrator-*.rules \
-        /usr/lib/infiltrator-filesystem-support/desktop/active/*.so; do
+        /usr/lib/filesystems/desktop/active/*.so; do
         [ -e "$owned" ] || continue
         name=${owned##*/}
         case "$name" in
@@ -53,19 +53,19 @@ case "$1" in remove|purge)
 
     rm -f /etc/udev/rules.d/59-infiltrator-*.rules
     rm -f /etc/udev/rules.d/99-infiltrator-*.rules
-    rm -f /usr/lib/infiltrator-filesystem-support/desktop/active/*.so
+    rm -f /usr/lib/filesystems/desktop/active/*.so
 
-    if [ "$(dpkg-divert --listpackage /usr/bin/gnome-disks)" = infiltrator-filesystem-support ]; then
-        test -f /usr/bin/gnome-disks.filesystem-support-original
+    if [ "$(dpkg-divert --listpackage /usr/bin/gnome-disks)" = filesystems ]; then
+        test -f /usr/bin/gnome-disks.filesystems-original
         rm -f /usr/bin/gnome-disks
-        dpkg-divert --package infiltrator-filesystem-support --remove --rename \
-            --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
+        dpkg-divert --package filesystems --remove --rename \
+            --divert /usr/bin/gnome-disks.filesystems-original /usr/bin/gnome-disks
     fi
-    if [ "$(dpkg-divert --listpackage /usr/bin/nemo)" = infiltrator-filesystem-support ]; then
-        test -f /usr/bin/nemo.filesystem-support-original
+    if [ "$(dpkg-divert --listpackage /usr/bin/nemo)" = filesystems ]; then
+        test -f /usr/bin/nemo.filesystems-original
         rm -f /usr/bin/nemo
-        dpkg-divert --package infiltrator-filesystem-support --remove --rename \
-            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
+        dpkg-divert --package filesystems --remove --rename \
+            --divert /usr/bin/nemo.filesystems-original /usr/bin/nemo
     fi
 
     # Package removal cannot be made transactional with the already-removed

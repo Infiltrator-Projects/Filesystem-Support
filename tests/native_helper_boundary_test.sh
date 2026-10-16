@@ -60,10 +60,10 @@ for token in (
 # kernel authority itself must serialize that state; putting the lock in the
 # UI or coordinator would leave direct helper/prerm paths outside the contract.
 for required in (
-    'kernel_lock_path=/run/lock/infiltrator-filesystem-support-kernel.lock',
+    'kernel_lock_path=/run/lock/filesystems-kernel.lock',
     'acquire_kernel_mutation_lock()',
     'flock -x 9',
-    'export FILESYSTEM_SUPPORT_KERNEL_LOCK_FD=9',
+    'export FILESYSTEMS_KERNEL_LOCK_FD=9',
     '[[ $(readlink /proc/$$/fd/9 2>/dev/null || true) == "$kernel_lock_path" ]]',
 ):
     if required not in kernel:
@@ -119,7 +119,7 @@ if 'if uses_shared_linux_kernel_adapter "$filesystem"; then' not in install_bloc
 # Secure-Boot key discovery follows the declared Debian baseline and accepts
 # Ubuntu/Mint's distinct shim-signed location only as a derivative fallback.
 # The helper consumes an existing distribution signing identity; it must not
-# manufacture another private-key authority inside Filesystem Support.
+# manufacture another private-key authority inside Filesystems.
 debian_key = '/var/lib/dkms/mok.key'
 debian_cert = '/var/lib/dkms/mok.pub'
 derivative_key = '/var/lib/shim-signed/mok/MOK.priv'
@@ -130,7 +130,7 @@ for token in (debian_key, debian_cert, derivative_key, derivative_cert):
 if kernel_code.index(debian_key) > kernel_code.index(derivative_key):
     raise SystemExit('Debian Secure-Boot identity is not the primary signing convention')
 for forbidden in (
-    '/var/lib/infiltrator-filesystem-support/mok',
+    '/var/lib/filesystems/mok',
     'openssl req',
     'openssl genpkey',
 ):
@@ -180,7 +180,7 @@ for token in (
     'previous_copy',
     'restore_kind',
     'snapshot_kind',
-    'infiltrator-filesystem-support-kernel.lock',
+    'filesystems-kernel.lock',
 ):
     if token in coordinator_code:
         raise SystemExit(f'transaction implementation leaked into coordinator: {token}')

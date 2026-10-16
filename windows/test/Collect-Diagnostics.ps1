@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $stamp = [DateTime]::Now.ToString('yyyyMMdd-HHmmss')
-$folder = Join-Path $env:TEMP "Filesystem-Support-Diagnostics-$stamp"
+$folder = Join-Path $env:TEMP "Filesystems-Diagnostics-$stamp"
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 
 function Capture-Command {
@@ -63,4 +63,4 @@ Capture-Command 'code-integrity-events.txt' {
 
 $zip = "$folder.zip"
 Compress-Archive -LiteralPath $folder -DestinationPath $zip -Force
-Write-Host "Filesystem Support diagnostics collected: $zip"
+Write-Host "Filesystems diagnostics collected: $zip"

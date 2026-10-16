@@ -3,7 +3,7 @@
 ## Classification
 
 UFS is a family of conventional local block filesystems used by BSD, Sun and
-other Unix systems. Filesystem Support must model explicitly which UFS1/UFS2
+other Unix systems. Filesystems must model explicitly which UFS1/UFS2
 and vendor/layout variants it supports rather than treating "UFS" as one
 undifferentiated Linux-driver mode.
 
@@ -14,7 +14,7 @@ adapters.
 
 UFS is currently **reference/import state**.
 
-There is no project-authored canonical UFS engine and no Filesystem Support UFS
+There is no project-authored canonical UFS engine and no Filesystems UFS
 native module claimed by this directory. The source under `reference/linux/`
 is the pinned upstream Linux UFS implementation retained as format,
 variant-detection, byte-order and interoperability evidence.
@@ -94,7 +94,7 @@ project-owned `core/`, `linux/`, `windows/` or `userspace/` source.
 
 ## Completion rule
 
-The current tree is reference evidence only. UFS becomes a Filesystem Support
+The current tree is reference evidence only. UFS becomes a Filesystems
 first-party implementation only when its canonical engine and applicable
 platform adapters have independent implementation and qualification evidence
 for each variant claimed.

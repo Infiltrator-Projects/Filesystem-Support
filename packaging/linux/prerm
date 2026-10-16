@@ -10,9 +10,9 @@ case "$1" in
         # payload files. Remove them while the kernel transaction authority and
         # canonical manifest are still installed; postrm is intentionally too
         # late for this responsibility.
-        helper=/usr/lib/infiltrator-filesystem-support/kernel-module-helper
+        helper=/usr/lib/filesystems/kernel-module-helper
         if [ ! -x "$helper" ]; then
-            echo "Filesystem Support kernel-module helper is missing; refusing to orphan native modules" >&2
+            echo "Filesystems kernel-module helper is missing; refusing to orphan native modules" >&2
             exit 1
         fi
         "$helper" remove-all

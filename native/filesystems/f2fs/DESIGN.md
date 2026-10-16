@@ -3,7 +3,7 @@
 ## Classification
 
 F2FS is a conventional local flash-oriented filesystem with checkpoint,
-segment, node and garbage-collection semantics. Filesystem Support must
+segment, node and garbage-collection semantics. Filesystems must
 implement those semantics once in a host-neutral core.
 
 ## Current state

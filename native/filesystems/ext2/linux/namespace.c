@@ -1,10 +1,10 @@
-/* Infiltrator Filesystem Support — EXT2 Linux namespace adapter.
+/* Infiltrator Filesystems — EXT2 Linux namespace adapter.
  * Directory iteration and namespace mutation are kept together; portable
  * directory-record semantics remain in the canonical EXT2 core.
  */
 
 /*
- * Infiltrator Filesystem Support — EXT2 Linux directory adapter.
+ * Infiltrator Filesystems — EXT2 Linux directory adapter.
  *
  * On-disk record geometry and validation are owned by the canonical EXT2 core.
  * This file binds those rules to Linux folios, VFS enumeration and mutation.
@@ -802,7 +802,7 @@ const struct file_operations ext2_dir_operations = {
 
 /* ===== namespace mutation ===== */
 /*
- * Infiltrator Filesystem Support — EXT2 Linux namespace adapter.
+ * Infiltrator Filesystems — EXT2 Linux namespace adapter.
  *
  * Directory-record semantics live in the EXT2 directory/core implementation.
  * This unit translates Linux VFS namespace operations into those primitives.

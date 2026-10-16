@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 
 struct LinuxSupportPolicy {
     std::string_view filesystem_id;
@@ -64,4 +64,4 @@ inline const std::vector<LinuxSupportPolicy>& linux_support_policies()
     return policies;
 }
 
-} // namespace filesystem_support
+} // namespace filesystems

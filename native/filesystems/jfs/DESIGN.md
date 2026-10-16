@@ -2,7 +2,7 @@
 
 ## Classification
 
-JFS is a conventional local journalled block filesystem. Filesystem Support
+JFS is a conventional local journalled block filesystem. Filesystems
 therefore applies the one-canonical-filesystem architecture: format and
 filesystem semantics belong in a host-neutral core; operating-system code is an
 adapter around that core.
@@ -11,7 +11,7 @@ adapter around that core.
 
 JFS is currently **reference/import state**.
 
-There is no project-authored canonical JFS engine and no Filesystem Support JFS
+There is no project-authored canonical JFS engine and no Filesystems JFS
 native module claimed by this directory. The source under `reference/linux/`
 is the pinned upstream Linux JFS implementation retained as semantic,
 interoperability and failure-behaviour evidence.
@@ -64,7 +64,7 @@ adapter.
 ## File-boundary rule
 
 Upstream Linux filenames remain unchanged beneath `reference/linux/`.
-Project-owned source must be organised around Filesystem Support
+Project-owned source must be organised around Filesystems
 responsibilities and host-neutral JFS invariants, not copied or mechanically
 renamed from Linux.
 
@@ -102,6 +102,6 @@ overwrite future project-owned source.
 
 ## Completion rule
 
-The current tree is reference evidence only. JFS is not a Filesystem Support
+The current tree is reference evidence only. JFS is not a Filesystems
 native implementation until the canonical core and applicable adapter are
 independently implemented and qualified.

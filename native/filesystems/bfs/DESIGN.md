@@ -3,13 +3,13 @@
 ## Classification
 
 BFS here means the SCO/UnixWare Boot File System. It is a conventional local
-block filesystem, so its permanent Filesystem Support architecture is one
+block filesystem, so its permanent Filesystems architecture is one
 canonical filesystem engine with thin operating-system adapters.
 
 ## Current state
 
 BFS is currently **reference/import state**. The Linux source is preserved
-unchanged under `reference/linux/`; Filesystem Support does not claim that
+unchanged under `reference/linux/`; Filesystems does not claim that
 implementation as project-authored code.
 
 The upstream files retain their original names, licences and provenance.

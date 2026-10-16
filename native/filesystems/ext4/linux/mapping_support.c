@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — EXT4 Linux mapping support.
+/* Infiltrator Filesystems — EXT4 Linux mapping support.
  * Legacy indirect mapping, extent migration/movement and read-side page I/O
  * are grouped as host integration around canonical EXT4 mapping semantics.
  */

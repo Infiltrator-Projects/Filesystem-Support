@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — SFS Linux namespace adapter.
+/* Infiltrator Filesystems — SFS Linux namespace adapter.
  * Directory enumeration, namespace mutation and symlink translation are one
  * Linux-facing namespace responsibility.
  */

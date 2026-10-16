@@ -5,7 +5,7 @@ Class       = System
 ClassGuid   = {4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
 DriverVer   = 09/23/2026,0.4.2.0
-CatalogFile = filesystem_support_ext2.cat
+CatalogFile = filesystems_ext2.cat
 PnpLockdown = 1
 
 [DestinationDirs]
@@ -15,7 +15,7 @@ FsExt2.DriverFiles = 13
 1 = %DiskName%
 
 [SourceDisksFiles]
-filesystem_support_ext2.sys = 1
+filesystems_ext2.sys = 1
 
 [DefaultInstall.NTamd64]
 OptionDesc = %ServiceDescription%
@@ -26,18 +26,18 @@ OptionDesc = %ServiceDescription%
 CopyFiles  = FsExt2.DriverFiles
 
 [FsExt2.DriverFiles]
-filesystem_support_ext2.sys
+filesystems_ext2.sys
 
 [DefaultInstall.NTamd64.Services]
-AddService = FilesystemSupportExt2,,FsExt2.Service
+AddService = FilesystemsExt2,,FsExt2.Service
 
 [DefaultInstall.NTarm64.Services]
-AddService = FilesystemSupportExt2,,FsExt2.Service
+AddService = FilesystemsExt2,,FsExt2.Service
 
 [FsExt2.Service]
 DisplayName    = %ServiceName%
 Description    = %ServiceDescription%
-ServiceBinary  = %13%\filesystem_support_ext2.sys
+ServiceBinary  = %13%\filesystems_ext2.sys
 ServiceType    = 2
 StartType      = 3
 ErrorControl   = 1
@@ -45,6 +45,6 @@ LoadOrderGroup = "File System"
 
 [Strings]
 ProviderName       = "Infiltrator Projects"
-DiskName           = "Filesystem Support EXT2 driver installation media"
-ServiceName        = "Filesystem Support EXT2"
-ServiceDescription = "Native Windows EXT2 adapter using the canonical Filesystem Support EXT2 engine"
+DiskName           = "Filesystems EXT2 driver installation media"
+ServiceName        = "Filesystems EXT2"
+ServiceDescription = "Native Windows EXT2 adapter using the canonical Filesystems EXT2 engine"

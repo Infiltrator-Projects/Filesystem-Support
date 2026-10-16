@@ -8,12 +8,12 @@ if(NOT TARGET fsinspect)
     message(FATAL_ERROR "Amiga desktop detection requires the fsinspect target")
 endif()
 
-set(FILESYSTEM_SUPPORT_DESKTOP_MANIFEST
+set(FILESYSTEMS_DESKTOP_MANIFEST
     "${CMAKE_CURRENT_SOURCE_DIR}/data/desktop-filesystems.tsv")
-file(STRINGS "${FILESYSTEM_SUPPORT_DESKTOP_MANIFEST}"
-    FILESYSTEM_SUPPORT_DESKTOP_MANIFEST_LINES)
-set(FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
-foreach(desktop_line IN LISTS FILESYSTEM_SUPPORT_DESKTOP_MANIFEST_LINES)
+file(STRINGS "${FILESYSTEMS_DESKTOP_MANIFEST}"
+    FILESYSTEMS_DESKTOP_MANIFEST_LINES)
+set(FILESYSTEMS_AMIGA_DESKTOP_FILESYSTEMS)
+foreach(desktop_line IN LISTS FILESYSTEMS_DESKTOP_MANIFEST_LINES)
     string(STRIP "${desktop_line}" desktop_line)
     if(desktop_line STREQUAL "" OR desktop_line MATCHES "^#")
         continue()
@@ -34,7 +34,7 @@ foreach(desktop_line IN LISTS FILESYSTEM_SUPPORT_DESKTOP_MANIFEST_LINES)
             "Invalid desktop filesystem policy: ${desktop_line}")
     endif()
 
-    list(FIND FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS
+    list(FIND FILESYSTEMS_AMIGA_DESKTOP_FILESYSTEMS
         "${desktop_fs}" desktop_duplicate_index)
     if(NOT desktop_duplicate_index EQUAL -1)
         message(FATAL_ERROR
@@ -43,18 +43,18 @@ foreach(desktop_line IN LISTS FILESYSTEM_SUPPORT_DESKTOP_MANIFEST_LINES)
 
     # Desktop support is an optional consumer of a native filesystem. This is
     # the only permitted direction of dependency between these policy sets.
-    list(FIND FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS
+    list(FIND FILESYSTEMS_NATIVE_FILESYSTEMS
         "${desktop_fs}" native_index)
     if(native_index EQUAL -1)
         message(FATAL_ERROR
             "Desktop filesystem ${desktop_fs} is not a managed native filesystem")
     endif()
 
-    list(APPEND FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS "${desktop_fs}")
-    set("FILESYSTEM_SUPPORT_DESKTOP_VARIANT_${desktop_fs}"
+    list(APPEND FILESYSTEMS_AMIGA_DESKTOP_FILESYSTEMS "${desktop_fs}")
+    set("FILESYSTEMS_DESKTOP_VARIANT_${desktop_fs}"
         "${desktop_variant}")
 endforeach()
-if(NOT FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
+if(NOT FILESYSTEMS_AMIGA_DESKTOP_FILESYSTEMS)
     message(FATAL_ERROR "Desktop filesystem manifest is empty")
 endif()
 
@@ -69,11 +69,11 @@ target_link_libraries(fsinspect
 install(TARGETS fsinspect
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 find_package(Threads REQUIRED)
-set(desktop_templates "lib/infiltrator-filesystem-support/desktop/templates")
+set(desktop_templates "lib/filesystems/desktop/templates")
 install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-integration.sh"
-    DESTINATION "lib/infiltrator-filesystem-support" RENAME desktop-integration)
-install(FILES "${FILESYSTEM_SUPPORT_DESKTOP_MANIFEST}"
-    DESTINATION "lib/infiltrator-filesystem-support"
+    DESTINATION "lib/filesystems" RENAME desktop-integration)
+install(FILES "${FILESYSTEMS_DESKTOP_MANIFEST}"
+    DESTINATION "lib/filesystems"
     RENAME desktop-filesystems.tsv)
 install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/gnome-disks-wrapper"
     DESTINATION "${desktop_templates}" RENAME gnome-disks)
@@ -81,20 +81,20 @@ install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/nemo-wrapper"
     DESTINATION "${desktop_templates}" RENAME nemo)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/desktop-rules/"
     DESTINATION "${desktop_templates}" FILES_MATCHING PATTERN "*.rules")
-foreach(desktop_fs IN LISTS FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
-    set(desktop_variant_variable "FILESYSTEM_SUPPORT_DESKTOP_VARIANT_${desktop_fs}")
+foreach(desktop_fs IN LISTS FILESYSTEMS_AMIGA_DESKTOP_FILESYSTEMS)
+    set(desktop_variant_variable "FILESYSTEMS_DESKTOP_VARIANT_${desktop_fs}")
     set(desktop_variant "${${desktop_variant_variable}}")
     if(NOT desktop_variant MATCHES "^[1-9][0-9]*$")
         message(FATAL_ERROR "Missing desktop variant for ${desktop_fs}")
     endif()
-    set(desktop_target "filesystem-support-disks-${desktop_fs}")
+    set(desktop_target "filesystems-disks-${desktop_fs}")
     add_library(${desktop_target} SHARED
         "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/udisks-amiga-names.c")
     target_link_libraries(${desktop_target} PRIVATE PkgConfig::GLIB2 PkgConfig::GIO2 ${CMAKE_DL_LIBS} Threads::Threads)
     target_compile_definitions(${desktop_target} PRIVATE IFS_NAMES_VARIANT=${desktop_variant})
     set_target_properties(${desktop_target} PROPERTIES PREFIX "" OUTPUT_NAME "${desktop_fs}"
         C_VISIBILITY_PRESET hidden LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/desktop-templates")
-    filesystem_support_configure(${desktop_target})
+    filesystems_configure(${desktop_target})
     install(TARGETS ${desktop_target} LIBRARY DESTINATION "${desktop_templates}")
     if(BUILD_TESTING)
         add_library(${desktop_target}-test SHARED
@@ -105,7 +105,7 @@ foreach(desktop_fs IN LISTS FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS)
             IFS_DESKTOP_TESTING=1)
         set_target_properties(${desktop_target}-test PROPERTIES PREFIX "" OUTPUT_NAME "${desktop_fs}"
             C_VISIBILITY_PRESET hidden LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/desktop-test-templates")
-        filesystem_support_configure(${desktop_target}-test)
+        filesystems_configure(${desktop_target}-test)
     endif()
 endforeach()
 
@@ -119,26 +119,26 @@ if(BUILD_TESTING)
     target_link_libraries(fsinspect-desktop-test PRIVATE ${amiga_detector_libraries})
     target_compile_definitions(fsinspect-desktop-test PRIVATE
         IFS_NATIVE_MODULES_ROOT="${CMAKE_CURRENT_BINARY_DIR}/desktop-test-modules")
-    filesystem_support_configure(fsinspect-desktop-test)
+    filesystems_configure(fsinspect-desktop-test)
     add_test(
-        NAME filesystem-support-amiga-detection
+        NAME filesystems-amiga-detection
         COMMAND sh
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/amiga_detection_test.sh"
             "$<TARGET_FILE:fsinspect-desktop-test>"
             "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}"
             "${CMAKE_CURRENT_BINARY_DIR}/desktop-test-modules")
-    add_test(NAME filesystem-support-desktop-install
+    add_test(NAME filesystems-desktop-install
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop_install_test.py"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
-    add_test(NAME filesystem-support-native-helper-boundary
+    add_test(NAME filesystems-native-helper-boundary
         COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_helper_boundary_test.sh"
             "${CMAKE_CURRENT_SOURCE_DIR}")
-    add_test(NAME filesystem-support-forensic-ownership-boundary
+    add_test(NAME filesystems-forensic-ownership-boundary
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/ownership_boundary_test.py"
             "${CMAKE_CURRENT_SOURCE_DIR}")
-    add_test(NAME filesystem-support-desktop-manifest-boundary
+    add_test(NAME filesystems-desktop-manifest-boundary
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop_manifest_boundary_test.py"
             "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -149,7 +149,6 @@ endif()
 # immediately instead of requiring a reboot or physical replug.
 string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
     ", udev, util-linux, libudisks2-0, gnome-disk-utility")
-set(CPACK_DEBIAN_PACKAGE_CONFLICTS "infiltrator-filesystem-support-udisks")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/prerm"
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/postinst"

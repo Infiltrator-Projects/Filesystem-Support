@@ -5,7 +5,7 @@
 
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 
 const std::vector<FilesystemIdentity>& filesystem_identities()
 {
@@ -163,4 +163,4 @@ bool windows_native_installable(const std::string_view filesystem_id)
     return windows_native_state(filesystem_id) == NativeImplementationState::Qualified;
 }
 
-} // namespace filesystem_support
+} // namespace filesystems

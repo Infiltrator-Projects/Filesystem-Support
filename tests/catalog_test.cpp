@@ -20,7 +20,7 @@ int fail(const char* message)
 
 bool has_id(const std::string_view id)
 {
-    for (const auto& entry : filesystem_support::catalog()) {
+    for (const auto& entry : filesystems::catalog()) {
         if (entry.id == id) {
             return true;
         }
@@ -72,8 +72,8 @@ bool load_native_manifest(const char* path,
 
 int main(int argc, char** argv)
 {
-    using filesystem_support::catalog;
-    using filesystem_support::catalog_is_valid;
+    using filesystems::catalog;
+    using filesystems::catalog_is_valid;
 
     if (!catalog_is_valid()) {
         return fail("catalogue validation failed");
@@ -135,7 +135,7 @@ int main(int argc, char** argv)
         if (entry.id == std::string_view("ext2") ||
             entry.id == std::string_view("ext3") ||
             entry.id == std::string_view("ext4")) {
-            if (entry.provider != filesystem_support::SupportProvider::Kernel ||
+            if (entry.provider != filesystems::SupportProvider::Kernel ||
                 !entry.packages.empty() ||
                 !entry.project_native_linux) {
                 return fail("EXT2/EXT3/EXT4 must remain project-native kernel-only providers");
@@ -143,31 +143,31 @@ int main(int argc, char** argv)
         }
 
         switch (entry.provider) {
-        case filesystem_support::SupportProvider::Kernel:
+        case filesystems::SupportProvider::Kernel:
             ++kernel_only;
             if (entry.modules.empty() || !entry.packages.empty()) {
                 return fail("kernel-only provider classification is inconsistent");
             }
             break;
-        case filesystem_support::SupportProvider::KernelWithUserspace:
+        case filesystems::SupportProvider::KernelWithUserspace:
             ++kernel_with_userspace;
             if (entry.modules.empty() || entry.packages.empty()) {
                 return fail("kernel/userspace provider classification is inconsistent");
             }
             break;
-        case filesystem_support::SupportProvider::Dkms:
+        case filesystems::SupportProvider::Dkms:
             ++dkms;
             if (entry.modules.empty() || entry.packages.empty()) {
                 return fail("DKMS provider classification is inconsistent");
             }
             break;
-        case filesystem_support::SupportProvider::Userspace:
+        case filesystems::SupportProvider::Userspace:
             ++userspace;
             if (!entry.modules.empty() || entry.packages.empty()) {
                 return fail("userspace provider classification is inconsistent");
             }
             break;
-        case filesystem_support::SupportProvider::ToolsOnly:
+        case filesystems::SupportProvider::ToolsOnly:
             ++tools_only;
             if (!entry.modules.empty() || entry.packages.empty()) {
                 return fail("tools-only provider classification is inconsistent");
@@ -192,40 +192,40 @@ int main(int argc, char** argv)
         return fail("support-provider classification counts changed unexpectedly");
     }
 
-    if (filesystem_support::package_is_catalogued("e2fsprogs") ||
-        !filesystem_support::package_is_catalogued("zfs-dkms") ||
-        !filesystem_support::package_is_catalogued("infiltratorfs") ||
-        filesystem_support::package_is_catalogued("dislocker") ||
-        filesystem_support::package_is_catalogued("sshfs") ||
-        filesystem_support::package_is_catalogued("definitely-not-a-package")) {
+    if (filesystems::package_is_catalogued("e2fsprogs") ||
+        !filesystems::package_is_catalogued("zfs-dkms") ||
+        !filesystems::package_is_catalogued("infiltratorfs") ||
+        filesystems::package_is_catalogued("dislocker") ||
+        filesystems::package_is_catalogued("sshfs") ||
+        filesystems::package_is_catalogued("definitely-not-a-package")) {
         return fail("catalogue package allowlist is inconsistent");
     }
 
-    if (!filesystem_support::module_is_catalogued("infiltratorfs") ||
-        !filesystem_support::module_is_catalogued("ofs") ||
-        !filesystem_support::module_is_catalogued("ffs") ||
-        !filesystem_support::module_is_catalogued("sfs") ||
-        filesystem_support::module_is_catalogued("affs") ||
-        filesystem_support::module_is_catalogued("overlay") ||
-        filesystem_support::module_is_catalogued("cifs") ||
-        filesystem_support::module_is_catalogued("definitely-not-a-module")) {
+    if (!filesystems::module_is_catalogued("infiltratorfs") ||
+        !filesystems::module_is_catalogued("ofs") ||
+        !filesystems::module_is_catalogued("ffs") ||
+        !filesystems::module_is_catalogued("sfs") ||
+        filesystems::module_is_catalogued("affs") ||
+        filesystems::module_is_catalogued("overlay") ||
+        filesystems::module_is_catalogued("cifs") ||
+        filesystems::module_is_catalogued("definitely-not-a-module")) {
         return fail("catalogue module allowlist is inconsistent");
     }
 
-    if (!filesystem_support::linux_native_module_is_managed("ext3", "ext3") ||
-        !filesystem_support::linux_native_module_is_managed("ofs", "ofs") ||
-        !filesystem_support::linux_native_module_is_managed("ffs", "ffs") ||
-        !filesystem_support::linux_native_module_is_managed("sfs", "sfs") ||
-        !filesystem_support::linux_native_module_is_managed("sfs2", "sfs2") ||
-        !filesystem_support::linux_native_module_is_managed("pfs3", "pfs3") ||
-        filesystem_support::linux_native_module_is_managed("infiltratorfs", "infiltratorfs") ||
-        filesystem_support::linux_native_module_is_managed("affs", "affs") ||
-        filesystem_support::linux_native_module_is_managed(
+    if (!filesystems::linux_native_module_is_managed("ext3", "ext3") ||
+        !filesystems::linux_native_module_is_managed("ofs", "ofs") ||
+        !filesystems::linux_native_module_is_managed("ffs", "ffs") ||
+        !filesystems::linux_native_module_is_managed("sfs", "sfs") ||
+        !filesystems::linux_native_module_is_managed("sfs2", "sfs2") ||
+        !filesystems::linux_native_module_is_managed("pfs3", "pfs3") ||
+        filesystems::linux_native_module_is_managed("infiltratorfs", "infiltratorfs") ||
+        filesystems::linux_native_module_is_managed("affs", "affs") ||
+        filesystems::linux_native_module_is_managed(
             "definitely-not-a-filesystem", "ext3")) {
         return fail("project-native Linux module policy is inconsistent");
     }
 
-    const auto hfs_users = filesystem_support::catalogue_entries_using_package("hfsprogs");
+    const auto hfs_users = filesystems::catalogue_entries_using_package("hfsprogs");
     if (hfs_users.size() != 2U) {
         return fail("shared package impact mapping is incorrect");
     }

@@ -1,7 +1,7 @@
-# Filesystem Support on Windows
+# Filesystems on Windows
 
 The Windows product is the Windows front end for the same master filesystem
-identity catalogue used elsewhere in Filesystem Support.
+identity catalogue used elsewhere in Filesystems.
 
 `windows/manager/` contains the management application. It displays every
 catalogue entry and enables installation only when that filesystem has a

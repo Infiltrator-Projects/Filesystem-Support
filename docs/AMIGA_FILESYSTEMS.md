@@ -1,6 +1,6 @@
 # Amiga filesystem architecture
 
-Filesystem Support maintains five independent canonical Amiga filesystem
+Filesystems maintains five independent canonical Amiga filesystem
 implementations:
 
 - OFS

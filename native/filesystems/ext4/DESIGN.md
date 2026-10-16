@@ -2,7 +2,7 @@
 
 ## Purpose
 
-EXT4 is an extent-capable, journalled block-group filesystem descended from the EXT family but with substantially richer geometry, metadata integrity and scalability features. Filesystem Support treats EXT4 as its own canonical filesystem, not as an EXT2/EXT3 compatibility mode.
+EXT4 is an extent-capable, journalled block-group filesystem descended from the EXT family but with substantially richer geometry, metadata integrity and scalability features. Filesystems treats EXT4 as its own canonical filesystem, not as an EXT2/EXT3 compatibility mode.
 
 ## High-level media layout
 
@@ -25,7 +25,7 @@ EXT4 volume
 
 EXT4 uses the EXT superblock family with additional 64-bit counts, checksum seeds, cluster geometry, flexible block-group data and feature flags.
 
-Filesystem Support's canonical feature model recognises important incompat features including:
+the Filesystems canonical feature model recognises important incompat features including:
 
 - FILETYPE;
 - RECOVER;
@@ -126,7 +126,7 @@ INLINE_DATA permits small file or directory data to live inside inode/xattr spac
 
 EXT4 uses JBD2. Its core transaction model is still descriptor/data/revoke/commit in a circular journal, with stronger feature evolution than EXT3 JBD.
 
-The Filesystem Support journal responsibilities are split into:
+The Filesystems journal responsibilities are split into:
 
 - journal durability: EXT4 glue, checkpoint, commit, revoke and recovery;
 - journal core: journal object/ring lifecycle;
@@ -154,7 +154,7 @@ ENCRYPT integrates filename/content policy with the host fscrypt framework. CASE
 
 ## fs-verity
 
-VERITY permits files to be protected by a Merkle-tree based authenticity structure. Filesystem Support's Linux adapter integrates EXT4 verity metadata with the kernel verity framework.
+VERITY permits files to be protected by a Merkle-tree based authenticity structure. the Filesystems Linux adapter integrates EXT4 verity metadata with the kernel verity framework.
 
 ## Orphan handling
 
@@ -164,7 +164,7 @@ Unlinked-but-open or partially truncated inodes require crash-safe orphan tracki
 
 EXT4 can grow through new groups and descriptor metadata. Checked arithmetic and group-geometry validation are mandatory before publishing new filesystem size or descriptor state.
 
-## Filesystem Support source design
+## Filesystems source design
 
 ```text
 core/
@@ -330,11 +330,11 @@ Traditional EXT orphan tracking uses a linked list. With ORPHAN_FILE, the superb
 
 Modern Linux EXT4 also supports hardware-backed untorn direct-I/O writes when the device supplies atomic-write capability. Single-filesystem-block atomic writes require an appropriate filesystem block size; multi-block atomic writes use BIGALLOC cluster alignment. This is a host capability layered on EXT4 extent allocation, not a software copy-on-write transaction feature.
 
-### Format versus current Filesystem Support implementation
+### Format versus current Filesystems implementation
 
 This document now describes the format surface more broadly than the code currently implements. Feature recognition in `ext4_core.h` must therefore be audited separately from feature completeness. A bit being known to the format documentation must not cause the driver to advertise safe read-write support until the corresponding validation, mutation and recovery paths have been qualified.
 
-## Design rules used by Filesystem Support
+## Design rules used by Filesystems
 
 - The canonical `core/` is the filesystem. It owns format semantics, validation, allocation/mapping rules, namespace rules, recovery rules and corruption policy whenever those rules are host-neutral.
 - `linux/` is a Linux VFS/block-device/module adapter, not a second filesystem implementation.

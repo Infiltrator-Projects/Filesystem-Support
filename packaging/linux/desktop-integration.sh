@@ -15,18 +15,18 @@ system_root=/
 base=${system_root%/}
 self_dir=$(cd "$(dirname "$0")" && pwd)
 templates="$self_dir/desktop/templates"
-active="$base/usr/lib/infiltrator-filesystem-support/desktop/active"
+active="$base/usr/lib/filesystems/desktop/active"
 rules="$base/etc/udev/rules.d"
-manifest="$base/usr/lib/infiltrator-filesystem-support/desktop-filesystems.tsv"
+manifest="$base/usr/lib/filesystems/desktop-filesystems.tsv"
 native_state="$self_dir/native-module-helper"
-disks_original="$base/usr/bin/gnome-disks.filesystem-support-original"
+disks_original="$base/usr/bin/gnome-disks.filesystems-original"
 disks_launcher="$base/usr/bin/gnome-disks"
-nemo_original="$base/usr/bin/nemo.filesystem-support-original"
+nemo_original="$base/usr/bin/nemo.filesystems-original"
 nemo_launcher="$base/usr/bin/nemo"
-package=infiltrator-filesystem-support
+package=filesystems
 [[ -r "$manifest" ]] || { echo 'desktop filesystem manifest is missing' >&2; exit 1; }
 mkdir -p "$base/run/lock"
-exec 9>"$base/run/lock/infiltrator-filesystem-support-desktop.lock"
+exec 9>"$base/run/lock/filesystems-desktop.lock"
 flock -x 9
 
 desktop_filesystems() {
@@ -86,7 +86,7 @@ enable_disks_launcher() {
     if [[ -z "$owner" ]]; then
         [[ -f "$disks_launcher" ]] || { echo 'GNOME Disks is missing' >&2; return 1; }
         dpkg-divert --root="$system_root" --package "$package" --add --rename \
-            --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
+            --divert /usr/bin/gnome-disks.filesystems-original /usr/bin/gnome-disks
     fi
     [[ -f "$disks_original" ]] || return 1
     mv -f "$stage" "$disks_launcher"
@@ -110,7 +110,7 @@ enable_nemo_launcher() {
     install -m 0755 "$templates/nemo" "$stage"
     if [[ -z "$owner" ]]; then
         dpkg-divert --root="$system_root" --package "$package" --add --rename \
-            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
+            --divert /usr/bin/nemo.filesystems-original /usr/bin/nemo
     fi
     [[ -f "$nemo_original" ]] || return 1
     mv -f "$stage" "$nemo_launcher"
@@ -137,7 +137,7 @@ preflight_launchers() {
         }
     else
         [[ -f "$disks_original" && -f "$disks_launcher" ]] || {
-            echo 'Filesystem Support GNOME Disks diversion state is incomplete' >&2
+            echo 'Filesystems GNOME Disks diversion state is incomplete' >&2
             return 1
         }
     fi
@@ -161,7 +161,7 @@ preflight_launchers() {
         }
     else
         [[ -f "$nemo_original" && -f "$nemo_launcher" ]] || {
-            echo 'Filesystem Support Nemo diversion state is incomplete' >&2
+            echo 'Filesystems Nemo diversion state is incomplete' >&2
             return 1
         }
     fi
@@ -196,7 +196,7 @@ enable_launchers() {
                     if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo) == "$package" ]]; then
                         rm -f "$nemo_launcher"
                         dpkg-divert --root="$system_root" --package "$package" --remove --rename \
-                            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo || rollback_failed=1
+                            --divert /usr/bin/nemo.filesystems-original /usr/bin/nemo || rollback_failed=1
                     fi
                 elif [[ "$initial_nemo_owner" == "$package" && -f "$work/nemo-launcher" ]]; then
                     install -m 0755 "$work/nemo-launcher" "$nemo_launcher" || rollback_failed=1
@@ -206,7 +206,7 @@ enable_launchers() {
                     if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks) == "$package" ]]; then
                         rm -f "$disks_launcher"
                         dpkg-divert --root="$system_root" --package "$package" --remove --rename \
-                            --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks || rollback_failed=1
+                            --divert /usr/bin/gnome-disks.filesystems-original /usr/bin/gnome-disks || rollback_failed=1
                     fi
                 elif [[ "$initial_disks_owner" == "$package" && -f "$work/disks-launcher" ]]; then
                     install -m 0755 "$work/disks-launcher" "$disks_launcher" || rollback_failed=1
@@ -241,13 +241,13 @@ disable_launchers() {
         [[ -f "$disks_original" ]] || { echo 'The original Disks executable is missing' >&2; return 1; }
         rm -f "$disks_launcher"
         dpkg-divert --root="$system_root" --package "$package" --remove --rename \
-            --divert /usr/bin/gnome-disks.filesystem-support-original /usr/bin/gnome-disks
+            --divert /usr/bin/gnome-disks.filesystems-original /usr/bin/gnome-disks
     fi
     if [[ $(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo) == "$package" ]]; then
         [[ -f "$nemo_original" ]] || { echo 'The original Nemo executable is missing' >&2; return 1; }
         rm -f "$nemo_launcher"
         dpkg-divert --root="$system_root" --package "$package" --remove --rename \
-            --divert /usr/bin/nemo.filesystem-support-original /usr/bin/nemo
+            --divert /usr/bin/nemo.filesystems-original /usr/bin/nemo
     fi
 }
 
@@ -255,14 +255,14 @@ shared_launchers_ready() {
     local owner
     owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/gnome-disks)
     [[ "$owner" == "$package" && -x "$disks_launcher" && -f "$disks_original" ]] || {
-        echo 'Filesystem Support package desktop launcher state is not prepared; reinstall or reconfigure the package' >&2
+        echo 'Filesystems package desktop launcher state is not prepared; reinstall or reconfigure the package' >&2
         return 1
     }
 
     owner=$(dpkg-divert --root="$system_root" --listpackage /usr/bin/nemo)
     if [[ -e "$nemo_launcher" || -e "$nemo_original" || -n "$owner" ]]; then
         [[ "$owner" == "$package" && -x "$nemo_launcher" && -f "$nemo_original" ]] || {
-            echo 'Filesystem Support Nemo launcher state is inconsistent; reinstall or reconfigure the package' >&2
+            echo 'Filesystems Nemo launcher state is inconsistent; reinstall or reconfigure the package' >&2
             return 1
         }
     fi
@@ -388,7 +388,7 @@ case "$action" in
     sync)
         [[ $# -eq 1 ]] || exit 2
         [[ -x "$native_state" ]] || {
-            echo 'native module state authority is missing; reinstall Filesystem Support' >&2
+            echo 'native module state authority is missing; reinstall Filesystems' >&2
             exit 1
         }
 

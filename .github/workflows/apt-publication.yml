@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: filesystem-support-apt-publication-${{ github.event.workflow_run.head_sha }}
+  group: filesystems-apt-publication-${{ github.event.workflow_run.head_sha }}
   cancel-in-progress: false
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 10
     env:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
-      APP_ID: filesystem-support
+      APP_ID: filesystems
     steps:
       - name: Check out exact completed build source
         uses: actions/checkout@v4
@@ -56,8 +56,8 @@ jobs:
           fi
 
           expected=$(printf '%s\n%s\n%s\n' \
-            "Filesystem-Support-$version-amd64.deb" \
-            "Filesystem-Support-$version-amd64.run" \
+            "Filesystems-$version-amd64.deb" \
+            "Filesystems-$version-amd64.run" \
             RELEASE_SHA256SUMS.txt | sort)
           actual=$(jq -r '.assets[].name' <<<"$release_json" | sort)
           test "$actual" = "$expected" || {

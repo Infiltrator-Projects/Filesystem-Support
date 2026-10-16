@@ -7,7 +7,7 @@ block storage while coordinating filesystem state through cluster membership,
 heartbeat, distributed locking, journals and recovery.
 
 OCFS2 is therefore neither a simple local-only filesystem nor a remote
-namespace. Its permanent Filesystem Support architecture has one canonical
+namespace. Its permanent Filesystems architecture has one canonical
 filesystem engine, with host adapters and a separate cluster-coordination
 boundary around that engine.
 
@@ -18,10 +18,10 @@ OCFS2 is currently **reference/import state**.
 The source under `reference/linux/` is the pinned upstream Linux OCFS2 tree,
 including its O2CB cluster and DLM/DLMFS implementation. It is retained as
 format, interoperability, cluster-state and failure/recovery evidence only.
-Filesystem Support does not claim that source as project-authored code.
+Filesystems does not claim that source as project-authored code.
 
 The former `kernel/` staging path was misleading because it looked like a
-production Filesystem Support native module. The unchanged upstream blobs are
+production Filesystems native module. The unchanged upstream blobs are
 therefore kept under an explicit reference/provenance boundary.
 
 ## Target layout
@@ -80,7 +80,7 @@ Files below `reference/linux/` retain upstream filenames, SPDX identifiers,
 copyrights and source boundaries, including `alloc.c`, `journal.c`,
 `dlmglue.c`, the `cluster/` tree and the `dlm/` and `dlmfs/` trees.
 
-Project-authored code must be organised around Filesystem Support
+Project-authored code must be organised around Filesystems
 responsibilities and canonical/adapter ownership. Moving or renaming an
 upstream OCFS2 file does not constitute an independent rewrite.
 

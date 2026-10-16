@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — EXT4 Linux integrity and secrecy adapters. */
+/* Infiltrator Filesystems — EXT4 Linux integrity and secrecy adapters. */
 
 #ifdef CONFIG_FS_ENCRYPTION
 #include <linux/quotaops.h>

@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: filesystem-support-sanitizers-${{ github.ref }}-${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
+  group: filesystems-sanitizers-${{ github.ref }}-${{ github.event_name == 'workflow_call' && inputs.sha || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -59,7 +59,7 @@ jobs:
         # by the normal desktop-integration job instead of faking LD_PRELOAD.
         run: >-
           ctest --test-dir build-sanitized --output-on-failure
-          -E '^filesystem-support-desktop-install$'
+          -E '^filesystems-desktop-install$'
 
       - name: Run malformed-media corpus through fsinspect
         run: python3 tests/parser_adversarial_test.py build-sanitized/fsinspect

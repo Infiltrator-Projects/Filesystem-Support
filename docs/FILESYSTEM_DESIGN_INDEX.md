@@ -9,7 +9,7 @@ Filesystem-set membership is not maintained in this document.
 - [`../data/source-filesystems.txt`](../data/source-filesystems.txt) is the sole authority for filesystem source/design directories owned by this repository.
 - [`../data/native-filesystems.tsv`](../data/native-filesystems.tsv) is the sole authority for project-native Linux deployment membership and module identity.
 - [`../data/desktop-filesystems.tsv`](../data/desktop-filesystems.tsv) is the sole authority for per-filesystem desktop integration membership.
-- [`FILESYSTEM_SUPPORT_MATRIX.md`](FILESYSTEM_SUPPORT_MATRIX.md), together with the compiled catalogue identity/policy join, records the selectable product catalogue and current provider/capability state.
+- [`FILESYSTEMS_MATRIX.md`](FILESYSTEMS_MATRIX.md), together with the compiled catalogue identity/policy join, records the selectable product catalogue and current provider/capability state.
 - Each `native/filesystems/<id>/DESIGN.md` is authoritative for that format's implementation/provenance state.
 
 This index therefore does not repeat a second complete filesystem list. CI validates the source manifest against the directory tree and requires every source filesystem to carry a non-empty `DESIGN.md`.
@@ -20,13 +20,13 @@ The current native deployment manifest contains the independent EXT2, EXT3, EXT4
 
 These are deliberately independent filesystem implementations. Similarity between related formats is not, by itself, a reason to merge their persistent semantics or runtime state. Only mechanisms that are genuinely filesystem-neutral belong in shared native/platform code.
 
-InfiltratorFS is maintained in its separate repository. Filesystem Support contains its catalogue/provider contract, not a duplicate InfiltratorFS source tree.
+InfiltratorFS is maintained in its separate repository. Filesystems contains its catalogue/provider contract, not a duplicate InfiltratorFS source tree.
 
 ## Reference/import and external-provider states
 
 A source-manifest directory can legitimately contain only `DESIGN.md`, or `DESIGN.md` plus provenance-preserving `reference/` evidence, while no project-authored canonical engine exists. That state is intentional and must not be presented as native implementation progress.
 
-Imported reference source remains evidence only. It is never linked into an active Filesystem Support implementation merely because it is present in the repository. Promotion requires independently authored canonical semantics, an explicit adapter boundary and qualification for every capability claimed by the format's design document.
+Imported reference source remains evidence only. It is never linked into an active Filesystems implementation merely because it is present in the repository. Promotion requires independently authored canonical semantics, an explicit adapter boundary and qualification for every capability claimed by the format's design document.
 
 Conversely, some catalogue formats are currently served entirely by external providers and need no local source directory. Catalogue membership and repository source-tree membership are different concerns and must not be inferred from one another.
 

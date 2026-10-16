@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [CmdletBinding()]
 param(
-    [string]$DriverFile = 'filesystem_support_ext2.sys'
+    [string]$DriverFile = 'filesystems_ext2.sys'
 )
 
 $ErrorActionPreference = 'Stop'

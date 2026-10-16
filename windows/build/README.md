@@ -21,7 +21,7 @@ The build pipeline uses the canonical EXT2 core plus the Windows adapter. The
 former ExtFS-for-Windows duplicate core is not a live build input or repository
 authority; its historical provenance is documented under `docs/`.
 
-The long-term build surface remains the `filesystem-support.exe` manager, the
+The long-term build surface remains the `filesystems.exe` manager, the
 reusable Windows platform adapter, and each Windows-qualified canonical
 filesystem module. New filesystems should reuse the general WDK mechanisms only
 where their contracts are genuinely common; format-specific semantics remain in

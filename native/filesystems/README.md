@@ -1,7 +1,7 @@
 # Native filesystem engines
 
 This tree is reserved for real on-media filesystem formats that belong to the
-current 41-format Filesystem Support contract. A directory exists here only
+current 41-format Filesystems contract. A directory exists here only
 when this repository carries implementation or retained reference material for
 that filesystem identity. Catalogue identities provided by another project or
 external provider do not require a duplicate source tree here.
@@ -12,7 +12,7 @@ paths are not filesystem identities and must not reappear as directories under
 `native/filesystems/`.
 
 The directory layout also states an implementation's provenance and maturity;
-a copied reference tree is never presented as a Filesystem Support
+a copied reference tree is never presented as a Filesystems
 implementation.
 
 ## Project-authored implementation state
@@ -66,14 +66,14 @@ closed on unknown or contradictory metadata. Write support is a separate
 maturity stage with explicit recovery and destructive-test evidence.
 
 The authoritative list of selectable filesystem identities is
-`docs/FILESYSTEM_SUPPORT_MATRIX.md`. The project-native Linux deployment subset
+`docs/FILESYSTEMS_MATRIX.md`. The project-native Linux deployment subset
 is separately and centrally defined by `data/native-filesystems.tsv`; neither
 contract is inferred from whatever directories happen to exist here.
 
 ## Canonical source ownership
 
 For the completed reference set — EXT2, EXT3, EXT4, OFS, FFS and SFS — each
-filesystem has one canonical Filesystem Support implementation. Active source
+filesystem has one canonical Filesystems implementation. Active source
 for those six must be project-authored and maintained by Shannon Smith.
 Alternate FUSE providers, vendor copies, imported driver bodies and duplicate
 implementation trees are not accepted.

@@ -1,6 +1,6 @@
-# Filesystem Support Target Matrix
+# Filesystems Target Matrix
 
-This document is the human-readable support contract for **Filesystem Support**.
+This document is the human-readable support contract for **Filesystems**.
 
 The catalogue is intentionally **format-centric** and contains **41 persistent local-storage filesystem formats**. Every row is a real on-media filesystem identity that the project intentionally aims to recognise and support. Provider names, network/cloud mounts, overlays, archive namespaces, encryption containers, device namespaces and pseudo-filesystems are not separate catalogue entries.
 

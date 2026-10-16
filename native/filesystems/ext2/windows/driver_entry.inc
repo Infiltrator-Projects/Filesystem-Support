@@ -52,7 +52,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     ExtfsControlDevice->Flags &= ~DO_DEVICE_INITIALIZING;
     IoRegisterFileSystem(ExtfsControlDevice);
     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
-               "Filesystem Support EXT2: experimental ext4-depth1-extent-resize IFS 0.9.3 loaded\n");
+               "Filesystems EXT2: experimental ext4-depth1-extent-resize IFS 0.9.3 loaded\n");
     return STATUS_SUCCESS;
 }
 

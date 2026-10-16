@@ -49,7 +49,7 @@ for offset in range(0, 128, 4):
         image[offset:offset + 4] = bytes([value]) * min(4, len(image) - offset)
         cases.append((f'prefix-{offset:03d}-{value:02x}', bytes(image)))
 
-with tempfile.TemporaryDirectory(prefix='filesystem-support-adversarial-') as temp:
+with tempfile.TemporaryDirectory(prefix='filesystems-adversarial-') as temp:
     root = Path(temp)
     for index, (name, payload) in enumerate(cases):
         target = root / f'{index:04d}-{name}.img'

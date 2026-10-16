@@ -10,7 +10,7 @@ canonical-engine architecture.
 
 Btrfs is currently **reference/import state**. The source under
 `reference/linux/` is the pinned upstream Linux implementation and is not
-project-authored Filesystem Support code.
+project-authored Filesystems code.
 
 The reference tree is intentionally preserved with upstream filenames,
 licences, copyright and subsystem boundaries.
@@ -53,7 +53,7 @@ lifetime remain Linux-adapter concerns.
 
 Upstream files such as `ctree.c`, `inode.c`, `extent-tree.c`,
 `tree-log.c`, `volumes.c` and related headers remain reference filenames.
-Project-authored files must be cut around Filesystem Support ownership and
+Project-authored files must be cut around Filesystems ownership and
 portable invariants rather than copied/renamed from Linux.
 
 ## Promotion sequence

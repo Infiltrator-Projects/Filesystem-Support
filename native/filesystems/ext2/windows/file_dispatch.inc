@@ -163,7 +163,7 @@ NTSTATUS ExtfsDispatchClose(PDEVICE_OBJECT DeviceObject, PIRP Irp)
          * context, so it only tears down the per-file-object pointers/CCB. */
         if (ccb != NULL && !ccb->CleanupComplete) {
             DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                       "Filesystem Support EXT2: CLOSE observed without completed CLEANUP\n");
+                       "Filesystems EXT2: CLOSE observed without completed CLEANUP\n");
         }
         fileObject->FsContext = NULL;
         fileObject->FsContext2 = NULL;

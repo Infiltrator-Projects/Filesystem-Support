@@ -9,8 +9,8 @@
 
 namespace {
 
-constexpr wchar_t kWindowClass[] = L"InfiltratorFilesystemSupportWindow";
-constexpr wchar_t kWindowTitle[] = L"Filesystem Support";
+constexpr wchar_t kWindowClass[] = L"InfiltratorFilesystemsWindow";
+constexpr wchar_t kWindowTitle[] = L"Filesystems";
 constexpr int kListId = 1001;
 constexpr int kInstallId = 1002;
 constexpr int kRemoveId = 1003;
@@ -64,7 +64,7 @@ void set_subitem(const int row, const int column, const std::wstring& text)
 
 void populate_catalog()
 {
-    const auto& entries = filesystem_support::filesystem_identities();
+    const auto& entries = filesystems::filesystem_identities();
 
     for (size_t i = 0; i < entries.size(); ++i) {
         const auto& entry = entries[i];
@@ -83,8 +83,8 @@ void populate_catalog()
         set_subitem(row, 1, widen(entry.family));
         set_subitem(
             row, 2,
-            widen(filesystem_support::native_implementation_state_label(
-                filesystem_support::windows_native_state(entry.id))));
+            widen(filesystems::native_implementation_state_label(
+                filesystems::windows_native_state(entry.id))));
     }
 }
 
@@ -107,23 +107,23 @@ void update_selection()
         return;
     }
 
-    const auto& entries = filesystem_support::filesystem_identities();
+    const auto& entries = filesystems::filesystem_identities();
     const size_t index = static_cast<size_t>(item.lParam);
     if (index >= entries.size()) {
         return;
     }
 
     const auto& entry = entries[index];
-    const auto state = filesystem_support::windows_native_state(entry.id);
-    const bool installable = filesystem_support::windows_native_installable(entry.id);
+    const auto state = filesystems::windows_native_state(entry.id);
+    const bool installable = filesystems::windows_native_installable(entry.id);
 
     EnableWindow(g_install, installable ? TRUE : FALSE);
     EnableWindow(g_remove, FALSE);
 
     std::wstring message = widen(entry.name);
     message += L": ";
-    message += widen(filesystem_support::native_implementation_state_label(state));
-    if (state == filesystem_support::NativeImplementationState::InProgress) {
+    message += widen(filesystems::native_implementation_state_label(state));
+    if (state == filesystems::NativeImplementationState::InProgress) {
         message += L" - not installable until the shared canonical engine is qualified.";
     } else if (!installable) {
         message += L" - Windows support has not been implemented yet.";

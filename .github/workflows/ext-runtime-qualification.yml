@@ -18,7 +18,7 @@ on:
         type: string
 
 concurrency:
-  group: filesystem-support-ext-runtime-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'workflow_call' && inputs.sha || github.sha) }}
+  group: filesystems-ext-runtime-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'workflow_call' && inputs.sha || github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -166,7 +166,7 @@ jobs:
               mnt="/mnt/$fs"
 
               mount -t "$fs" "$dev" "$mnt" || fail "mount $fs"
-              echo "Filesystem Support $fs runtime qualification" > "$mnt/root.txt" ||
+              echo "Filesystems $fs runtime qualification" > "$mnt/root.txt" ||
                   fail "write $fs"
               mkdir "$mnt/tree" || fail "mkdir $fs"
               dd if=/dev/zero of="$mnt/tree/payload.bin" bs=4096 count=32 ||
@@ -175,16 +175,16 @@ jobs:
               ln -s ../root.txt "$mnt/tree/symlink.txt" || fail "symlink $fs"
               mv "$mnt/tree/payload.bin" "$mnt/tree/renamed.bin" || fail "rename $fs"
               sync
-              test "$(cat "$mnt/tree/hardlink.txt")" = "Filesystem Support $fs runtime qualification" ||
+              test "$(cat "$mnt/tree/hardlink.txt")" = "Filesystems $fs runtime qualification" ||
                   fail "readback $fs"
               umount "$mnt" || fail "unmount $fs"
 
               mount -t "$fs" "$dev" "$mnt" || fail "remount $fs"
-              test "$(cat "$mnt/root.txt")" = "Filesystem Support $fs runtime qualification" ||
+              test "$(cat "$mnt/root.txt")" = "Filesystems $fs runtime qualification" ||
                   fail "remount root $fs"
-              test "$(cat "$mnt/tree/hardlink.txt")" = "Filesystem Support $fs runtime qualification" ||
+              test "$(cat "$mnt/tree/hardlink.txt")" = "Filesystems $fs runtime qualification" ||
                   fail "remount hardlink $fs"
-              test "$(cat "$mnt/tree/symlink.txt")" = "Filesystem Support $fs runtime qualification" ||
+              test "$(cat "$mnt/tree/symlink.txt")" = "Filesystems $fs runtime qualification" ||
                   fail "remount symlink $fs"
               test "$(stat -c %s "$mnt/tree/renamed.bin")" = "131072" ||
                   fail "remount payload size $fs"

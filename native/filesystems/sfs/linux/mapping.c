@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — SFS Linux mapping and object engine adapter.
+/* Infiltrator Filesystems — SFS Linux mapping and object engine adapter.
  * Extent traversal, node-tree handling and object-container traversal are kept
  * together as one host-facing mapping responsibility.
  */

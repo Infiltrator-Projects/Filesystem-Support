@@ -1,5 +1,5 @@
 /*
- * Infiltrator Filesystem Support — EXT2 Linux metadata adapter.
+ * Infiltrator Filesystems — EXT2 Linux metadata adapter.
  *
  * EXT2 xattrs occupy one filesystem block referenced by i_file_acl.  This
  * implementation validates every disk offset before use, serialises entries

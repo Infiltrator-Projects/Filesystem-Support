@@ -3,7 +3,7 @@
 ## Classification
 
 ADFS (Acorn Disc Filing System) is a conventional local block filesystem used
-by RISC OS/Acorn systems. Filesystem Support therefore applies the normal
+by RISC OS/Acorn systems. Filesystems therefore applies the normal
 canonical-engine architecture:
 
 ```text
@@ -56,7 +56,7 @@ formats, filetype encoding or other ADFS-defined behaviour.
 
 ADFS is currently **reference/import state**.
 
-There is no project-authored canonical ADFS engine and no Filesystem Support
+There is no project-authored canonical ADFS engine and no Filesystems
 ADFS Linux or Windows adapter claimed by this directory. The source under
 `reference/linux/` is the pinned upstream Linux ADFS implementation copied by
 `.github/workflows/import-linux-filesystems.yml`.
@@ -64,12 +64,12 @@ ADFS Linux or Windows adapter claimed by this directory. The source under
 The imported source currently demonstrates a Linux VFS implementation with F
 and F+ directory handling, allocation-map traversal, inode/file operations and
 optional write support. That capability is evidence about a mature external
-implementation; it is not a claim that Filesystem Support has independently
+implementation; it is not a claim that Filesystems has independently
 implemented or qualified those behaviours.
 
 Reference files retain their upstream filenames, SPDX identifiers, copyrights
 and translation-unit layout. They are intentionally not renamed into
-Filesystem Support responsibility names until their implementation bodies have
+Filesystems responsibility names until their implementation bodies have
 actually been independently replaced.
 
 ## Current directory layout

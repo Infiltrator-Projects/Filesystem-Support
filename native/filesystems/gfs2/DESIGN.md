@@ -14,7 +14,7 @@ adapters around that engine.
 
 GFS2 is currently **reference/import state**. The pinned upstream Linux GFS2
 implementation under `reference/linux/` is compatibility and design evidence
-only and is not project-authored Filesystem Support code.
+only and is not project-authored Filesystems code.
 
 ## Target layout
 

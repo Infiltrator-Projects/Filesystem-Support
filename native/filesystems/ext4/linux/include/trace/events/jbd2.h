@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2026 Shannon Smith
  *
- * Infiltrator Filesystem Support — EXT4 journal tracepoints.
+ * Infiltrator Filesystems — EXT4 journal tracepoints.
  *
  * Diagnostic tracing is deliberately separated from journal correctness.
  * These events expose transaction identity, latency and checkpoint progress

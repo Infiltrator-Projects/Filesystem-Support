@@ -11,9 +11,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $driverRoot = Join-Path $root 'native\filesystems\ext2\windows'
-$solution = Join-Path $driverRoot 'filesystem_support_ext2.sln'
-$project = Join-Path $driverRoot 'filesystem_support_ext2.vcxproj'
-$inf = Join-Path $driverRoot 'filesystem_support_ext2.inf'
+$solution = Join-Path $driverRoot 'filesystems_ext2.sln'
+$project = Join-Path $driverRoot 'filesystems_ext2.vcxproj'
+$inf = Join-Path $driverRoot 'filesystems_ext2.inf'
 $release = Join-Path $root "release\windows\ext2\$Platform"
 $packagesConfig = Join-Path $PSScriptRoot 'packages.config'
 $packagesDir = Join-Path $root 'build\windows-wdk-packages'
@@ -211,7 +211,7 @@ if ($Platform -eq 'ARM64') {
 }
 
 Write-Host "WDK NuGet props: $wdkProps"
-Write-Host "Building Filesystem Support EXT2 $Configuration $Platform with: $msbuild"
+Write-Host "Building Filesystems EXT2 $Configuration $Platform with: $msbuild"
 $buildArguments = @($solution, '/m', '/t:Clean,Build', "/p:Configuration=$Configuration", "/p:Platform=$Platform") + $platformMsbuildArguments
 & $msbuild @buildArguments
 if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE." }
@@ -223,12 +223,12 @@ if (-not $SkipCodeAnalysis) {
     if ($LASTEXITCODE -ne 0) { throw "Driver Code Analysis failed with exit code $LASTEXITCODE." }
 }
 
-$driver = Get-ChildItem -LiteralPath $driverRoot -Filter filesystem_support_ext2.sys -File -Recurse |
+$driver = Get-ChildItem -LiteralPath $driverRoot -Filter filesystems_ext2.sys -File -Recurse |
     Where-Object FullName -Match "\\$Platform\\$Configuration\\" |
     Sort-Object LastWriteTimeUtc -Descending |
     Select-Object -First 1
 if (-not $driver) {
-    throw 'The build completed but filesystem_support_ext2.sys could not be located under native\filesystems\ext2\windows.'
+    throw 'The build completed but filesystems_ext2.sys could not be located under native\filesystems\ext2\windows.'
 }
 $peMachine = Get-PortableExecutableMachine -Path $driver.FullName
 $expectedPeMachine = if ($Platform -eq 'ARM64') { 0xAA64 } else { 0x8664 }
@@ -254,9 +254,9 @@ if (Test-Path -LiteralPath $release) {
     Remove-Item -LiteralPath $release -Recurse -Force
 }
 New-Item -ItemType Directory -Path $release -Force | Out-Null
-$stagedDriver = Join-Path $release 'filesystem_support_ext2.sys'
-$stagedInf = Join-Path $release 'filesystem_support_ext2.inf'
-$stagedCatalog = Join-Path $release 'filesystem_support_ext2.cat'
+$stagedDriver = Join-Path $release 'filesystems_ext2.sys'
+$stagedInf = Join-Path $release 'filesystems_ext2.inf'
+$stagedCatalog = Join-Path $release 'filesystems_ext2.cat'
 Copy-Item -LiteralPath $driver.FullName -Destination $stagedDriver -Force
 Copy-Item -LiteralPath $inf -Destination $stagedInf -Force
 
@@ -272,17 +272,17 @@ $inf2catOs = if ($Platform -eq 'ARM64') {
 } else {
     '10_X64,10_VB_X64,10_CO_X64,10_NI_X64,10_GE_X64,10_25H2_X64'
 }
-Write-Host "Generating filesystem_support_ext2.cat with Inf2Cat for: $inf2catOs"
+Write-Host "Generating filesystems_ext2.cat with Inf2Cat for: $inf2catOs"
 & $inf2cat "/driver:$release" "/os:$inf2catOs" /uselocaltime
 if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed with exit code $LASTEXITCODE." }
 if (-not (Test-Path -LiteralPath $stagedCatalog)) {
-    throw "Inf2Cat completed but did not produce the catalog declared by filesystem_support_ext2.inf: $stagedCatalog"
+    throw "Inf2Cat completed but did not produce the catalog declared by filesystems_ext2.inf: $stagedCatalog"
 }
 
 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $stagedDriver).Hash
 $catHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $stagedCatalog).Hash
 $report = @(
-    "Filesystem Support EXT2 Windows build validation"
+    "Filesystems EXT2 Windows build validation"
     "Date: $([DateTime]::Now.ToString('o'))"
     "Configuration: $Configuration"
     "Platform: $Platform"

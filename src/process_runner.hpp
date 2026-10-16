@@ -8,7 +8,7 @@
 #include <sys/wait.h>
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 
 struct CommandResult {
     bool spawned = false;
@@ -161,4 +161,4 @@ inline CommandResult run_command(const std::vector<std::string>& arguments)
     return result;
 }
 
-} // namespace filesystem_support
+} // namespace filesystems

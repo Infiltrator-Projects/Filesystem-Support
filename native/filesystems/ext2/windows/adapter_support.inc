@@ -7,7 +7,7 @@
  */
 
 /*
- * Filesystem Support EXT2 is a conservative synchronous native IFS adapter.
+ * Filesystems EXT2 is a conservative synchronous native IFS adapter.
  * All EXT2 on-disk decisions are delegated to the canonical shared engine;
  * this file owns only Windows IRPs, object lifetime, naming, synchronization
  * and Windows information records. Unsupported metadata mutation remains

@@ -1,10 +1,10 @@
-/* Infiltrator Filesystem Support — EXT3 Linux allocation adapter.
+/* Infiltrator Filesystems — EXT3 Linux allocation adapter.
  * Block allocation, inode allocation and online-growth publication are one
  * Linux-facing storage responsibility. Portable format policy remains core.
  */
 
 /*
- * Filesystem Support EXT3 block allocation.
+ * Filesystems EXT3 block allocation.
  *
  * EXT3 block allocation is journal-owned metadata.  A block is reusable only
  * when it is clear in both the live bitmap and the journal's committed bitmap
@@ -1059,7 +1059,7 @@ unsigned long ext3_count_free(
 
 /* ===== inode allocation ===== */
 /*
- * Filesystem Support EXT3 inode allocation.
+ * Filesystems EXT3 inode allocation.
  *
  * This Linux adapter owns inode-bitmap reservation and EXT3 journal ordering.
  * Selection policy is deliberately separate from publication: a candidate
@@ -1636,7 +1636,7 @@ unsigned long ext3_count_dirs(struct super_block *sb)
 
 /* ===== online growth publication ===== */
 /*
- * Infiltrator Filesystem Support — EXT3 online growth.
+ * Infiltrator Filesystems — EXT3 online growth.
  *
  * Online resize is split into two phases:
  *   1. prepare the new group's private metadata without publishing it;

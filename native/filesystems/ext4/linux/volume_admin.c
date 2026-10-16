@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — EXT4 Linux volume administration.
+/* Infiltrator Filesystems — EXT4 Linux volume administration.
  * Physical mapping queries, multiple-mount protection and sysfs exposure are
  * grouped as host administration around the canonical EXT4 engine.
  */

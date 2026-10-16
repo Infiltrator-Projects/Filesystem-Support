@@ -4,7 +4,7 @@
 #include <string_view>
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 
 // Cross-platform filesystem identity.  This deliberately contains no Linux
 // package names, kernel modules, provider classes, privilege policy or
@@ -19,4 +19,4 @@ struct FilesystemIdentity {
 
 const std::vector<FilesystemIdentity>& filesystem_identities();
 
-} // namespace filesystem_support
+} // namespace filesystems

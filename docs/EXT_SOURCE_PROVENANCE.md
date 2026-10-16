@@ -4,7 +4,7 @@ This document is the authoritative migration ledger for the active EXT2, EXT3
 and EXT4 implementation source.
 
 The project rule is simple: production implementation source must be written
-for Filesystem Support. External implementations may be studied for observable
+for Filesystems. External implementations may be studied for observable
 behaviour, media compatibility, edge cases and test vectors, but copied or
 transformed implementation source is not an acceptable final state.
 
@@ -47,7 +47,7 @@ The project-authored active units are:
 - `native/filesystems/ext2/linux/linux_adapter.h`
 - `native/filesystems/ext2/linux/Makefile`
 
-The Linux source is now cut by Filesystem Support responsibility rather than by
+The Linux source is now cut by Filesystems responsibility rather than by
 the historical `balloc/ialloc/dir/namei/file/inode/xattr/super` translation
 unit boundaries. Block and inode allocation are one allocation adapter;
 directory enumeration and namespace mutation are one namespace adapter; file
@@ -90,7 +90,7 @@ neither linkage nor filesystem semantics.
 
 ## Project-authored EXT3 units
 
-EXT3's active Linux tree is now cut by Filesystem Support responsibility rather
+EXT3's active Linux tree is now cut by Filesystems responsibility rather
 than the old EXT3/JBD translation-unit layout. The units that have crossed the
 implementation-ownership boundary are:
 
@@ -134,7 +134,7 @@ body itself is replaced. EXT3 remains one `ext3.ko`; old filenames such as
 
 ## Project-authored EXT4 units
 
-EXT4 has also been recut around Filesystem Support responsibilities. The
+EXT4 has also been recut around Filesystems responsibilities. The
 project-authored active units are:
 
 - `native/filesystems/ext4/core/ext4_core.c`

@@ -82,7 +82,7 @@ static NTSTATUS ExtfsMountVolume(PIRP Irp)
     extStatus = ifs_ext2_readonly_assess(&vcb->Volume, &risks);
     if (extStatus != IFS_EXT2_OK) {
         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_WARNING_LEVEL,
-                   "Filesystem Support EXT2: volume refused by read policy (risks=0x%08x)\n",
+                   "Filesystems EXT2: volume refused by read policy (risks=0x%08x)\n",
                    risks);
         ExDeleteResourceLite(&vcb->MetadataResource);
         ExDeleteResourceLite(&vcb->WriteResource);
@@ -116,7 +116,7 @@ static NTSTATUS ExtfsMountVolume(PIRP Irp)
     vpb->VolumeLabelLength = (USHORT)(labelChars * sizeof(WCHAR));
     volumeDevice->Flags &= ~DO_DEVICE_INITIALIZING;
     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
-               "Filesystem Support EXT2: mounted clean volume %s\n",
+               "Filesystems EXT2: mounted clean volume %s\n",
                vcb->WriteEnabled ? "limited-write" : "read-only");
     return STATUS_SUCCESS;
 }

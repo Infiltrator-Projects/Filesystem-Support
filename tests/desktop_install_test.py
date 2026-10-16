@@ -12,7 +12,7 @@ import sys
 source, build = map(Path, sys.argv[1:])
 root = build / 'desktop-test-root'
 if root.exists(): shutil.rmtree(root)
-private = root / 'usr/lib/infiltrator-filesystem-support'
+private = root / 'usr/lib/filesystems'
 templates = private / 'desktop/templates'
 templates.mkdir(parents=True)
 manifest = source / 'data/desktop-filesystems.tsv'
@@ -94,10 +94,10 @@ def check_files(selected, prepared=True):
     assert not list(rules.glob('59-infiltrator-*.rules'))
 
     if prepared:
-        assert owner('/usr/bin/gnome-disks') == 'infiltrator-filesystem-support'
-        assert owner('/usr/bin/nemo') == 'infiltrator-filesystem-support'
-        assert (root / 'usr/bin/gnome-disks.filesystem-support-original').exists()
-        assert (root / 'usr/bin/nemo.filesystem-support-original').exists()
+        assert owner('/usr/bin/gnome-disks') == 'filesystems'
+        assert owner('/usr/bin/nemo') == 'filesystems'
+        assert (root / 'usr/bin/gnome-disks.filesystems-original').exists()
+        assert (root / 'usr/bin/nemo.filesystems-original').exists()
     else:
         assert owner('/usr/bin/gnome-disks') == ''
         assert owner('/usr/bin/nemo') == ''
@@ -194,8 +194,8 @@ check_files(set(), prepared=False)
 run(helper, 'sync')
 check_files(set(kinds[:-2]), prepared=True)
 run(helper, 'remove', kinds[0])
-assert owner('/usr/bin/gnome-disks') == 'infiltrator-filesystem-support'
-assert owner('/usr/bin/nemo') == 'infiltrator-filesystem-support'
+assert owner('/usr/bin/gnome-disks') == 'filesystems'
+assert owner('/usr/bin/nemo') == 'filesystems'
 run(helper, 'purge')
 run(helper, 'unprepare')
 check_files(set(), prepared=False)

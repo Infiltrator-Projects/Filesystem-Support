@@ -15,10 +15,10 @@ int fail(const char* message)
     return 1;
 }
 
-const filesystem_support::FilesystemDescriptor* find_entry(
+const filesystems::FilesystemDescriptor* find_entry(
     const std::string_view id)
 {
-    for (const auto& entry : filesystem_support::catalog()) {
+    for (const auto& entry : filesystems::catalog()) {
         if (entry.id == id) {
             return &entry;
         }
@@ -30,7 +30,7 @@ const filesystem_support::FilesystemDescriptor* find_entry(
 
 int main()
 {
-    using namespace filesystem_support;
+    using namespace filesystems;
 
     const CommandResult exit_status = run_command({"sh", "-c", "exit 42"});
     if (!exit_status.spawned || exit_status.exit_status != 42 ||

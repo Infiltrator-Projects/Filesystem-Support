@@ -1,5 +1,5 @@
 /*
- * Filesystem Support EXT3 Linux regular-file adapter.
+ * Filesystems EXT3 Linux regular-file adapter.
  *
  * EXT3 filesystem semantics and journal ordering are supplied by the owning
  * EXT3 implementation.  This unit exposes those operations through Linux VFS.

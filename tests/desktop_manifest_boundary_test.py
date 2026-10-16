@@ -91,7 +91,7 @@ for helper in (
 for token in (
     "desktop_kind",
     "desktop_variant",
-    "FILESYSTEM_SUPPORT_AMIGA_DESKTOP_FILESYSTEMS",
+    "FILESYSTEMS_AMIGA_DESKTOP_FILESYSTEMS",
 ):
     if token in cmake:
         raise SystemExit(f"top-level native build graph still owns desktop policy: {token}")

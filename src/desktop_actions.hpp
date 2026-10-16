@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 
 using DesktopActionCompletion =
     std::function<void(bool, const std::string&)>;
@@ -65,4 +65,4 @@ void execute_desktop_action_async(
     DesktopAction action,
     DesktopActionCompletion completion);
 
-} // namespace filesystem_support
+} // namespace filesystems

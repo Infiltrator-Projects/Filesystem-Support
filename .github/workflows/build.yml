@@ -13,7 +13,7 @@ permissions:
 # the first run establishes the immutable v<version> tag. PRs remain isolated
 # by PR number and may cancel stale work.
 concurrency:
-  group: filesystem-support-build-v6-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  group: filesystems-build-v6-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
           ctest --test-dir build-desktop --output-on-failure
           cpack --config build-desktop/CPackConfig.cmake -G DEB -B dist-desktop
 
-      - name: Verify actual APT install, retirement migration and purge
+      - name: Verify actual APT install, reinstall and purge
         run: bash tests/desktop_package_test.sh dist-desktop/*.deb
 
       - name: Build and verify the complete release bundle
@@ -48,8 +48,8 @@ jobs:
         run: |
           set -euo pipefail
           version=$(tr -d '[:space:]' < VERSION)
-          deb="dist-desktop/Filesystem-Support-$version-amd64.deb"
-          run="dist-desktop/Filesystem-Support-$version-amd64.run"
+          deb="dist-desktop/Filesystems-$version-amd64.deb"
+          run="dist-desktop/Filesystems-$version-amd64.run"
           test -f "$deb"
           ./packaging/build-run.sh "$deb" "$run"
           test -x "$run"
@@ -77,9 +77,9 @@ jobs:
           payload = wrapper[start + len(marker):]
           with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
               names = archive.getnames()
-              if names != ["filesystem-support.deb"]:
+              if names != ["filesystems.deb"]:
                   raise SystemExit(f"unexpected run payload: {names}")
-              embedded = archive.extractfile("filesystem-support.deb")
+              embedded = archive.extractfile("filesystems.deb")
               if embedded is None or embedded.read() != deb:
                   raise SystemExit("run installer does not embed the qualified Debian package")
           PY
@@ -87,8 +87,8 @@ jobs:
           (
             cd dist-desktop
             sha256sum \
-              "Filesystem-Support-$version-amd64.deb" \
-              "Filesystem-Support-$version-amd64.run" \
+              "Filesystems-$version-amd64.deb" \
+              "Filesystems-$version-amd64.run" \
               > RELEASE_SHA256SUMS.txt
             sha256sum -c RELEASE_SHA256SUMS.txt
           )
@@ -96,10 +96,10 @@ jobs:
       - name: Preserve the exact qualified release bundle
         uses: actions/upload-artifact@v4
         with:
-          name: filesystem-support-linux-release
+          name: filesystems-linux-release
           path: |
-            dist-desktop/Filesystem-Support-*-amd64.deb
-            dist-desktop/Filesystem-Support-*-amd64.run
+            dist-desktop/Filesystems-*-amd64.deb
+            dist-desktop/Filesystems-*-amd64.run
             dist-desktop/RELEASE_SHA256SUMS.txt
           if-no-files-found: error
 
@@ -171,19 +171,19 @@ jobs:
         run: |
           set -euo pipefail
           bash -n packaging/linux/native-module-helper.sh
-          rm -rf /tmp/filesystem-support-stage
-          DESTDIR=/tmp/filesystem-support-stage cmake --install build --prefix /usr
-          helper=/tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native-module-helper
+          rm -rf /tmp/filesystems-stage
+          DESTDIR=/tmp/filesystems-stage cmake --install build --prefix /usr
+          helper=/tmp/filesystems-stage/usr/lib/filesystems/native-module-helper
           test -x "$helper"
 
           while IFS=$'\t' read -r fs module; do
             [[ -n "$fs" && "${fs:0:1}" != "#" ]] || continue
-            base="/tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native/filesystems/$fs"
+            base="/tmp/filesystems-stage/usr/lib/filesystems/native/filesystems/$fs"
             test -f "$base/linux/Makefile"
             test -d "$base/core"
           done < data/native-filesystems.tsv
 
-          test ! -e /tmp/filesystem-support-stage/usr/lib/infiltrator-filesystem-support/native/filesystems/affs
+          test ! -e /tmp/filesystems-stage/usr/lib/filesystems/native/filesystems/affs
 
   linux-native-modules-6-12:
     runs-on: ubuntu-24.04
@@ -291,10 +291,10 @@ jobs:
       - name: Verify manager
         shell: powershell
         run: |
-          $manager = Get-ChildItem -LiteralPath build-windows -Filter filesystem-support.exe -File -Recurse |
+          $manager = Get-ChildItem -LiteralPath build-windows -Filter filesystems.exe -File -Recurse |
               Select-Object -First 1
           if (-not $manager) {
-            throw 'Windows Filesystem Support manager was not produced.'
+            throw 'Windows Filesystems manager was not produced.'
           }
           Write-Host "Manager: $($manager.FullName)"
 
@@ -313,9 +313,9 @@ jobs:
       - name: Verify staged driver package
         shell: powershell
         run: |
-          $driver = 'release\windows\ext2\x64\filesystem_support_ext2.sys'
-          $inf = 'release\windows\ext2\x64\filesystem_support_ext2.inf'
-          $cat = 'release\windows\ext2\x64\filesystem_support_ext2.cat'
+          $driver = 'release\windows\ext2\x64\filesystems_ext2.sys'
+          $inf = 'release\windows\ext2\x64\filesystems_ext2.inf'
+          $cat = 'release\windows\ext2\x64\filesystems_ext2.cat'
           foreach ($path in @($driver, $inf, $cat)) {
               if (-not (Test-Path -LiteralPath $path)) {
                   throw "Expected staged EXT2 driver artifact missing: $path"
@@ -421,7 +421,7 @@ jobs:
       - name: Retrieve the exact qualified release bundle
         uses: actions/download-artifact@v4
         with:
-          name: filesystem-support-linux-release
+          name: filesystems-linux-release
           path: dist
 
       - name: Verify qualified release artefacts without rebuilding
@@ -429,8 +429,8 @@ jobs:
         run: |
           set -euo pipefail
           version=$(tr -d '[:space:]' < VERSION)
-          deb="Filesystem-Support-$version-amd64.deb"
-          run="Filesystem-Support-$version-amd64.run"
+          deb="Filesystems-$version-amd64.deb"
+          run="Filesystems-$version-amd64.run"
           test -f "dist/$deb"
           test -f "dist/$run"
           test -f dist/RELEASE_SHA256SUMS.txt
@@ -438,15 +438,13 @@ jobs:
             cd dist
             sha256sum -c RELEASE_SHA256SUMS.txt
           )
-          test "$(dpkg-deb -f "dist/$deb" Package)" = infiltrator-filesystem-support
+          test "$(dpkg-deb -f "dist/$deb" Package)" = filesystems
           test "$(dpkg-deb -f "dist/$deb" Version)" = "$version"
           python3 tests/udisks_display_test.py --package "dist/$deb"
-          test "$(dpkg-deb -f "dist/$deb" Conflicts)" = infiltrator-filesystem-support-udisks
-          ! dpkg-deb -f "dist/$deb" Depends | grep -Fq infiltrator-filesystem-support-udisks
           dpkg-deb -c "dist/$deb" > package-contents.txt
           grep -Fq './usr/bin/fsinspect' package-contents.txt
           grep -Fq '/desktop/templates/ofs.so' package-contents.txt
-          grep -Fq '/usr/lib/infiltrator-filesystem-support/native-filesystems.tsv' package-contents.txt
+          grep -Fq '/usr/lib/filesystems/native-filesystems.tsv' package-contents.txt
           ! grep -Fq '59-infiltrator-filesystems.rules' package-contents.txt
           test "$(find dist -maxdepth 1 -name '*.deb' | wc -l)" = 1
           test "$(find dist -maxdepth 1 -name '*.run' | wc -l)" = 1
@@ -459,8 +457,8 @@ jobs:
           set -euo pipefail
           version=$(tr -d '[:space:]' < VERSION)
           tag="v$version"
-          deb="Filesystem-Support-$version-amd64.deb"
-          run="Filesystem-Support-$version-amd64.run"
+          deb="Filesystems-$version-amd64.deb"
+          run="Filesystems-$version-amd64.run"
 
           git fetch origin --tags
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
@@ -504,7 +502,7 @@ jobs:
           fi
 
           cat > release-notes.md <<EOF
-          Filesystem Support $version.
+          Filesystems $version.
 
           This release promotes the exact Debian package, self-extracting installer and checksum manifest built and tested from commit $GITHUB_SHA. EXT, Amiga and sanitizer/adversarial qualification all ran against that same immutable SHA before publication.
 
@@ -522,7 +520,7 @@ jobs:
             dist/RELEASE_SHA256SUMS.txt \
             --verify-tag \
             --target "$GITHUB_SHA" \
-            --title "Filesystem Support $version" \
+            --title "Filesystems $version" \
             --notes-file release-notes.md \
             --latest
 

@@ -1,5 +1,5 @@
 /*
- * Filesystem Support EXT2 Linux mount adapter.
+ * Filesystems EXT2 Linux mount adapter.
  *
  * The canonical EXT2 core owns on-disk feature and geometry validation.
  * This unit owns only Linux VFS publication, mount policy, resource lifetime,
@@ -1377,7 +1377,7 @@ static void __exit ext2_exit(void)
 }
 
 MODULE_AUTHOR("Shannon Smith");
-MODULE_DESCRIPTION("Infiltrator Filesystem Support EXT2 driver");
+MODULE_DESCRIPTION("Infiltrator Filesystems EXT2 driver");
 MODULE_ALIAS_FS("ext2");
 MODULE_LICENSE("GPL");
 

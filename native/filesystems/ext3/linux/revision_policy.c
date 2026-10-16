@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2026 Shannon Smith
  *
- * Infiltrator Filesystem Support — EXT3 superblock revision policy.
+ * Infiltrator Filesystems — EXT3 superblock revision policy.
  *
  * This unit owns the transition from the original EXT revision to the
  * dynamic revision required when feature fields become meaningful.

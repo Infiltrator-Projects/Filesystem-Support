@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2026 Shannon Smith
  *
- * Infiltrator Filesystem Support — EXT3 journal/VFS front-end.
+ * Infiltrator Filesystems — EXT3 journal/VFS front-end.
  *
  * This unit owns the small boundary between EXT3 VFS operations and the
  * filesystem's private journal engine.  It contains no journal algorithm:

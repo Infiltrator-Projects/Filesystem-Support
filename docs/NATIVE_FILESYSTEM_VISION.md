@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Filesystem Support exists so InfiltratorOS is not permanently tied to one root filesystem. A user installing InfiltratorOS should ultimately be able to choose among qualified real disk filesystems, have the target formatted accordingly, and receive all runtime and boot support required for that choice.
+Filesystems exists so InfiltratorOS is not permanently tied to one root filesystem. A user installing InfiltratorOS should ultimately be able to choose among qualified real disk filesystems, have the target formatted accordingly, and receive all runtime and boot support required for that choice.
 
 The project therefore owns two related responsibilities:
 
@@ -13,7 +13,7 @@ The catalogue is deliberately limited to **persistent local on-media filesystem 
 
 ## One format identity, one canonical implementation
 
-For every real filesystem, Filesystem Support aims to own one canonical implementation of the filesystem's semantics and expose that implementation through platform adapters.
+For every real filesystem, Filesystems aims to own one canonical implementation of the filesystem's semantics and expose that implementation through platform adapters.
 
 ```text
                          canonical filesystem engine
@@ -43,17 +43,17 @@ A format may remain in the catalogue while current Linux support is read-only or
 
 ## What is not in scope
 
-The Filesystem Support catalogue does not own generic network/cloud mounts, remote client protocols, overlay/union namespaces, archive mounts, device namespaces, virtual pseudo-filesystems, encryption containers that merely reveal another filesystem, or implementation/provider duplicates.
+The Filesystems catalogue does not own generic network/cloud mounts, remote client protocols, overlay/union namespaces, archive mounts, device namespaces, virtual pseudo-filesystems, encryption containers that merely reveal another filesystem, or implementation/provider duplicates.
 
 Examples deliberately outside the catalogue include NFS/SMB/SSHFS/CephFS client mounts, S3/rclone cloud mounts, OverlayFS/mergerfs/bindfs, archive FUSE tools, BitLocker/LUKS/FileVault container layers, MTP/camera/device namespaces, VirtioFS/HGFS shared-directory transports, and LXCFS.
 
-Those technologies may belong to other InfiltratorOS components in future, but they are not choices for "what filesystem should this installation disk be formatted as?" and therefore do not belong in Filesystem Support's filesystem catalogue.
+Those technologies may belong to other InfiltratorOS components in future, but they are not choices for "what filesystem should this installation disk be formatted as?" and therefore do not belong in the Filesystems filesystem catalogue.
 
 Immutable image formats such as ISO9660, SquashFS, EROFS, ROMFS and CramFS are likewise outside the selectable installation-root catalogue. They can be useful deployment/image technologies, but they are not the writable target filesystem underneath a normal installed InfiltratorOS system.
 
 ## The setup contract
 
-The setup shell is a separate presentation layer over the same Filesystem Support backend. It should look and behave like an operating-system installer, not like the desktop Filesystem Support application.
+The setup shell is a separate presentation layer over the same Filesystems backend. It should look and behave like an operating-system installer, not like the desktop Filesystems application.
 
 For each selected filesystem, installation is one coordinated transaction:
 
@@ -72,7 +72,7 @@ install InfiltratorOS files
       +--> install selected filesystem's Linux runtime support
       |      +--> initramfs inclusion when required
       |
-      +--> install selected filesystem's rEFInd/EFI reader
+      +--> install selected filesystem's Boot/EFI reader
       |
       +--> write boot configuration
       v
@@ -85,13 +85,13 @@ The installer does not substitute EXT4, InfiltratorFS or another format when the
 
 A bootable installation has two distinct filesystem adapters.
 
-Before Linux exists, rEFInd/UEFI needs an EFI filesystem reader capable of locating and reading the kernel and initramfs from the selected filesystem.
+Before Linux exists, Boot/UEFI needs an EFI filesystem reader capable of locating and reading the kernel and initramfs from the selected filesystem.
 
 After Linux starts, Linux VFS needs the filesystem's runtime adapter/module so the same volume can become `/`.
 
 ```text
 UEFI
-  -> rEFInd
+  -> Boot
   -> filesystem EFI reader
   -> kernel + initramfs
   -> Linux
@@ -102,7 +102,7 @@ UEFI
 
 For InfiltratorFS the runtime adapter is `infiltratorfs.ko`. For Amiga OFS it is `ofs.ko`; FFS uses `ffs.ko`; SFS uses `sfs.ko`, and so on. The matching EFI reader is separate UEFI code and cannot be replaced by a Linux `.ko`.
 
-The custom rEFInd work is therefore part of the complete installation architecture: Filesystem Support supplies the selected-format capability data and installation plan, while the boot manager supplies/loads the corresponding EFI reader.
+The Boot integration is therefore part of the complete installation architecture: Filesystems supplies the selected-format capability data and installation plan, while Boot supplies/loads the corresponding EFI reader.
 
 ## Root-filesystem qualification
 
@@ -120,9 +120,9 @@ A format whose current provider is read-only can still be a legitimate long-term
 
 ## Native Linux integration
 
-For conventional local filesystems the intended Linux endpoint is a normal native VFS adapter, preferably an independently loadable out-of-tree module where that is technically appropriate. Filesystem Support must not require users to patch or replace the stock Debian kernel simply to gain a filesystem.
+For conventional local filesystems the intended Linux endpoint is a normal native VFS adapter, preferably an independently loadable out-of-tree module where that is technically appropriate. Filesystems must not require users to patch or replace the stock Debian kernel simply to gain a filesystem.
 
-Linux kernel interfaces evolve, so out-of-tree adapters must be rebuilt and qualified for supported kernels. Filesystem Support should manage installed/running kernel detection, headers, builds, qualification, module signing, installation and `depmod` as a coherent lifecycle.
+Linux kernel interfaces evolve, so out-of-tree adapters must be rebuilt and qualified for supported kernels. Filesystems should manage installed/running kernel detection, headers, builds, qualification, module signing, installation and `depmod` as a coherent lifecycle.
 
 Secure Boot/module signature enforcement is a normal deployment case, not an exceptional manual procedure.
 
@@ -178,4 +178,4 @@ Root qualification adds installation and boot tests: formatter -> OS population 
 - No claim of setup/root support until the complete boot and runtime path is qualified.
 - No silent fallback to a different filesystem than the one the user selected.
 
-The concrete source/dependency rules are defined in [`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md), and the current format/provider contract is enumerated in [`FILESYSTEM_SUPPORT_MATRIX.md`](FILESYSTEM_SUPPORT_MATRIX.md).
+The concrete source/dependency rules are defined in [`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md), and the current format/provider contract is enumerated in [`FILESYSTEMS_MATRIX.md`](FILESYSTEMS_MATRIX.md).

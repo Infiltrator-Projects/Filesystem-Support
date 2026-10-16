@@ -3,14 +3,14 @@
 ## Classification
 
 UDF is a conventional local filesystem format based on ECMA-167 and used on
-optical media, removable storage and filesystem images. Filesystem Support
+optical media, removable storage and filesystem images. Filesystems
 therefore applies the standard canonical-engine model.
 
 ## Current implementation state
 
 UDF is currently **reference/import state**.
 
-There is no project-authored canonical UDF engine and no Filesystem Support UDF
+There is no project-authored canonical UDF engine and no Filesystems UDF
 native module claimed by this directory. The source under `reference/linux/`
 is pinned upstream Linux UDF source retained as format, interoperability and
 failure-behaviour evidence.
@@ -96,6 +96,6 @@ source.
 
 ## Completion rule
 
-The current tree is reference evidence only. UDF becomes a Filesystem Support
+The current tree is reference evidence only. UDF becomes a Filesystems
 first-party implementation only when its canonical engine and applicable
 platform adapter have independent implementation and qualification evidence.

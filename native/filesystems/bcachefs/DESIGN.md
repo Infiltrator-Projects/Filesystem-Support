@@ -41,7 +41,7 @@ filesystem semantics.
 
 Bcachefs is currently **reference/import state**.
 
-There is no project-authored Bcachefs canonical engine or Filesystem Support
+There is no project-authored Bcachefs canonical engine or Filesystems
 Bcachefs kernel module claimed by this directory. The large source tree under
 `reference/linux/` is copied from the pinned Linux reference source by the
 refresh workflow.
@@ -53,7 +53,7 @@ authorship.
 
 Reference files retain their upstream SPDX identifiers, copyright/provenance,
 filenames and implementation boundaries. They are deliberately not renamed
-into Filesystem Support responsibility files until their implementation bodies
+into Filesystems responsibility files until their implementation bodies
 are independently replaced.
 
 ## Current directory layout
@@ -76,7 +76,7 @@ native/filesystems/bcachefs/
   reference/linux/          preserved upstream evidence
 ```
 
-The reference tree is not part of the Filesystem Support CMake production
+The reference tree is not part of the Filesystems CMake production
 source graph.
 
 While Bcachefs remains in reference/import state, the filesystem root therefore
@@ -92,7 +92,7 @@ Upstream filenames such as `btree_*.c`, `alloc_*.c`, `journal_*.c` and
 kernel-specific support files are retained unchanged in `reference/linux/` so
 their provenance is obvious.
 
-Project-authored files must be cut around Filesystem Support responsibilities
+Project-authored files must be cut around Filesystems responsibilities
 and host-neutral ownership, not mechanically copied or renamed from Linux.
 Moving an upstream file is never evidence that it has crossed the authorship
 boundary.

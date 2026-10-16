@@ -3,7 +3,7 @@
 ## Classification
 
 OMFS is the Optimized MPEG Filesystem used by certain media-recording devices.
-It is a conventional local on-disk block filesystem, so Filesystem Support
+It is a conventional local on-disk block filesystem, so Filesystems
 applies the normal canonical-engine architecture.
 
 ```text
@@ -22,10 +22,10 @@ OMFS is currently **reference/import state**.
 
 The source below `reference/linux/` is the pinned upstream Linux OMFS driver.
 It is retained as format, interoperability and failure-behaviour evidence only;
-Filesystem Support does not claim it as project-authored implementation.
+Filesystems does not claim it as project-authored implementation.
 
 The former `kernel/` staging directory was misleading because it looked like
-production native Filesystem Support code. The upstream blobs are therefore
+production native Filesystems code. The upstream blobs are therefore
 preserved unchanged under the explicit reference/provenance boundary.
 
 ## Current directory layout

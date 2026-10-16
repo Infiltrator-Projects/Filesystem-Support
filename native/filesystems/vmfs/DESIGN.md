@@ -6,11 +6,11 @@ This entry represents VMware VMFS3/VMFS5 filesystem formats. They are
 persistent shared-disk filesystem formats, even though the current Debian
 provider is userspace/read-only.
 
-The current Filesystem Support catalogue delegates access to `vmfs-tools`.
+The current Filesystems catalogue delegates access to `vmfs-tools`.
 
 ## Current implementation state
 
-Filesystem Support contains no first-party VMFS3/VMFS5 implementation. The
+Filesystems contains no first-party VMFS3/VMFS5 implementation. The
 current product path is the external read-only userspace provider managed
 through the catalogue/action backend.
 

@@ -2,7 +2,7 @@
 
 ## Architectural rule
 
-Filesystem Support owns one canonical implementation of each **in-scope persistent local-storage filesystem format**.
+Filesystems owns one canonical implementation of each **in-scope persistent local-storage filesystem format**.
 
 Filesystem semantics are not independently rewritten for Linux, Windows and UEFI. Each platform adapter translates its host contract around the same authoritative format rules.
 
@@ -96,7 +96,7 @@ Infiltratr Common may supply genuinely generic userspace/portable primitives, bu
 
 ## One filesystem implementation, independently deployable adapters
 
-Filesystem Support must not become one enormous kernel module or Windows driver. Conventional filesystems remain independently deployable. Shared platform code is promoted only when its ABI/contract is proven stable and does not create unnecessary failure coupling.
+Filesystems must not become one enormous kernel module or Windows driver. Conventional filesystems remain independently deployable. Shared platform code is promoted only when its ABI/contract is proven stable and does not create unnecessary failure coupling.
 
 During current Linux development, required canonical-core source may be compiled directly into each `.ko` rather than introducing a private shared kernel-module ABI. That is intentional.
 
@@ -120,15 +120,15 @@ Historical research directories for technologies removed from the product catalo
 
 ## Linux native installation contract
 
-A project-owned Linux filesystem is considered natively installed only when Filesystem Support has installed the project's actual VFS adapter for the running kernel.
+A project-owned Linux filesystem is considered natively installed only when Filesystems has installed the project's actual VFS adapter for the running kernel.
 
 For a qualified module, **Install native** means: identify the running kernel, require matching headers, compile the canonical core plus Linux adapter, install the resulting `.ko` under an Infiltrator-owned `updates/` location, run `depmod`, load it with `modprobe`, and verify that the intended module is genuinely active.
 
 **Remove native** must refuse unsafe unload, unload the module, remove only the Infiltrator-owned module, run `depmod`, and re-probe actual state.
 
-If a same-named built-in/in-use stock module cannot safely be replaced, installation fails closed. Filesystem Support must never report the project-native implementation as active when another driver is servicing the filesystem.
+If a same-named built-in/in-use stock module cannot safely be replaced, installation fails closed. Filesystems must never report the project-native implementation as active when another driver is servicing the filesystem.
 
-Secure Boot is a normal deployment case. Project-native `.ko` files must follow the enrolled signing/MOK path where module signature enforcement is active; Filesystem Support must not disable Secure Boot or claim success after signature rejection.
+Secure Boot is a normal deployment case. Project-native `.ko` files must follow the enrolled signing/MOK path where module signature enforcement is active; Filesystems must not disable Secure Boot or claim success after signature rejection.
 
 ## InfiltratorOS root/setup contract
 

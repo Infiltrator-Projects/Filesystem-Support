@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — EXT2 Linux I/O and inode adapter.
+/* Infiltrator Filesystems — EXT2 Linux I/O and inode adapter.
  * VFS file operations and Linux inode/page-cache integration are one host
  * responsibility; format mapping semantics remain canonical-core policy.
  */
@@ -6,7 +6,7 @@
 /*
  * Copyright (C) 2026 Shannon Smith
  *
- * Filesystem Support EXT2 regular-file interface.
+ * Filesystems EXT2 regular-file interface.
  *
  * This unit is an Infiltrator implementation of the Linux VFS-facing file
  * contract for EXT2.  It owns dispatch between buffered, direct and DAX I/O,

@@ -134,7 +134,7 @@ for required in (
     "uses: ./.github/workflows/ext-runtime-qualification.yml",
     "uses: ./.github/workflows/amiga-runtime-qualification.yml",
     "uses: ./.github/workflows/sanitizers.yml",
-    "filesystem-support-linux-release",
+    "filesystems-linux-release",
     "actions/download-artifact@v4",
     "publish-release:",
     "github.ref }}",
@@ -150,7 +150,7 @@ require("build-run.sh" not in publisher,
         "publisher rebuilds the .run installer instead of promoting qualified bytes")
 require("sha256sum -c RELEASE_SHA256SUMS.txt" in build,
         "qualified release bundle is not checksum-verified")
-require("filesystem-support-build-v6-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}" in build,
+require("filesystems-build-v6-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}" in build,
         "main release candidates are not serialized by branch")
 
 for relative in (

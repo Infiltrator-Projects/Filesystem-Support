@@ -6,7 +6,7 @@ ZFS is a pooled copy-on-write filesystem and volume-management stack. It is a
 real persistent storage/filesystem format family, not merely a Linux package
 identity and not a FUSE presentation layer.
 
-The current Filesystem Support catalogue delegates normal ZFS support to the
+The current Filesystems catalogue delegates normal ZFS support to the
 external OpenZFS Debian path:
 
 - kernel/module identity: `zfs`;
@@ -20,7 +20,7 @@ implementation is deliberately admitted and independently qualified.
 
 ## One ZFS implementation rule
 
-Filesystem Support may own only one canonical ZFS implementation.
+Filesystems may own only one canonical ZFS implementation.
 
 `zfs-fuse` is an alternate external userspace provider for the same filesystem
 family, not a separate catalogue identity. It must not become a second project
@@ -116,7 +116,7 @@ filesystem semantics and belong outside the canonical engine.
 
 OpenZFS remains valuable interoperability and behaviour evidence while the
 project implementation is absent or incomplete. The external provider can be
-installed, removed and reported by Filesystem Support without implying that its
+installed, removed and reported by Filesystems without implying that its
 source belongs to this repository.
 
 The `zfs-fuse` provider remains an alternative external userspace path. If a
@@ -155,7 +155,7 @@ DMU/ZAP/ZPL structures, unsafe transaction/replay state and ambiguous
 multi-device authority must fail closed.
 
 A pool being mountable by external OpenZFS is interoperability evidence, not
-proof that a future Filesystem Support writer is safe to mutate it.
+proof that a future Filesystems writer is safe to mutate it.
 
 ## Completion rule
 

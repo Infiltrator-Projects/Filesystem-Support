@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — SFS Linux allocation adapter.
+/* Infiltrator Filesystems — SFS Linux allocation adapter.
  * Free-space/admin-space management and bitmap operations form one allocation
  * responsibility around the canonical SFS engine.
  */

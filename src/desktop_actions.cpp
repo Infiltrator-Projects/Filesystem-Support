@@ -6,7 +6,7 @@
 
 #include <utility>
 
-namespace filesystem_support {
+namespace filesystems {
 namespace {
 
 bool executable_disposition(const DesktopActionDisposition disposition)
@@ -235,4 +235,4 @@ void execute_desktop_action_async(
     fail_invalid_action(std::move(completion));
 }
 
-} // namespace filesystem_support
+} // namespace filesystems

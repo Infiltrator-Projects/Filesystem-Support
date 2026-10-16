@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 cmake_minimum_required(VERSION 3.20)
 
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" FILESYSTEM_SUPPORT_VERSION)
-string(STRIP "${FILESYSTEM_SUPPORT_VERSION}" FILESYSTEM_SUPPORT_VERSION)
-if(NOT FILESYSTEM_SUPPORT_VERSION MATCHES "^[0-9]+[.][0-9]+[.][0-9]+$")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" FILESYSTEMS_VERSION)
+string(STRIP "${FILESYSTEMS_VERSION}" FILESYSTEMS_VERSION)
+if(NOT FILESYSTEMS_VERSION MATCHES "^[0-9]+[.][0-9]+[.][0-9]+$")
     message(FATAL_ERROR "VERSION must contain major.minor.patch")
 endif()
 
-project(FilesystemSupport VERSION "${FILESYSTEM_SUPPORT_VERSION}" LANGUAGES C CXX)
+project(Filesystems VERSION "${FILESYSTEMS_VERSION}" LANGUAGES C CXX)
 include(CTest)
 include(GNUInstallDirs)
 
@@ -19,18 +19,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(FILESYSTEM_SUPPORT_WARNINGS_AS_ERRORS "Treat warnings as errors" ON)
+option(FILESYSTEMS_WARNINGS_AS_ERRORS "Treat warnings as errors" ON)
 
 # Native deployment policy owns only filesystem/module membership. Desktop
 # integration has an independent authority in data/desktop-filesystems.tsv and
 # must never influence which kernel modules are built, packaged or managed.
-set(FILESYSTEM_SUPPORT_NATIVE_MANIFEST
+set(FILESYSTEMS_NATIVE_MANIFEST
     "${CMAKE_CURRENT_SOURCE_DIR}/data/native-filesystems.tsv")
-file(STRINGS "${FILESYSTEM_SUPPORT_NATIVE_MANIFEST}"
-    FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
-set(FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
-set(FILESYSTEM_SUPPORT_NATIVE_MODULES)
-foreach(native_line IN LISTS FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
+file(STRINGS "${FILESYSTEMS_NATIVE_MANIFEST}"
+    FILESYSTEMS_NATIVE_MANIFEST_LINES)
+set(FILESYSTEMS_NATIVE_FILESYSTEMS)
+set(FILESYSTEMS_NATIVE_MODULES)
+foreach(native_line IN LISTS FILESYSTEMS_NATIVE_MANIFEST_LINES)
     string(STRIP "${native_line}" native_line)
     if(native_line STREQUAL "" OR native_line MATCHES "^#")
         continue()
@@ -51,46 +51,46 @@ foreach(native_line IN LISTS FILESYSTEM_SUPPORT_NATIVE_MANIFEST_LINES)
             "Invalid native filesystem/module token: ${native_line}")
     endif()
 
-    list(FIND FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS
+    list(FIND FILESYSTEMS_NATIVE_FILESYSTEMS
         "${native_fs}" native_duplicate_index)
     if(NOT native_duplicate_index EQUAL -1)
         message(FATAL_ERROR
             "Duplicate native filesystem in manifest: ${native_fs}")
     endif()
-    list(FIND FILESYSTEM_SUPPORT_NATIVE_MODULES
+    list(FIND FILESYSTEMS_NATIVE_MODULES
         "${native_module}" module_duplicate_index)
     if(NOT module_duplicate_index EQUAL -1)
         message(FATAL_ERROR
             "Duplicate native module in manifest: ${native_module}")
     endif()
 
-    list(APPEND FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS "${native_fs}")
-    list(APPEND FILESYSTEM_SUPPORT_NATIVE_MODULES "${native_module}")
-    set("FILESYSTEM_SUPPORT_NATIVE_MODULE_${native_fs}" "${native_module}")
+    list(APPEND FILESYSTEMS_NATIVE_FILESYSTEMS "${native_fs}")
+    list(APPEND FILESYSTEMS_NATIVE_MODULES "${native_module}")
+    set("FILESYSTEMS_NATIVE_MODULE_${native_fs}" "${native_module}")
 endforeach()
-if(NOT FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
+if(NOT FILESYSTEMS_NATIVE_FILESYSTEMS)
     message(FATAL_ERROR "Native filesystem deployment manifest is empty")
 endif()
 
 # Generate the C++ native policy directly from the same deployment manifest.
 # catalog.cpp therefore cannot acquire a second, independently maintained list
 # of native filesystem IDs or kernel-module names.
-set(FILESYSTEM_SUPPORT_GENERATED_DIR
+set(FILESYSTEMS_GENERATED_DIR
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
-file(MAKE_DIRECTORY "${FILESYSTEM_SUPPORT_GENERATED_DIR}")
-set(FILESYSTEM_SUPPORT_NATIVE_POLICY_HEADER
-    "${FILESYSTEM_SUPPORT_GENERATED_DIR}/native_filesystems.generated.hpp")
-list(LENGTH FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS
-    FILESYSTEM_SUPPORT_NATIVE_FILESYSTEM_COUNT)
+file(MAKE_DIRECTORY "${FILESYSTEMS_GENERATED_DIR}")
+set(FILESYSTEMS_NATIVE_POLICY_HEADER
+    "${FILESYSTEMS_GENERATED_DIR}/native_filesystems.generated.hpp")
+list(LENGTH FILESYSTEMS_NATIVE_FILESYSTEMS
+    FILESYSTEMS_NATIVE_FILESYSTEM_COUNT)
 set(native_policy_header
-    "// Generated from data/native-filesystems.tsv; do not edit.\n#pragma once\n\n#include <array>\n#include <string_view>\n\nnamespace filesystem_support {\n\nstruct NativeFilesystemPolicy {\n    std::string_view filesystem_id;\n    std::string_view module;\n};\n\ninline constexpr std::array<NativeFilesystemPolicy, ${FILESYSTEM_SUPPORT_NATIVE_FILESYSTEM_COUNT}> kNativeFilesystemPolicies = {{\n")
-foreach(native_fs IN LISTS FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
-    set(native_module "${FILESYSTEM_SUPPORT_NATIVE_MODULE_${native_fs}}")
+    "// Generated from data/native-filesystems.tsv; do not edit.\n#pragma once\n\n#include <array>\n#include <string_view>\n\nnamespace filesystems {\n\nstruct NativeFilesystemPolicy {\n    std::string_view filesystem_id;\n    std::string_view module;\n};\n\ninline constexpr std::array<NativeFilesystemPolicy, ${FILESYSTEMS_NATIVE_FILESYSTEM_COUNT}> kNativeFilesystemPolicies = {{\n")
+foreach(native_fs IN LISTS FILESYSTEMS_NATIVE_FILESYSTEMS)
+    set(native_module "${FILESYSTEMS_NATIVE_MODULE_${native_fs}}")
     string(APPEND native_policy_header
         "    {\"${native_fs}\", \"${native_module}\"},\n")
 endforeach()
-string(APPEND native_policy_header "}};\n\n} // namespace filesystem_support\n")
-file(WRITE "${FILESYSTEM_SUPPORT_NATIVE_POLICY_HEADER}" "${native_policy_header}")
+string(APPEND native_policy_header "}};\n\n} // namespace filesystems\n")
+file(WRITE "${FILESYSTEMS_NATIVE_POLICY_HEADER}" "${native_policy_header}")
 
 set(INFILTRATR_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/infiltratr-common")
 set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.38")
@@ -103,12 +103,12 @@ file(READ "${INFILTRATR_COMMON_DIR}/VERSION" INFILTRATR_COMMON_VERSION)
 string(STRIP "${INFILTRATR_COMMON_VERSION}" INFILTRATR_COMMON_VERSION)
 if(NOT INFILTRATR_COMMON_VERSION STREQUAL INFILTRATR_COMMON_EXPECTED_VERSION)
     message(FATAL_ERROR
-        "Filesystem Support requires Common ${INFILTRATR_COMMON_EXPECTED_VERSION}; found ${INFILTRATR_COMMON_VERSION}")
+        "Filesystems requires Common ${INFILTRATR_COMMON_EXPECTED_VERSION}; found ${INFILTRATR_COMMON_VERSION}")
 endif()
 
 # Git itself owns the exact Common revision through the submodule gitlink. Do
 # not duplicate that SHA in CMake: compare the checked-out submodule directly
-# with the commit recorded by this Filesystem Support revision.
+# with the commit recorded by this Filesystems revision.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
     find_package(Git REQUIRED)
     execute_process(
@@ -136,18 +136,18 @@ set(INFILTRATR_COMMON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(INFILTRATR_COMMON_WARNINGS_AS_ERRORS ON CACHE BOOL "" FORCE)
 add_subdirectory("${INFILTRATR_COMMON_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/infiltratr-common" EXCLUDE_FROM_ALL)
 
-set(FILESYSTEM_SUPPORT_WARNING_FLAGS -Wall -Wextra -Wpedantic -Wshadow)
+set(FILESYSTEMS_WARNING_FLAGS -Wall -Wextra -Wpedantic -Wshadow)
 
-function(filesystem_support_configure target)
+function(filesystems_configure target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4)
-        if(FILESYSTEM_SUPPORT_WARNINGS_AS_ERRORS)
+        if(FILESYSTEMS_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE /WX)
         endif()
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang" OR
            CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-        target_compile_options(${target} PRIVATE ${FILESYSTEM_SUPPORT_WARNING_FLAGS})
-        if(FILESYSTEM_SUPPORT_WARNINGS_AS_ERRORS)
+        target_compile_options(${target} PRIVATE ${FILESYSTEMS_WARNING_FLAGS})
+        if(FILESYSTEMS_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE -Werror)
         endif()
     endif()
@@ -165,7 +165,7 @@ target_include_directories(infiltratr-fs-native-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/include")
 target_link_libraries(infiltratr-fs-native-core
     PUBLIC InfiltratrCommon::Portable)
-filesystem_support_configure(infiltratr-fs-native-core)
+filesystems_configure(infiltratr-fs-native-core)
 
 # Canonical EXT2 on-disk semantics. This exact source is also compiled into
 # the Linux and Windows adapters; OS-specific code must not reimplement it.
@@ -174,7 +174,7 @@ add_library(infiltratr-fs-ext2-core STATIC
     native/filesystems/ext2/core/ext2_engine.c)
 target_include_directories(infiltratr-fs-ext2-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext2/core")
-filesystem_support_configure(infiltratr-fs-ext2-core)
+filesystems_configure(infiltratr-fs-ext2-core)
 
 # Canonical EXT3 feature/format policy. Linux and future Windows adapters
 # consume this exact implementation rather than maintaining independent rules.
@@ -182,14 +182,14 @@ add_library(infiltratr-fs-ext3-core STATIC
     native/filesystems/ext3/core/ext3_core.c)
 target_include_directories(infiltratr-fs-ext3-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext3/core")
-filesystem_support_configure(infiltratr-fs-ext3-core)
+filesystems_configure(infiltratr-fs-ext3-core)
 
 # Canonical EXT4 feature/format policy shared by every host adapter.
 add_library(infiltratr-fs-ext4-core STATIC
     native/filesystems/ext4/core/ext4_core.c)
 target_include_directories(infiltratr-fs-ext4-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ext4/core")
-filesystem_support_configure(infiltratr-fs-ext4-core)
+filesystems_configure(infiltratr-fs-ext4-core)
 
 # Canonical Amiga OFS and FFS format classification.
 add_library(infiltratr-fs-ofs-core STATIC
@@ -197,21 +197,21 @@ add_library(infiltratr-fs-ofs-core STATIC
     native/filesystems/ofs/core/ofs_primitives.c)
 target_include_directories(infiltratr-fs-ofs-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ofs/core")
-filesystem_support_configure(infiltratr-fs-ofs-core)
+filesystems_configure(infiltratr-fs-ofs-core)
 
 add_library(infiltratr-fs-ffs-core STATIC
     native/filesystems/ffs/core/ffs_core.c
     native/filesystems/ffs/core/ffs_primitives.c)
 target_include_directories(infiltratr-fs-ffs-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/ffs/core")
-filesystem_support_configure(infiltratr-fs-ffs-core)
+filesystems_configure(infiltratr-fs-ffs-core)
 
 # Canonical Amiga SFS format/layout policy shared by host adapters.
 add_library(infiltratr-fs-sfs-core STATIC
     native/filesystems/sfs/core/sfs_core.c)
 target_include_directories(infiltratr-fs-sfs-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/sfs/core")
-filesystem_support_configure(infiltratr-fs-sfs-core)
+filesystems_configure(infiltratr-fs-sfs-core)
 
 # Canonical Amiga SFS2 format policy. SFS2 is deliberately independent
 # from the SFS core because its on-disk structures are not 1:1 compatible.
@@ -219,51 +219,51 @@ add_library(infiltratr-fs-sfs2-core STATIC
     native/filesystems/sfs2/core/sfs2_core.c)
 target_include_directories(infiltratr-fs-sfs2-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/sfs2/core")
-filesystem_support_configure(infiltratr-fs-sfs2-core)
+filesystems_configure(infiltratr-fs-sfs2-core)
 
 # Canonical PFS format/geometry policy used by the PFS3 implementation.
 add_library(infiltratr-fs-pfs3-core STATIC
     native/filesystems/pfs3/core/pfs3_core.c)
 target_include_directories(infiltratr-fs-pfs3-core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native/filesystems/pfs3/core")
-filesystem_support_configure(infiltratr-fs-pfs3-core)
+filesystems_configure(infiltratr-fs-pfs3-core)
 
 # Stable on-media identity is a platform-neutral authority. Keep it physically
 # separate from Linux package/provider policy so non-Linux consumers cannot
 # acquire Debian concerns through a target-level dependency.
-add_library(filesystem-support-identity STATIC
+add_library(filesystems-identity STATIC
     src/platform_support.cpp)
-target_include_directories(filesystem-support-identity
+target_include_directories(filesystems-identity
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(filesystem-support-identity
+target_link_libraries(filesystems-identity
     PUBLIC InfiltratrCommon::Portable)
-target_compile_definitions(filesystem-support-identity
-    PUBLIC FILESYSTEM_SUPPORT_VERSION="${PROJECT_VERSION}")
-filesystem_support_configure(filesystem-support-identity)
+target_compile_definitions(filesystems-identity
+    PUBLIC FILESYSTEMS_VERSION="${PROJECT_VERSION}")
+filesystems_configure(filesystems-identity)
 
 # Linux catalogue materializes stable identity with Linux provider/package and
 # native-deployment policy. This target is therefore intentionally Linux-aware.
-add_library(filesystem-support-catalog STATIC
+add_library(filesystems-catalog STATIC
     src/catalog.cpp)
-target_include_directories(filesystem-support-catalog
+target_include_directories(filesystems-catalog
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    PRIVATE "${FILESYSTEM_SUPPORT_GENERATED_DIR}")
-target_link_libraries(filesystem-support-catalog
-    PUBLIC filesystem-support-identity InfiltratrCommon::Portable)
-filesystem_support_configure(filesystem-support-catalog)
+    PRIVATE "${FILESYSTEMS_GENERATED_DIR}")
+target_link_libraries(filesystems-catalog
+    PUBLIC filesystems-identity InfiltratrCommon::Portable)
+filesystems_configure(filesystems-catalog)
 
 if(WIN32)
     # Native Windows management shell consumes stable filesystem identity only;
     # Debian package/provider policy is not part of its dependency graph.
-    add_executable(filesystem-support WIN32
+    add_executable(filesystems WIN32
         windows/manager/main.cpp)
-    target_link_libraries(filesystem-support
-        PRIVATE filesystem-support-identity Comctl32)
-    target_compile_definitions(filesystem-support
+    target_link_libraries(filesystems
+        PRIVATE filesystems-identity Comctl32)
+    target_compile_definitions(filesystems
         PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
-    filesystem_support_configure(filesystem-support)
+    filesystems_configure(filesystems)
 
-    install(TARGETS filesystem-support
+    install(TARGETS filesystems
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 
@@ -281,40 +281,40 @@ if(UNIX)
             "${CMAKE_CURRENT_SOURCE_DIR}/native/platform/userspace")
     target_link_libraries(infiltratr-fs-userspace
         PUBLIC infiltratr-fs-native-core InfiltratrCommon::Common)
-    filesystem_support_configure(infiltratr-fs-userspace)
+    filesystems_configure(infiltratr-fs-userspace)
 
     add_executable(fsinspect
         tools/fsinspect/main.c)
     target_link_libraries(fsinspect PRIVATE infiltratr-fs-userspace)
-    filesystem_support_configure(fsinspect)
+    filesystems_configure(fsinspect)
 
-    add_library(filesystem-support-core STATIC
+    add_library(filesystems-core STATIC
         src/probe.cpp
         src/action_policy.cpp)
-    target_include_directories(filesystem-support-core
+    target_include_directories(filesystems-core
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    target_link_libraries(filesystem-support-core
-        PUBLIC filesystem-support-catalog PkgConfig::GLIB2)
-    filesystem_support_configure(filesystem-support-core)
+    target_link_libraries(filesystems-core
+        PUBLIC filesystems-catalog PkgConfig::GLIB2)
+    filesystems_configure(filesystems-core)
 
-    add_library(filesystem-support-actions STATIC
+    add_library(filesystems-actions STATIC
         src/installer.cpp
         src/desktop_actions.cpp)
-    target_include_directories(filesystem-support-actions
+    target_include_directories(filesystems-actions
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    target_link_libraries(filesystem-support-actions
-        PUBLIC filesystem-support-core PkgConfig::GIO2)
-    filesystem_support_configure(filesystem-support-actions)
+    target_link_libraries(filesystems-actions
+        PUBLIC filesystems-core PkgConfig::GIO2)
+    filesystems_configure(filesystems-actions)
 
-    add_executable(filesystem-support
+    add_executable(filesystems
         src/main.cpp)
-    target_link_libraries(filesystem-support
-        PRIVATE filesystem-support-actions InfiltratrCommon::Portable PkgConfig::GTK3)
-    filesystem_support_configure(filesystem-support)
+    target_link_libraries(filesystems
+        PRIVATE filesystems-actions InfiltratrCommon::Portable PkgConfig::GTK3)
+    filesystems_configure(filesystems)
 
-    install(TARGETS filesystem-support
+    install(TARGETS filesystems
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
-    install(FILES data/org.infiltrator.FilesystemSupport.desktop
+    install(FILES data/org.infiltrator.Filesystems.desktop
         DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
 
     # Project-owned native Linux filesystem modules are built against the
@@ -322,27 +322,27 @@ if(UNIX)
     # helper are separate installed programs so desktop policy can never leak
     # into the kernel rollback implementation.
     install(PROGRAMS packaging/linux/native-module-helper.sh
-        DESTINATION "lib/infiltrator-filesystem-support"
+        DESTINATION "lib/filesystems"
         RENAME native-module-helper)
     install(PROGRAMS packaging/linux/kernel-module-helper.sh
-        DESTINATION "lib/infiltrator-filesystem-support"
+        DESTINATION "lib/filesystems"
         RENAME kernel-module-helper)
-    install(FILES "${FILESYSTEM_SUPPORT_NATIVE_MANIFEST}"
-        DESTINATION "lib/infiltrator-filesystem-support"
+    install(FILES "${FILESYSTEMS_NATIVE_MANIFEST}"
+        DESTINATION "lib/filesystems"
         RENAME native-filesystems.tsv)
 
     # Shared kernel-safe adapter source is compiled directly into each
     # filesystem module that consumes it. It is not installed as a shared
     # runtime module and therefore cannot couple the .ko lifecycles together.
     install(DIRECTORY "native/platform/linux_kernel/"
-        DESTINATION "lib/infiltrator-filesystem-support/native/platform/linux_kernel"
+        DESTINATION "lib/filesystems/native/platform/linux_kernel"
         FILES_MATCHING PATTERN "*.h")
 
-    foreach(native_fs IN LISTS FILESYSTEM_SUPPORT_NATIVE_FILESYSTEMS)
+    foreach(native_fs IN LISTS FILESYSTEMS_NATIVE_FILESYSTEMS)
         install(DIRECTORY
             "native/filesystems/${native_fs}/core"
             "native/filesystems/${native_fs}/linux"
-            DESTINATION "lib/infiltrator-filesystem-support/native/filesystems/${native_fs}"
+            DESTINATION "lib/filesystems/native/filesystems/${native_fs}"
             PATTERN "*.o" EXCLUDE
             PATTERN "*.ko" EXCLUDE
             PATTERN "*.mod" EXCLUDE
@@ -353,155 +353,155 @@ if(UNIX)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(filesystem-support-catalog-test
+    add_executable(filesystems-catalog-test
         tests/catalog_test.cpp)
-    target_link_libraries(filesystem-support-catalog-test
-        PRIVATE filesystem-support-catalog)
-    filesystem_support_configure(filesystem-support-catalog-test)
+    target_link_libraries(filesystems-catalog-test
+        PRIVATE filesystems-catalog)
+    filesystems_configure(filesystems-catalog-test)
     add_test(
-        NAME filesystem-support-catalog
-        COMMAND filesystem-support-catalog-test
-                "${CMAKE_CURRENT_SOURCE_DIR}/docs/FILESYSTEM_SUPPORT_MATRIX.md"
-                "${FILESYSTEM_SUPPORT_NATIVE_MANIFEST}")
+        NAME filesystems-catalog
+        COMMAND filesystems-catalog-test
+                "${CMAKE_CURRENT_SOURCE_DIR}/docs/FILESYSTEMS_MATRIX.md"
+                "${FILESYSTEMS_NATIVE_MANIFEST}")
 
-    add_executable(filesystem-support-native-core-test
+    add_executable(filesystems-native-core-test
         tests/native_core_test.c)
-    target_link_libraries(filesystem-support-native-core-test
+    target_link_libraries(filesystems-native-core-test
         PRIVATE infiltratr-fs-native-core)
-    filesystem_support_configure(filesystem-support-native-core-test)
+    filesystems_configure(filesystems-native-core-test)
     add_test(
-        NAME filesystem-support-native-core
-        COMMAND filesystem-support-native-core-test)
+        NAME filesystems-native-core
+        COMMAND filesystems-native-core-test)
 
-    add_executable(filesystem-support-ext2-core-test
+    add_executable(filesystems-ext2-core-test
         tests/ext2_core_test.c)
-    target_link_libraries(filesystem-support-ext2-core-test
+    target_link_libraries(filesystems-ext2-core-test
         PRIVATE infiltratr-fs-ext2-core)
-    filesystem_support_configure(filesystem-support-ext2-core-test)
+    filesystems_configure(filesystems-ext2-core-test)
     add_test(
-        NAME filesystem-support-ext2-core
-        COMMAND filesystem-support-ext2-core-test)
+        NAME filesystems-ext2-core
+        COMMAND filesystems-ext2-core-test)
 
-    add_executable(filesystem-support-ext2-engine-test
+    add_executable(filesystems-ext2-engine-test
         tests/ext2_engine_test.c)
-    target_link_libraries(filesystem-support-ext2-engine-test
+    target_link_libraries(filesystems-ext2-engine-test
         PRIVATE infiltratr-fs-ext2-core)
-    filesystem_support_configure(filesystem-support-ext2-engine-test)
+    filesystems_configure(filesystems-ext2-engine-test)
     add_test(
-        NAME filesystem-support-ext2-engine
-        COMMAND filesystem-support-ext2-engine-test)
+        NAME filesystems-ext2-engine
+        COMMAND filesystems-ext2-engine-test)
 
-    add_executable(filesystem-support-ext3-core-test
+    add_executable(filesystems-ext3-core-test
         tests/ext3_core_test.c)
-    target_link_libraries(filesystem-support-ext3-core-test
+    target_link_libraries(filesystems-ext3-core-test
         PRIVATE infiltratr-fs-ext3-core)
-    filesystem_support_configure(filesystem-support-ext3-core-test)
+    filesystems_configure(filesystems-ext3-core-test)
     add_test(
-        NAME filesystem-support-ext3-core
-        COMMAND filesystem-support-ext3-core-test)
+        NAME filesystems-ext3-core
+        COMMAND filesystems-ext3-core-test)
 
-    add_executable(filesystem-support-ext4-core-test
+    add_executable(filesystems-ext4-core-test
         tests/ext4_core_test.c)
-    target_link_libraries(filesystem-support-ext4-core-test
+    target_link_libraries(filesystems-ext4-core-test
         PRIVATE infiltratr-fs-ext4-core)
-    filesystem_support_configure(filesystem-support-ext4-core-test)
+    filesystems_configure(filesystems-ext4-core-test)
     add_test(
-        NAME filesystem-support-ext4-core
-        COMMAND filesystem-support-ext4-core-test)
+        NAME filesystems-ext4-core
+        COMMAND filesystems-ext4-core-test)
 
-    add_executable(filesystem-support-ofs-core-test
+    add_executable(filesystems-ofs-core-test
         tests/ofs_core_test.c)
-    target_link_libraries(filesystem-support-ofs-core-test
+    target_link_libraries(filesystems-ofs-core-test
         PRIVATE infiltratr-fs-ofs-core)
-    filesystem_support_configure(filesystem-support-ofs-core-test)
-    add_test(NAME filesystem-support-ofs-core COMMAND filesystem-support-ofs-core-test)
+    filesystems_configure(filesystems-ofs-core-test)
+    add_test(NAME filesystems-ofs-core COMMAND filesystems-ofs-core-test)
 
-    add_executable(filesystem-support-ofs-primitives-test
+    add_executable(filesystems-ofs-primitives-test
         tests/ofs_primitives_test.c)
-    target_link_libraries(filesystem-support-ofs-primitives-test
+    target_link_libraries(filesystems-ofs-primitives-test
         PRIVATE infiltratr-fs-ofs-core)
-    filesystem_support_configure(filesystem-support-ofs-primitives-test)
-    add_test(NAME filesystem-support-ofs-primitives COMMAND filesystem-support-ofs-primitives-test)
+    filesystems_configure(filesystems-ofs-primitives-test)
+    add_test(NAME filesystems-ofs-primitives COMMAND filesystems-ofs-primitives-test)
 
-    add_executable(filesystem-support-ffs-core-test
+    add_executable(filesystems-ffs-core-test
         tests/ffs_core_test.c)
-    target_link_libraries(filesystem-support-ffs-core-test
+    target_link_libraries(filesystems-ffs-core-test
         PRIVATE infiltratr-fs-ffs-core)
-    filesystem_support_configure(filesystem-support-ffs-core-test)
-    add_test(NAME filesystem-support-ffs-core COMMAND filesystem-support-ffs-core-test)
+    filesystems_configure(filesystems-ffs-core-test)
+    add_test(NAME filesystems-ffs-core COMMAND filesystems-ffs-core-test)
 
-    add_executable(filesystem-support-ffs-primitives-test
+    add_executable(filesystems-ffs-primitives-test
         tests/ffs_primitives_test.c)
-    target_link_libraries(filesystem-support-ffs-primitives-test
+    target_link_libraries(filesystems-ffs-primitives-test
         PRIVATE infiltratr-fs-ffs-core)
-    filesystem_support_configure(filesystem-support-ffs-primitives-test)
-    add_test(NAME filesystem-support-ffs-primitives COMMAND filesystem-support-ffs-primitives-test)
+    filesystems_configure(filesystems-ffs-primitives-test)
+    add_test(NAME filesystems-ffs-primitives COMMAND filesystems-ffs-primitives-test)
 
-    add_executable(filesystem-support-sfs-core-test
+    add_executable(filesystems-sfs-core-test
         tests/sfs_core_test.c)
-    target_link_libraries(filesystem-support-sfs-core-test
+    target_link_libraries(filesystems-sfs-core-test
         PRIVATE infiltratr-fs-sfs-core)
-    filesystem_support_configure(filesystem-support-sfs-core-test)
+    filesystems_configure(filesystems-sfs-core-test)
     add_test(
-        NAME filesystem-support-sfs-core
-        COMMAND filesystem-support-sfs-core-test)
+        NAME filesystems-sfs-core
+        COMMAND filesystems-sfs-core-test)
 
-    add_executable(filesystem-support-sfs2-core-test
+    add_executable(filesystems-sfs2-core-test
         tests/sfs2_core_test.c)
-    target_link_libraries(filesystem-support-sfs2-core-test
+    target_link_libraries(filesystems-sfs2-core-test
         PRIVATE infiltratr-fs-sfs2-core)
-    filesystem_support_configure(filesystem-support-sfs2-core-test)
+    filesystems_configure(filesystems-sfs2-core-test)
     add_test(
-        NAME filesystem-support-sfs2-core
-        COMMAND filesystem-support-sfs2-core-test)
+        NAME filesystems-sfs2-core
+        COMMAND filesystems-sfs2-core-test)
 
-    add_executable(filesystem-support-pfs3-core-test
+    add_executable(filesystems-pfs3-core-test
         tests/pfs3_core_test.c)
-    target_link_libraries(filesystem-support-pfs3-core-test
+    target_link_libraries(filesystems-pfs3-core-test
         PRIVATE infiltratr-fs-pfs3-core)
-    filesystem_support_configure(filesystem-support-pfs3-core-test)
+    filesystems_configure(filesystems-pfs3-core-test)
     add_test(
-        NAME filesystem-support-pfs3-core
-        COMMAND filesystem-support-pfs3-core-test)
+        NAME filesystems-pfs3-core
+        COMMAND filesystems-pfs3-core-test)
 
-    add_executable(filesystem-support-windows-catalog-test
+    add_executable(filesystems-windows-catalog-test
         tests/windows_catalog_test.cpp)
-    target_link_libraries(filesystem-support-windows-catalog-test
-        PRIVATE filesystem-support-identity)
-    filesystem_support_configure(filesystem-support-windows-catalog-test)
+    target_link_libraries(filesystems-windows-catalog-test
+        PRIVATE filesystems-identity)
+    filesystems_configure(filesystems-windows-catalog-test)
     add_test(
-        NAME filesystem-support-windows-catalog
-        COMMAND filesystem-support-windows-catalog-test)
+        NAME filesystems-windows-catalog
+        COMMAND filesystems-windows-catalog-test)
 
     if(UNIX)
-        add_executable(filesystem-support-action-policy-test
+        add_executable(filesystems-action-policy-test
             tests/action_policy_test.cpp)
-        target_link_libraries(filesystem-support-action-policy-test
-            PRIVATE filesystem-support-actions)
-        filesystem_support_configure(filesystem-support-action-policy-test)
+        target_link_libraries(filesystems-action-policy-test
+            PRIVATE filesystems-actions)
+        filesystems_configure(filesystems-action-policy-test)
         add_test(
-            NAME filesystem-support-action-policy
-            COMMAND filesystem-support-action-policy-test)
+            NAME filesystems-action-policy
+            COMMAND filesystems-action-policy-test)
 
-        add_executable(filesystem-support-desktop-actions-test
+        add_executable(filesystems-desktop-actions-test
             tests/desktop_actions_test.cpp)
-        target_link_libraries(filesystem-support-desktop-actions-test
-            PRIVATE filesystem-support-actions)
-        filesystem_support_configure(filesystem-support-desktop-actions-test)
+        target_link_libraries(filesystems-desktop-actions-test
+            PRIVATE filesystems-actions)
+        filesystems_configure(filesystems-desktop-actions-test)
         add_test(
-            NAME filesystem-support-desktop-actions
-            COMMAND filesystem-support-desktop-actions-test)
+            NAME filesystems-desktop-actions
+            COMMAND filesystems-desktop-actions-test)
     endif()
 endif()
 
 if(UNIX)
     set(CPACK_GENERATOR "DEB")
-    set(CPACK_PACKAGE_NAME "infiltrator-filesystem-support")
+    set(CPACK_PACKAGE_NAME "filesystems")
     set(CPACK_PACKAGE_VENDOR "Infiltrator Projects")
     set(CPACK_PACKAGE_CONTACT "Shannon Smith")
-    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Discover and install filesystem support on Debian")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Filesystems - discover and install filesystem support on Debian")
     set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-    set(CPACK_PACKAGE_FILE_NAME "Filesystem-Support-${PROJECT_VERSION}-amd64")
+    set(CPACK_PACKAGE_FILE_NAME "Filesystems-${PROJECT_VERSION}-amd64")
     set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Shannon Smith")
     set(CPACK_DEBIAN_PACKAGE_SECTION "admin")

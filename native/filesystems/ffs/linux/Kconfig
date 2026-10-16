@@ -5,5 +5,5 @@ config FFS_FS
 	select LEGACY_DIRECT_IO
 	help
 	  Native Amiga FFS support maintained as an independent
-	  Filesystem Support module. This driver accepts only FFS
+	  Filesystems module. This driver accepts only FFS
 	  on-disk variants; related Amiga filesystems are separate modules.

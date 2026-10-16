@@ -3,7 +3,7 @@
 ## Classification
 
 QNX4 is a conventional local block filesystem used by QNX 4 systems.
-Filesystem Support therefore applies the standard canonical-engine model:
+Filesystems therefore applies the standard canonical-engine model:
 
 ```text
                     qnx4/core/
@@ -23,7 +23,7 @@ platform adapters.
 
 QNX4 is currently **reference/import state**.
 
-There is no project-authored canonical QNX4 engine and no Filesystem Support
+There is no project-authored canonical QNX4 engine and no Filesystems
 QNX4 native driver claimed by this directory. The source under
 `reference/linux/` is the pinned upstream Linux QNX4 implementation copied by
 `.github/workflows/import-linux-filesystems.yml`.
@@ -33,7 +33,7 @@ translation-unit boundaries. They are reference evidence, not project-authored
 production code.
 
 The former top-level `kernel/` staging path was misleading because it made
-unchanged upstream Linux source look like a Filesystem Support native module.
+unchanged upstream Linux source look like a Filesystems native module.
 The imported blobs are therefore kept behind the explicit reference boundary.
 
 ## Current directory layout
@@ -78,7 +78,7 @@ format semantics.
 Upstream files such as `bitmap.c`, `dir.c`, `inode.c`, `namei.c` and
 `qnx4.h` remain unchanged below `reference/linux/`.
 
-Project-authored code must be organised around Filesystem Support
+Project-authored code must be organised around Filesystems
 responsibilities and portable filesystem invariants rather than by renaming
 those Linux files. Moving or recommenting imported source is never evidence of
 an independent rewrite.
@@ -112,6 +112,6 @@ the imported reference tree and must never overwrite future project-owned
 
 ## Completion rule
 
-The current tree is reference evidence only. QNX4 becomes a Filesystem Support
+The current tree is reference evidence only. QNX4 becomes a Filesystems
 first-party implementation only when its canonical engine and applicable
 platform adapter have independent implementation and qualification evidence.

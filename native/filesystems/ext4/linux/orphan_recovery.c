@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2026 Shannon Smith
  *
- * Infiltrator Filesystem Support — EXT4 orphan recovery.
+ * Infiltrator Filesystems — EXT4 orphan recovery.
  *
  * This implementation is organized around the two on-disk EXT4 orphan
  * representations: the legacy superblock/inode chain and the COMPAT_ORPHAN_FILE

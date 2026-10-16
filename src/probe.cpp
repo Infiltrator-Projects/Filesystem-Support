@@ -13,7 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 namespace {
 
 struct ProbeCache {
@@ -287,8 +287,8 @@ void load_package_inventory()
 std::string native_state_helper_path()
 {
     static const char* const candidates[] = {
-        "/usr/lib/infiltrator-filesystem-support/native-module-helper",
-        "/usr/local/lib/infiltrator-filesystem-support/native-module-helper"
+        "/usr/lib/filesystems/native-module-helper",
+        "/usr/local/lib/filesystems/native-module-helper"
     };
 
     for (const char* const candidate : candidates) {
@@ -679,4 +679,4 @@ const char* kernel_state_label(const KernelState state)
     return "Unknown";
 }
 
-} // namespace filesystem_support
+} // namespace filesystems

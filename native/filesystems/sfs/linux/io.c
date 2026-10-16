@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — SFS Linux I/O and inode adapter.
+/* Infiltrator Filesystems — SFS Linux I/O and inode adapter.
  * Regular-file I/O and Linux inode integration are one host responsibility;
  * portable SFS format rules remain in the canonical core.
  */

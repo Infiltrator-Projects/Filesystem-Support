@@ -15,9 +15,9 @@ int fail(const char* message)
     return 1;
 }
 
-filesystem_support::FilesystemDescriptor descriptor(
+filesystems::FilesystemDescriptor descriptor(
     const std::string_view id,
-    const filesystem_support::SupportProvider provider,
+    const filesystems::SupportProvider provider,
     std::vector<std::string_view> modules,
     std::vector<std::string_view> packages,
     const bool native = false)
@@ -29,7 +29,7 @@ filesystem_support::FilesystemDescriptor descriptor(
         "Test descriptor",
         std::move(modules),
         std::move(packages),
-        filesystem_support::AccessMode::ReadWrite,
+        filesystems::AccessMode::ReadWrite,
         provider,
         {},
         native
@@ -40,7 +40,7 @@ filesystem_support::FilesystemDescriptor descriptor(
 
 int main()
 {
-    using namespace filesystem_support;
+    using namespace filesystems;
 
     {
         auto entry = descriptor(

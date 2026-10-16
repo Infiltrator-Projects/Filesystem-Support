@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — EXT4 journal durability adapter.
+/* Infiltrator Filesystems — EXT4 journal durability adapter.
  * EXT4-to-journal glue plus checkpoint, commit, recovery and revoke semantics
  * are one crash-consistency responsibility. The journal core/transaction
  * engine remains isolated until its inherited implementation is replaced.
@@ -357,7 +357,7 @@ int __ext4_handle_dirty_metadata(const char *where, unsigned int line,
 
 /* ===== checkpoint ===== */
 /*
- * Filesystem Support EXT4 embedded journal checkpoint engine.
+ * Filesystems EXT4 embedded journal checkpoint engine.
  *
  * Checkpointing writes committed metadata to its home location and retires
  * journal transactions only after recovery no longer depends on them.
@@ -905,7 +905,7 @@ void __jbd2_journal_drop_transaction(
 
 /* ===== commit ===== */
 /*
- * Filesystem Support EXT4 embedded journal commit engine.
+ * Filesystems EXT4 embedded journal commit engine.
  *
  * A full commit freezes the running transaction, flushes ordered data,
  * serialises metadata into the journal, publishes the commit record, and
@@ -1964,7 +1964,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 
 /* ===== recovery ===== */
 /*
- * Filesystem Support EXT4 embedded journal recovery engine.
+ * Filesystems EXT4 embedded journal recovery engine.
  *
  * Recovery scans the log for committed transactions, records revocations,
  * and replays surviving metadata blocks. Journal data is treated as
@@ -2735,7 +2735,7 @@ int jbd2_journal_skip_recovery(journal_t *journal)
 
 /* ===== revoke ===== */
 /*
- * Filesystem Support EXT4 embedded journal revoke engine.
+ * Filesystems EXT4 embedded journal revoke engine.
  *
  * Revoke records prevent stale journal images from being replayed over newer
  * block contents. One table belongs to the running transaction and the other

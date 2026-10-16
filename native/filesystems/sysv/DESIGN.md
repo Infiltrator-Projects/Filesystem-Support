@@ -6,7 +6,7 @@ The SysV filesystem family represented by the Linux `sysv` driver covers
 historical System V-derived disk formats, including recognised Xenix, System V
 and Coherent variants. These are conventional local block filesystems.
 
-Filesystem Support therefore applies one canonical host-neutral engine for the
+Filesystems therefore applies one canonical host-neutral engine for the
 supported SysV-family variants, with thin operating-system adapters.
 
 ## Current implementation state
@@ -87,7 +87,7 @@ project-owned `core/`, `linux/` or `windows/` source.
 
 ## Completion rule
 
-The current tree is reference evidence only. SysV becomes a Filesystem Support
+The current tree is reference evidence only. SysV becomes a Filesystems
 first-party implementation only when the canonical engine and applicable
 adapter have independent implementation and qualification evidence for every
 variant claimed.

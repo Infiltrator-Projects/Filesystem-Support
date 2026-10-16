@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 
 enum class SupportState {
     Ready,
@@ -50,4 +50,4 @@ ProbeResult probe(const FilesystemDescriptor& descriptor);
 const char* support_state_label(SupportState state);
 const char* kernel_state_label(KernelState state);
 
-} // namespace filesystem_support
+} // namespace filesystems

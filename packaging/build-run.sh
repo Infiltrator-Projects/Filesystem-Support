@@ -7,12 +7,12 @@ export PATH
 deb=$(readlink -f "$1")
 output=$2
 root=$(cd "$(dirname "$0")/.." && pwd)
-test "$(dpkg-deb -f "$deb" Package)" = infiltrator-filesystem-support
+test "$(dpkg-deb -f "$deb" Package)" = filesystems
 test "$(dpkg-deb -f "$deb" Version)" = "$(tr -d '[:space:]' < "$root/VERSION")"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-cp "$deb" "$work/filesystem-support.deb"
-tar -C "$work" -czf "$work/payload.tar.gz" filesystem-support.deb
+cp "$deb" "$work/filesystems.deb"
+tar -C "$work" -czf "$work/payload.tar.gz" filesystems.deb
 cat > "$output" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -20,12 +20,11 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 if [[ "${1:-}" == --help ]]; then
     cat <<'HELP'
-Filesystem Support native installer
-Installs the single infiltrator-filesystem-support Debian package.
+Filesystems native installer
+Installs the single filesystems Debian package.
 Includes /usr/bin/fsinspect, the native installer, driver sources and inactive
 per-filesystem desktop templates for project-native Amiga filesystems.
 Each Install button deploys only its own driver and desktop files together.
-The upgrade retires the obsolete separate desktop package.
 Run normally; PolicyKit requests administrator authentication when needed.
 HELP
     exit 0
@@ -41,14 +40,14 @@ archive_line=$(awk '/^__ARCHIVE_BELOW__$/{print NR + 1; exit}' "$self")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 tail -n +"$archive_line" "$self" | tar -xz -C "$work"
-/usr/bin/apt-get -s install --no-install-recommends "$work/filesystem-support.deb" > "$work/plan"
-if awk '$1 == "Remv" && $2 != "infiltrator-filesystem-support-udisks" { bad=1 } END { exit !bad }' "$work/plan"; then
+/usr/bin/apt-get -s install --no-install-recommends "$work/filesystems.deb" > "$work/plan"
+if awk '$1 == "Remv" { bad=1 } END { exit !bad }' "$work/plan"; then
     cat "$work/plan" >&2
     echo 'Refusing removal of an unrelated package' >&2
     exit 1
 fi
-/usr/bin/apt-get install -y --no-install-recommends "$work/filesystem-support.deb"
-echo 'Filesystem Support installed successfully.'
+/usr/bin/apt-get install -y --no-install-recommends "$work/filesystems.deb"
+echo 'Filesystems installed successfully.'
 exit 0
 __ARCHIVE_BELOW__
 STUB

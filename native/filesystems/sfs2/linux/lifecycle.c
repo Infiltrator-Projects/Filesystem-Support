@@ -1,5 +1,5 @@
 /*
- * Infiltrator Filesystem Support — SFS Linux superblock adapter.
+ * Infiltrator Filesystems — SFS Linux superblock adapter.
  *
  * Filesystem-format validation lives in the canonical SFS core.  This unit
  * owns only Linux mount lifecycle, option handling and VFS publication.

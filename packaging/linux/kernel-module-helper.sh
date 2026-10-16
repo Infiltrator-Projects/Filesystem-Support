@@ -26,14 +26,14 @@ manifest="$self_dir/native-filesystems.tsv"
     exit 1
 }
 
-kernel_lock_path=/run/lock/infiltrator-filesystem-support-kernel.lock
+kernel_lock_path=/run/lock/filesystems-kernel.lock
 acquire_kernel_mutation_lock() {
     # Native filesystem modules are separate products, but depmod metadata and
     # kernel module selection are shared host state. One transaction therefore
     # owns that state at a time. remove-all invokes this helper recursively, so
     # descendants inherit the already-held descriptor instead of deadlocking on
     # the same lock while preserving one aggregate removal transaction.
-    if [[ ${FILESYSTEM_SUPPORT_KERNEL_LOCK_FD:-} == 9 ]] &&
+    if [[ ${FILESYSTEMS_KERNEL_LOCK_FD:-} == 9 ]] &&
        [[ $(readlink /proc/$$/fd/9 2>/dev/null || true) == "$kernel_lock_path" ]]; then
         return 0
     fi
@@ -41,7 +41,7 @@ acquire_kernel_mutation_lock() {
     mkdir -p /run/lock
     exec 9>"$kernel_lock_path"
     flock -x 9
-    export FILESYSTEM_SUPPORT_KERNEL_LOCK_FD=9
+    export FILESYSTEMS_KERNEL_LOCK_FD=9
 }
 
 managed_module_for() {
@@ -164,11 +164,11 @@ remove_stale_kernel_directories() {
             continue
         fi
 
-        # This directory is owned exclusively by Filesystem Support. Rename it
+        # This directory is owned exclusively by Filesystems. Rename it
         # as one unit so stale-kernel cleanup has one persistent rollback point
         # instead of reimplementing per-filesystem membership outside the
         # canonical manifest.
-        staging="${directory}.filesystem-support-removing.$$"
+        staging="${directory}.filesystems-removing.$$"
         [[ ! -e "$staging" ]] || {
             echo "stale native-module cleanup staging path already exists: $staging" >&2
             return 1
@@ -225,7 +225,7 @@ if [[ $# -eq 1 && $1 == remove-all ]]; then
     done < "$manifest"
 
     remove_stale_kernel_directories
-    echo "all Filesystem Support native modules removed"
+    echo "all Filesystems native modules removed"
     exit 0
 fi
 
@@ -313,7 +313,7 @@ secure_boot_signing_identity() {
     # Debian's DKMS tooling owns the normal distribution MOK at /var/lib/dkms.
     # Ubuntu/Mint derivatives retain a different shim-signed convention. Treat
     # both as external signing identities and prefer the Debian baseline first;
-    # Filesystem Support must not create a competing private-key authority.
+    # Filesystems must not create a competing private-key authority.
     local candidate
     for candidate in \
         '/var/lib/dkms/mok.key|/var/lib/dkms/mok.pub' \
@@ -368,7 +368,7 @@ Then reboot, complete MOK enrollment in the firmware/shim screen, and run
 Install native again.
 
 Ubuntu/Mint's /var/lib/shim-signed/mok/MOK.priv + MOK.der identity is also
-accepted when present. Filesystem Support will not disable Secure Boot, create
+accepted when present. Filesystems will not disable Secure Boot, create
 a second signing-key authority, or install an unsigned kernel module.
 EOF
         exit 1

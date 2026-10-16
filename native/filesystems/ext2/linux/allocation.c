@@ -1,10 +1,10 @@
-/* Infiltrator Filesystem Support — EXT2 Linux allocation adapter.
+/* Infiltrator Filesystems — EXT2 Linux allocation adapter.
  * Block and inode allocation share one Linux-facing responsibility. Portable
  * geometry and format rules remain in the canonical EXT2 core.
  */
 
 /*
- * Infiltrator Filesystem Support — EXT2 block allocation.
+ * Infiltrator Filesystems — EXT2 block allocation.
  *
  * The canonical EXT2 core owns filesystem geometry and sparse-super policy.
  * This Linux adapter owns buffer-cache access, reservation windows, quota
@@ -874,7 +874,7 @@ unsigned long ext2_bg_num_gdb(
 
 /* ===== inode allocation ===== */
 /*
- * Infiltrator Filesystem Support — EXT2 inode allocation.
+ * Infiltrator Filesystems — EXT2 inode allocation.
  *
  * Group selection is policy. Bitmap state, group counters and global counters
  * are correctness state and are updated together under the owning group lock.

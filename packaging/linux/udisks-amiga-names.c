@@ -201,6 +201,6 @@ gchar *udisks_client_get_id_for_display(void *client, const gchar *usage,
     pthread_once(&stock_display_once, find_stock_display);
     if (stock_display != NULL)
         return stock_display(client, usage, type, version, long_name);
-    g_warning("Filesystem Support could not find the stock UDisks display function");
+    g_warning("Filesystems could not find the stock UDisks display function");
     return g_strdup("Unknown");
 }

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Filesystem Support owns one EXT4 implementation.
+Filesystems owns one EXT4 implementation.
 
 EXT4 is a modern extent-capable, journalled block-group filesystem with 64-bit
 geometry, checksummed metadata, advanced allocation, inline data, fast commit,
@@ -21,7 +21,7 @@ separate project `jbd2.ko` or metadata-cache helper module is deployed.
 
 ## Permanent responsibility layout
 
-The active source tree is already recut around Filesystem Support
+The active source tree is already recut around Filesystems
 responsibilities:
 
 ```text
@@ -82,7 +82,7 @@ The historical upstream boundaries such as `extents.c`,
 `extents_status.c`, `mballoc.c`, `fast_commit.c`, `inline.c`,
 `resize.c`, `mmp.c`, `orphan.c`, `fsmap.c`, `page-io.c`,
 `readpage.c`, `crypto.c`, `verity.c` and the upstream JBD2 translation
-units are not the permanent Filesystem Support file layout.
+units are not the permanent Filesystems file layout.
 
 Those historical names may remain useful reference terminology, but they must
 not be restored merely to resemble Linux source organization.
@@ -189,7 +189,7 @@ ext4-y := core_bridge.o storage_guard.o directory_io.o journal_durability.o \
           extended_metadata.o security_support.o
 ```
 
-The result is exactly one Filesystem Support `ext4.ko`.
+The result is exactly one Filesystems `ext4.ko`.
 
 Changing source-file boundaries must not create a mandatory helper module or
 collapse EXT4 into EXT2/EXT3.
@@ -214,7 +214,7 @@ be difficult to distinguish solely by a synthetic label. The implementation
 must therefore rely on the actual format/feature contract rather than inventing
 a fake discriminator.
 
-Filesystem Support still maintains independent deployments:
+Filesystems still maintains independent deployments:
 
 ```text
 native/filesystems/ext2/ -> ext2.ko

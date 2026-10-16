@@ -2,7 +2,7 @@
 #include "ext2_driver.h"
 
 /*
- * Filesystem Support EXT2 is a conservative synchronous native IFS adapter.
+ * Filesystems EXT2 is a conservative synchronous native IFS adapter.
  * All EXT2 on-disk decisions are delegated to the canonical shared engine.
  *
  * The Windows adapter deliberately remains one WDK translation unit for this

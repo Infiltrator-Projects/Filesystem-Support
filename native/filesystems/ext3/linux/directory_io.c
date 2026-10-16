@@ -1,5 +1,5 @@
 /*
- * Filesystem Support EXT3 Linux directory adapter.
+ * Filesystems EXT3 Linux directory adapter.
  *
  * The canonical EXT3 core owns directory-record geometry and HTree hashing.
  * This file owns Linux VFS enumeration, position encoding and the temporary

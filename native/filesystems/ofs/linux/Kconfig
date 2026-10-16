@@ -5,5 +5,5 @@ config OFS_FS
 	select LEGACY_DIRECT_IO
 	help
 	  Native Amiga OFS support maintained as an independent
-	  Filesystem Support module. This driver accepts only OFS
+	  Filesystems module. This driver accepts only OFS
 	  on-disk variants; related Amiga filesystems are separate modules.

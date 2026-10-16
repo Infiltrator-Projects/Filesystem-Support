@@ -1,5 +1,5 @@
 /*
- * Infiltrator Filesystem Support — EXT4 Linux directory adapter.
+ * Infiltrator Filesystems — EXT4 Linux directory adapter.
  *
  * Directory-record validation and format hashing live in the portable EXT4
  * core.  This file owns Linux VFS iteration, fscrypt/casefold translation and

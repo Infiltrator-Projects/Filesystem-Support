@@ -19,21 +19,21 @@
 #include <utility>
 #include <vector>
 
-namespace fs = filesystem_support;
+namespace fs = filesystems;
 
 namespace {
 
 const InfiltratrProjectInfo kProjectInfo = {
     sizeof(InfiltratrProjectInfo),
     INFILTRATR_PROJECT_INFO_ABI,
-    "Filesystem Support",
-    "filesystem-support",
-    "org.infiltrator.FilesystemSupport",
-    FILESYSTEM_SUPPORT_VERSION,
-    "Infiltrator-Projects/Filesystem-Support",
+    "Filesystems",
+    "filesystems",
+    "org.infiltrator.Filesystems",
+    FILESYSTEMS_VERSION,
+    "Infiltrator-Projects/Filesystems",
     "cmake",
     "Shannon Smith",
-    "https://github.com/Infiltrator-Projects/Filesystem-Support",
+    "https://github.com/Infiltrator-Projects/Filesystems",
     "GPL-3.0-or-later",
     "Install, remove and inspect filesystem support on Debian systems.",
     "drive-harddisk",
@@ -604,7 +604,7 @@ bool confirm_removal(GtkWindow* parent, const fs::DesktopAction& action)
         body << "\n  • " << package;
     }
     if (!action.affected_entries.empty()) {
-        body << "\n\nFilesystem Support entries affected:";
+        body << "\n\nFilesystems entries affected:";
         for (const auto& entry : action.affected_entries) {
             body << "\n  • " << entry;
         }
@@ -953,7 +953,7 @@ GtkWidget* build_header(AppState* state)
 
     gtk_box_pack_start(GTK_BOX(brand), icon, FALSE, FALSE, 0);
     gtk_box_pack_start(
-        GTK_BOX(copy), make_label("Filesystem Support", "header-brand-title"),
+        GTK_BOX(copy), make_label("Filesystems", "header-brand-title"),
         FALSE, FALSE, 0);
     gtk_box_pack_start(
         GTK_BOX(copy), make_label("Infiltrator OS", "header-brand-subtitle"),
@@ -1453,7 +1453,7 @@ void install_common_theme(AppState* state)
     if (!gtk_css_provider_load_from_data(
             state->theme_provider, css_text.c_str(),
             static_cast<gssize>(css_text.size()), &error)) {
-        g_warning("Unable to apply Filesystem Support theme: %s",
+        g_warning("Unable to apply Filesystems theme: %s",
                   error != nullptr && error->message != nullptr
                       ? error->message : "unknown CSS error");
     }

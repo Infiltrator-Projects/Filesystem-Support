@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-#ifndef FILESYSTEM_SUPPORT_NATIVE_AMIGA_SUPPORT_H
-#define FILESYSTEM_SUPPORT_NATIVE_AMIGA_SUPPORT_H
+#ifndef FILESYSTEMS_NATIVE_AMIGA_SUPPORT_H
+#define FILESYSTEMS_NATIVE_AMIGA_SUPPORT_H
 
 #include <stdio.h>
 #include <string.h>

@@ -53,10 +53,10 @@ require('g_find_program_in_path' not in runner,
 
 cmake = text("CMakeLists.txt")
 for required in (
-    "add_library(filesystem-support-identity STATIC\n    src/platform_support.cpp)",
-    "add_library(filesystem-support-catalog STATIC\n    src/catalog.cpp)",
-    "PRIVATE filesystem-support-identity Comctl32",
-    "PRIVATE filesystem-support-identity)\n    filesystem_support_configure(filesystem-support-windows-catalog-test)",
+    "add_library(filesystems-identity STATIC\n    src/platform_support.cpp)",
+    "add_library(filesystems-catalog STATIC\n    src/catalog.cpp)",
+    "PRIVATE filesystems-identity Comctl32",
+    "PRIVATE filesystems-identity)\n    filesystems_configure(filesystems-windows-catalog-test)",
 ):
     require(required in cmake,
             f"platform-neutral identity boundary lost in CMake: {required}")

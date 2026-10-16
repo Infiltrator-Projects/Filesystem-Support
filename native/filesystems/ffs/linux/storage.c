@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — FFS Linux storage adapter.
+/* Infiltrator Filesystems — FFS Linux storage adapter.
  * Allocation bitmap, regular-file I/O and inode integration are one host
  * storage responsibility around the canonical FFS engine.
  */

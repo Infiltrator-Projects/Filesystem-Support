@@ -2,14 +2,14 @@
 
 ## Classification
 
-exFAT is a conventional local removable-media filesystem. Filesystem Support
+exFAT is a conventional local removable-media filesystem. Filesystems
 must implement its format semantics once and share them across host adapters.
 
 ## Current state
 
 exFAT is currently **reference/import state**. The pinned upstream Linux
 implementation is preserved under `reference/linux/` with original licensing,
-copyright and filenames. It is not project-authored Filesystem Support code.
+copyright and filenames. It is not project-authored Filesystems code.
 
 ## Current directory contract
 

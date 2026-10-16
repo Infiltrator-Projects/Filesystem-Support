@@ -24,7 +24,7 @@ kernel_helper="$self_dir/kernel-module-helper"
 desktop_helper="$self_dir/desktop-integration"
 
 [[ -x "$kernel_helper" ]] || {
-    echo "kernel module helper is missing; reinstall Filesystem Support" >&2
+    echo "kernel module helper is missing; reinstall Filesystems" >&2
     exit 1
 }
 

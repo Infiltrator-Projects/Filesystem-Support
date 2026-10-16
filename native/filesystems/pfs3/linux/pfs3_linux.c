@@ -1,5 +1,5 @@
 /*
- * Infiltrator Filesystem Support — native Linux PFS3 read adapter.
+ * Infiltrator Filesystems — native Linux PFS3 read adapter.
  *
  * The adapter intentionally starts read-only.  It implements the PFS\1
  * hard-disk/split-anode format directly from the canonical core and the

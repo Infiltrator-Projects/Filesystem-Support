@@ -1,10 +1,10 @@
-/* Infiltrator Filesystem Support — EXT4 Linux storage guard.
+/* Infiltrator Filesystems — EXT4 Linux storage guard.
  * Block-group accounting and protected-range validation are one host-facing
  * storage responsibility; canonical geometry remains in the EXT4 core.
  */
 
 /*
- * Infiltrator Filesystem Support — EXT4 block-group accounting.
+ * Infiltrator Filesystems — EXT4 block-group accounting.
  *
  * The portable EXT4 core owns format geometry.  This unit binds that geometry
  * to Linux buffer heads, per-cpu counters and the multiblock allocator.
@@ -915,7 +915,7 @@ void ext4_block_bitmap_csum_set(struct super_block *sb,
 
 /* ===== protected physical ranges ===== */
 /*
- * Infiltrator Filesystem Support — EXT4 protected-block index.
+ * Infiltrator Filesystems — EXT4 protected-block index.
  *
  * This Linux adapter builds a read-mostly index of filesystem-owned physical
  * ranges.  Persistent EXT4 metadata remains authoritative; the tree exists

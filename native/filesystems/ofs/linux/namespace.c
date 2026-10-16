@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — OFS Linux namespace adapter.
+/* Infiltrator Filesystems — OFS Linux namespace adapter.
  * Object metadata, directory walking, namespace mutation and symlink handling
  * are one Linux-facing namespace responsibility.
  */

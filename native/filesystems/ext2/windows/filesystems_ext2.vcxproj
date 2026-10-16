@@ -9,7 +9,7 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{6A4A620A-8DF4-4FC5-82D1-D3F50BCE70E7}</ProjectGuid>
-    <RootNamespace>FilesystemSupportExt2</RootNamespace>
+    <RootNamespace>FilesystemsExt2</RootNamespace>
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
     <Platform Condition="'$(Platform)' == ''">x64</Platform>
@@ -36,7 +36,7 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup><OutDir>$(IntDir)</OutDir><TargetName>filesystem_support_ext2</TargetName></PropertyGroup>
+  <PropertyGroup><OutDir>$(IntDir)</OutDir><TargetName>filesystems_ext2</TargetName></PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
       <AdditionalIncludeDirectories>.;..\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -63,12 +63,12 @@
     <ClInclude Include="..\core\ext2_core.h" />
     <ClInclude Include="..\core\ext2_engine.h" />
   </ItemGroup>
-  <ItemGroup><Inf Include="filesystem_support_ext2.inf" /></ItemGroup>
-  <ItemGroup><ResourceCompile Include="filesystem_support_ext2.rc" Condition="'$(Platform)'=='x64'" /></ItemGroup>
-  <Target Name="VerifyFilesystemSupportExt2Wdk" BeforeTargets="ClCompile">
-    <Error Condition="'$(ConfigurationType)' != 'Driver'" Text="Filesystem Support EXT2 must build as a kernel Driver project." />
-    <Error Condition="'$(PlatformToolset)' != 'WindowsKernelModeDriver10.0'" Text="Filesystem Support EXT2 requires WindowsKernelModeDriver10.0." />
-    <Error Condition="'$(Platform)' != 'x64' and '$(Platform)' != 'ARM64'" Text="Filesystem Support EXT2 supports only x64 and ARM64." />
+  <ItemGroup><Inf Include="filesystems_ext2.inf" /></ItemGroup>
+  <ItemGroup><ResourceCompile Include="filesystems_ext2.rc" Condition="'$(Platform)'=='x64'" /></ItemGroup>
+  <Target Name="VerifyFilesystemsExt2Wdk" BeforeTargets="ClCompile">
+    <Error Condition="'$(ConfigurationType)' != 'Driver'" Text="Filesystems EXT2 must build as a kernel Driver project." />
+    <Error Condition="'$(PlatformToolset)' != 'WindowsKernelModeDriver10.0'" Text="Filesystems EXT2 requires WindowsKernelModeDriver10.0." />
+    <Error Condition="'$(Platform)' != 'x64' and '$(Platform)' != 'ARM64'" Text="Filesystems EXT2 supports only x64 and ARM64." />
     <Error Condition="'$(Platform)' == 'ARM64' and !Exists('$(FsExt2Arm64RuntimeDir)\arm64rt.lib')" Text="ARM64 runtime library was not located." />
     <Error Condition="'$(KM_IncludePath)' == ''" Text="WDK kernel-mode properties are inactive. Restore the pinned architecture-specific WDK package." />
   </Target>

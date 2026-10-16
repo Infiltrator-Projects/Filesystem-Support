@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Filesystem Support owns one EXT2 implementation.
+Filesystems owns one EXT2 implementation.
 
 EXT2 filesystem semantics are implemented once in the canonical `core/`. Linux
 and Windows are operating-system adapters around that same implementation; they
@@ -52,15 +52,15 @@ native/filesystems/ext2/
     directory_dispatch.inc
     volume_lifecycle.inc
     driver_entry.inc
-    filesystem_support_ext2.inf
-    filesystem_support_ext2.rc
-    filesystem_support_ext2.sln
-    filesystem_support_ext2.vcxproj
+    filesystems_ext2.inf
+    filesystems_ext2.rc
+    filesystems_ext2.sln
+    filesystems_ext2.vcxproj
 ```
 
 The retired Linux-style boundaries such as `balloc.c`, `ialloc.c`,
 `dir.c`, `namei.c`, `file.c`, `inode.c`, `super.c` and `xattr.c`
-are not the Filesystem Support architecture and must not be reintroduced merely
+are not the Filesystems architecture and must not be reintroduced merely
 because upstream Linux uses or historically used similar translation units.
 
 Likewise, the former `kernel/` staging directory and `linux/canonical.c`
@@ -204,7 +204,7 @@ Fast symlinks may store their payload in the inode block-pointer area.
 ## Format versus implementation claims
 
 A field or feature existing in the historical EXT-family format does not mean
-Filesystem Support claims that behaviour.
+Filesystems claims that behaviour.
 
 The implementation explicitly rejects journalled media as EXT2. EXT3/EXT4
 feature recognition used to reject incompatible media is not EXT3/EXT4

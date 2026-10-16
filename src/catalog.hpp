@@ -4,7 +4,7 @@
 #include <string_view>
 #include <vector>
 
-namespace filesystem_support {
+namespace filesystems {
 
 enum class AccessMode {
     ReadWrite,
@@ -47,4 +47,4 @@ std::vector<std::string_view> catalogue_entries_using_package(
     std::string_view package);
 bool catalog_is_valid();
 
-} // namespace filesystem_support
+} // namespace filesystems

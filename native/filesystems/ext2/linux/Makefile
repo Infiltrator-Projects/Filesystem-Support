@@ -1,5 +1,5 @@
 # EXT2 — Linux adapter build contract
-# Filesystem Support responsibility boundaries: canonical core bridge,
+# Filesystems responsibility boundaries: canonical core bridge,
 # allocation, namespace, I/O/inode integration, metadata and lifecycle.
 
 obj-m += ext2.o

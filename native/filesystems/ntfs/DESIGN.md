@@ -2,7 +2,7 @@
 
 ## Classification
 
-NTFS is Microsoft's local on-disk filesystem. Filesystem Support therefore
+NTFS is Microsoft's local on-disk filesystem. Filesystems therefore
 applies the normal canonical-filesystem architecture: NTFS semantics are owned
 once by one host-neutral engine and operating systems expose that engine through
 thin adapters.
@@ -11,7 +11,7 @@ The catalogue exposes exactly one NTFS filesystem identity: `ntfs`. Its current
 conservative Debian access path is NTFS-3G. Linux `ntfs3` is an alternate kernel
 provider for the same on-media format and may be useful interoperability or
 reference evidence, but it is not a second catalogue identity and does not
-create a second Filesystem Support implementation.
+create a second Filesystems implementation.
 
 ## Current implementation state
 
@@ -77,7 +77,7 @@ NTFS-3G and Linux NTFS3 remain useful interoperability/reference providers
 until the project has independently implemented and qualified the canonical
 engine.
 
-Provider availability is not evidence that Filesystem Support itself has
+Provider availability is not evidence that Filesystems itself has
 implemented NTFS. Package or kernel-module detection must remain distinct from
 first-party capability claims.
 
@@ -111,6 +111,6 @@ and its recovery boundary are understood and independently validated.
 ## Completion rule
 
 The current `ntfs` catalogue entry is complete only as an external
-NTFS-3G provider contract. A Filesystem Support native NTFS implementation is
+NTFS-3G provider contract. A Filesystems native NTFS implementation is
 not claimed until canonical core code, adapter code, tests and qualification
 evidence exist and agree with this design.

@@ -2,7 +2,7 @@
 
 ## Classification
 
-XFS is a conventional local journalled extent filesystem. Filesystem Support
+XFS is a conventional local journalled extent filesystem. Filesystems
 therefore applies the one-canonical-filesystem architecture: persistent XFS
 format and filesystem semantics belong in a host-neutral core, while operating
 systems expose that core through thin adapters.
@@ -11,7 +11,7 @@ systems expose that core through thin adapters.
 
 XFS is currently **reference/import state**.
 
-There is no project-authored canonical XFS engine and no Filesystem Support XFS
+There is no project-authored canonical XFS engine and no Filesystems XFS
 native module claimed by this directory. The source under `reference/linux/`
 is the pinned upstream Linux XFS implementation retained as format,
 interoperability, repair and failure-behaviour evidence.
@@ -77,7 +77,7 @@ The imported `libxfs/` and `scrub/` subtrees remain part of the upstream
 reference snapshot. Their presence is valuable behavioural and repair evidence
 but does not make them project-owned canonical code.
 
-Project-authored XFS source must be cut around Filesystem Support
+Project-authored XFS source must be cut around Filesystems
 responsibilities and portable filesystem invariants. Moving, renaming, merging,
 splitting or recommenting imported Linux translation units is never evidence
 that their implementation has crossed the project-authorship boundary.
@@ -108,7 +108,7 @@ forks/extents, checksum or owner mismatches, out-of-range block references and
 unsafe/ambiguous log-recovery state must fail closed.
 
 A reference Linux implementation being able to mount or repair a volume is not
-evidence that Filesystem Support has independently qualified equivalent write
+evidence that Filesystems has independently qualified equivalent write
 or recovery support.
 
 ## Reference provenance
@@ -120,7 +120,7 @@ tree and must never overwrite future project-owned `core/`, `linux/`,
 
 ## Completion rule
 
-The current tree is reference evidence only. XFS becomes a Filesystem Support
+The current tree is reference evidence only. XFS becomes a Filesystems
 first-party implementation only when its canonical engine and applicable
 platform adapter have independent implementation, tests and qualification
 evidence.

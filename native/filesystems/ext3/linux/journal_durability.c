@@ -1,4 +1,4 @@
-/* Infiltrator Filesystem Support — EXT3 journal durability engine.
+/* Infiltrator Filesystems — EXT3 journal durability engine.
  * Checkpoint, commit, recovery and revoke handling are one crash-consistency
  * responsibility. Journal core/thread ownership remains separately isolated
  * while inherited units complete their replacement.
@@ -7,7 +7,7 @@
 /*
  * Copyright (C) 2026 Shannon Smith
  *
- * Filesystem Support EXT3 embedded checkpoint engine.
+ * Filesystems EXT3 embedded checkpoint engine.
  *
  * A committed transaction remains journal-owned until every checkpointed
  * metadata buffer has reached its home block.  Pending checkpoint buffers and
@@ -620,7 +620,7 @@ void __journal_drop_transaction(
 
 /* ===== commit ===== */
 /*
- * Filesystem Support EXT3 embedded journal commit engine.
+ * Filesystems EXT3 embedded journal commit engine.
  *
  * A commit has four durable ordering boundaries:
  *   1. stop new handles and drain users of the running transaction;
@@ -1524,7 +1524,7 @@ void journal_commit_transaction(journal_t *journal)
 
 /* ===== recovery ===== */
 /*
- * Filesystem Support EXT3 embedded journal recovery engine.
+ * Filesystems EXT3 embedded journal recovery engine.
  *
  * Recovery walks the EXT3 JBD log in three passes: discover committed
  * transactions, record revocations, then replay surviving metadata. Persistent
@@ -1931,7 +1931,7 @@ int journal_skip_recovery(journal_t *journal)
 
 /* ===== revoke ===== */
 /*
- * Filesystem Support EXT3 journal revoke engine.
+ * Filesystems EXT3 journal revoke engine.
  *
  * A revoke prevents an older journal image from being replayed over a block
  * whose meaning changed later.  Running and committing transactions use

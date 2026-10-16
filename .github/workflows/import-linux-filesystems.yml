@@ -12,7 +12,7 @@ jobs:
   refresh:
     runs-on: ubuntu-24.04
     steps:
-      - name: Check out Filesystem Support
+      - name: Check out Filesystems
         uses: actions/checkout@v4
         with:
           fetch-depth: 0

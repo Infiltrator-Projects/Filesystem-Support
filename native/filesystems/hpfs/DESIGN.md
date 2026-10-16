@@ -3,14 +3,14 @@
 ## Classification
 
 HPFS (High Performance File System) is a conventional local block filesystem
-used by OS/2 and related systems. Filesystem Support therefore applies the
+used by OS/2 and related systems. Filesystems therefore applies the
 normal one-canonical-filesystem architecture.
 
 ## Current implementation state
 
 HPFS is currently **reference/import state**.
 
-There is no project-authored HPFS canonical engine and no Filesystem Support
+There is no project-authored HPFS canonical engine and no Filesystems
 HPFS Linux or Windows driver claimed by this directory. The source under
 `reference/linux/` is the pinned upstream Linux HPFS implementation retained
 as compatibility and semantic evidence.
@@ -70,7 +70,7 @@ Reference filenames such as `alloc.c`, `anode.c`, `dnode.c`, `map.c`,
 `namei.c` and `super.c` remain unchanged under `reference/linux/` so
 their provenance is explicit.
 
-Project-authored source must be cut around Filesystem Support responsibilities
+Project-authored source must be cut around Filesystems responsibilities
 and portable filesystem invariants. Moving, renaming, merging or recommenting
 copied Linux source is never evidence that the implementation has been
 rewritten.
@@ -98,7 +98,7 @@ invalid dnode ordering, out-of-range sectors, unsupported codepage/collation
 state and unsafe recovery state must fail closed.
 
 The presence of write paths in an external reference implementation is not
-evidence that Filesystem Support has qualified HPFS writes.
+evidence that Filesystems has qualified HPFS writes.
 
 ## Reference provenance
 

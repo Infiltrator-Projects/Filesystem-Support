@@ -11,7 +11,7 @@ filesystem rule.
 
 ## Current state
 
-Filesystem Support contains no first-party Fosfat/Smaky engine. The former
+Filesystems contains no first-party Fosfat/Smaky engine. The former
 `.gitkeep` has been removed. Debian's `fosfat` package remains the current
 provider.
 
