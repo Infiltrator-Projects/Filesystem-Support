@@ -96,7 +96,7 @@ set(INFILTRATR_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/infiltratr-common")
 set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.38")
 
 if(NOT EXISTS "${INFILTRATR_COMMON_DIR}/VERSION")
-    message(FATAL_ERROR "Pinned Infiltratr Common submodule is required")
+    message(FATAL_ERROR "Pinned Libraries submodule is required")
 endif()
 
 file(READ "${INFILTRATR_COMMON_DIR}/VERSION" INFILTRATR_COMMON_VERSION)
@@ -128,7 +128,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
        NOT COMMON_CHECKOUT_RESULT EQUAL 0 OR
        NOT INFILTRATR_COMMON_COMMIT STREQUAL INFILTRATR_COMMON_GITLINK)
         message(FATAL_ERROR
-            "Infiltratr Common checkout ${INFILTRATR_COMMON_COMMIT} does not match repository gitlink ${INFILTRATR_COMMON_GITLINK}")
+            "Libraries checkout ${INFILTRATR_COMMON_COMMIT} does not match repository gitlink ${INFILTRATR_COMMON_GITLINK}")
     endif()
 endif()
 

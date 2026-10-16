@@ -6,7 +6,7 @@ Shared source here is compiled directly into each filesystem module that consume
 
 For example, OFS and FFS may share kernel-safe VFS compatibility, buffer, locking and other adapter primitives while `ofs.ko` still recognises and mounts only OFS and `ffs.ko` still recognises and mounts only FFS. Format-specific parsing, allocation, metadata and mutation rules remain in each filesystem's canonical core.
 
-The platform-neutral sources under `native/core/` are written so they can be compiled by Kbuild. Their public headers use Linux kernel types and unaligned byte helpers when `__KERNEL__` is defined, while userspace builds use Infiltratr Common.
+The platform-neutral sources under `native/core/` are written so they can be compiled by Kbuild. Their public headers use Linux kernel types and unaligned byte helpers when `__KERNEL__` is defined, while userspace builds use Libraries.
 
 Kernel-specific reusable ownership belongs here. Filesystem-specific VFS glue belongs under `native/filesystems/<id>/linux/`.
 

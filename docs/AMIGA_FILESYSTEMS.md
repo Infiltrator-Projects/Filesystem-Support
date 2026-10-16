@@ -72,4 +72,4 @@ works on media.
 OFS, FFS, SFS, SFS2 and PFS3 remain implementation-independent.  Filesystem
 semantics are not shared between their directories merely because arithmetic
 or structures look similar. Only genuinely filesystem-neutral infrastructure
-may live in `native/core/` or Infiltratr Common.
+may live in `native/core/` or Libraries.

@@ -132,6 +132,6 @@ Package removal is simulated first. The backend refuses removal if Debian would 
 
 ## Shared code
 
-Infiltratr Common is pinned as a git submodule. Filesystems consumes appropriate project identity/search/design infrastructure from Common, but the userspace Common library is never linked into kernel modules.
+Libraries is pinned as a git submodule. Filesystems consumes appropriate project identity/search/design infrastructure from Common, but the userspace Common library is never linked into kernel modules.
 
 The canonical filesystem engine boundary and native source rules are defined in [`NATIVE_CODE_ARCHITECTURE.md`](NATIVE_CODE_ARCHITECTURE.md). The long-term product and bootable-root vision is defined in [`NATIVE_FILESYSTEM_VISION.md`](NATIVE_FILESYSTEM_VISION.md).

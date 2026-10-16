@@ -92,7 +92,7 @@ Host-neutral I/O is bounded and positioned. Filesystem parsing must not care whe
 
 Checked decoding, arithmetic, endianness and corruption rejection should be shared where the execution environment permits it. Kernel and EFI builds must never acquire an invalid userspace dependency merely in the name of reuse.
 
-Infiltratr Common may supply genuinely generic userspace/portable primitives, but the userspace Common library is not automatically kernel-safe or EFI-safe. Filesystem semantics, GUI code and package-manager code must remain separate.
+Libraries may supply genuinely generic userspace/portable primitives, but the userspace Common library is not automatically kernel-safe or EFI-safe. Filesystem semantics, GUI code and package-manager code must remain separate.
 
 ## One filesystem implementation, independently deployable adapters
 

@@ -264,7 +264,7 @@ Shared ancestry of their formats is not permission to collapse their
 implementations or modules.
 
 Only genuinely filesystem-neutral infrastructure may move to shared Filesystem
-Support platform code or Infiltratr Common, and only when that sharing does not
+Support platform code or Libraries, and only when that sharing does not
 couple the three filesystems.
 
 ## Qualification
