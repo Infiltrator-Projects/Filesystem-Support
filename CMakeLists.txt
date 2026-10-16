@@ -93,7 +93,7 @@ string(APPEND native_policy_header "}};\n\n} // namespace filesystems\n")
 file(WRITE "${FILESYSTEMS_NATIVE_POLICY_HEADER}" "${native_policy_header}")
 
 set(INFILTRATR_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/infiltratr-common")
-set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.38")
+set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.46")
 
 if(NOT EXISTS "${INFILTRATR_COMMON_DIR}/VERSION")
     message(FATAL_ERROR "Pinned Libraries submodule is required")

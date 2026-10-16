@@ -315,7 +315,7 @@ Fast-commit space is a TLV log. Important tag classes include:
 - ADD_RANGE;
 - DEL_RANGE;
 - CREAT;
-- LINK;
+- Link;
 - UNLINK;
 - PAD;
 - TAIL.
