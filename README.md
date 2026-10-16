@@ -127,3 +127,5 @@ Key contracts are documented under `docs/`, including:
 - platform/build/runtime qualification documents and implementation notes.
 
 The implementation deliberately keeps filesystem semantics, support policy, privileged mutation, desktop presentation and setup capability as separate responsibilities so that adding or repairing one filesystem does not create hidden coupling to unrelated formats.
+
+[Validation](docs/VALIDATION.md) defines local tests, mounted-runtime evidence and immutable artifact publication. [PHILOSOPHY.md](PHILOSOPHY.md) owns the engineering standard.

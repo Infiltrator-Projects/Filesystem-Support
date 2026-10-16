@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.27
+
+- Isolate source-contract scratch files so concurrent checks cannot overwrite each other's evidence.
+- Pin external CI actions to immutable reviewed commits.
+- Stage and compare release drafts before publication; retain all exact-source runtime gates.
+- Add the maintained validation entry point.
+
 ## 0.5.26
 
 - Rename the application and repository to Filesystems.

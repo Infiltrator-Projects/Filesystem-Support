@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out exact main-package source
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           submodules: recursive
 
@@ -94,7 +94,7 @@ jobs:
           )
 
       - name: Preserve the exact qualified release bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: filesystems-linux-release
           path: |
@@ -108,7 +108,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
 
@@ -140,7 +140,10 @@ jobs:
 
       - name: Validate source and repository architecture boundaries
         run: |
+          bash tools/validate-source-contract.sh &
+          first=$!
           bash tools/validate-source-contract.sh
+          wait "$first"
           python3 tests/repository_architecture_test.py .
 
   linux:
@@ -148,7 +151,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           submodules: recursive
 
@@ -190,7 +193,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
       - name: Prepare Linux 6.12.107 build API once
         shell: bash
@@ -240,7 +243,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
       - name: Prepare Linux 7.0 build API
         shell: bash
@@ -276,7 +279,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           submodules: recursive
 
@@ -302,7 +305,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           submodules: recursive
 
@@ -333,7 +336,7 @@ jobs:
       promote: ${{ steps.state.outputs.promote }}
     steps:
       - name: Check out exact candidate source
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
 
@@ -405,7 +408,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out exact qualified release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -419,7 +422,7 @@ jobs:
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 
       - name: Retrieve the exact qualified release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: filesystems-linux-release
           path: dist
@@ -452,78 +455,4 @@ jobs:
       - name: Publish immutable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(tr -d '[:space:]' < VERSION)
-          tag="v$version"
-          deb="Filesystems-$version-amd64.deb"
-          run="Filesystems-$version-amd64.run"
-
-          git fetch origin --tags
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-
-          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            tag_commit=$(git rev-list -n 1 "$tag")
-            test "$tag_commit" = "$GITHUB_SHA" || {
-              echo "Tag $tag does not point at the qualified release commit." >&2
-              exit 1
-            }
-          else
-            git tag "$tag" "$GITHUB_SHA"
-            git push origin "$tag"
-          fi
-
-          if gh release view "$tag" >/dev/null 2>&1; then
-            target=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.target_commitish')
-            test "$target" = "$GITHUB_SHA" || {
-              echo "Release $tag targets $target instead of $GITHUB_SHA." >&2
-              exit 1
-            }
-
-            expected=$(printf '%s\n%s\n%s\n' "$deb" "$run" RELEASE_SHA256SUMS.txt | sort)
-            actual=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
-            test "$actual" = "$expected" || {
-              echo "Release $tag exists with a different asset set." >&2
-              exit 1
-            }
-
-            published=$(mktemp -d)
-            trap 'rm -rf "$published"' EXIT
-            gh release download "$tag" --dir "$published" \
-              --pattern "$deb" \
-              --pattern "$run" \
-              --pattern RELEASE_SHA256SUMS.txt
-            cmp "dist/$deb" "$published/$deb"
-            cmp "dist/$run" "$published/$run"
-            cmp dist/RELEASE_SHA256SUMS.txt "$published/RELEASE_SHA256SUMS.txt"
-            echo "Release $tag already exists and exactly matches this workflow's qualified artifacts."
-            exit 0
-          fi
-
-          cat > release-notes.md <<EOF
-          Filesystems $version.
-
-          This release promotes the exact Debian package, self-extracting installer and checksum manifest built and tested from commit $GITHUB_SHA. EXT, Amiga and sanitizer/adversarial qualification all ran against that same immutable SHA before publication.
-
-          Release assets:
-          - Generic AMD64 Debian package
-          - Native self-extracting .run installer
-          - SHA-256 checksum manifest
-
-          GitHub also provides source ZIP and TAR.GZ archives for this tag.
-          EOF
-
-          gh release create "$tag" \
-            "dist/$deb" \
-            "dist/$run" \
-            dist/RELEASE_SHA256SUMS.txt \
-            --verify-tag \
-            --target "$GITHUB_SHA" \
-            --title "Filesystems $version" \
-            --notes-file release-notes.md \
-            --latest
-
-          expected=$(printf '%s\n%s\n%s\n' "$deb" "$run" RELEASE_SHA256SUMS.txt | sort)
-          actual=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
-          test "$actual" = "$expected"
+        run: bash packaging/publish-release.sh

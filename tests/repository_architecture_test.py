@@ -8,6 +8,7 @@ whose failure would otherwise couple unrelated implementation or delivery paths.
 """
 
 from pathlib import Path
+import re
 import sys
 
 repo = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
@@ -135,14 +136,14 @@ for required in (
     "uses: ./.github/workflows/amiga-runtime-qualification.yml",
     "uses: ./.github/workflows/sanitizers.yml",
     "filesystems-linux-release",
-    "actions/download-artifact@v4",
+    "actions/download-artifact@",
     "publish-release:",
     "github.ref }}",
 ):
     require(required in build, f"release DAG lost required contract: {required}")
 
 build_run_pos = build.find("./packaging/build-run.sh")
-upload_pos = build.find("uses: actions/upload-artifact@v4")
+upload_pos = build.find("uses: actions/upload-artifact@")
 require(0 <= build_run_pos < upload_pos,
         ".run installer is not constructed and qualified before artefact upload")
 publisher = build.split("  publish-release:", 1)[1]
@@ -223,3 +224,11 @@ require("sources remain in the migration archive" not in windows_lifecycle,
         "Windows lifecycle claims a non-existent live migration archive")
 
 print("repository architecture contract: PASS")
+
+# External workflow code is part of the qualified graph and must be immutable.
+for workflow_path in (repo / ".github/workflows").glob("*.yml"):
+    for action in re.findall(r"uses:\s*([^\s#]+)", workflow_path.read_text(encoding="utf-8")):
+        if action.startswith("./"):
+            continue
+        require(re.fullmatch(r"[^@]+@[0-9a-f]{40}", action) is not None,
+                f"{workflow_path.name} uses mutable external action {action}")

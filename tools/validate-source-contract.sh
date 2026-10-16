@@ -11,6 +11,9 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+
 source_manifest=data/source-filesystems.txt
 retired_manifest=data/retired-source-identities.txt
 native_manifest=data/native-filesystems.tsv
@@ -34,15 +37,15 @@ test ! -e tools/harden-ext-ranges.py
 
 # Source trees are declared once in data/source-filesystems.txt. CI does not
 # maintain its own copy of the catalogue subset.
-manifest_values "$source_manifest" | sort > /tmp/filesystems-source.expected
-if [[ $(wc -l < /tmp/filesystems-source.expected) -ne \
-      $(sort -u /tmp/filesystems-source.expected | wc -l) ]]; then
+manifest_values "$source_manifest" | sort > "$work/source.expected"
+if [[ $(wc -l < "$work/source.expected") -ne \
+      $(sort -u "$work/source.expected" | wc -l) ]]; then
     echo "Duplicate filesystem in $source_manifest" >&2
     exit 1
 fi
 find native/filesystems -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
-    sort > /tmp/filesystems-source.actual
-diff -u /tmp/filesystems-source.expected /tmp/filesystems-source.actual
+    sort > "$work/source.actual"
+diff -u "$work/source.expected" "$work/source.actual"
 
 while IFS= read -r fs; do
     [[ "$fs" =~ ^[A-Za-z0-9_.+-]+$ ]] || {
@@ -53,7 +56,7 @@ while IFS= read -r fs; do
         echo "Missing design/provenance contract for $fs" >&2
         exit 1
     }
-done < /tmp/filesystems-source.expected
+done < "$work/source.expected"
 
 # Retired provider/transport/overlay/archive identities are kept in one data
 # file so adding or removing an historical guard does not require editing CI.
@@ -96,7 +99,7 @@ awk -F '\t' '
 
 while IFS=$'\t' read -r fs module; do
     [[ -n "$fs" && "${fs:0:1}" != "#" ]] || continue
-    grep -Fxq "$fs" /tmp/filesystems-source.expected || {
+    grep -Fxq "$fs" "$work/source.expected" || {
         echo "Native filesystem $fs is not present in $source_manifest" >&2
         exit 1
     }
