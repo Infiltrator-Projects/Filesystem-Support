@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.30 — 2026-10-17
+
+- Pin Libraries 1.19.46 and use canonical shared settings identities.
+- Build independent test media with the canonical Defragmenter helper targets.
+
 ## 0.5.28
 
 - Move the governing engineering philosophy into `docs/PHILOSOPHY.md` and update maintained documentation references.
